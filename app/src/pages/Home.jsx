@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { calculateStreak, hasExercises } from '../db'
+import { hasExercises } from '../db'
 import { initializeData, reloadData } from '../utils/initData'
 import { useAuth } from '../context/AuthContext'
+import { calculateStreakFromSupabase } from '../lib/supabaseDb'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -19,12 +20,19 @@ export default function Home() {
         await initializeData()
       }
       
-      const currentStreak = await calculateStreak()
-      setStreak(currentStreak)
+      // Get streak from Supabase if logged in
+      if (user) {
+        try {
+          const currentStreak = await calculateStreakFromSupabase(user.id)
+          setStreak(currentStreak)
+        } catch (e) {
+          console.error('Error getting streak:', e)
+        }
+      }
       setLoading(false)
     }
     init()
-  }, [])
+  }, [user])
 
   const handleReloadData = async () => {
     setLoading(true)
@@ -69,6 +77,13 @@ export default function Home() {
             onClick={() => navigate('/calendar')}
           >
             Calendar
+          </button>
+          
+          <button 
+            className={styles.secondaryBtn}
+            onClick={() => navigate('/analytics')}
+          >
+            Analytics
           </button>
         </div>
       </div>

@@ -1,17 +1,21 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAllTemplates, saveMetrics } from '../db'
+import { saveMetricsToSupabase } from '../lib/supabaseDb'
+import { useAuth } from '../context/AuthContext'
 import styles from './Workout.module.css'
 
 export default function Workout() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [templates, setTemplates] = useState([])
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
     hrv: '',
     steps: '',
-    caloriesBurned: ''
+    caloriesBurned: '',
+    weight: ''
   })
 
   useEffect(() => {
@@ -35,9 +39,19 @@ export default function Workout() {
     if (metrics.hrv) metricsToSave.hrv = Number(metrics.hrv)
     if (metrics.steps) metricsToSave.steps = Number(metrics.steps)
     if (metrics.caloriesBurned) metricsToSave.caloriesBurned = Number(metrics.caloriesBurned)
+    if (metrics.weight) metricsToSave.weight = Number(metrics.weight)
     
     if (Object.keys(metricsToSave).length > 0) {
       await saveMetrics(yesterday, metricsToSave)
+      
+      // Save to Supabase if logged in
+      if (user) {
+        try {
+          await saveMetricsToSupabase(user.id, yesterday, metricsToSave)
+        } catch (err) {
+          console.error('Error saving metrics to Supabase:', err)
+        }
+      }
     }
 
     navigate('/workout/active', { state: { templateId } })
@@ -101,6 +115,15 @@ export default function Workout() {
                 placeholder="0"
                 value={metrics.caloriesBurned}
                 onChange={(e) => handleMetricChange('caloriesBurned', e.target.value)}
+              />
+            </div>
+            <div className={styles.metricItem}>
+              <label>Weight</label>
+              <input
+                type="number"
+                placeholder="lbs"
+                value={metrics.weight}
+                onChange={(e) => handleMetricChange('weight', e.target.value)}
               />
             </div>
           </div>

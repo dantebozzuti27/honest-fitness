@@ -4,6 +4,7 @@ import Home from './pages/Home'
 import Workout from './pages/Workout'
 import Calendar from './pages/Calendar'
 import ActiveWorkout from './pages/ActiveWorkout'
+import Analytics from './pages/Analytics'
 import Auth from './pages/Auth'
 
 function ProtectedRoute({ children }) {
@@ -39,6 +40,7 @@ export default function App() {
       <Route path="/workout" element={<ProtectedRoute><Workout /></ProtectedRoute>} />
       <Route path="/workout/active" element={<ProtectedRoute><ActiveWorkout /></ProtectedRoute>} />
       <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+      <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
     </Routes>
   )
 }

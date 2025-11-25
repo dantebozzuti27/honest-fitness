@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getTemplate, getAllExercises, saveWorkout } from '../db'
+import { saveWorkoutToSupabase } from '../lib/supabaseDb'
+import { useAuth } from '../context/AuthContext'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import styles from './ActiveWorkout.module.css'
@@ -8,6 +10,7 @@ import styles from './ActiveWorkout.module.css'
 export default function ActiveWorkout() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { user } = useAuth()
   const templateId = location.state?.templateId
   
   const [exercises, setExercises] = useState([])
@@ -201,11 +204,23 @@ export default function ActiveWorkout() {
         name: ex.name,
         category: ex.category,
         bodyPart: ex.bodyPart,
-        sets: ex.sets.filter(s => s.weight || s.reps)
+        equipment: ex.equipment,
+        sets: ex.sets.filter(s => s.weight || s.reps || s.time)
       })).filter(ex => ex.sets.length > 0)
     }
     
+    // Save to local IndexedDB
     await saveWorkout(workout)
+    
+    // Save to Supabase if logged in
+    if (user) {
+      try {
+        await saveWorkoutToSupabase(workout, user.id)
+      } catch (err) {
+        console.error('Error saving to Supabase:', err)
+      }
+    }
+    
     navigate('/')
   }
 

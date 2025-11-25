@@ -8,6 +8,28 @@
   padding: 24px;
   padding-top: env(safe-area-inset-top, 24px);
   padding-bottom: env(safe-area-inset-bottom, 24px);
+  position: relative;
+  overflow: hidden;
+}
+
+.logoBg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.logoBgImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.15;
+  filter: blur(4px);
+  mask-image: radial-gradient(ellipse at center top, black 0%, transparent 60%);
+  -webkit-mask-image: radial-gradient(ellipse at center top, black 0%, transparent 60%);
 }
 
 .content {
@@ -16,7 +38,16 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 48px;
+  gap: 32px;
+  position: relative;
+  z-index: 1;
+}
+
+.logo {
+  width: 280px;
+  height: auto;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 60px rgba(255, 45, 45, 0.3), 0 0 100px rgba(255, 45, 45, 0.15);
 }
 
 .title {
@@ -35,6 +66,7 @@
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
+  box-shadow: 0 0 30px rgba(255, 45, 45, 0.2), inset 0 0 20px rgba(255, 45, 45, 0.05);
 }
 
 .streakNumber {
@@ -69,6 +101,7 @@
   color: var(--bg-primary);
   border-radius: var(--radius-lg);
   transition: transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 0 25px rgba(255, 45, 45, 0.5), 0 0 50px rgba(255, 45, 45, 0.2);
 }
 
 .primaryBtn:active {
@@ -85,6 +118,7 @@
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   transition: transform 0.1s;
+  box-shadow: 0 0 20px rgba(255, 45, 45, 0.15);
 }
 
 .secondaryBtn:active {

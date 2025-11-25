@@ -56,8 +56,11 @@ export default function Home() {
 
   return (
     <div className={styles.container}>
+      <div className={styles.logoBg}>
+        <img src="/logo.jpg" alt="" className={styles.logoBgImg} />
+      </div>
       <div className={styles.content}>
-        <h1 className={styles.title}>HonestFitness</h1>
+        <img src="/logo.jpg" alt="HonestFitness" className={styles.logo} />
         
         <div className={styles.streakCard}>
           <span className={styles.streakNumber}>{streak}</span>

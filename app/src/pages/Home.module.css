@@ -1,0 +1,99 @@
+.container {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  padding-top: env(safe-area-inset-top, 24px);
+  padding-bottom: env(safe-area-inset-bottom, 24px);
+}
+
+.content {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+}
+
+.streakCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 48px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+}
+
+.streakNumber {
+  font-size: 72px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  line-height: 1;
+  text-shadow: 0 0 40px var(--accent-glow);
+}
+
+.streakLabel {
+  font-size: 16px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.primaryBtn {
+  width: 100%;
+  padding: 18px 24px;
+  font-size: 18px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  transition: transform 0.1s, box-shadow 0.2s;
+}
+
+.primaryBtn:active {
+  transform: scale(0.98);
+}
+
+.secondaryBtn {
+  width: 100%;
+  padding: 18px 24px;
+  font-size: 18px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  transition: transform 0.1s;
+}
+
+.secondaryBtn:active {
+  transform: scale(0.98);
+  background: var(--bg-elevated);
+}
+
+.loading {
+  color: var(--text-secondary);
+  font-size: 16px;
+}
+

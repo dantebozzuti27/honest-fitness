@@ -1,0 +1,172 @@
+.card {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  cursor: grab;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.card:active {
+  cursor: grabbing;
+}
+
+.card.expanded {
+  border-color: var(--accent-dim);
+}
+
+.card.completed {
+  opacity: 0.5;
+  border-color: var(--accent-dim);
+}
+
+.card.completed .header {
+  background: var(--accent-dim);
+}
+
+.card.dragging {
+  opacity: 0.5;
+  transform: scale(1.02);
+}
+
+.header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  text-align: left;
+}
+
+.name {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.summary {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.content {
+  padding: 0 16px 16px;
+}
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.setControls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setControls button {
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.setControls button:disabled {
+  opacity: 0.3;
+}
+
+.setControls span {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.moveControls {
+  display: flex;
+  gap: 8px;
+}
+
+.moveControls button {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.moveControls button:disabled {
+  opacity: 0.3;
+}
+
+.removeBtn {
+  color: var(--danger) !important;
+}
+
+.sets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  opacity: 0.5;
+}
+
+.setRow.activeSet {
+  opacity: 1;
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--accent-dim);
+}
+
+.setRow.completedSet {
+  opacity: 0.6;
+}
+
+.setNumber {
+  width: 24px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.inputGroup {
+  flex: 1;
+}
+
+.input {
+  width: 100%;
+  padding: 12px 8px;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  text-align: center;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+}
+
+.nextBtn {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.nextBtn:active {
+  transform: scale(0.95);
+}
+

@@ -66,7 +66,7 @@ ${context ? `\nUser context: ${context}` : ''}`
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'grok-beta',
+        model: 'grok-3-latest',
         messages: [
           { role: 'system', content: systemPrompt },
           ...messages

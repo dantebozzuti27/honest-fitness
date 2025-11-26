@@ -73,15 +73,18 @@ button {
   font-weight: 500;
 }
 
-input, select {
+input, select, textarea {
   font-family: inherit;
   border: none;
   outline: none;
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border-radius: var(--radius-sm);
-  padding: 12px 16px;
+  padding: 12px 14px;
   font-size: 16px;
+  /* Prevent iOS zoom on focus */
+  font-size: max(16px, 1em);
+  touch-action: manipulation;
 }
 
 input:focus {
@@ -112,5 +115,21 @@ input[type="number"] {
 
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 20px);
+}
+
+/* Mobile touch targets - minimum 44px */
+button, a, [role="button"] {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
+/* Prevent pull-to-refresh on iOS */
+html {
+  overscroll-behavior: none;
+}
+
+/* Smooth scrolling */
+* {
+  -webkit-overflow-scrolling: touch;
 }
 

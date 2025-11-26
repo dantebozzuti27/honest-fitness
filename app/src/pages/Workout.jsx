@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAllTemplates, saveMetrics } from '../db'
-import { saveMetricsToSupabase } from '../lib/supabaseDb'
+import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
+import { getTodayEST } from '../utils/dateUtils'
 import styles from './Workout.module.css'
 
 export default function Workout() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [templates, setTemplates] = useState([])
+  const [todaysPlan, setTodaysPlan] = useState(null)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -22,9 +24,34 @@ export default function Workout() {
     async function load() {
       const t = await getAllTemplates()
       setTemplates(t)
+      
+      // Load user's generated plan
+      if (user) {
+        try {
+          const prefs = await getUserPreferences(user.id)
+          if (prefs && prefs.available_days?.length > 0) {
+            const plan = generateWorkoutPlan({
+              fitnessGoal: prefs.fitness_goal,
+              experienceLevel: prefs.experience_level,
+              availableDays: prefs.available_days,
+              sessionDuration: prefs.session_duration,
+              equipmentAvailable: prefs.equipment_available,
+              injuries: prefs.injuries
+            }, t)
+            
+            // Find today's workout
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+            const today = dayNames[new Date().getDay()]
+            const todaysWorkout = plan.schedule.find(d => d.day === today && !d.restDay)
+            setTodaysPlan(todaysWorkout)
+          }
+        } catch (e) {
+          console.error('Error loading plan:', e)
+        }
+      }
     }
     load()
-  }, [])
+  }, [user])
 
   const handleMetricChange = (field, value) => {
     setMetrics(prev => ({ ...prev, [field]: value }))
@@ -55,6 +82,10 @@ export default function Workout() {
     }
 
     navigate('/workout/active', { state: { templateId } })
+  }
+
+  const startRandomWorkout = () => {
+    navigate('/workout/active', { state: { randomWorkout: true } })
   }
 
   return (
@@ -129,8 +160,31 @@ export default function Workout() {
           </div>
         </section>
 
+        {todaysPlan && (
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>Today's Plan</h2>
+            <div className={styles.todayPlan}>
+              <div className={styles.todayPlanHeader}>
+                <span className={styles.todayPlanFocus}>{todaysPlan.focus}</span>
+                <span className={styles.todayPlanDay}>{todaysPlan.day}</span>
+              </div>
+              <div className={styles.todayPlanExercises}>
+                {todaysPlan.exercises?.map((ex, i) => (
+                  <span key={i} className={styles.todayPlanExercise}>{ex}</span>
+                ))}
+              </div>
+              <button 
+                className={styles.startPlanBtn}
+                onClick={() => startWorkout(`plan-${todaysPlan.focus}`)}
+              >
+                Start {todaysPlan.focus} Workout
+              </button>
+            </div>
+          </section>
+        )}
+
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Select Template</h2>
+          <h2 className={styles.sectionTitle}>Templates</h2>
           
           <div className={styles.templateList}>
             {templates.map(template => (
@@ -149,6 +203,13 @@ export default function Workout() {
               onClick={() => startWorkout(null)}
             >
               Freestyle Workout
+            </button>
+
+            <button
+              className={styles.randomBtn}
+              onClick={() => startRandomWorkout()}
+            >
+              Random Workout
             </button>
           </div>
         </section>

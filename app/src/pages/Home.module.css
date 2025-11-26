@@ -5,9 +5,9 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  padding-top: env(safe-area-inset-top, 24px);
-  padding-bottom: env(safe-area-inset-bottom, 24px);
+  padding: 16px;
+  padding-top: calc(env(safe-area-inset-top, 16px) + 16px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
   position: relative;
   overflow: hidden;
 }
@@ -38,22 +38,34 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 20px;
   position: relative;
   z-index: 1;
 }
 
 @media (max-height: 700px) {
   .content {
-    gap: 16px;
+    gap: 12px;
+  }
+}
+
+@media (max-height: 600px) {
+  .content {
+    gap: 8px;
   }
 }
 
 .logo {
-  width: min(220px, 60vw);
+  width: min(180px, 50vw);
   height: auto;
   border-radius: var(--radius-lg);
   box-shadow: 0 0 60px rgba(255, 45, 45, 0.3), 0 0 100px rgba(255, 45, 45, 0.15);
+}
+
+@media (max-height: 700px) {
+  .logo {
+    width: min(140px, 40vw);
+  }
 }
 
 .title {
@@ -67,8 +79,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 20px 36px;
+  gap: 4px;
+  padding: 16px 28px;
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
@@ -78,18 +90,18 @@
 .streakRow {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .streakIcon {
-  width: 56px;
-  height: 56px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
   filter: drop-shadow(0 0 10px rgba(255, 45, 45, 0.5));
 }
 
 .streakNumber {
-  font-size: 56px;
+  font-size: 44px;
   font-weight: 700;
   font-family: var(--font-mono);
   color: var(--accent);
@@ -98,27 +110,40 @@
 }
 
 .streakLabel {
-  font-size: 16px;
+  font-size: 13px;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 2px;
+}
+
+@media (max-height: 700px) {
+  .streakCard {
+    padding: 12px 24px;
+  }
+  .streakIcon {
+    width: 36px;
+    height: 36px;
+  }
+  .streakNumber {
+    font-size: 36px;
+  }
 }
 
 .actions {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .primaryBtn {
   width: 100%;
-  padding: 16px 24px;
-  font-size: 16px;
+  padding: 14px 20px;
+  font-size: 15px;
   font-weight: 600;
   background: var(--accent);
   color: var(--bg-primary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   transition: transform 0.1s, box-shadow 0.2s;
   box-shadow: 0 0 25px rgba(255, 45, 45, 0.5), 0 0 50px rgba(255, 45, 45, 0.2);
 }
@@ -129,12 +154,12 @@
 
 .secondaryBtn {
   width: 100%;
-  padding: 16px 24px;
-  font-size: 16px;
+  padding: 14px 20px;
+  font-size: 15px;
   font-weight: 600;
   background: var(--bg-tertiary);
   color: var(--text-primary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   transition: transform 0.1s;
   box-shadow: 0 0 20px rgba(255, 45, 45, 0.15);
@@ -143,6 +168,42 @@
 .secondaryBtn:active {
   transform: scale(0.98);
   background: var(--bg-elevated);
+}
+
+.exportBtn {
+  width: 100%;
+  padding: 14px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border);
+  transition: transform 0.1s, color 0.15s;
+  margin-top: 4px;
+}
+
+.exportBtn:active {
+  transform: scale(0.98);
+  color: var(--accent);
+}
+
+.exportBtn:disabled {
+  opacity: 0.5;
+}
+
+@media (max-height: 700px) {
+  .actions {
+    gap: 8px;
+  }
+  .primaryBtn, .secondaryBtn {
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+  .exportBtn {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
 }
 
 .loading {

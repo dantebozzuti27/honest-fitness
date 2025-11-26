@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getTemplate, getAllExercises, saveWorkout } from '../db'
 import { saveWorkoutToSupabase } from '../lib/supabaseDb'
+import { getTodayEST } from '../utils/dateUtils'
 import { useAuth } from '../context/AuthContext'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
@@ -12,6 +13,7 @@ export default function ActiveWorkout() {
   const location = useLocation()
   const { user } = useAuth()
   const templateId = location.state?.templateId
+  const randomWorkout = location.state?.randomWorkout
   
   const [exercises, setExercises] = useState([])
   const [allExercises, setAllExercises] = useState([])
@@ -20,6 +22,9 @@ export default function ActiveWorkout() {
   const [restTime, setRestTime] = useState(0)
   const [isResting, setIsResting] = useState(false)
   const [draggedId, setDraggedId] = useState(null)
+  const [showSummary, setShowSummary] = useState(false)
+  const [feedback, setFeedback] = useState({ rpe: 7, moodAfter: 3, notes: '' })
+  const [showTimesUp, setShowTimesUp] = useState(false)
   const workoutTimerRef = useRef(null)
   const restTimerRef = useRef(null)
 
@@ -47,6 +52,47 @@ export default function ActiveWorkout() {
           })
           setExercises(workoutExercises)
         }
+      } else if (randomWorkout) {
+        // Generate random workout
+        const strengthExercises = allEx.filter(e => e.category === 'Strength')
+        const cardioExercises = allEx.filter(e => e.category === 'Cardio')
+        
+        // Pick 5-7 random strength exercises from different body parts
+        const bodyParts = [...new Set(strengthExercises.map(e => e.bodyPart))]
+        const shuffledBodyParts = bodyParts.sort(() => Math.random() - 0.5).slice(0, 5)
+        
+        const randomExercises = []
+        shuffledBodyParts.forEach((bp, idx) => {
+          const bpExercises = strengthExercises.filter(e => e.bodyPart === bp)
+          if (bpExercises.length > 0) {
+            const randomEx = bpExercises[Math.floor(Math.random() * bpExercises.length)]
+            randomExercises.push({
+              id: idx,
+              name: randomEx.name,
+              category: randomEx.category,
+              bodyPart: randomEx.bodyPart,
+              equipment: randomEx.equipment,
+              sets: Array(4).fill(null).map(() => ({ weight: '', reps: '', time: '', speed: '', incline: '' })),
+              expanded: idx === 0
+            })
+          }
+        })
+        
+        // Add 1 cardio exercise
+        if (cardioExercises.length > 0) {
+          const randomCardio = cardioExercises[Math.floor(Math.random() * cardioExercises.length)]
+          randomExercises.push({
+            id: randomExercises.length,
+            name: randomCardio.name,
+            category: randomCardio.category,
+            bodyPart: randomCardio.bodyPart,
+            equipment: randomCardio.equipment,
+            sets: [{ weight: '', reps: '', time: '', speed: '', incline: '' }],
+            expanded: false
+          })
+        }
+        
+        setExercises(randomExercises)
       }
     }
     load()
@@ -60,7 +106,7 @@ export default function ActiveWorkout() {
       clearInterval(workoutTimerRef.current)
       clearInterval(restTimerRef.current)
     }
-  }, [templateId])
+  }, [templateId, randomWorkout])
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60)
@@ -77,6 +123,8 @@ export default function ActiveWorkout() {
         if (t <= 1) {
           clearInterval(restTimerRef.current)
           setIsResting(false)
+          setShowTimesUp(true)
+          setTimeout(() => setShowTimesUp(false), 2000)
           return 0
         }
         return t - 1
@@ -193,13 +241,21 @@ export default function ActiveWorkout() {
     setDraggedId(null)
   }
 
-  const finishWorkout = async () => {
+  const handleFinishClick = () => {
     clearInterval(workoutTimerRef.current)
     clearInterval(restTimerRef.current)
-    
+    setShowSummary(true)
+  }
+
+  const finishWorkout = async () => {
     const workout = {
-      date: new Date().toISOString().split('T')[0],
+      date: getTodayEST(),
       duration: workoutTime,
+      templateName: templateId || 'Freestyle',
+      perceivedEffort: feedback.rpe,
+      moodAfter: feedback.moodAfter,
+      notes: feedback.notes,
+      dayOfWeek: new Date().getDay(),
       exercises: exercises.map(ex => ({
         name: ex.name,
         category: ex.category,
@@ -226,13 +282,18 @@ export default function ActiveWorkout() {
 
   return (
     <div className={styles.container}>
+      {showTimesUp && (
+        <div className={styles.timesUpOverlay}>
+          <span className={styles.timesUpText}>Times up, back to work</span>
+        </div>
+      )}
       <header className={styles.header}>
         <div className={styles.headerTop}>
           <button className={styles.cancelBtn} onClick={() => navigate('/')}>
             Cancel
           </button>
           <div className={styles.workoutTimer}>{formatTime(workoutTime)}</div>
-          <button className={styles.finishBtn} onClick={finishWorkout}>
+          <button className={styles.finishBtn} onClick={handleFinishClick}>
             Finish
           </button>
         </div>
@@ -278,6 +339,67 @@ export default function ActiveWorkout() {
           onSelect={addExercise}
           onClose={() => setShowPicker(false)}
         />
+      )}
+
+      {showSummary && (
+        <div className={styles.summaryOverlay}>
+          <div className={styles.summaryModal}>
+            <h2>Workout Complete!</h2>
+            <p className={styles.summaryDuration}>{formatTime(workoutTime)}</p>
+            
+            <div className={styles.feedbackSection}>
+              <label>How hard was it? (RPE)</label>
+              <div className={styles.rpeSlider}>
+                {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                  <button
+                    key={n}
+                    className={`${styles.rpeBtn} ${feedback.rpe === n ? styles.rpeActive : ''}`}
+                    onClick={() => setFeedback(f => ({ ...f, rpe: n }))}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <div className={styles.rpeLabels}>
+                <span>Easy</span>
+                <span>Max Effort</span>
+              </div>
+            </div>
+
+            <div className={styles.feedbackSection}>
+              <label>How do you feel now?</label>
+              <div className={styles.moodButtons}>
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <button
+                    key={num}
+                    className={`${styles.moodBtn} ${feedback.moodAfter === num ? styles.moodActive : ''}`}
+                    onClick={() => setFeedback(f => ({ ...f, moodAfter: num }))}
+                  >
+                    {num}
+                  </button>
+                ))}
+              </div>
+              <div className={styles.rpeLabels}>
+                <span>Exhausted</span>
+                <span>Energized</span>
+              </div>
+            </div>
+
+            <div className={styles.feedbackSection}>
+              <label>Notes (optional)</label>
+              <textarea
+                className={styles.notesInput}
+                placeholder="How did it go? Any PRs?"
+                value={feedback.notes}
+                onChange={(e) => setFeedback(f => ({ ...f, notes: e.target.value }))}
+              />
+            </div>
+
+            <button className={styles.saveBtn} onClick={finishWorkout}>
+              Save Workout
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

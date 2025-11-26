@@ -34,43 +34,45 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
+  padding: 14px 12px;
   text-align: left;
+  min-height: 56px;
 }
 
 .name {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--text-primary);
+  line-height: 1.2;
 }
 
 .summary {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
 .content {
-  padding: 0 16px 16px;
+  padding: 0 12px 12px;
 }
 
 .controls {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
 }
 
 .setControls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .setControls button {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   font-size: 18px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
@@ -82,18 +84,18 @@
 }
 
 .setControls span {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
 .moveControls {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .moveControls button {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   font-size: 14px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
@@ -111,14 +113,14 @@
 .sets {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .setRow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px;
+  gap: 6px;
+  padding: 8px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   opacity: 0.5;
@@ -135,35 +137,38 @@
 }
 
 .setNumber {
-  width: 24px;
+  width: 20px;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
   text-align: center;
+  flex-shrink: 0;
 }
 
 .inputGroup {
   flex: 1;
+  min-width: 0;
 }
 
 .input {
   width: 100%;
-  padding: 10px 6px;
+  padding: 10px 4px;
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 14px;
   text-align: center;
   background: var(--bg-primary);
   border-radius: var(--radius-sm);
 }
 
 .nextBtn {
-  padding: 10px 12px;
-  font-size: 13px;
+  padding: 10px 10px;
+  font-size: 12px;
   font-weight: 600;
   background: var(--accent);
   color: var(--bg-primary);
   border-radius: var(--radius-sm);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .nextBtn:active {

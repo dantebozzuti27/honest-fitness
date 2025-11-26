@@ -2,11 +2,11 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
-  padding: 24px;
+  gap: 16px;
+  padding: 16px;
   position: relative;
   background: linear-gradient(180deg, #0a0a0a 0%, #050505 100%);
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid #1a1a1a;
   overflow: hidden;
 }
@@ -23,7 +23,7 @@
 
 .views {
   display: flex;
-  gap: 32px;
+  gap: 20px;
   justify-content: center;
   width: 100%;
   position: relative;
@@ -34,28 +34,28 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-}
-
-.viewLabel {
-  font-size: 11px;
-  font-weight: 700;
-  color: #ff2d2d;
-  text-transform: uppercase;
-  letter-spacing: 4px;
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 
+.viewLabel {
+  font-size: 10px;
+  font-weight: 700;
+  color: #ff2d2d;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .labelIcon {
-  font-size: 8px;
+  font-size: 7px;
   opacity: 0.7;
 }
 
 .bodyWrapper {
   position: relative;
-  padding: 12px;
+  padding: 8px;
   background: rgba(10,10,10,0.8);
   border: 1px solid #222;
   border-radius: 4px;
@@ -72,8 +72,8 @@
 }
 
 .body {
-  width: 160px;
-  height: 300px;
+  width: 120px;
+  height: 230px;
   filter: drop-shadow(0 0 30px rgba(255,45,45,0.1));
 }
 
@@ -154,9 +154,9 @@
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  max-width: 400px;
+  max-width: 360px;
   position: relative;
   z-index: 1;
 }
@@ -165,7 +165,7 @@
   background: #0a0a0a;
   border: 1px solid #1a1a1a;
   border-radius: 4px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   transition: all 0.2s;
 }
 
@@ -274,21 +274,39 @@
 
 /* Responsive */
 @media (max-width: 400px) {
+  .container {
+    padding: 12px;
+    gap: 12px;
+  }
+  
   .views {
-    gap: 16px;
+    gap: 12px;
   }
   
   .body {
-    width: 130px;
-    height: 250px;
+    width: 100px;
+    height: 190px;
   }
   
   .statsGrid {
     grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
   }
   
   .viewLabel {
-    font-size: 9px;
+    font-size: 8px;
     letter-spacing: 2px;
+  }
+  
+  .statItem {
+    padding: 8px 10px;
+  }
+  
+  .statName {
+    font-size: 8px;
+  }
+  
+  .statValue {
+    font-size: 14px;
   }
 }

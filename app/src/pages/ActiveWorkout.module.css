@@ -4,6 +4,39 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
+  position: relative;
+}
+
+/* Times Up Flash */
+.timesUpOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #ff2d2d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: flashIn 0.1s ease-out;
+}
+
+.timesUpText {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: #000;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-align: center;
+  padding: 20px;
+}
+
+@keyframes flashIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .header {
@@ -86,5 +119,136 @@
 
 .addExerciseBtn:active {
   background: var(--bg-tertiary);
+}
+
+/* Summary Modal */
+.summaryOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.summaryModal {
+  width: 100%;
+  max-width: 360px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 20px 16px;
+  text-align: center;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.summaryModal h2 {
+  font-size: 20px;
+  margin-bottom: 6px;
+  color: var(--accent);
+}
+
+.summaryDuration {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+
+.feedbackSection {
+  margin-bottom: 18px;
+  text-align: left;
+}
+
+.feedbackSection label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.rpeSlider {
+  display: flex;
+  gap: 4px;
+}
+
+.rpeBtn {
+  flex: 1;
+  padding: 10px 0;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.rpeBtn.rpeActive {
+  background: var(--accent);
+  color: var(--bg-primary);
+  box-shadow: 0 0 15px rgba(255, 45, 45, 0.4);
+}
+
+.rpeLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.moodButtons {
+  display: flex;
+  gap: 6px;
+}
+
+.moodBtn {
+  flex: 1;
+  padding: 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.moodBtn.moodActive {
+  background: var(--accent);
+  color: var(--bg-primary);
+  box-shadow: 0 0 15px rgba(255, 45, 45, 0.4);
+}
+
+.notesInput {
+  width: 100%;
+  min-height: 70px;
+  padding: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  resize: none;
+}
+
+.notesInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.saveBtn {
+  width: 100%;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-radius: var(--radius-md);
+  margin-top: 8px;
+  box-shadow: 0 0 30px rgba(255, 45, 45, 0.4);
 }
 

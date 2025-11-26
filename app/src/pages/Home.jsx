@@ -4,6 +4,7 @@ import { hasExercises } from '../db'
 import { initializeData, reloadData } from '../utils/initData'
 import { useAuth } from '../context/AuthContext'
 import { calculateStreakFromSupabase } from '../lib/supabaseDb'
+import { exportWorkoutData } from '../utils/exportData'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -11,6 +12,7 @@ export default function Home() {
   const { user, signOut } = useAuth()
   const [streak, setStreak] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -44,6 +46,19 @@ export default function Home() {
   const handleLogout = async () => {
     await signOut()
     navigate('/auth')
+  }
+
+  const handleExport = async () => {
+    if (!user) return
+    setExporting(true)
+    try {
+      const result = await exportWorkoutData(user.id, user.email)
+      alert(`Exported ${result.workouts} workouts and ${result.metrics} daily metrics!\n\nThe Excel file has been downloaded. Attach it to the email that just opened.`)
+    } catch (err) {
+      console.error('Export error:', err)
+      alert('Failed to export data')
+    }
+    setExporting(false)
   }
 
   if (loading) {
@@ -90,6 +105,21 @@ export default function Home() {
             onClick={() => navigate('/analytics')}
           >
             Analytics
+          </button>
+
+          <button 
+            className={styles.secondaryBtn}
+            onClick={() => navigate('/planner')}
+          >
+            Plan Workouts
+          </button>
+
+          <button 
+            className={styles.exportBtn}
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            {exporting ? 'Exporting...' : 'Export Data'}
           </button>
         </div>
       </div>

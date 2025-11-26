@@ -1,10 +1,14 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getWorkoutDates, getWorkoutsByDate, calculateStreak, getAllTemplates, scheduleWorkout, getScheduledWorkout } from '../db'
+import { getAllTemplates, scheduleWorkout, getScheduledWorkout } from '../db'
+import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan } from '../lib/supabaseDb'
+import { useAuth } from '../context/AuthContext'
+import { getTodayEST } from '../utils/dateUtils'
 import styles from './Calendar.module.css'
 
 export default function Calendar() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [currentDate, setCurrentDate] = useState(new Date())
   const [workoutDates, setWorkoutDates] = useState([])
   const [scheduledDates, setScheduledDates] = useState({})
@@ -14,18 +18,39 @@ export default function Calendar() {
   const [templates, setTemplates] = useState([])
   const [showScheduler, setShowScheduler] = useState(false)
   const [scheduledInfo, setScheduledInfo] = useState(null)
+  const [weeklyPlan, setWeeklyPlan] = useState(null)
 
   useEffect(() => {
     async function load() {
-      const dates = await getWorkoutDates()
-      setWorkoutDates(dates)
-      const s = await calculateStreak()
-      setStreak(s)
+      if (user) {
+        const dates = await getWorkoutDatesFromSupabase(user.id)
+        setWorkoutDates(dates)
+        const s = await calculateStreakFromSupabase(user.id)
+        setStreak(s)
+        
+        // Load weekly plan
+        try {
+          const prefs = await getUserPreferences(user.id)
+          if (prefs && prefs.available_days?.length > 0) {
+            const plan = generateWorkoutPlan({
+              fitnessGoal: prefs.fitness_goal,
+              experienceLevel: prefs.experience_level,
+              availableDays: prefs.available_days,
+              sessionDuration: prefs.session_duration,
+              equipmentAvailable: prefs.equipment_available,
+              injuries: prefs.injuries
+            }, [])
+            setWeeklyPlan(plan)
+          }
+        } catch (e) {
+          console.error('Error loading plan:', e)
+        }
+      }
       const t = await getAllTemplates()
       setTemplates(t)
     }
     load()
-  }, [])
+  }, [user])
 
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear()
@@ -42,13 +67,14 @@ export default function Calendar() {
     }
     
     // Add days of month
+    const todayEST = getTodayEST()
     for (let i = 1; i <= lastDay.getDate(); i++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`
       days.push({
         day: i,
         date: dateStr,
         hasWorkout: workoutDates.includes(dateStr),
-        isToday: dateStr === new Date().toISOString().split('T')[0]
+        isToday: dateStr === todayEST
       })
     }
     
@@ -68,8 +94,8 @@ export default function Calendar() {
   const selectDay = async (day) => {
     if (!day) return
     setSelectedDate(day.date)
-    if (day.hasWorkout) {
-      const workouts = await getWorkoutsByDate(day.date)
+    if (day.hasWorkout && user) {
+      const workouts = await getWorkoutsByDateFromSupabase(user.id, day.date)
       setSelectedWorkout(workouts[0])
       setScheduledInfo(null)
     } else {
@@ -137,6 +163,29 @@ export default function Calendar() {
             </button>
           ))}
         </div>
+
+        {weeklyPlan && (
+          <div className={styles.weeklyPlan}>
+            <h3 className={styles.weeklyPlanTitle}>Weekly Plan</h3>
+            <div className={styles.weeklyPlanGrid}>
+              {weeklyPlan.schedule.map((day, idx) => (
+                <div 
+                  key={idx} 
+                  className={`${styles.weeklyPlanDay} ${day.restDay ? styles.restDay : ''}`}
+                >
+                  <span className={styles.weeklyPlanDayName}>{day.day.slice(0, 3)}</span>
+                  <span className={styles.weeklyPlanFocus}>{day.focus}</span>
+                </div>
+              ))}
+            </div>
+            <button 
+              className={styles.editPlanBtn}
+              onClick={() => navigate('/planner')}
+            >
+              Edit Plan
+            </button>
+          </div>
+        )}
       </div>
 
       {selectedDate && (

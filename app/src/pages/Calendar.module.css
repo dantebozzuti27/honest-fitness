@@ -44,27 +44,28 @@
 
 .content {
   flex: 1;
-  padding: 24px 16px;
+  padding: 16px 12px;
+  overflow-y: auto;
 }
 
 .monthNav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .monthNav button {
-  width: 44px;
-  height: 44px;
-  font-size: 20px;
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
   color: var(--text-primary);
 }
 
 .monthName {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
 }
 
@@ -93,10 +94,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 14px;
   background: var(--bg-secondary);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
+  min-height: 40px;
 }
 
 .day:disabled {
@@ -248,5 +250,76 @@
 
 .scheduleBtn:active {
   background: var(--bg-elevated);
+}
+
+/* Weekly Plan */
+.weeklyPlan {
+  margin-top: 20px;
+  padding: 14px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.weeklyPlanTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+}
+
+.weeklyPlanGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.weeklyPlanDay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 2px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+.weeklyPlanDay.restDay {
+  opacity: 0.5;
+}
+
+.weeklyPlanDayName {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.weeklyPlanFocus {
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--accent);
+  text-align: center;
+}
+
+.weeklyPlanDay.restDay .weeklyPlanFocus {
+  color: var(--text-muted);
+}
+
+.editPlanBtn {
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+.editPlanBtn:active {
+  background: var(--bg-elevated);
+  color: var(--accent);
 }
 

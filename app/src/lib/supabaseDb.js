@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 
 // ============ WORKOUTS ============
 
@@ -9,7 +10,12 @@ export async function saveWorkoutToSupabase(workout, userId) {
     .insert({
       user_id: userId,
       date: workout.date,
-      duration: workout.duration
+      duration: workout.duration,
+      template_name: workout.templateName || null,
+      perceived_effort: workout.perceivedEffort || null,
+      mood_after: workout.moodAfter || null,
+      notes: workout.notes || null,
+      day_of_week: workout.dayOfWeek ?? null
     })
     .select()
     .single()
@@ -214,8 +220,8 @@ export async function calculateStreakFromSupabase(userId) {
   if (dates.length === 0) return 0
 
   const sortedDates = dates.sort((a, b) => new Date(b) - new Date(a))
-  const today = new Date().toISOString().split('T')[0]
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+  const today = getTodayEST()
+  const yesterday = getYesterdayEST()
 
   if (sortedDates[0] !== today && sortedDates[0] !== yesterday) {
     return 0
@@ -273,6 +279,113 @@ export async function getExerciseStats(userId) {
     .slice(0, 10)
   
   return sorted
+}
+
+// ============ USER PREFERENCES ============
+
+export async function getUserPreferences(userId) {
+  const { data, error } = await supabase
+    .from('user_preferences')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+
+  if (error && error.code !== 'PGRST116') throw error
+  return data
+}
+
+export async function saveUserPreferences(userId, prefs) {
+  const { data, error } = await supabase
+    .from('user_preferences')
+    .upsert({
+      user_id: userId,
+      plan_name: prefs.planName || null,
+      fitness_goal: prefs.fitnessGoal,
+      experience_level: prefs.experienceLevel,
+      available_days: prefs.availableDays,
+      session_duration: prefs.sessionDuration,
+      equipment_available: prefs.equipmentAvailable,
+      injuries: prefs.injuries,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id' })
+    .select()
+
+  if (error) throw error
+  return data
+}
+
+// ============ WORKOUT PLAN GENERATOR ============
+
+export function generateWorkoutPlan(prefs, templates) {
+  const { fitnessGoal, experienceLevel, availableDays, sessionDuration } = prefs
+  
+  // Determine split based on days available
+  const daysPerWeek = availableDays.length
+  let split = []
+  
+  if (daysPerWeek <= 2) {
+    split = ['Full Body', 'Full Body']
+  } else if (daysPerWeek === 3) {
+    if (fitnessGoal === 'strength' || fitnessGoal === 'hypertrophy') {
+      split = ['Push', 'Pull', 'Legs']
+    } else {
+      split = ['Full Body', 'Cardio + Core', 'Full Body']
+    }
+  } else if (daysPerWeek === 4) {
+    split = ['Upper', 'Lower', 'Upper', 'Lower']
+  } else if (daysPerWeek === 5) {
+    split = ['Push', 'Pull', 'Legs', 'Upper', 'Lower']
+  } else {
+    split = ['Push', 'Pull', 'Legs', 'Push', 'Pull', 'Legs']
+  }
+
+  // Map exercises based on focus
+  const exercisesByFocus = {
+    'Push': ['Bench Press', 'Overhead Press', 'Incline Dumbbell Press', 'Tricep Pushdowns', 'Lateral Raises', 'Chest Flyes'],
+    'Pull': ['Deadlift', 'Barbell Rows', 'Pull-ups', 'Face Pulls', 'Bicep Curls', 'Lat Pulldowns'],
+    'Legs': ['Squats', 'Romanian Deadlift', 'Leg Press', 'Leg Curls', 'Calf Raises', 'Lunges'],
+    'Upper': ['Bench Press', 'Barbell Rows', 'Overhead Press', 'Pull-ups', 'Bicep Curls', 'Tricep Pushdowns'],
+    'Lower': ['Squats', 'Romanian Deadlift', 'Leg Press', 'Leg Curls', 'Hip Thrusts', 'Calf Raises'],
+    'Full Body': ['Squats', 'Bench Press', 'Barbell Rows', 'Overhead Press', 'Deadlift', 'Core Work'],
+    'Cardio + Core': ['Treadmill Run', 'Planks', 'Russian Twists', 'Mountain Climbers', 'Bicycle Crunches']
+  }
+
+  // Adjust volume based on experience
+  const setsPerExercise = experienceLevel === 'beginner' ? 3 : experienceLevel === 'intermediate' ? 4 : 5
+  
+  // Build schedule
+  const schedule = availableDays.map((day, idx) => {
+    const focus = split[idx % split.length]
+    const exercises = exercisesByFocus[focus] || []
+    
+    // Adjust exercise count based on session duration
+    const exerciseCount = Math.min(exercises.length, Math.floor(sessionDuration / 10))
+    
+    return {
+      day,
+      focus,
+      exercises: exercises.slice(0, exerciseCount),
+      sets: setsPerExercise,
+      restDay: false
+    }
+  })
+
+  // Add rest days
+  const allDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+  const restDays = allDays.filter(d => !availableDays.includes(d))
+  
+  const fullSchedule = allDays.map(day => {
+    const workoutDay = schedule.find(s => s.day === day)
+    if (workoutDay) return workoutDay
+    return { day, focus: 'Rest', restDay: true }
+  })
+
+  return {
+    daysPerWeek,
+    goal: fitnessGoal,
+    experience: experienceLevel,
+    schedule: fullSchedule
+  }
 }
 
 export async function getDetailedBodyPartStats(userId) {

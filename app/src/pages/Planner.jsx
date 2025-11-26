@@ -199,16 +199,13 @@ export default function Planner() {
     if (!messageToSend || chatLoading) return
     
     setInput('')
-    setMessages(prev => [...prev, { role: 'user', content: messageToSend }])
+    setMessages(prev => [...prev, { role: 'user', content: String(messageToSend) }])
     setChatLoading(true)
 
     try {
-      // Build context
       let contextMsg = ''
-      if (userContext) {
-        contextMsg = `User has ${userContext.totalWorkouts} workouts logged. `
-        if (userContext.topBodyParts?.length) contextMsg += `Most trained: ${userContext.topBodyParts.slice(0,3).join(', ')}. `
-        if (prefs.fitnessGoal) contextMsg += `Goal: ${prefs.fitnessGoal}. `
+      if (userContext && userContext.totalWorkouts) {
+        contextMsg = `User has ${userContext.totalWorkouts} workouts logged.`
       }
 
       const response = await fetch('/api/chat', {
@@ -216,30 +213,32 @@ export default function Planner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           context: contextMsg,
-          messages: [
-            ...messages.slice(1).map(m => ({ role: m.role, content: m.content })),
-            { role: 'user', content: messageToSend }
-          ]
+          messages: [{ role: 'user', content: String(messageToSend) }]
         })
       })
 
-      const data = await response.json()
+      let data
+      try {
+        data = await response.json()
+      } catch (e) {
+        data = { message: 'Failed to parse response' }
+      }
+
+      const replyContent = String(data?.message || data?.error || 'No response received')
       
-      if (data.workout && data.workout.exercises) {
+      if (data?.workout && Array.isArray(data.workout.exercises)) {
         setGeneratedWorkout(data.workout)
-        const summary = `Here's your workout: **${data.workout.name}**\n\n` +
+        const summary = `Here's your workout: ${data.workout.name || 'Custom Workout'}\n\n` +
           data.workout.exercises.map(ex => `- ${ex.name}: ${ex.sets}x${ex.reps}`).join('\n')
         setMessages(prev => [...prev, { role: 'assistant', content: summary, workout: data.workout }])
-      } else if (data.message) {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.message }])
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }])
+        setMessages(prev => [...prev, { role: 'assistant', content: replyContent }])
       }
     } catch (error) {
-      console.error('Chat error:', error)
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Connection error. Please check your internet and try again.' }])
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Connection error. Please try again.' }])
+    } finally {
+      setChatLoading(false)
     }
-    setChatLoading(false)
   }
 
   const quickActions = [
@@ -454,23 +453,27 @@ export default function Planner() {
       {activeTab === 2 && (
         <div className={styles.aiContainer}>
           <div className={styles.messages}>
-            {messages.map((msg, idx) => (
-              <div key={idx} className={`${styles.message} ${styles[msg.role]}`}>
-                <div className={styles.messageContent}>
-                  {(msg.content || '').split('\n').map((line, i) => (
-                    <p key={i}>{line || '\u00A0'}</p>
-                  ))}
-                  {msg.workout && (
-                    <button 
-                      className={styles.startWorkoutBtn}
-                      onClick={() => navigate('/workout', { state: { aiWorkout: msg.workout } })}
-                    >
-                      Start This Workout
-                    </button>
-                  )}
+            {messages.map((msg, idx) => {
+              const content = String(msg?.content || '')
+              const lines = content.split('\n')
+              return (
+                <div key={idx} className={`${styles.message} ${styles[msg?.role || 'assistant']}`}>
+                  <div className={styles.messageContent}>
+                    {lines.map((line, i) => (
+                      <p key={i}>{line || '\u00A0'}</p>
+                    ))}
+                    {msg?.workout && Array.isArray(msg.workout.exercises) && (
+                      <button 
+                        className={styles.startWorkoutBtn}
+                        onClick={() => navigate('/workout', { state: { aiWorkout: msg.workout } })}
+                      >
+                        Start This Workout
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {chatLoading && (
               <div className={`${styles.message} ${styles.assistant}`}>
                 <div className={styles.messageContent}>

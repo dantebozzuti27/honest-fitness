@@ -63,7 +63,10 @@ export default function Home() {
         <img src="/logo.jpg" alt="HonestFitness" className={styles.logo} />
         
         <div className={styles.streakCard}>
-          <span className={styles.streakNumber}>{streak}</span>
+          <div className={styles.streakRow}>
+            <span className={styles.streakNumber}>{streak}</span>
+            <img src="/streak-icon.png" alt="" className={styles.streakIcon} />
+          </div>
           <span className={styles.streakLabel}>day streak</span>
         </div>
 

@@ -106,7 +106,10 @@ export default function Calendar() {
           ← Back
         </button>
         <h1 className={styles.title}>Calendar</h1>
-        <div className={styles.streak}>{streak}🔥</div>
+        <div className={styles.streak}>
+          {streak}
+          <img src="/streak-icon.png" alt="" className={styles.streakIcon} />
+        </div>
       </header>
 
       <div className={styles.content}>

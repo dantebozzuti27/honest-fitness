@@ -38,13 +38,19 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 32px;
+  gap: 24px;
   position: relative;
   z-index: 1;
 }
 
+@media (max-height: 700px) {
+  .content {
+    gap: 16px;
+  }
+}
+
 .logo {
-  width: 280px;
+  width: min(220px, 60vw);
   height: auto;
   border-radius: var(--radius-lg);
   box-shadow: 0 0 60px rgba(255, 45, 45, 0.3), 0 0 100px rgba(255, 45, 45, 0.15);
@@ -61,16 +67,29 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 32px 48px;
+  gap: 6px;
+  padding: 20px 36px;
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
   box-shadow: 0 0 30px rgba(255, 45, 45, 0.2), inset 0 0 20px rgba(255, 45, 45, 0.05);
 }
 
+.streakRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.streakIcon {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(255, 45, 45, 0.5));
+}
+
 .streakNumber {
-  font-size: 72px;
+  font-size: 56px;
   font-weight: 700;
   font-family: var(--font-mono);
   color: var(--accent);
@@ -89,13 +108,13 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .primaryBtn {
   width: 100%;
-  padding: 18px 24px;
-  font-size: 18px;
+  padding: 16px 24px;
+  font-size: 16px;
   font-weight: 600;
   background: var(--accent);
   color: var(--bg-primary);
@@ -110,8 +129,8 @@
 
 .secondaryBtn {
   width: 100%;
-  padding: 18px 24px;
-  font-size: 18px;
+  padding: 16px 24px;
+  font-size: 16px;
   font-weight: 600;
   background: var(--bg-tertiary);
   color: var(--text-primary);

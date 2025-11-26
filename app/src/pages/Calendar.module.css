@@ -28,8 +28,18 @@
 }
 
 .streak {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 18px;
   font-weight: 600;
+}
+
+.streakIcon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(255, 45, 45, 0.5));
 }
 
 .content {

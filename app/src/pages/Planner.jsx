@@ -503,11 +503,11 @@ export default function Planner() {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+              onKeyDown={(e) => { if (e.key === 'Enter') sendMessage() }}
               placeholder="Ask me anything..."
               className={styles.input}
             />
-            <button className={styles.sendBtn} onClick={sendMessage} disabled={chatLoading || !input.trim()}>
+            <button className={styles.sendBtn} onClick={() => sendMessage()} disabled={chatLoading || !input.trim()}>
               Send
             </button>
           </div>

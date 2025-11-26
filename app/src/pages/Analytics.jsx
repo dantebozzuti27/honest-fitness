@@ -314,7 +314,7 @@ export default function Analytics() {
               <div key={m.date} className={styles.metricsRow}>
                 <span>{new Date(m.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                 <span>{m.weight ? `${m.weight} lbs` : '-'}</span>
-                <span>{m.sleep_score || '-'}</span>
+                <span>{m.sleep_time ? `${m.sleep_time}h` : (m.sleep_score ? `${m.sleep_score}` : '-')}</span>
                 <span>{m.steps?.toLocaleString() || '-'}</span>
               </div>
             ))}

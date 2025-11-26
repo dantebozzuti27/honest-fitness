@@ -111,7 +111,7 @@ export default function Home() {
             className={styles.secondaryBtn}
             onClick={() => navigate('/planner')}
           >
-            Plan Workouts
+            Plan
           </button>
 
           <button 

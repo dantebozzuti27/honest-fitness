@@ -207,7 +207,7 @@ export default function Planner() {
       let contextMsg = ''
       if (userContext) {
         contextMsg = `User has ${userContext.totalWorkouts} workouts logged. `
-        if (userContext.topBodyParts.length) contextMsg += `Most trained: ${userContext.topBodyParts.slice(0,3).join(', ')}. `
+        if (userContext.topBodyParts?.length) contextMsg += `Most trained: ${userContext.topBodyParts.slice(0,3).join(', ')}. `
         if (prefs.fitnessGoal) contextMsg += `Goal: ${prefs.fitnessGoal}. `
       }
 
@@ -215,69 +215,31 @@ export default function Planner() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          context: contextMsg,
           messages: [
-            ...(contextMsg ? [{ role: 'system', content: contextMsg }] : []),
             ...messages.slice(1).map(m => ({ role: m.role, content: m.content })),
             { role: 'user', content: messageToSend }
           ]
         })
       })
 
-      if (response.ok) {
-        const data = await response.json()
-        if (data.workout && data.workout.exercises) {
-          setGeneratedWorkout(data.workout)
-          const summary = `Here's your workout: **${data.workout.name}**\n\n` +
-            data.workout.exercises.map(ex => `- ${ex.name}: ${ex.sets}x${ex.reps}`).join('\n')
-          setMessages(prev => [...prev, { role: 'assistant', content: summary, workout: data.workout }])
-        } else if (data.message) {
-          setMessages(prev => [...prev, { role: 'assistant', content: data.message }])
-        } else {
-          setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I didn\'t understand that. Try asking about workouts or fitness!' }])
-        }
+      const data = await response.json()
+      
+      if (data.workout && data.workout.exercises) {
+        setGeneratedWorkout(data.workout)
+        const summary = `Here's your workout: **${data.workout.name}**\n\n` +
+          data.workout.exercises.map(ex => `- ${ex.name}: ${ex.sets}x${ex.reps}`).join('\n')
+        setMessages(prev => [...prev, { role: 'assistant', content: summary, workout: data.workout }])
+      } else if (data.message) {
+        setMessages(prev => [...prev, { role: 'assistant', content: data.message }])
       } else {
-        throw new Error('API error')
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }])
       }
     } catch (error) {
       console.error('Chat error:', error)
-      // Fallback to local response
-      const fallback = getFallbackResponse(messageToSend, userContext, prefs)
-      setMessages(prev => [...prev, { role: 'assistant', content: fallback }])
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Connection error. Please check your internet and try again.' }])
     }
     setChatLoading(false)
-  }
-
-  const getFallbackResponse = (message, context, currentPrefs) => {
-    const lower = message.toLowerCase()
-    
-    if (lower.includes('workout') && (lower.includes('generate') || lower.includes('create') || lower.includes('suggest'))) {
-      if (currentPrefs?.fitnessGoal) {
-        const goal = currentPrefs.fitnessGoal
-        let workout = 'Based on your profile, here\'s a workout:\n\n'
-        if (goal === 'strength' || goal === 'hypertrophy') {
-          workout += 'Push Day:\n- Bench Press: 4x8-10\n- Overhead Press: 3x10\n- Incline DB Press: 3x12\n- Tricep Extensions: 3x15\n- Lateral Raises: 3x15'
-        } else if (goal === 'weight_loss') {
-          workout += 'Full Body Circuit:\n- Goblet Squats: 3x15\n- Push-ups: 3x12\n- Rows: 3x12\n- Lunges: 3x10 each\n- Planks: 3x30s'
-        } else {
-          workout += 'Balanced Workout:\n- Squats: 3x12\n- Bench Press: 3x10\n- Rows: 3x10\n- Shoulder Press: 3x12\n- Core: 3x15'
-        }
-        return workout
-      }
-      return 'Go to the "Create" tab to set up your goals first, then I can generate personalized workouts!'
-    }
-    
-    if (lower.includes('progress') || lower.includes('analyze')) {
-      if (context && context.totalWorkouts > 0) {
-        return `Your stats:\n- ${context.totalWorkouts} workouts logged\n- Most trained: ${context.topBodyParts.slice(0,3).join(', ')}\n- Top exercises: ${context.topExercises.slice(0,3).join(', ')}\n\nKeep it up!`
-      }
-      return 'Log some workouts first, then I can analyze your progress!'
-    }
-    
-    if (lower.includes('goal') || lower.includes('plan')) {
-      return 'Common goals:\n- Build Strength: Heavy weights, 4-6 reps\n- Build Muscle: Moderate weight, 8-12 reps\n- Lose Weight: Circuit training + cardio\n- Endurance: Higher reps, shorter rest\n\nGo to "Create" tab to set your goal!'
-    }
-    
-    return 'I can help with:\n- "Generate a workout"\n- "Analyze my progress"\n- "Tips for [goal]"\n\nWhat would you like?'
   }
 
   const quickActions = [

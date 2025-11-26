@@ -1,38 +1,69 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    return res.status(405).json({ message: 'Method not allowed' })
   }
 
-  const { messages } = req.body
-  const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''
-  const isWorkoutRequest = lastMessage.includes('workout') && 
-    (lastMessage.includes('generate') || lastMessage.includes('create') || lastMessage.includes('suggest') || lastMessage.includes('give'))
-
   try {
+    const { messages, context } = req.body
+    
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ message: 'Invalid request' })
+    }
+
+    const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''
+    
+    // Detect workout generation requests
+    const isWorkoutRequest = 
+      (lastMessage.includes('workout') || lastMessage.includes('routine') || lastMessage.includes('exercise')) && 
+      (lastMessage.includes('generate') || lastMessage.includes('create') || lastMessage.includes('give') || 
+       lastMessage.includes('make') || lastMessage.includes('build') || lastMessage.includes('suggest') ||
+       lastMessage.includes('leg') || lastMessage.includes('arm') || lastMessage.includes('chest') ||
+       lastMessage.includes('back') || lastMessage.includes('shoulder') || lastMessage.includes('full body') ||
+       lastMessage.includes('push') || lastMessage.includes('pull') || lastMessage.includes('upper') || lastMessage.includes('lower'))
+
     const systemPrompt = isWorkoutRequest 
-      ? `You are HonestFitness AI. Generate a workout in this EXACT JSON format, no other text:
+      ? `You are HonestFitness AI, a fitness coach. The user wants a workout.
+
+RESPOND WITH ONLY THIS JSON FORMAT, NO OTHER TEXT:
 {
   "type": "workout",
-  "name": "Workout Name",
+  "name": "Descriptive Workout Name",
   "exercises": [
     {"name": "Exercise Name", "sets": 3, "reps": 10, "bodyPart": "Chest"}
   ]
 }
-Use real exercises. Include 4-6 exercises. bodyPart must be one of: Chest, Back, Shoulders, Arms, Legs, Core, Cardio.`
-      : `You are HonestFitness AI, a fitness assistant. ONLY answer questions about:
-- Workout plans and exercises
-- Fitness goals and progress
-- Nutrition and diet
-- Recovery and rest
-- Health and wellness
 
-If asked about anything else, politely redirect to fitness topics. Keep responses concise and actionable.`
+Rules:
+- Include 5-7 exercises
+- Use real exercise names (Barbell Squat, Bench Press, Lat Pulldown, etc.)
+- bodyPart must be: Chest, Back, Shoulders, Arms, Legs, or Core
+- Match the workout to what they asked for (leg day = leg exercises, etc.)
+- Vary sets (3-5) and reps (6-15) based on exercise type
+${context ? `\nUser context: ${context}` : ''}`
+      : `You are HonestFitness AI, a knowledgeable fitness and health assistant.
+
+You help with:
+- Workout advice and exercise form
+- Training programs and periodization  
+- Nutrition and diet guidance
+- Recovery, sleep, and injury prevention
+- Fitness goal setting and motivation
+- Health and wellness tips
+
+Keep responses helpful, concise, and actionable. If asked about non-fitness topics, politely redirect to health and fitness.
+${context ? `\nUser context: ${context}` : ''}`
+
+    const apiKey = process.env.XAI_API_KEY
+    if (!apiKey) {
+      console.error('XAI_API_KEY not set')
+      return res.status(500).json({ message: 'API configuration error. Please try again later.' })
+    }
 
     const response = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.XAI_API_KEY}`
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         model: 'grok-beta',
@@ -40,39 +71,50 @@ If asked about anything else, politely redirect to fitness topics. Keep response
           { role: 'system', content: systemPrompt },
           ...messages
         ],
-        max_tokens: 500,
+        max_tokens: 800,
         temperature: 0.7
       })
     })
 
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Grok API error:', response.status, errorText)
+      return res.status(500).json({ message: 'AI service temporarily unavailable. Please try again.' })
+    }
+
     const data = await response.json()
     
-    if (data.error) {
-      throw new Error(data.error.message || 'API error')
+    if (!data.choices?.[0]?.message?.content) {
+      console.error('Invalid Grok response:', data)
+      return res.status(500).json({ message: 'Received invalid response from AI. Please try again.' })
     }
 
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-      throw new Error('Invalid response from API')
-    }
-
-    const content = data.choices[0].message.content || 'Sorry, I could not generate a response.'
+    const content = data.choices[0].message.content.trim()
 
     // Try to parse as workout JSON
     if (isWorkoutRequest) {
       try {
-        const workout = JSON.parse(content)
-        if (workout.type === 'workout' && workout.exercises) {
+        // Extract JSON if wrapped in markdown code blocks
+        let jsonStr = content
+        if (content.includes('```')) {
+          const match = content.match(/```(?:json)?\s*([\s\S]*?)```/)
+          if (match) jsonStr = match[1].trim()
+        }
+        
+        const workout = JSON.parse(jsonStr)
+        if (workout.type === 'workout' && Array.isArray(workout.exercises) && workout.exercises.length > 0) {
           return res.status(200).json({ message: content, workout })
         }
       } catch (e) {
-        // Not valid JSON, return as regular message
+        console.error('Failed to parse workout JSON:', e.message)
+        // Return as regular message if JSON parsing fails
       }
     }
 
-    res.status(200).json({ message: content })
+    return res.status(200).json({ message: content })
+    
   } catch (error) {
-    console.error('Grok API error:', error)
-    res.status(500).json({ message: 'Sorry, I encountered an error. Please try again.' })
+    console.error('Chat handler error:', error)
+    return res.status(500).json({ message: 'Something went wrong. Please try again.' })
   }
 }
-

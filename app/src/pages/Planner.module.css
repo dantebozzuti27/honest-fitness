@@ -518,3 +518,14 @@
 .sendBtn:disabled {
   opacity: 0.5;
 }
+
+.startWorkoutBtn {
+  margin-top: 12px;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--success);
+  color: white;
+  border-radius: var(--radius-md);
+  width: 100%;
+}

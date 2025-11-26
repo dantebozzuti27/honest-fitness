@@ -4,8 +4,30 @@ export default async function handler(req, res) {
   }
 
   const { messages } = req.body
+  const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''
+  const isWorkoutRequest = lastMessage.includes('workout') && 
+    (lastMessage.includes('generate') || lastMessage.includes('create') || lastMessage.includes('suggest') || lastMessage.includes('give'))
 
   try {
+    const systemPrompt = isWorkoutRequest 
+      ? `You are HonestFitness AI. Generate a workout in this EXACT JSON format, no other text:
+{
+  "type": "workout",
+  "name": "Workout Name",
+  "exercises": [
+    {"name": "Exercise Name", "sets": 3, "reps": 10, "bodyPart": "Chest"}
+  ]
+}
+Use real exercises. Include 4-6 exercises. bodyPart must be one of: Chest, Back, Shoulders, Arms, Legs, Core, Cardio.`
+      : `You are HonestFitness AI, a fitness assistant. ONLY answer questions about:
+- Workout plans and exercises
+- Fitness goals and progress
+- Nutrition and diet
+- Recovery and rest
+- Health and wellness
+
+If asked about anything else, politely redirect to fitness topics. Keep responses concise and actionable.`
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -15,17 +37,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: [
-          {
-            role: 'system',
-            content: `You are HonestFitness AI, a fitness assistant. ONLY answer questions about:
-- Workout plans and exercises
-- Fitness goals and progress
-- Nutrition and diet
-- Recovery and rest
-- Health and wellness
-
-If asked about anything else, politely redirect to fitness topics. Keep responses concise and actionable.`
-          },
+          { role: 'system', content: systemPrompt },
           ...messages
         ],
         max_tokens: 500,
@@ -39,7 +51,21 @@ If asked about anything else, politely redirect to fitness topics. Keep response
       throw new Error(data.error.message)
     }
 
-    res.status(200).json({ message: data.choices[0].message.content })
+    const content = data.choices[0].message.content
+
+    // Try to parse as workout JSON
+    if (isWorkoutRequest) {
+      try {
+        const workout = JSON.parse(content)
+        if (workout.type === 'workout' && workout.exercises) {
+          return res.status(200).json({ message: content, workout })
+        }
+      } catch (e) {
+        // Not valid JSON, return as regular message
+      }
+    }
+
+    res.status(200).json({ message: content })
   } catch (error) {
     console.error('OpenAI error:', error)
     res.status(500).json({ error: 'Failed to get response' })

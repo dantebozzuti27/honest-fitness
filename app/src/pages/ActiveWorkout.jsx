@@ -14,6 +14,7 @@ export default function ActiveWorkout() {
   const { user } = useAuth()
   const templateId = location.state?.templateId
   const randomWorkout = location.state?.randomWorkout
+  const aiWorkout = location.state?.aiWorkout
   
   const [exercises, setExercises] = useState([])
   const [allExercises, setAllExercises] = useState([])
@@ -98,6 +99,24 @@ export default function ActiveWorkout() {
         }
         
         setExercises(randomExercises)
+      } else if (aiWorkout) {
+        // Load AI-generated workout
+        const workoutExercises = aiWorkout.exercises.map((ex, idx) => ({
+          id: idx,
+          name: ex.name,
+          category: 'Strength',
+          bodyPart: ex.bodyPart || 'Other',
+          equipment: '',
+          sets: Array(ex.sets || 3).fill(null).map(() => ({ 
+            weight: '', 
+            reps: ex.reps?.toString() || '', 
+            time: '', 
+            speed: '', 
+            incline: '' 
+          })),
+          expanded: idx === 0
+        }))
+        setExercises(workoutExercises)
       }
     }
     load()

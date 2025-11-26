@@ -53,6 +53,7 @@ export default function Planner() {
   const [input, setInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [userContext, setUserContext] = useState(null)
+  const [generatedWorkout, setGeneratedWorkout] = useState(null)
   const messagesEndRef = useRef(null)
 
   useEffect(() => {
@@ -224,7 +225,14 @@ export default function Planner() {
 
       if (response.ok) {
         const data = await response.json()
-        setMessages(prev => [...prev, { role: 'assistant', content: data.message }])
+        if (data.workout) {
+          setGeneratedWorkout(data.workout)
+          const summary = `Here's your workout: **${data.workout.name}**\n\n` +
+            data.workout.exercises.map(ex => `- ${ex.name}: ${ex.sets}x${ex.reps}`).join('\n')
+          setMessages(prev => [...prev, { role: 'assistant', content: summary, workout: data.workout }])
+        } else {
+          setMessages(prev => [...prev, { role: 'assistant', content: data.message }])
+        }
       } else {
         throw new Error('API error')
       }
@@ -487,6 +495,14 @@ export default function Planner() {
                   {msg.content.split('\n').map((line, i) => (
                     <p key={i}>{line}</p>
                   ))}
+                  {msg.workout && (
+                    <button 
+                      className={styles.startWorkoutBtn}
+                      onClick={() => navigate('/workout/active', { state: { aiWorkout: msg.workout } })}
+                    >
+                      Start This Workout
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

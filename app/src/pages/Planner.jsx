@@ -498,7 +498,7 @@ export default function Planner() {
                   {msg.workout && (
                     <button 
                       className={styles.startWorkoutBtn}
-                      onClick={() => navigate('/workout/active', { state: { aiWorkout: msg.workout } })}
+                      onClick={() => navigate('/workout', { state: { aiWorkout: msg.workout } })}
                     >
                       Start This Workout
                     </button>

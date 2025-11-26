@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { getAllTemplates, saveMetrics } from '../db'
 import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
@@ -8,9 +8,11 @@ import styles from './Workout.module.css'
 
 export default function Workout() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const [templates, setTemplates] = useState([])
   const [todaysPlan, setTodaysPlan] = useState(null)
+  const [aiWorkout, setAiWorkout] = useState(null)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -21,6 +23,21 @@ export default function Workout() {
   })
 
   useEffect(() => {
+    // Check if AI workout was passed from Planner
+    if (location.state?.aiWorkout) {
+      setAiWorkout(location.state.aiWorkout)
+      // Save to localStorage for persistence
+      localStorage.setItem('aiWorkout', JSON.stringify(location.state.aiWorkout))
+    } else {
+      // Load from localStorage
+      const saved = localStorage.getItem('aiWorkout')
+      if (saved) {
+        try {
+          setAiWorkout(JSON.parse(saved))
+        } catch (e) {}
+      }
+    }
+
     async function load() {
       const t = await getAllTemplates()
       setTemplates(t)
@@ -51,7 +68,7 @@ export default function Workout() {
       }
     }
     load()
-  }, [user])
+  }, [user, location.state])
 
   const handleMetricChange = (field, value) => {
     setMetrics(prev => ({ ...prev, [field]: value }))
@@ -84,7 +101,29 @@ export default function Workout() {
     navigate('/workout/active', { state: { templateId } })
   }
 
-  const startRandomWorkout = () => {
+  const startRandomWorkout = async () => {
+    // Call LLM to generate random workout
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Generate a random full-body workout for me' }]
+        })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.workout) {
+          setAiWorkout(data.workout)
+          localStorage.setItem('aiWorkout', JSON.stringify(data.workout))
+          navigate('/workout/active', { state: { aiWorkout: data.workout } })
+          return
+        }
+      }
+    } catch (e) {
+      console.error('Error generating workout:', e)
+    }
+    // Fallback to local random
     navigate('/workout/active', { state: { randomWorkout: true } })
   }
 
@@ -159,6 +198,39 @@ export default function Workout() {
             </div>
           </div>
         </section>
+
+        {aiWorkout && (
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>AI Generated Workout</h2>
+            <div className={styles.aiWorkoutCard}>
+              <div className={styles.aiWorkoutHeader}>
+                <span className={styles.aiWorkoutName}>{aiWorkout.name}</span>
+                <button 
+                  className={styles.clearAiBtn}
+                  onClick={() => {
+                    setAiWorkout(null)
+                    localStorage.removeItem('aiWorkout')
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+              <div className={styles.aiWorkoutExercises}>
+                {aiWorkout.exercises?.map((ex, i) => (
+                  <span key={i} className={styles.aiWorkoutExercise}>
+                    {ex.name}: {ex.sets}x{ex.reps}
+                  </span>
+                ))}
+              </div>
+              <button 
+                className={styles.startAiBtn}
+                onClick={() => navigate('/workout/active', { state: { aiWorkout } })}
+              >
+                Start AI Workout
+              </button>
+            </div>
+          </section>
+        )}
 
         {todaysPlan && (
           <section className={styles.section}>

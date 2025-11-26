@@ -28,14 +28,14 @@ Use real exercises. Include 4-6 exercises. bodyPart must be one of: Chest, Back,
 
 If asked about anything else, politely redirect to fitness topics. Keep responses concise and actionable.`
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+        'Authorization': `Bearer ${process.env.XAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'grok-beta',
         messages: [
           { role: 'system', content: systemPrompt },
           ...messages

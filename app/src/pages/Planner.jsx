@@ -225,18 +225,21 @@ export default function Planner() {
 
       if (response.ok) {
         const data = await response.json()
-        if (data.workout) {
+        if (data.workout && data.workout.exercises) {
           setGeneratedWorkout(data.workout)
           const summary = `Here's your workout: **${data.workout.name}**\n\n` +
             data.workout.exercises.map(ex => `- ${ex.name}: ${ex.sets}x${ex.reps}`).join('\n')
           setMessages(prev => [...prev, { role: 'assistant', content: summary, workout: data.workout }])
-        } else {
+        } else if (data.message) {
           setMessages(prev => [...prev, { role: 'assistant', content: data.message }])
+        } else {
+          setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I didn\'t understand that. Try asking about workouts or fitness!' }])
         }
       } else {
         throw new Error('API error')
       }
     } catch (error) {
+      console.error('Chat error:', error)
       // Fallback to local response
       const fallback = getFallbackResponse(messageToSend, userContext, prefs)
       setMessages(prev => [...prev, { role: 'assistant', content: fallback }])

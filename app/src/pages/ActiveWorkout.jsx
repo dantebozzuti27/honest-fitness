@@ -31,21 +31,26 @@ export default function ActiveWorkout() {
   useEffect(() => {
     async function load() {
       const allEx = await getAllExercises()
+      console.log('Loaded exercises from DB:', allEx.length, allEx.slice(0, 3))
       setAllExercises(allEx)
       
       if (templateId) {
         const template = await getTemplate(templateId)
         if (template) {
           const workoutExercises = template.exercises.map((name, idx) => {
-            const exerciseData = allEx.find(e => e.name === name) || { name, category: 'Strength' }
-            const isCardio = exerciseData.category === 'Cardio'
-            const isRecovery = exerciseData.category === 'Recovery'
+            const exerciseData = allEx.find(e => e.name === name)
+            if (!exerciseData) {
+              console.error(`Exercise "${name}" not found in database!`)
+            }
+            const isCardio = exerciseData?.category === 'Cardio'
+            const isRecovery = exerciseData?.category === 'Recovery'
             const defaultSets = (isCardio || isRecovery) ? 1 : 4
             return {
               id: idx,
               name,
-              category: exerciseData.category,
-              bodyPart: exerciseData.bodyPart,
+              category: exerciseData?.category || 'Strength',
+              bodyPart: exerciseData?.bodyPart || 'Other',
+              equipment: exerciseData?.equipment || '',
               sets: Array(defaultSets).fill(null).map(() => ({ weight: '', reps: '', time: '', speed: '', incline: '' })),
               expanded: idx === 0
             }
@@ -258,12 +263,14 @@ export default function ActiveWorkout() {
       dayOfWeek: new Date().getDay(),
       exercises: exercises.map(ex => ({
         name: ex.name,
-        category: ex.category,
-        bodyPart: ex.bodyPart,
-        equipment: ex.equipment,
+        category: ex.category || 'Strength',
+        bodyPart: ex.bodyPart || 'Other',
+        equipment: ex.equipment || '',
         sets: ex.sets.filter(s => s.weight || s.reps || s.time)
       })).filter(ex => ex.sets.length > 0)
     }
+    
+    console.log('Saving workout:', workout) // Debug log
     
     // Save to local IndexedDB
     await saveWorkout(workout)

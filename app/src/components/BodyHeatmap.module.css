@@ -165,40 +165,71 @@
   background: #0a0a0a;
   border: 1px solid #1a1a1a;
   border-radius: 4px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   transition: all 0.2s;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+  width: 100%;
+  display: block;
 }
 
 .statItem:hover,
+.statItem:active,
 .statItemHovered {
   border-color: rgba(255,45,45,0.5);
   background: #0f0f0f;
 }
 
-/* Tooltip */
-.tooltip {
-  position: absolute;
-  z-index: 100;
-  background: #0a0a0a;
-  border: 1px solid rgba(255,45,45,0.4);
-  border-radius: 6px;
-  padding: 12px 14px;
-  min-width: 180px;
-  pointer-events: none;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 20px rgba(255,45,45,0.1);
+/* Tooltip overlay and modal */
+.tooltipOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 300;
+  display: flex;
+  align-items: flex-end;
 }
 
-.tooltip::after {
-  content: '';
-  position: absolute;
-  bottom: -6px;
-  left: 20px;
-  width: 10px;
-  height: 10px;
+.tooltip {
+  width: 100%;
   background: #0a0a0a;
-  border-right: 1px solid rgba(255,45,45,0.4);
-  border-bottom: 1px solid rgba(255,45,45,0.4);
-  transform: rotate(45deg);
+  border-top: 2px solid rgba(255,45,45,0.5);
+  border-radius: 16px 16px 0 0;
+  padding: 20px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 20px) + 20px);
+  box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+}
+
+.tooltipContent {
+  margin-bottom: 16px;
+}
+
+.tooltipActions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tooltipDrillDown {
+  width: 100%;
+  padding: 14px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--bg-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tooltipClose {
+  width: 100%;
+  padding: 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 15px;
 }
 
 .tooltipHeader {
@@ -215,11 +246,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
-}
-
-.tooltipRow:last-child {
-  margin-bottom: 0;
+  margin-bottom: 8px;
 }
 
 .tooltipLabel {

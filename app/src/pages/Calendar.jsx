@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAllTemplates, scheduleWorkout, getScheduledWorkout } from '../db'
-import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan } from '../lib/supabaseDb'
+import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan, deleteWorkoutFromSupabase } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
 import styles from './Calendar.module.css'
@@ -125,6 +125,24 @@ export default function Calendar() {
     return dateStr > today
   }
 
+  const handleDeleteWorkout = async () => {
+    if (!selectedWorkout || !user) return
+    if (!confirm('Are you sure you want to delete this workout?')) return
+    
+    try {
+      await deleteWorkoutFromSupabase(selectedWorkout.id)
+      // Refresh data
+      const dates = await getWorkoutDatesFromSupabase(user.id)
+      setWorkoutDates(dates)
+      const s = await calculateStreakFromSupabase(user.id)
+      setStreak(s)
+      closeModal()
+    } catch (e) {
+      console.error('Error deleting workout:', e)
+      alert('Failed to delete workout')
+    }
+  }
+
   return (
     <div className={styles.container}>
       <header className={styles.header}>
@@ -198,19 +216,39 @@ export default function Calendar() {
             
             {selectedWorkout ? (
               <div className={styles.workoutDetail}>
-                <div className={styles.workoutDuration}>
-                  Duration: {Math.floor(selectedWorkout.duration / 60)}:{String(selectedWorkout.duration % 60).padStart(2, '0')}
+                <div className={styles.workoutMeta}>
+                  <span className={styles.workoutDuration}>
+                    {Math.floor((selectedWorkout.duration || 0) / 60)}:{String((selectedWorkout.duration || 0) % 60).padStart(2, '0')}
+                  </span>
+                  {selectedWorkout.perceived_effort && (
+                    <span className={styles.workoutRpe}>RPE: {selectedWorkout.perceived_effort}</span>
+                  )}
                 </div>
                 <div className={styles.exerciseList}>
-                  {selectedWorkout.exercises.map((ex, idx) => (
+                  {(selectedWorkout.workout_exercises || []).map((ex, idx) => (
                     <div key={idx} className={styles.exerciseItem}>
-                      <span className={styles.exerciseName}>{ex.name}</span>
-                      <span className={styles.exerciseSets}>
-                        {ex.sets.map((s, i) => `${s.weight}×${s.reps}`).join(', ')}
-                      </span>
+                      <div className={styles.exerciseHeader}>
+                        <span className={styles.exerciseName}>{ex.exercise_name}</span>
+                        <span className={styles.exerciseBodyPart}>{ex.body_part}</span>
+                      </div>
+                      <div className={styles.exerciseSets}>
+                        {(ex.workout_sets || []).map((s, i) => (
+                          <span key={i} className={styles.setChip}>
+                            {s.weight ? `${s.reps}×${s.weight} lbs` : (s.time ? `${s.time}` : '-')}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
+                {selectedWorkout.notes && (
+                  <div className={styles.workoutNotes}>
+                    <strong>Notes:</strong> {selectedWorkout.notes}
+                  </div>
+                )}
+                <button className={styles.deleteBtn} onClick={handleDeleteWorkout}>
+                  Delete Workout
+                </button>
               </div>
             ) : showScheduler ? (
               <div className={styles.scheduler}>

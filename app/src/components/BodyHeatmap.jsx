@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import styles from './BodyHeatmap.module.css'
 
-export default function BodyHeatmap({ data, metric = 'count', detailedStats = {} }) {
-  const [hoveredPart, setHoveredPart] = useState(null)
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
+export default function BodyHeatmap({ data, metric = 'count', detailedStats = {}, onDrillDown }) {
+  const [selectedPart, setSelectedPart] = useState(null)
   const maxValue = Math.max(...Object.values(data), 1)
 
   const getIntensity = (bodyPart) => {
@@ -11,19 +10,9 @@ export default function BodyHeatmap({ data, metric = 'count', detailedStats = {}
     return value / maxValue
   }
 
-  const handleMouseEnter = (bodyPart, e) => {
-    setHoveredPart(bodyPart)
-    const rect = e.currentTarget.closest(`.${styles.container}`)?.getBoundingClientRect()
-    if (rect) {
-      setTooltipPos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      })
-    }
-  }
-
-  const handleMouseLeave = () => {
-    setHoveredPart(null)
+  const handleSelect = (bodyPart) => {
+    // Toggle selection
+    setSelectedPart(selectedPart === bodyPart ? null : bodyPart)
   }
 
   const getStats = (bodyPart) => {
@@ -306,27 +295,39 @@ export default function BodyHeatmap({ data, metric = 'count', detailedStats = {}
         <span className={styles.scaleLabel}>MAX</span>
       </div>
 
-      {/* Tooltip */}
-      {hoveredPart && (
-        <div 
-          className={styles.tooltip}
-          style={{ 
-            left: Math.min(tooltipPos.x, 220),
-            top: tooltipPos.y - 90
-          }}
-        >
-          <div className={styles.tooltipHeader}>{hoveredPart.toUpperCase()}</div>
-          <div className={styles.tooltipRow}>
-            <span className={styles.tooltipLabel}>Last trained:</span>
-            <span className={styles.tooltipValue}>{formatDate(getStats(hoveredPart).lastTrained)}</span>
-          </div>
-          <div className={styles.tooltipRow}>
-            <span className={styles.tooltipLabel}>Top exercise:</span>
-            <span className={styles.tooltipValue}>{getStats(hoveredPart).topExercise || '—'}</span>
-          </div>
-          <div className={styles.tooltipRow}>
-            <span className={styles.tooltipLabel}>Avg/week:</span>
-            <span className={styles.tooltipValue}>{getStats(hoveredPart).avgPerWeek?.toFixed(1) || '0'}</span>
+      {/* Bottom sheet modal for selected body part */}
+      {selectedPart && (
+        <div className={styles.tooltipOverlay} onClick={() => setSelectedPart(null)}>
+          <div className={styles.tooltip} onClick={e => e.stopPropagation()}>
+            <div className={styles.tooltipHeader}>{selectedPart.toUpperCase()}</div>
+            <div className={styles.tooltipContent}>
+              <div className={styles.tooltipRow}>
+                <span className={styles.tooltipLabel}>Last trained:</span>
+                <span className={styles.tooltipValue}>{formatDate(getStats(selectedPart).lastTrained)}</span>
+              </div>
+              <div className={styles.tooltipRow}>
+                <span className={styles.tooltipLabel}>Top exercise:</span>
+                <span className={styles.tooltipValue}>{getStats(selectedPart).topExercise || '—'}</span>
+              </div>
+              <div className={styles.tooltipRow}>
+                <span className={styles.tooltipLabel}>Avg/week:</span>
+                <span className={styles.tooltipValue}>{getStats(selectedPart).avgPerWeek?.toFixed(1) || '0'}</span>
+              </div>
+            </div>
+            <div className={styles.tooltipActions}>
+              {onDrillDown && (
+                <button 
+                  className={styles.tooltipDrillDown} 
+                  onClick={() => {
+                    onDrillDown(selectedPart)
+                    setSelectedPart(null)
+                  }}
+                >
+                  View {selectedPart} History
+                </button>
+              )}
+              <button className={styles.tooltipClose} onClick={() => setSelectedPart(null)}>Close</button>
+            </div>
           </div>
         </div>
       )}
@@ -338,11 +339,10 @@ export default function BodyHeatmap({ data, metric = 'count', detailedStats = {}
           const intensity = getIntensity(bp)
           const percent = Math.round(intensity * 100)
           return (
-            <div 
+            <button 
               key={bp} 
-              className={`${styles.statItem} ${hoveredPart === bp ? styles.statItemHovered : ''}`}
-              onMouseEnter={(e) => handleMouseEnter(bp, e)}
-              onMouseLeave={handleMouseLeave}
+              className={`${styles.statItem} ${selectedPart === bp ? styles.statItemHovered : ''}`}
+              onClick={() => handleSelect(bp)}
             >
               <div className={styles.statHeader}>
                 <span className={styles.statName}>{bp.toUpperCase()}</span>
@@ -358,7 +358,7 @@ export default function BodyHeatmap({ data, metric = 'count', detailedStats = {}
                   }}
                 ></div>
               </div>
-            </div>
+            </button>
           )
         })}
       </div>

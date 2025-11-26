@@ -120,6 +120,36 @@ export default function Planner() {
     }
   }
 
+  const handleDeletePlan = async () => {
+    if (!confirm('Are you sure you want to delete this plan?')) return
+    try {
+      if (user) {
+        await saveUserPreferences(user.id, {
+          planName: '',
+          fitnessGoal: '',
+          experienceLevel: '',
+          availableDays: [],
+          sessionDuration: 60,
+          equipmentAvailable: [],
+          injuries: ''
+        })
+      }
+      setPrefs({
+        planName: '',
+        fitnessGoal: '',
+        experienceLevel: '',
+        availableDays: [],
+        sessionDuration: 60,
+        equipmentAvailable: [],
+        injuries: ''
+      })
+      setGeneratedPlan(null)
+      setStep(1)
+    } catch (e) {
+      console.error('Error deleting plan:', e)
+    }
+  }
+
   if (loading) {
     return (
       <div className={styles.container}>
@@ -294,6 +324,12 @@ export default function Planner() {
               onClick={() => navigate('/')}
             >
               Start Training
+            </button>
+            <button 
+              className={styles.deletePlanBtn}
+              onClick={handleDeletePlan}
+            >
+              Delete Plan
             </button>
           </div>
         )}

@@ -155,41 +155,100 @@
 }
 
 .workoutDetail {
-  padding: 20px;
+  padding: 16px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.workoutMeta {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
 .workoutDuration {
   font-family: var(--font-mono);
-  font-size: 16px;
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.workoutRpe {
+  font-size: 14px;
   color: var(--text-secondary);
-  margin-bottom: 20px;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
 }
 
 .exerciseList {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .exerciseItem {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   padding: 12px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
 }
 
+.exerciseHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .exerciseItem .exerciseName {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
 }
 
+.exerciseBodyPart {
+  font-size: 11px;
+  color: var(--accent);
+  padding: 2px 8px;
+  background: var(--accent-dim);
+  border-radius: var(--radius-sm);
+}
+
 .exerciseItem .exerciseSets {
-  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.setChip {
+  font-size: 12px;
   font-family: var(--font-mono);
   color: var(--text-secondary);
+  padding: 4px 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+}
+
+.workoutNotes {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.deleteBtn {
+  width: 100%;
+  margin-top: 16px;
+  padding: 14px;
+  background: transparent;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .noWorkout {

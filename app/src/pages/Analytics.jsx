@@ -9,13 +9,14 @@ import {
   getWorkoutFrequency,
   getExerciseStats,
   getWorkoutsFromSupabase,
-  getDetailedBodyPartStats
+  getDetailedBodyPartStats,
+  deleteWorkoutFromSupabase
 } from '../lib/supabaseDb'
 import { getAllTemplates } from '../db'
 import BodyHeatmap from '../components/BodyHeatmap'
 import styles from './Analytics.module.css'
 
-const TABS = ['Body Parts', 'Metrics', 'Upcoming', 'Trends']
+const TABS = ['Scan', 'History', 'Metrics', 'Upcoming', 'Trends']
 const DATE_FILTERS = [
   { label: '7 Days', days: 7 },
   { label: '30 Days', days: 30 },
@@ -45,6 +46,8 @@ export default function Analytics() {
     workouts: []
   })
   const [templates, setTemplates] = useState([])
+  const [selectedWorkout, setSelectedWorkout] = useState(null)
+  const [selectedBodyPart, setSelectedBodyPart] = useState(null)
 
   useEffect(() => {
     async function loadData() {
@@ -108,6 +111,49 @@ export default function Analytics() {
     if (templateId === 'freestyle') return 'Freestyle'
     const tmpl = templates.find(t => t.id === templateId)
     return tmpl?.name || 'Workout'
+  }
+
+  const handleDeleteWorkout = async (workoutId) => {
+    if (!confirm('Are you sure you want to delete this workout?')) return
+    try {
+      await deleteWorkoutFromSupabase(workoutId)
+      // Refresh data
+      setData(prev => ({
+        ...prev,
+        workouts: prev.workouts.filter(w => w.id !== workoutId)
+      }))
+      setSelectedWorkout(null)
+    } catch (e) {
+      console.error('Error deleting workout:', e)
+      alert('Failed to delete workout')
+    }
+  }
+
+  const getBodyPartExercises = (bodyPart) => {
+    // Group all exercises by exercise name
+    const exerciseMap = {}
+    
+    data.workouts.forEach(w => {
+      w.workout_exercises?.forEach(ex => {
+        if (ex.body_part === bodyPart) {
+          if (!exerciseMap[ex.exercise_name]) {
+            exerciseMap[ex.exercise_name] = []
+          }
+          exerciseMap[ex.exercise_name].push({
+            date: w.date,
+            sets: ex.workout_sets || []
+          })
+        }
+      })
+    })
+    
+    // Convert to array and sort by most recent
+    return Object.entries(exerciseMap)
+      .map(([name, sessions]) => ({
+        name,
+        sessions: sessions.sort((a, b) => new Date(b.date) - new Date(a.date))
+      }))
+      .sort((a, b) => b.sessions.length - a.sessions.length) // Sort by frequency
   }
 
   // Filter workouts by date
@@ -195,7 +241,49 @@ export default function Analytics() {
           data={bodyPartData} 
           metric={METRIC_TYPES[metricType]} 
           detailedStats={data.detailedStats}
+          onDrillDown={(bp) => setSelectedBodyPart(bp)}
         />
+      </div>
+    )
+  }
+
+  const renderHistory = () => {
+    const sortedWorkouts = [...data.workouts].sort((a, b) => new Date(b.date) - new Date(a.date))
+    
+    return (
+      <div className={styles.historyContainer}>
+        <h3 className={styles.sectionTitle}>Workout History</h3>
+        {sortedWorkouts.length === 0 ? (
+          <p className={styles.emptyText}>No workouts recorded yet</p>
+        ) : (
+          <div className={styles.historyList}>
+            {sortedWorkouts.map(w => (
+              <button 
+                key={w.id} 
+                className={styles.historyItem}
+                onClick={() => setSelectedWorkout(w)}
+              >
+                <div className={styles.historyDate}>
+                  <span className={styles.historyDay}>
+                    {new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
+                  </span>
+                  <span className={styles.historyDateNum}>
+                    {new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+                <div className={styles.historyInfo}>
+                  <span className={styles.historyExercises}>
+                    {w.workout_exercises?.length || 0} exercises
+                  </span>
+                  <span className={styles.historyDuration}>
+                    {Math.floor((w.duration || 0) / 60)}:{String((w.duration || 0) % 60).padStart(2, '0')}
+                  </span>
+                </div>
+                <span className={styles.historyArrow}>→</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -360,12 +448,110 @@ export default function Analytics() {
         ) : (
           <>
             {activeTab === 0 && renderBodyParts()}
-            {activeTab === 1 && renderMetrics()}
-            {activeTab === 2 && renderUpcoming()}
-            {activeTab === 3 && renderTrends()}
+            {activeTab === 1 && renderHistory()}
+            {activeTab === 2 && renderMetrics()}
+            {activeTab === 3 && renderUpcoming()}
+            {activeTab === 4 && renderTrends()}
           </>
         )}
       </div>
+
+      {/* Workout Detail Modal */}
+      {selectedWorkout && (
+        <div className={styles.overlay} onClick={() => setSelectedWorkout(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>{new Date(selectedWorkout.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
+              <button onClick={() => setSelectedWorkout(null)}>✕</button>
+            </div>
+            <div className={styles.workoutDetail}>
+              <div className={styles.workoutMeta}>
+                <span className={styles.workoutDuration}>
+                  {Math.floor((selectedWorkout.duration || 0) / 60)}:{String((selectedWorkout.duration || 0) % 60).padStart(2, '0')}
+                </span>
+                {selectedWorkout.perceived_effort && (
+                  <span className={styles.workoutRpe}>RPE: {selectedWorkout.perceived_effort}</span>
+                )}
+              </div>
+              <div className={styles.exerciseList}>
+                {(selectedWorkout.workout_exercises || []).map((ex, idx) => (
+                  <div key={idx} className={styles.exerciseItem}>
+                    <div className={styles.exerciseHeader}>
+                      <span className={styles.exerciseName}>{ex.exercise_name}</span>
+                      <span className={styles.exerciseBodyPart}>{ex.body_part}</span>
+                    </div>
+                    <div className={styles.exerciseSets}>
+                      {(ex.workout_sets || []).map((s, i) => (
+                        <span key={i} className={styles.setChip}>
+                          {s.weight ? `${s.reps}×${s.weight} lbs` : (s.time ? `${s.time}` : '-')}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {selectedWorkout.notes && (
+                <div className={styles.workoutNotes}>
+                  <strong>Notes:</strong> {selectedWorkout.notes}
+                </div>
+              )}
+              <button 
+                className={styles.deleteBtn} 
+                onClick={() => handleDeleteWorkout(selectedWorkout.id)}
+              >
+                Delete Workout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Body Part Drilldown Modal */}
+      {selectedBodyPart && (
+        <div className={styles.overlay} onClick={() => setSelectedBodyPart(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>{selectedBodyPart} History</h2>
+              <button onClick={() => setSelectedBodyPart(null)}>✕</button>
+            </div>
+            <div className={styles.bodyPartDetail}>
+              {getBodyPartExercises(selectedBodyPart).length === 0 ? (
+                <p className={styles.emptyText}>No workouts for {selectedBodyPart}</p>
+              ) : (
+                <div className={styles.bodyPartList}>
+                  {getBodyPartExercises(selectedBodyPart).map(exercise => (
+                    <div key={exercise.name} className={styles.exerciseGroup}>
+                      <div className={styles.exerciseGroupHeader}>
+                        <span className={styles.exerciseGroupName}>{exercise.name}</span>
+                        <span className={styles.exerciseGroupCount}>{exercise.sessions.length}x</span>
+                      </div>
+                      <div className={styles.exerciseSessions}>
+                        {exercise.sessions.slice(0, 5).map((session, i) => (
+                          <div key={i} className={styles.exerciseSession}>
+                            <span className={styles.sessionDate}>
+                              {new Date(session.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </span>
+                            <div className={styles.sessionSets}>
+                              {session.sets.map((s, j) => (
+                                <span key={j} className={styles.setChip}>
+                                  {s.weight ? `${s.reps}×${s.weight} lbs` : (s.time ? `${s.time}` : '-')}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                        {exercise.sessions.length > 5 && (
+                          <span className={styles.moreSessions}>+{exercise.sessions.length - 5} more sessions</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -340,6 +340,18 @@
   box-shadow: 0 0 30px rgba(255, 45, 45, 0.4);
 }
 
+.deletePlanBtn {
+  width: 100%;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  margin-top: 12px;
+}
+
 /* Footer */
 .footer {
   position: fixed;

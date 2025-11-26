@@ -108,6 +108,27 @@ export async function getWorkoutsByDateFromSupabase(userId, date) {
   return data
 }
 
+export async function deleteWorkoutFromSupabase(workoutId) {
+  // Delete sets first (due to foreign key)
+  const { data: exercises } = await supabase
+    .from('workout_exercises')
+    .select('id')
+    .eq('workout_id', workoutId)
+
+  if (exercises) {
+    for (const ex of exercises) {
+      await supabase.from('workout_sets').delete().eq('workout_exercise_id', ex.id)
+    }
+  }
+
+  // Delete exercises
+  await supabase.from('workout_exercises').delete().eq('workout_id', workoutId)
+
+  // Delete workout
+  const { error } = await supabase.from('workouts').delete().eq('id', workoutId)
+  if (error) throw error
+}
+
 // ============ DAILY METRICS ============
 
 export async function saveMetricsToSupabase(userId, date, metrics) {
@@ -184,34 +205,21 @@ export async function getScheduledWorkoutsFromSupabase(userId) {
 // ============ ANALYTICS ============
 
 export async function getBodyPartStats(userId) {
-  const { data, error } = await supabase
-    .from('workout_exercises')
-    .select('body_part, workout_id')
-    .in('workout_id', 
-      supabase.from('workouts').select('id').eq('user_id', userId)
-    )
-
-  if (error) {
-    // Fallback: get all workouts first
-    const workouts = await getWorkoutsFromSupabase(userId)
-    const bodyPartCounts = {}
-    
-    workouts.forEach(w => {
-      w.workout_exercises?.forEach(ex => {
-        const bp = ex.body_part || 'Other'
-        bodyPartCounts[bp] = (bodyPartCounts[bp] || 0) + 1
-      })
-    })
-    
-    return bodyPartCounts
-  }
-
+  // Get all workouts with exercises
+  const workouts = await getWorkoutsFromSupabase(userId)
   const bodyPartCounts = {}
-  data.forEach(ex => {
-    const bp = ex.body_part || 'Other'
-    bodyPartCounts[bp] = (bodyPartCounts[bp] || 0) + 1
+  
+  console.log('getBodyPartStats - workouts:', workouts.length)
+  
+  workouts.forEach(w => {
+    w.workout_exercises?.forEach(ex => {
+      const bp = ex.body_part || 'Other'
+      console.log('Exercise:', ex.exercise_name, 'Body part:', bp)
+      bodyPartCounts[bp] = (bodyPartCounts[bp] || 0) + 1
+    })
   })
   
+  console.log('Body part counts:', bodyPartCounts)
   return bodyPartCounts
 }
 

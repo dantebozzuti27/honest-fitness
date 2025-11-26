@@ -495,8 +495,8 @@ export default function Planner() {
             {messages.map((msg, idx) => (
               <div key={idx} className={`${styles.message} ${styles[msg.role]}`}>
                 <div className={styles.messageContent}>
-                  {msg.content.split('\n').map((line, i) => (
-                    <p key={i}>{line}</p>
+                  {(msg.content || '').split('\n').map((line, i) => (
+                    <p key={i}>{line || '\u00A0'}</p>
                   ))}
                   {msg.workout && (
                     <button 

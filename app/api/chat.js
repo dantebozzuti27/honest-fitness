@@ -48,10 +48,14 @@ If asked about anything else, politely redirect to fitness topics. Keep response
     const data = await response.json()
     
     if (data.error) {
-      throw new Error(data.error.message)
+      throw new Error(data.error.message || 'API error')
     }
 
-    const content = data.choices[0].message.content
+    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+      throw new Error('Invalid response from API')
+    }
+
+    const content = data.choices[0].message.content || 'Sorry, I could not generate a response.'
 
     // Try to parse as workout JSON
     if (isWorkoutRequest) {
@@ -67,8 +71,8 @@ If asked about anything else, politely redirect to fitness topics. Keep response
 
     res.status(200).json({ message: content })
   } catch (error) {
-    console.error('OpenAI error:', error)
-    res.status(500).json({ error: 'Failed to get response' })
+    console.error('Grok API error:', error)
+    res.status(500).json({ message: 'Sorry, I encountered an error. Please try again.' })
   }
 }
 

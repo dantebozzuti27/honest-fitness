@@ -28,6 +28,9 @@ export default function ActiveWorkout() {
   const [showTimesUp, setShowTimesUp] = useState(false)
   const workoutTimerRef = useRef(null)
   const restTimerRef = useRef(null)
+  const workoutStartTimeRef = useRef(null)
+  const restStartTimeRef = useRef(null)
+  const restDurationRef = useRef(0)
 
   useEffect(() => {
     async function load() {
@@ -121,14 +124,84 @@ export default function ActiveWorkout() {
     }
     load()
     
-    // Start workout timer
+    // Initialize workout timer with persistence
+    const savedStartTime = localStorage.getItem('workoutStartTime')
+    if (savedStartTime) {
+      workoutStartTimeRef.current = parseInt(savedStartTime)
+      const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current) / 1000)
+      setWorkoutTime(elapsed)
+    } else {
+      workoutStartTimeRef.current = Date.now()
+      localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
+    }
+    
+    // Restore rest timer if it was running
+    const savedRestStart = localStorage.getItem('restStartTime')
+    const savedRestDuration = localStorage.getItem('restDuration')
+    if (savedRestStart && savedRestDuration) {
+      restStartTimeRef.current = parseInt(savedRestStart)
+      restDurationRef.current = parseInt(savedRestDuration)
+      const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
+      const remaining = Math.max(0, restDurationRef.current - elapsed)
+      if (remaining > 0) {
+        setRestTime(remaining)
+        setIsResting(true)
+        restTimerRef.current = setInterval(() => {
+          if (restStartTimeRef.current) {
+            const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
+            const remaining = Math.max(0, restDurationRef.current - elapsed)
+            setRestTime(remaining)
+            if (remaining <= 0) {
+              clearInterval(restTimerRef.current)
+              setIsResting(false)
+              setShowTimesUp(true)
+              setTimeout(() => setShowTimesUp(false), 2000)
+              localStorage.removeItem('restStartTime')
+              localStorage.removeItem('restDuration')
+            }
+          }
+        }, 1000)
+      } else {
+        localStorage.removeItem('restStartTime')
+        localStorage.removeItem('restDuration')
+      }
+    }
+    
+    // Update timer every second
     workoutTimerRef.current = setInterval(() => {
-      setWorkoutTime(t => t + 1)
+      if (workoutStartTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current) / 1000)
+        setWorkoutTime(elapsed)
+      }
     }, 1000)
+    
+    // Handle visibility change to recalculate time
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        if (workoutStartTimeRef.current) {
+          const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current) / 1000)
+          setWorkoutTime(elapsed)
+        }
+        if (restStartTimeRef.current && restDurationRef.current) {
+          const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
+          const remaining = Math.max(0, restDurationRef.current - elapsed)
+          setRestTime(remaining)
+          if (remaining <= 0 && isResting) {
+            setIsResting(false)
+            setShowTimesUp(true)
+            setTimeout(() => setShowTimesUp(false), 2000)
+            localStorage.removeItem('restStartTime')
+            localStorage.removeItem('restDuration')
+          }
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     
     return () => {
       clearInterval(workoutTimerRef.current)
       clearInterval(restTimerRef.current)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [templateId, randomWorkout])
 
@@ -138,21 +211,28 @@ export default function ActiveWorkout() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
-  const startRest = () => {
-    setRestTime(90)
+  const startRest = (duration = 90) => {
+    restDurationRef.current = duration
+    restStartTimeRef.current = Date.now()
+    localStorage.setItem('restStartTime', restStartTimeRef.current.toString())
+    localStorage.setItem('restDuration', duration.toString())
+    setRestTime(duration)
     setIsResting(true)
     clearInterval(restTimerRef.current)
     restTimerRef.current = setInterval(() => {
-      setRestTime(t => {
-        if (t <= 1) {
+      if (restStartTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
+        const remaining = Math.max(0, restDurationRef.current - elapsed)
+        setRestTime(remaining)
+        if (remaining <= 0) {
           clearInterval(restTimerRef.current)
           setIsResting(false)
           setShowTimesUp(true)
           setTimeout(() => setShowTimesUp(false), 2000)
-          return 0
+          localStorage.removeItem('restStartTime')
+          localStorage.removeItem('restDuration')
         }
-        return t - 1
-      })
+      }
     }, 1000)
   }
 
@@ -160,6 +240,8 @@ export default function ActiveWorkout() {
     clearInterval(restTimerRef.current)
     setIsResting(false)
     setRestTime(0)
+    localStorage.removeItem('restStartTime')
+    localStorage.removeItem('restDuration')
   }
 
   const toggleExpanded = (id) => {
@@ -272,6 +354,13 @@ export default function ActiveWorkout() {
   }
 
   const finishWorkout = async () => {
+    // Clean up timers and localStorage
+    clearInterval(workoutTimerRef.current)
+    clearInterval(restTimerRef.current)
+    localStorage.removeItem('workoutStartTime')
+    localStorage.removeItem('restStartTime')
+    localStorage.removeItem('restDuration')
+    
     const workout = {
       date: getTodayEST(),
       duration: workoutTime,

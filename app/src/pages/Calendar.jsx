@@ -20,13 +20,19 @@ export default function Calendar() {
   const [scheduledInfo, setScheduledInfo] = useState(null)
   const [weeklyPlan, setWeeklyPlan] = useState(null)
 
+  const refreshData = async () => {
+    if (user) {
+      const dates = await getWorkoutDatesFromSupabase(user.id)
+      setWorkoutDates(dates)
+      const s = await calculateStreakFromSupabase(user.id)
+      setStreak(s)
+    }
+  }
+
   useEffect(() => {
     async function load() {
       if (user) {
-        const dates = await getWorkoutDatesFromSupabase(user.id)
-        setWorkoutDates(dates)
-        const s = await calculateStreakFromSupabase(user.id)
-        setStreak(s)
+        await refreshData()
         
         // Load weekly plan
         try {
@@ -50,6 +56,18 @@ export default function Calendar() {
       setTemplates(t)
     }
     load()
+
+    // Refresh on visibility change (when user comes back to tab)
+    const handleVisibilityChange = () => {
+      if (!document.hidden && user) {
+        refreshData()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [user])
 
   const calendarDays = useMemo(() => {
@@ -131,11 +149,7 @@ export default function Calendar() {
     
     try {
       await deleteWorkoutFromSupabase(selectedWorkout.id)
-      // Refresh data
-      const dates = await getWorkoutDatesFromSupabase(user.id)
-      setWorkoutDates(dates)
-      const s = await calculateStreakFromSupabase(user.id)
-      setStreak(s)
+      await refreshData()
       closeModal()
     } catch (e) {
       console.error('Error deleting workout:', e)

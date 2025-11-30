@@ -108,6 +108,76 @@ export async function getWorkoutsByDateFromSupabase(userId, date) {
   return data
 }
 
+export async function updateWorkoutInSupabase(workoutId, workout, userId) {
+  // Update workout
+  const { error: workoutError } = await supabase
+    .from('workouts')
+    .update({
+      date: workout.date,
+      duration: workout.duration,
+      template_name: workout.templateName || null,
+      perceived_effort: workout.perceivedEffort || null,
+      mood_after: workout.moodAfter || null,
+      notes: workout.notes || null,
+      day_of_week: workout.dayOfWeek ?? null
+    })
+    .eq('id', workoutId)
+
+  if (workoutError) throw workoutError
+
+  // Delete existing exercises and sets
+  const { data: exercises } = await supabase
+    .from('workout_exercises')
+    .select('id')
+    .eq('workout_id', workoutId)
+
+  if (exercises) {
+    for (const ex of exercises) {
+      await supabase.from('workout_sets').delete().eq('workout_exercise_id', ex.id)
+    }
+    await supabase.from('workout_exercises').delete().eq('workout_id', workoutId)
+  }
+
+  // Insert new exercises
+  for (let i = 0; i < workout.exercises.length; i++) {
+    const ex = workout.exercises[i]
+    
+    const { data: exerciseData, error: exerciseError } = await supabase
+      .from('workout_exercises')
+      .insert({
+        workout_id: workoutId,
+        exercise_name: ex.name,
+        category: ex.category,
+        body_part: ex.bodyPart,
+        equipment: ex.equipment,
+        exercise_order: i
+      })
+      .select()
+      .single()
+
+    if (exerciseError) throw exerciseError
+
+    // Insert sets
+    if (ex.sets && ex.sets.length > 0) {
+      const setsToInsert = ex.sets.map((set, idx) => ({
+        workout_exercise_id: exerciseData.id,
+        set_number: idx + 1,
+        weight: set.weight ? Number(set.weight) : null,
+        reps: set.reps ? Number(set.reps) : null,
+        time: set.time || null,
+        speed: set.speed ? Number(set.speed) : null,
+        incline: set.incline ? Number(set.incline) : null
+      }))
+
+      const { error: setsError } = await supabase
+        .from('workout_sets')
+        .insert(setsToInsert)
+
+      if (setsError) throw setsError
+    }
+  }
+}
+
 export async function deleteWorkoutFromSupabase(workoutId) {
   // Delete sets first (due to foreign key)
   const { data: exercises } = await supabase

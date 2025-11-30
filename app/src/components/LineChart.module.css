@@ -1,0 +1,53 @@
+.chartContainer {
+  width: 100%;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+
+.chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.emptyChart {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.label {
+  transform: rotate(-45deg);
+  transform-origin: center;
+  white-space: nowrap;
+}
+
+.legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.line {
+  filter: drop-shadow(0 0 2px currentColor);
+}
+
+.point {
+  transition: r 0.2s;
+}
+
+.point:hover {
+  r: 2.5;
+}
+

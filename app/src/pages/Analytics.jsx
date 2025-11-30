@@ -10,18 +10,23 @@ import {
   getExerciseStats,
   getWorkoutsFromSupabase,
   getDetailedBodyPartStats,
-  deleteWorkoutFromSupabase
+  deleteWorkoutFromSupabase,
+  updateWorkoutInSupabase,
+  saveMetricsToSupabase
 } from '../lib/supabaseDb'
 import { getAllTemplates } from '../db'
 import BodyHeatmap from '../components/BodyHeatmap'
+import LineChart from '../components/LineChart'
+import BarChart from '../components/BarChart'
 import styles from './Analytics.module.css'
 
 const TABS = ['Scan', 'History', 'Metrics', 'Upcoming', 'Trends']
 const DATE_FILTERS = [
-  { label: '7 Days', days: 7 },
-  { label: '30 Days', days: 30 },
-  { label: '90 Days', days: 90 },
-  { label: 'All Time', days: null }
+  { label: 'This Week', type: 'week' },
+  { label: 'This Month', type: 'month' },
+  { label: 'Last 90 Days', type: 'days', days: 90 },
+  { label: 'This Year', type: 'year' },
+  { label: 'All Time', type: 'all' }
 ]
 const METRIC_TYPES = ['Sessions', 'Total Reps', 'Total Sets']
 
@@ -30,7 +35,7 @@ export default function Analytics() {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [dateFilter, setDateFilter] = useState(1) // 30 days default
+  const [dateFilter, setDateFilter] = useState(1) // This Month default
   const [metricType, setMetricType] = useState(0) // Sessions default
   const [data, setData] = useState({
     bodyParts: {},
@@ -48,6 +53,8 @@ export default function Analytics() {
   const [templates, setTemplates] = useState([])
   const [selectedWorkout, setSelectedWorkout] = useState(null)
   const [selectedBodyPart, setSelectedBodyPart] = useState(null)
+  const [editingWorkout, setEditingWorkout] = useState(null)
+  const [editingMetric, setEditingMetric] = useState(null)
 
   useEffect(() => {
     async function loadData() {
@@ -105,6 +112,18 @@ export default function Analytics() {
     }
 
     loadData()
+
+    // Refresh on visibility change (when user comes back to tab)
+    const handleVisibilityChange = () => {
+      if (!document.hidden && user) {
+        refreshData()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [user])
 
   const getTemplateName = (templateId) => {
@@ -113,19 +132,127 @@ export default function Analytics() {
     return tmpl?.name || 'Workout'
   }
 
+  const refreshData = async () => {
+    if (!user) return
+    setLoading(true)
+    try {
+      const [bodyParts, streak, metrics, scheduled, frequency, topExercises, workouts, detailedStats] = await Promise.all([
+        getBodyPartStats(user.id),
+        calculateStreakFromSupabase(user.id),
+        getAllMetricsFromSupabase(user.id),
+        getScheduledWorkoutsFromSupabase(user.id),
+        getWorkoutFrequency(user.id, 30),
+        getExerciseStats(user.id),
+        getWorkoutsFromSupabase(user.id),
+        getDetailedBodyPartStats(user.id)
+      ])
+
+      const bodyPartReps = {}
+      const bodyPartSets = {}
+      workouts.forEach(w => {
+        w.workout_exercises?.forEach(ex => {
+          const bp = ex.body_part || 'Other'
+          const sets = ex.workout_sets || []
+          bodyPartSets[bp] = (bodyPartSets[bp] || 0) + sets.length
+          sets.forEach(s => {
+            if (s.reps) {
+              bodyPartReps[bp] = (bodyPartReps[bp] || 0) + Number(s.reps)
+            }
+          })
+        })
+      })
+
+      setData({
+        bodyParts,
+        bodyPartReps,
+        bodyPartSets,
+        detailedStats,
+        streak,
+        metrics,
+        scheduled,
+        frequency,
+        topExercises,
+        totalWorkouts: workouts.length,
+        workouts
+      })
+    } catch (err) {
+      console.error('Error refreshing data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleDeleteWorkout = async (workoutId) => {
     if (!confirm('Are you sure you want to delete this workout?')) return
     try {
       await deleteWorkoutFromSupabase(workoutId)
-      // Refresh data
-      setData(prev => ({
-        ...prev,
-        workouts: prev.workouts.filter(w => w.id !== workoutId)
-      }))
+      await refreshData()
       setSelectedWorkout(null)
     } catch (e) {
       console.error('Error deleting workout:', e)
       alert('Failed to delete workout')
+    }
+  }
+
+  const handleEditWorkout = () => {
+    setEditingWorkout(selectedWorkout)
+  }
+
+  const handleSaveWorkout = async () => {
+    if (!editingWorkout || !user) return
+    try {
+      const workout = {
+        date: editingWorkout.date,
+        duration: editingWorkout.duration,
+        templateName: editingWorkout.template_name || null,
+        perceivedEffort: editingWorkout.perceived_effort || null,
+        moodAfter: editingWorkout.mood_after || null,
+        notes: editingWorkout.notes || null,
+        dayOfWeek: editingWorkout.day_of_week ?? null,
+        exercises: editingWorkout.workout_exercises.map(ex => ({
+          name: ex.exercise_name,
+          category: ex.category,
+          bodyPart: ex.body_part,
+          equipment: ex.equipment || '',
+          sets: (ex.workout_sets || []).map(s => ({
+            weight: s.weight,
+            reps: s.reps,
+            time: s.time,
+            speed: s.speed,
+            incline: s.incline
+          }))
+        }))
+      }
+      await updateWorkoutInSupabase(editingWorkout.id, workout, user.id)
+      await refreshData()
+      setEditingWorkout(null)
+      setSelectedWorkout(null)
+    } catch (e) {
+      console.error('Error updating workout:', e)
+      alert('Failed to update workout')
+    }
+  }
+
+  const handleEditMetric = (metric) => {
+    setEditingMetric({ ...metric })
+  }
+
+  const handleSaveMetric = async () => {
+    if (!editingMetric || !user) return
+    try {
+      await saveMetricsToSupabase(user.id, editingMetric.date, {
+        sleepScore: editingMetric.sleep_score,
+        sleepTime: editingMetric.sleep_time,
+        hrv: editingMetric.hrv,
+        steps: editingMetric.steps,
+        caloriesBurned: editingMetric.calories,
+        weight: editingMetric.weight
+      })
+      await refreshData()
+      setEditingMetric(null)
+    } catch (e) {
+      console.error('Error updating metric:', e)
+      alert('Failed to update metric')
     }
   }
 
@@ -158,11 +285,37 @@ export default function Analytics() {
 
   // Filter workouts by date
   const filteredData = useMemo(() => {
-    const days = DATE_FILTERS[dateFilter].days
-    if (!days) return data
+    const filter = DATE_FILTERS[dateFilter]
+    let cutoffDate = null
     
-    const cutoffDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0]
-    const filteredWorkouts = data.workouts.filter(w => w.date >= cutoffDate)
+    if (filter.type === 'all') {
+      // No filter
+    } else if (filter.type === 'week') {
+      // This week (Monday to Sunday)
+      const today = new Date()
+      const dayOfWeek = today.getDay()
+      const monday = new Date(today)
+      monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+      monday.setHours(0, 0, 0, 0)
+      cutoffDate = monday.toISOString().split('T')[0]
+    } else if (filter.type === 'month') {
+      // This month
+      const today = new Date()
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1)
+      cutoffDate = firstDay.toISOString().split('T')[0]
+    } else if (filter.type === 'year') {
+      // This year
+      const today = new Date()
+      const firstDay = new Date(today.getFullYear(), 0, 1)
+      cutoffDate = firstDay.toISOString().split('T')[0]
+    } else if (filter.type === 'days' && filter.days) {
+      // Last N days
+      cutoffDate = new Date(Date.now() - filter.days * 86400000).toISOString().split('T')[0]
+    }
+    
+    const filteredWorkouts = cutoffDate 
+      ? data.workouts.filter(w => w.date >= cutoffDate)
+      : data.workouts
     
     // Recalculate body part stats for filtered workouts
     const bodyParts = {}
@@ -247,49 +400,106 @@ export default function Analytics() {
     )
   }
 
+  const weeklyWorkoutData = useMemo(() => {
+    const sortedWorkouts = [...data.workouts].sort((a, b) => new Date(a.date) - new Date(b.date))
+    const weeks = {}
+    sortedWorkouts.forEach(w => {
+      const date = new Date(w.date + 'T12:00:00')
+      const weekStart = new Date(date)
+      weekStart.setDate(date.getDate() - date.getDay())
+      const weekKey = weekStart.toISOString().split('T')[0]
+      weeks[weekKey] = (weeks[weekKey] || 0) + 1
+    })
+    return weeks
+  }, [data.workouts])
+
   const renderHistory = () => {
-    const sortedWorkouts = [...data.workouts].sort((a, b) => new Date(b.date) - new Date(a.date))
+    const sortedWorkouts = [...data.workouts].sort((a, b) => new Date(a.date) - new Date(b.date))
+    
+    // Duration over time
+    const durationData = sortedWorkouts.slice(-14).map(w => w.duration || 0)
+    const durationLabels = sortedWorkouts.slice(-14).map(w => {
+      const d = new Date(w.date + 'T12:00:00')
+      return `${d.getMonth() + 1}/${d.getDate()}`
+    })
     
     return (
       <div className={styles.historyContainer}>
         <h3 className={styles.sectionTitle}>Workout History</h3>
+        
         {sortedWorkouts.length === 0 ? (
           <p className={styles.emptyText}>No workouts recorded yet</p>
         ) : (
-          <div className={styles.historyList}>
-            {sortedWorkouts.map(w => (
-              <button 
-                key={w.id} 
-                className={styles.historyItem}
-                onClick={() => setSelectedWorkout(w)}
-              >
-                <div className={styles.historyDate}>
-                  <span className={styles.historyDay}>
-                    {new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
-                  </span>
-                  <span className={styles.historyDateNum}>
-                    {new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
-                </div>
-                <div className={styles.historyInfo}>
-                  <span className={styles.historyExercises}>
-                    {w.workout_exercises?.length || 0} exercises
-                  </span>
-                  <span className={styles.historyDuration}>
-                    {Math.floor((w.duration || 0) / 60)}:{String((w.duration || 0) % 60).padStart(2, '0')}
-                  </span>
-                </div>
-                <span className={styles.historyArrow}>→</span>
-              </button>
-            ))}
-          </div>
+          <>
+            <div className={styles.chartSection}>
+              <h4 className={styles.chartTitle}>Workouts Per Week</h4>
+              <BarChart data={weeklyWorkoutData} height={180} />
+            </div>
+            
+            <div className={styles.chartSection}>
+              <h4 className={styles.chartTitle}>Workout Duration (Last 14 Days)</h4>
+              <LineChart 
+                data={durationData} 
+                labels={durationLabels}
+                height={200}
+                color="#ff2d2d"
+              />
+            </div>
+            
+            <div className={styles.historyList}>
+              {sortedWorkouts.slice().reverse().map(w => (
+                <button 
+                  key={w.id} 
+                  className={styles.historyItem}
+                  onClick={() => setSelectedWorkout(w)}
+                >
+                  <div className={styles.historyDate}>
+                    <span className={styles.historyDay}>
+                      {new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
+                    </span>
+                    <span className={styles.historyDateNum}>
+                      {new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                  <div className={styles.historyInfo}>
+                    <span className={styles.historyExercises}>
+                      {w.workout_exercises?.length || 0} exercises
+                    </span>
+                    <span className={styles.historyDuration}>
+                      {Math.floor((w.duration || 0) / 60)}:{String((w.duration || 0) % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                  <span className={styles.historyArrow}>→</span>
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
     )
   }
 
   const renderMetrics = () => {
-    const recentMetrics = data.metrics.slice(-14)
+    const recentMetrics = data.metrics.slice(-30).reverse()
+    
+    // Prepare chart data
+    const weightData = recentMetrics.filter(m => m.weight).map(m => m.weight)
+    const weightLabels = recentMetrics.filter(m => m.weight).map(m => {
+      const d = new Date(m.date + 'T12:00:00')
+      return `${d.getMonth() + 1}/${d.getDate()}`
+    })
+    
+    const sleepData = recentMetrics.filter(m => m.sleep_score).map(m => m.sleep_score)
+    const sleepLabels = recentMetrics.filter(m => m.sleep_score).map(m => {
+      const d = new Date(m.date + 'T12:00:00')
+      return `${d.getMonth() + 1}/${d.getDate()}`
+    })
+    
+    const stepsData = recentMetrics.filter(m => m.steps).map(m => m.steps)
+    const stepsLabels = recentMetrics.filter(m => m.steps).map(m => {
+      const d = new Date(m.date + 'T12:00:00')
+      return `${d.getMonth() + 1}/${d.getDate()}`
+    })
     
     return (
       <div className={styles.metricsContainer}>
@@ -298,50 +508,73 @@ export default function Analytics() {
           <span className={styles.streakLabel}>Day Streak</span>
         </div>
 
-        <h3 className={styles.sectionTitle}>Recent Metrics</h3>
+        <h3 className={styles.sectionTitle}>Metrics Trends</h3>
         
         {recentMetrics.length === 0 ? (
           <p className={styles.emptyText}>No metrics recorded yet</p>
         ) : (
-          <div className={styles.metricsTable}>
-            <div className={styles.metricsHeader}>
-              <span>Date</span>
-              <span>Weight</span>
-              <span>Sleep</span>
-              <span>Steps</span>
-            </div>
-            {recentMetrics.reverse().map(m => (
-              <div key={m.date} className={styles.metricsRow}>
-                <span>{new Date(m.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                <span>{m.weight ? `${m.weight} lbs` : '-'}</span>
-                <span>{m.sleep_time ? `${m.sleep_time}h` : (m.sleep_score ? `${m.sleep_score}` : '-')}</span>
-                <span>{m.steps?.toLocaleString() || '-'}</span>
+          <>
+            {weightData.length > 0 && (
+              <div className={styles.chartSection}>
+                <h4 className={styles.chartTitle}>Weight (lbs)</h4>
+                <LineChart 
+                  data={weightData} 
+                  labels={weightLabels}
+                  height={200}
+                  color="#4CAF50"
+                />
               </div>
-            ))}
-          </div>
-        )}
-
-        {data.metrics.length > 1 && (
-          <div className={styles.metricsSummary}>
-            <h4>Weight Trend</h4>
-            <div className={styles.miniChart}>
-              {data.metrics.filter(m => m.weight).slice(-7).map((m, i) => {
-                const weights = data.metrics.filter(x => x.weight).map(x => x.weight)
-                const min = Math.min(...weights)
-                const max = Math.max(...weights)
-                const range = max - min || 1
-                const height = ((m.weight - min) / range) * 60 + 20
-                return (
-                  <div 
-                    key={i} 
-                    className={styles.miniBar}
-                    style={{ height: `${height}%` }}
-                    title={`${m.weight} lbs`}
-                  />
-                )
-              })}
+            )}
+            
+            {sleepData.length > 0 && (
+              <div className={styles.chartSection}>
+                <h4 className={styles.chartTitle}>Sleep Score</h4>
+                <LineChart 
+                  data={sleepData} 
+                  labels={sleepLabels}
+                  height={200}
+                  color="#2196F3"
+                />
+              </div>
+            )}
+            
+            {stepsData.length > 0 && (
+              <div className={styles.chartSection}>
+                <h4 className={styles.chartTitle}>Steps</h4>
+                <LineChart 
+                  data={stepsData} 
+                  labels={stepsLabels}
+                  height={200}
+                  color="#FF9800"
+                />
+              </div>
+            )}
+            
+            <h3 className={styles.sectionTitle}>Recent Metrics</h3>
+            <div className={styles.metricsTable}>
+              <div className={styles.metricsHeader}>
+                <span>Date</span>
+                <span>Weight</span>
+                <span>Sleep</span>
+                <span>Steps</span>
+                <span></span>
+              </div>
+              {recentMetrics.slice(0, 14).map(m => (
+                <div key={m.date} className={styles.metricsRow}>
+                  <span>{new Date(m.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                  <span>{m.weight ? `${m.weight} lbs` : '-'}</span>
+                  <span>{m.sleep_time ? `${m.sleep_time}h` : (m.sleep_score ? `${m.sleep_score}` : '-')}</span>
+                  <span>{m.steps?.toLocaleString() || '-'}</span>
+                  <button 
+                    className={styles.editMetricBtn}
+                    onClick={() => handleEditMetric(m)}
+                  >
+                    Edit
+                  </button>
+                </div>
+              ))}
             </div>
-          </div>
+          </>
         )}
       </div>
     )
@@ -386,6 +619,7 @@ export default function Analytics() {
       ? ((last30Days / 30) * 7).toFixed(1) 
       : 0
 
+
     return (
       <div className={styles.trendsContainer}>
         <div className={styles.statsGrid}>
@@ -403,7 +637,28 @@ export default function Analytics() {
           </div>
         </div>
 
-        <h3 className={styles.sectionTitle}>Top Exercises</h3>
+        {Object.keys(frequencyChartData).length > 0 && (
+          <div className={styles.chartSection}>
+            <h4 className={styles.chartTitle}>Workout Frequency (Last 30 Days)</h4>
+            <BarChart data={frequencyChartData} height={200} color="#ff2d2d" />
+          </div>
+        )}
+        
+        {Object.keys(volumeChartData).length > 0 && (
+          <div className={styles.chartSection}>
+            <h4 className={styles.chartTitle}>Training Volume (Sets Per Week)</h4>
+            <BarChart data={volumeChartData} height={200} color="#9C27B0" />
+          </div>
+        )}
+
+        {Object.keys(topExercisesChartData).length > 0 && (
+          <div className={styles.chartSection}>
+            <h4 className={styles.chartTitle}>Top Exercises</h4>
+            <BarChart data={topExercisesChartData} height={200} color="#FF9800" />
+          </div>
+        )}
+
+        <h3 className={styles.sectionTitle}>Top Exercises List</h3>
         {data.topExercises.length === 0 ? (
           <p className={styles.emptyText}>Complete workouts to see your top exercises</p>
         ) : (
@@ -495,12 +750,157 @@ export default function Analytics() {
                   <strong>Notes:</strong> {selectedWorkout.notes}
                 </div>
               )}
-              <button 
-                className={styles.deleteBtn} 
-                onClick={() => handleDeleteWorkout(selectedWorkout.id)}
-              >
-                Delete Workout
-              </button>
+              <div className={styles.workoutActions}>
+                <button 
+                  className={styles.editBtn} 
+                  onClick={handleEditWorkout}
+                >
+                  Edit Workout
+                </button>
+                <button 
+                  className={styles.deleteBtn} 
+                  onClick={() => handleDeleteWorkout(selectedWorkout.id)}
+                >
+                  Delete Workout
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Workout Modal */}
+      {editingWorkout && (
+        <div className={styles.overlay} onClick={() => setEditingWorkout(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Edit Workout</h2>
+              <button onClick={() => setEditingWorkout(null)}>✕</button>
+            </div>
+            <div className={styles.editForm}>
+              <div className={styles.formGroup}>
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={editingWorkout.date}
+                  onChange={(e) => setEditingWorkout({ ...editingWorkout, date: e.target.value })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Duration (seconds)</label>
+                <input
+                  type="number"
+                  value={editingWorkout.duration || 0}
+                  onChange={(e) => setEditingWorkout({ ...editingWorkout, duration: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>RPE</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={editingWorkout.perceived_effort || ''}
+                  onChange={(e) => setEditingWorkout({ ...editingWorkout, perceived_effort: parseInt(e.target.value) || null })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Notes</label>
+                <textarea
+                  value={editingWorkout.notes || ''}
+                  onChange={(e) => setEditingWorkout({ ...editingWorkout, notes: e.target.value })}
+                  rows={3}
+                />
+              </div>
+              <div className={styles.formActions}>
+                <button className={styles.saveBtn} onClick={handleSaveWorkout}>
+                  Save
+                </button>
+                <button className={styles.cancelBtn} onClick={() => setEditingWorkout(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Metric Modal */}
+      {editingMetric && (
+        <div className={styles.overlay} onClick={() => setEditingMetric(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Edit Metric</h2>
+              <button onClick={() => setEditingMetric(null)}>✕</button>
+            </div>
+            <div className={styles.editForm}>
+              <div className={styles.formGroup}>
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={editingMetric.date}
+                  onChange={(e) => setEditingMetric({ ...editingMetric, date: e.target.value })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Weight (lbs)</label>
+                <input
+                  type="number"
+                  value={editingMetric.weight || ''}
+                  onChange={(e) => setEditingMetric({ ...editingMetric, weight: parseFloat(e.target.value) || null })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Sleep Time (hours)</label>
+                <input
+                  type="text"
+                  value={editingMetric.sleep_time || ''}
+                  onChange={(e) => setEditingMetric({ ...editingMetric, sleep_time: e.target.value })}
+                  placeholder="7h 30m"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Sleep Score</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={editingMetric.sleep_score || ''}
+                  onChange={(e) => setEditingMetric({ ...editingMetric, sleep_score: parseInt(e.target.value) || null })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>HRV (ms)</label>
+                <input
+                  type="number"
+                  value={editingMetric.hrv || ''}
+                  onChange={(e) => setEditingMetric({ ...editingMetric, hrv: parseInt(e.target.value) || null })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Steps</label>
+                <input
+                  type="number"
+                  value={editingMetric.steps || ''}
+                  onChange={(e) => setEditingMetric({ ...editingMetric, steps: parseInt(e.target.value) || null })}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Calories</label>
+                <input
+                  type="number"
+                  value={editingMetric.calories || ''}
+                  onChange={(e) => setEditingMetric({ ...editingMetric, calories: parseInt(e.target.value) || null })}
+                />
+              </div>
+              <div className={styles.formActions}>
+                <button className={styles.saveBtn} onClick={handleSaveMetric}>
+                  Save
+                </button>
+                <button className={styles.cancelBtn} onClick={() => setEditingMetric(null)}>
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>

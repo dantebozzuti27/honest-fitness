@@ -583,6 +583,18 @@ export default function Analytics() {
       return `${d.getMonth() + 1}/${d.getDate()}`
     })
     
+    const hrvData = recentMetrics.filter(m => m.hrv).map(m => m.hrv)
+    const hrvLabels = recentMetrics.filter(m => m.hrv).map(m => {
+      const d = new Date(m.date + 'T12:00:00')
+      return `${d.getMonth() + 1}/${d.getDate()}`
+    })
+    
+    const caloriesData = recentMetrics.filter(m => m.calories).map(m => m.calories)
+    const caloriesLabels = recentMetrics.filter(m => m.calories).map(m => {
+      const d = new Date(m.date + 'T12:00:00')
+      return `${d.getMonth() + 1}/${d.getDate()}`
+    })
+    
     return (
       <div className={styles.metricsContainer}>
         <div className={styles.streakCard}>
@@ -617,6 +629,20 @@ export default function Analytics() {
                 disabled={stepsData.length === 0}
               >
                 Steps
+              </button>
+              <button
+                className={`${styles.chartTypeBtn} ${metricsChartType === 'hrv' ? styles.activeChartType : ''}`}
+                onClick={() => setMetricsChartType('hrv')}
+                disabled={hrvData.length === 0}
+              >
+                HRV
+              </button>
+              <button
+                className={`${styles.chartTypeBtn} ${metricsChartType === 'calories' ? styles.activeChartType : ''}`}
+                onClick={() => setMetricsChartType('calories')}
+                disabled={caloriesData.length === 0}
+              >
+                Calories
               </button>
             </div>
             
@@ -692,6 +718,44 @@ export default function Analytics() {
                   )}
                 </>
               )}
+              {metricsChartType === 'hrv' && hrvData.length > 0 && (
+                <>
+                  <h4 className={styles.chartTitle}>HRV (ms)</h4>
+                  {metricsChartView === 'line' ? (
+                    <LineChart 
+                      data={hrvData} 
+                      labels={hrvLabels}
+                      height={150}
+                      color="#9C27B0"
+                    />
+                  ) : (
+                    <BarChart 
+                      data={Object.fromEntries(hrvData.map((d, i) => [hrvLabels[i], d]))} 
+                      height={150} 
+                      color="#9C27B0"
+                    />
+                  )}
+                </>
+              )}
+              {metricsChartType === 'calories' && caloriesData.length > 0 && (
+                <>
+                  <h4 className={styles.chartTitle}>Calories</h4>
+                  {metricsChartView === 'line' ? (
+                    <LineChart 
+                      data={caloriesData} 
+                      labels={caloriesLabels}
+                      height={150}
+                      color="#F44336"
+                    />
+                  ) : (
+                    <BarChart 
+                      data={Object.fromEntries(caloriesData.map((d, i) => [caloriesLabels[i], d]))} 
+                      height={150} 
+                      color="#F44336"
+                    />
+                  )}
+                </>
+              )}
             </div>
             
             <h3 className={styles.sectionTitle}>Recent Metrics</h3>
@@ -701,6 +765,8 @@ export default function Analytics() {
                 <span>Weight</span>
                 <span>Sleep</span>
                 <span>Steps</span>
+                <span>HRV</span>
+                <span>Calories</span>
                 <span></span>
               </div>
               {recentMetrics.slice(0, 14).map(m => (
@@ -709,6 +775,8 @@ export default function Analytics() {
                   <span>{m.weight ? `${m.weight} lbs` : '-'}</span>
                   <span>{m.sleep_time ? `${m.sleep_time}h` : (m.sleep_score ? `${m.sleep_score}` : '-')}</span>
                   <span>{m.steps?.toLocaleString() || '-'}</span>
+                  <span>{m.hrv ? `${m.hrv} ms` : '-'}</span>
+                  <span>{m.calories?.toLocaleString() || '-'}</span>
                   <button 
                     className={styles.editMetricBtn}
                     onClick={() => handleEditMetric(m)}

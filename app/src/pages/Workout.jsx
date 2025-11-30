@@ -311,15 +311,21 @@ export default function Workout() {
               await saveTemplate(template)
               const updated = await getAllTemplates()
               setTemplates(updated)
+              setEditingTemplate(null)
             }}
             onDelete={async (id) => {
               if (confirm('Delete this template?')) {
                 await deleteTemplate(id)
                 const updated = await getAllTemplates()
                 setTemplates(updated)
+                if (editingTemplate?.id === id) {
+                  setEditingTemplate(null)
+                }
               }
             }}
-            onEdit={(template) => setEditingTemplate(template)}
+            onEdit={(template) => {
+              setEditingTemplate(template)
+            }}
             editingTemplate={editingTemplate}
           />
         )}

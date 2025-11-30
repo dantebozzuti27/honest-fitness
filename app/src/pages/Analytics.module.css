@@ -195,21 +195,23 @@
 .metricsHeader,
 .metricsRow {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 0.8fr 1fr auto;
+  grid-template-columns: 1fr 0.9fr 0.8fr 0.9fr 0.8fr 0.9fr auto;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  font-size: 14px;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
 }
 
 .metricsHeader {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 0.8fr 1fr auto;
+  grid-template-columns: 1fr 0.9fr 0.8fr 0.9fr 0.8fr 0.9fr auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  padding: 10px 12px;
   background: var(--bg-tertiary);
   color: var(--text-muted);
   font-weight: 600;
+  font-size: 11px;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -676,12 +678,32 @@
 }
 
 .editMetricBtn {
-  padding: 6px 12px;
-  font-size: 12px;
+  padding: 4px 8px;
+  font-size: 10px;
   background: var(--accent-dim);
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   color: var(--accent);
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .metricsRow,
+  .metricsHeader {
+    grid-template-columns: 0.9fr 0.7fr 0.6fr 0.7fr 0.6fr 0.7fr auto;
+    gap: 6px;
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+  
+  .metricsHeader {
+    font-size: 10px;
+  }
+  
+  .editMetricBtn {
+    padding: 3px 6px;
+    font-size: 9px;
+  }
 }
 
 /* Body Part Drilldown */
@@ -774,9 +796,10 @@
 
 .chartTypeSelector {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 12px;
   flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 .chartTypeBtn {
@@ -834,13 +857,15 @@
   }
   
   .chartTypeSelector {
-    gap: 6px;
-    margin-bottom: 8px;
+    gap: 4px;
+    margin-bottom: 10px;
   }
   
   .chartTypeBtn {
-    padding: 6px 10px;
-    font-size: 11px;
+    padding: 6px 8px;
+    font-size: 10px;
+    flex: 0 0 auto;
+    min-width: auto;
   }
   
   .chartViewToggle {

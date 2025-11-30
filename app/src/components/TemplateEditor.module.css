@@ -46,6 +46,26 @@
   color: var(--text-secondary);
 }
 
+.editHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.editHeader h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.editHeader button {
+  padding: 6px 12px;
+  font-size: 14px;
+  color: var(--accent);
+  background: transparent;
+}
+
 .content {
   flex: 1;
   overflow-y: auto;

@@ -3,7 +3,7 @@ import styles from './BarChart.module.css'
 
 export default function BarChart({ data, labels, height = 200, color = '#ff2d2d', showValues = true }) {
   const chartData = useMemo(() => {
-    if (!data || data.length === 0) return null
+    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
     
     const values = Object.values(data).map(v => Number(v) || 0)
     const keys = Object.keys(data)

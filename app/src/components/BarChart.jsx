@@ -34,8 +34,10 @@ export default function BarChart({ data, labels, height = 200, color = '#ff2d2d'
                 width={barWidth * 0.8}
                 height={barHeight}
                 fill={color}
+                stroke={color}
+                strokeWidth="0.5"
                 className={styles.bar}
-                opacity="0.8"
+                opacity="0.9"
               />
               {showValues && value > 0 && (
                 <text

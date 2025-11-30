@@ -34,13 +34,13 @@
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   gap: 0;
-  padding: 0 4px;
+  padding: 0 8px;
 }
 
 .tab {
   flex: 1;
   min-width: 60px;
-  padding: 14px 6px;
+  padding: 14px 8px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -49,11 +49,13 @@
   white-space: nowrap;
   text-align: center;
   letter-spacing: 0.5px;
+  transition: all 0.2s;
 }
 
 .tab.activeTab {
   color: var(--accent);
   border-bottom-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(255, 45, 45, 0.2);
 }
 
 .content {
@@ -336,7 +338,8 @@
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
 .statCard {
@@ -347,6 +350,19 @@
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+
+.statCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.3;
 }
 
 .statNumber {
@@ -785,13 +801,18 @@
 /* Charts */
 .chartSection {
   margin-bottom: 24px;
+  position: relative;
+  padding: 0 2px;
 }
 
 .chartTitle {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .chartTypeSelector {
@@ -800,6 +821,7 @@
   margin-bottom: 12px;
   flex-wrap: wrap;
   justify-content: flex-start;
+  padding: 0 2px;
 }
 
 .chartTypeBtn {
@@ -827,12 +849,14 @@
   background: var(--accent);
   border-color: var(--accent);
   color: var(--bg-primary);
+  box-shadow: 0 0 10px rgba(255, 45, 45, 0.5), 0 0 20px rgba(255, 45, 45, 0.3);
 }
 
 .chartViewToggle {
   display: flex;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+  padding: 0 2px;
 }
 
 .chartViewBtn {
@@ -843,12 +867,14 @@
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   transition: all 0.2s;
+  transition: all 0.2s;
 }
 
 .chartViewBtn.activeChartView {
   background: var(--accent-dim);
   color: var(--accent);
   border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(255, 45, 45, 0.4), 0 0 16px rgba(255, 45, 45, 0.2);
 }
 
 @media (max-width: 768px) {
@@ -859,6 +885,7 @@
   .chartTypeSelector {
     gap: 4px;
     margin-bottom: 10px;
+    padding: 0;
   }
   
   .chartTypeBtn {
@@ -870,7 +897,8 @@
   
   .chartViewToggle {
     gap: 4px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+    padding: 0;
   }
   
   .chartViewBtn {
@@ -880,6 +908,6 @@
   
   .chartTitle {
     font-size: 12px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
   }
 }

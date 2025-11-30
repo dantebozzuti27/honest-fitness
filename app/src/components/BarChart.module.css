@@ -1,14 +1,47 @@
 .chartContainer {
   width: 100%;
-  background: var(--bg-secondary);
+  background: linear-gradient(135deg, rgba(255, 45, 45, 0.05) 0%, rgba(0, 0, 0, 0.3) 100%);
+  border: 1px solid rgba(255, 45, 45, 0.3);
   border-radius: var(--radius-md);
-  padding: 8px;
+  padding: 10px;
   max-height: 180px;
+  box-shadow: 0 0 20px rgba(255, 45, 45, 0.1), inset 0 0 20px rgba(255, 45, 45, 0.05);
+  position: relative;
+  overflow: hidden;
+}
+
+.chartContainer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    linear-gradient(90deg, transparent 0%, rgba(255, 45, 45, 0.1) 50%, transparent 100%),
+    linear-gradient(0deg, transparent 0%, rgba(255, 45, 45, 0.1) 50%, transparent 100%);
+  pointer-events: none;
+  opacity: 0.3;
+}
+
+.chartContainer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 1px solid rgba(255, 45, 45, 0.2);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  box-shadow: 
+    inset 0 0 10px rgba(255, 45, 45, 0.1),
+    0 0 0 1px rgba(255, 45, 45, 0.1);
 }
 
 @media (max-width: 768px) {
   .chartContainer {
-    padding: 6px;
+    padding: 8px;
     max-height: 150px;
   }
 }
@@ -17,6 +50,8 @@
   width: 100%;
   height: auto;
   display: block;
+  position: relative;
+  z-index: 1;
 }
 
 .emptyChart {
@@ -26,27 +61,37 @@
 }
 
 .bar {
-  transition: opacity 0.2s;
+  transition: all 0.2s;
   cursor: pointer;
+  filter: drop-shadow(0 0 3px currentColor);
+  stroke: currentColor;
+  stroke-width: 0.5;
 }
 
 .bar:hover {
   opacity: 1;
+  filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 12px currentColor);
+  stroke-width: 1;
 }
 
 .labels {
   display: flex;
   justify-content: space-between;
-  margin-top: 8px;
-  font-size: 10px;
+  margin-top: 10px;
+  padding: 0 4px;
+  font-size: 9px;
   color: var(--text-muted);
   flex-wrap: wrap;
   gap: 4px;
 }
 
 .label {
-  font-size: 10px;
+  font-size: 9px;
   text-align: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .value {

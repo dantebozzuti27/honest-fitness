@@ -45,9 +45,10 @@ export default function LineChart({ data, labels, height = 200, color = '#ff2d2d
                   y1={y}
                   x2="90"
                   y2={y}
-                  stroke="var(--border)"
+                  stroke={color}
                   strokeWidth="0.5"
-                  opacity="0.3"
+                  strokeDasharray="2 2"
+                  opacity="0.2"
                 />
               )
             })}

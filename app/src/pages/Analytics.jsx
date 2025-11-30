@@ -413,6 +413,28 @@ export default function Analytics() {
     return weeks
   }, [data.workouts])
 
+  const frequencyChartData = useMemo(() => {
+    const sorted = Object.entries(data.frequency).sort((a, b) => a[0].localeCompare(b[0]))
+    return Object.fromEntries(sorted.slice(-30))
+  }, [data.frequency])
+  
+  const topExercisesChartData = useMemo(() => {
+    return Object.fromEntries(data.topExercises.slice(0, 10))
+  }, [data.topExercises])
+  
+  const volumeChartData = useMemo(() => {
+    const weeks = {}
+    data.workouts.forEach(w => {
+      const date = new Date(w.date + 'T12:00:00')
+      const weekStart = new Date(date)
+      weekStart.setDate(date.getDate() - date.getDay())
+      const weekKey = weekStart.toISOString().split('T')[0]
+      const totalSets = w.workout_exercises?.reduce((sum, ex) => sum + (ex.workout_sets?.length || 0), 0) || 0
+      weeks[weekKey] = (weeks[weekKey] || 0) + totalSets
+    })
+    return weeks
+  }, [data.workouts])
+
   const renderHistory = () => {
     const sortedWorkouts = [...data.workouts].sort((a, b) => new Date(a.date) - new Date(b.date))
     

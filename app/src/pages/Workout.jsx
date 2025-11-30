@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { getAllTemplates, saveMetrics } from '../db'
+import { getAllTemplates, saveMetrics, saveTemplate, deleteTemplate } from '../db'
 import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
+import ExercisePicker from '../components/ExercisePicker'
+import TemplateEditor from '../components/TemplateEditor'
 import styles from './Workout.module.css'
 
 export default function Workout() {
@@ -13,6 +15,9 @@ export default function Workout() {
   const [templates, setTemplates] = useState([])
   const [todaysPlan, setTodaysPlan] = useState(null)
   const [aiWorkout, setAiWorkout] = useState(null)
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false)
+  const [editingTemplate, setEditingTemplate] = useState(null)
+  const [showExercisePicker, setShowExercisePicker] = useState(false)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -256,7 +261,15 @@ export default function Workout() {
         )}
 
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Templates</h2>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Templates</h2>
+            <button
+              className={styles.manageTemplatesBtn}
+              onClick={() => setShowTemplateEditor(true)}
+            >
+              Manage
+            </button>
+          </div>
           
           <div className={styles.templateList}>
             {templates.map(template => (
@@ -285,6 +298,31 @@ export default function Workout() {
             </button>
           </div>
         </section>
+
+        {/* Template Editor Modal */}
+        {showTemplateEditor && (
+          <TemplateEditor
+            templates={templates}
+            onClose={() => {
+              setShowTemplateEditor(false)
+              setEditingTemplate(null)
+            }}
+            onSave={async (template) => {
+              await saveTemplate(template)
+              const updated = await getAllTemplates()
+              setTemplates(updated)
+            }}
+            onDelete={async (id) => {
+              if (confirm('Delete this template?')) {
+                await deleteTemplate(id)
+                const updated = await getAllTemplates()
+                setTemplates(updated)
+              }
+            }}
+            onEdit={(template) => setEditingTemplate(template)}
+            editingTemplate={editingTemplate}
+          />
+        )}
       </div>
     </div>
   )

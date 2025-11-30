@@ -37,6 +37,12 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true)
   const [dateFilter, setDateFilter] = useState(1) // This Month default
   const [metricType, setMetricType] = useState(0) // Sessions default
+  const [historyChartType, setHistoryChartType] = useState('frequency') // 'frequency' or 'duration'
+  const [historyChartView, setHistoryChartView] = useState('bar') // 'line' or 'bar'
+  const [metricsChartType, setMetricsChartType] = useState('weight') // 'weight', 'sleep', 'steps'
+  const [metricsChartView, setMetricsChartView] = useState('line') // 'line' or 'bar'
+  const [trendsChartType, setTrendsChartType] = useState('frequency') // 'frequency', 'volume', 'exercises'
+  const [trendsChartView, setTrendsChartView] = useState('bar') // 'line' or 'bar'
   const [data, setData] = useState({
     bodyParts: {},
     bodyPartReps: {},
@@ -453,19 +459,73 @@ export default function Analytics() {
           <p className={styles.emptyText}>No workouts recorded yet</p>
         ) : (
           <>
-            <div className={styles.chartSection}>
-              <h4 className={styles.chartTitle}>Workouts Per Week</h4>
-              <BarChart data={weeklyWorkoutData} height={180} />
+            <div className={styles.chartTypeSelector}>
+              <button
+                className={`${styles.chartTypeBtn} ${historyChartType === 'frequency' ? styles.activeChartType : ''}`}
+                onClick={() => setHistoryChartType('frequency')}
+              >
+                Frequency
+              </button>
+              <button
+                className={`${styles.chartTypeBtn} ${historyChartType === 'duration' ? styles.activeChartType : ''}`}
+                onClick={() => setHistoryChartType('duration')}
+              >
+                Duration
+              </button>
             </div>
             
             <div className={styles.chartSection}>
-              <h4 className={styles.chartTitle}>Workout Duration (Last 14 Days)</h4>
-              <LineChart 
-                data={durationData} 
-                labels={durationLabels}
-                height={200}
-                color="#ff2d2d"
-              />
+              <div className={styles.chartViewToggle}>
+                <button
+                  className={`${styles.chartViewBtn} ${historyChartView === 'line' ? styles.activeChartView : ''}`}
+                  onClick={() => setHistoryChartView('line')}
+                >
+                  Line
+                </button>
+                <button
+                  className={`${styles.chartViewBtn} ${historyChartView === 'bar' ? styles.activeChartView : ''}`}
+                  onClick={() => setHistoryChartView('bar')}
+                >
+                  Bar
+                </button>
+              </div>
+              {historyChartType === 'frequency' && (
+                <>
+                  <h4 className={styles.chartTitle}>Workouts Per Week</h4>
+                  {historyChartView === 'bar' ? (
+                    <BarChart data={weeklyWorkoutData} height={150} />
+                  ) : (
+                    <LineChart 
+                      data={Object.values(weeklyWorkoutData)} 
+                      labels={Object.keys(weeklyWorkoutData).map(k => {
+                        const d = new Date(k + 'T12:00:00')
+                        return `${d.getMonth() + 1}/${d.getDate()}`
+                      })}
+                      height={150}
+                      color="#ff2d2d"
+                    />
+                  )}
+                </>
+              )}
+              {historyChartType === 'duration' && durationData.length > 0 && (
+                <>
+                  <h4 className={styles.chartTitle}>Workout Duration (Last 14 Days)</h4>
+                  {historyChartView === 'line' ? (
+                    <LineChart 
+                      data={durationData} 
+                      labels={durationLabels}
+                      height={150}
+                      color="#ff2d2d"
+                    />
+                  ) : (
+                    <BarChart 
+                      data={Object.fromEntries(durationData.map((d, i) => [durationLabels[i], d]))} 
+                      height={150} 
+                      color="#ff2d2d"
+                    />
+                  )}
+                </>
+              )}
             </div>
             
             <div className={styles.historyList}>
@@ -536,41 +596,103 @@ export default function Analytics() {
           <p className={styles.emptyText}>No metrics recorded yet</p>
         ) : (
           <>
-            {weightData.length > 0 && (
-              <div className={styles.chartSection}>
-                <h4 className={styles.chartTitle}>Weight (lbs)</h4>
-                <LineChart 
-                  data={weightData} 
-                  labels={weightLabels}
-                  height={200}
-                  color="#4CAF50"
-                />
-              </div>
-            )}
+            <div className={styles.chartTypeSelector}>
+              <button
+                className={`${styles.chartTypeBtn} ${metricsChartType === 'weight' ? styles.activeChartType : ''}`}
+                onClick={() => setMetricsChartType('weight')}
+                disabled={weightData.length === 0}
+              >
+                Weight
+              </button>
+              <button
+                className={`${styles.chartTypeBtn} ${metricsChartType === 'sleep' ? styles.activeChartType : ''}`}
+                onClick={() => setMetricsChartType('sleep')}
+                disabled={sleepData.length === 0}
+              >
+                Sleep
+              </button>
+              <button
+                className={`${styles.chartTypeBtn} ${metricsChartType === 'steps' ? styles.activeChartType : ''}`}
+                onClick={() => setMetricsChartType('steps')}
+                disabled={stepsData.length === 0}
+              >
+                Steps
+              </button>
+            </div>
             
-            {sleepData.length > 0 && (
-              <div className={styles.chartSection}>
-                <h4 className={styles.chartTitle}>Sleep Score</h4>
-                <LineChart 
-                  data={sleepData} 
-                  labels={sleepLabels}
-                  height={200}
-                  color="#2196F3"
-                />
+            <div className={styles.chartSection}>
+              <div className={styles.chartViewToggle}>
+                <button
+                  className={`${styles.chartViewBtn} ${metricsChartView === 'line' ? styles.activeChartView : ''}`}
+                  onClick={() => setMetricsChartView('line')}
+                >
+                  Line
+                </button>
+                <button
+                  className={`${styles.chartViewBtn} ${metricsChartView === 'bar' ? styles.activeChartView : ''}`}
+                  onClick={() => setMetricsChartView('bar')}
+                >
+                  Bar
+                </button>
               </div>
-            )}
-            
-            {stepsData.length > 0 && (
-              <div className={styles.chartSection}>
-                <h4 className={styles.chartTitle}>Steps</h4>
-                <LineChart 
-                  data={stepsData} 
-                  labels={stepsLabels}
-                  height={200}
-                  color="#FF9800"
-                />
-              </div>
-            )}
+              {metricsChartType === 'weight' && weightData.length > 0 && (
+                <>
+                  <h4 className={styles.chartTitle}>Weight (lbs)</h4>
+                  {metricsChartView === 'line' ? (
+                    <LineChart 
+                      data={weightData} 
+                      labels={weightLabels}
+                      height={150}
+                      color="#4CAF50"
+                    />
+                  ) : (
+                    <BarChart 
+                      data={Object.fromEntries(weightData.map((d, i) => [weightLabels[i], d]))} 
+                      height={150} 
+                      color="#4CAF50"
+                    />
+                  )}
+                </>
+              )}
+              {metricsChartType === 'sleep' && sleepData.length > 0 && (
+                <>
+                  <h4 className={styles.chartTitle}>Sleep Score</h4>
+                  {metricsChartView === 'line' ? (
+                    <LineChart 
+                      data={sleepData} 
+                      labels={sleepLabels}
+                      height={150}
+                      color="#2196F3"
+                    />
+                  ) : (
+                    <BarChart 
+                      data={Object.fromEntries(sleepData.map((d, i) => [sleepLabels[i], d]))} 
+                      height={150} 
+                      color="#2196F3"
+                    />
+                  )}
+                </>
+              )}
+              {metricsChartType === 'steps' && stepsData.length > 0 && (
+                <>
+                  <h4 className={styles.chartTitle}>Steps</h4>
+                  {metricsChartView === 'line' ? (
+                    <LineChart 
+                      data={stepsData} 
+                      labels={stepsLabels}
+                      height={150}
+                      color="#FF9800"
+                    />
+                  ) : (
+                    <BarChart 
+                      data={Object.fromEntries(stepsData.map((d, i) => [stepsLabels[i], d]))} 
+                      height={150} 
+                      color="#FF9800"
+                    />
+                  )}
+                </>
+              )}
+            </div>
             
             <h3 className={styles.sectionTitle}>Recent Metrics</h3>
             <div className={styles.metricsTable}>
@@ -659,26 +781,97 @@ export default function Analytics() {
           </div>
         </div>
 
-        {Object.keys(frequencyChartData).length > 0 && (
-          <div className={styles.chartSection}>
-            <h4 className={styles.chartTitle}>Workout Frequency (Last 30 Days)</h4>
-            <BarChart data={frequencyChartData} height={200} color="#ff2d2d" />
-          </div>
-        )}
+        <div className={styles.chartTypeSelector}>
+          <button
+            className={`${styles.chartTypeBtn} ${trendsChartType === 'frequency' ? styles.activeChartType : ''}`}
+            onClick={() => setTrendsChartType('frequency')}
+            disabled={Object.keys(frequencyChartData).length === 0}
+          >
+            Frequency
+          </button>
+          <button
+            className={`${styles.chartTypeBtn} ${trendsChartType === 'volume' ? styles.activeChartType : ''}`}
+            onClick={() => setTrendsChartType('volume')}
+            disabled={Object.keys(volumeChartData).length === 0}
+          >
+            Volume
+          </button>
+          <button
+            className={`${styles.chartTypeBtn} ${trendsChartType === 'exercises' ? styles.activeChartType : ''}`}
+            onClick={() => setTrendsChartType('exercises')}
+            disabled={Object.keys(topExercisesChartData).length === 0}
+          >
+            Exercises
+          </button>
+        </div>
         
-        {Object.keys(volumeChartData).length > 0 && (
-          <div className={styles.chartSection}>
-            <h4 className={styles.chartTitle}>Training Volume (Sets Per Week)</h4>
-            <BarChart data={volumeChartData} height={200} color="#9C27B0" />
+        <div className={styles.chartSection}>
+          <div className={styles.chartViewToggle}>
+            <button
+              className={`${styles.chartViewBtn} ${trendsChartView === 'line' ? styles.activeChartView : ''}`}
+              onClick={() => setTrendsChartView('line')}
+            >
+              Line
+            </button>
+            <button
+              className={`${styles.chartViewBtn} ${trendsChartView === 'bar' ? styles.activeChartView : ''}`}
+              onClick={() => setTrendsChartView('bar')}
+            >
+              Bar
+            </button>
           </div>
-        )}
-
-        {Object.keys(topExercisesChartData).length > 0 && (
-          <div className={styles.chartSection}>
-            <h4 className={styles.chartTitle}>Top Exercises</h4>
-            <BarChart data={topExercisesChartData} height={200} color="#FF9800" />
-          </div>
-        )}
+          {trendsChartType === 'frequency' && Object.keys(frequencyChartData).length > 0 && (
+            <>
+              <h4 className={styles.chartTitle}>Workout Frequency (Last 30 Days)</h4>
+              {trendsChartView === 'bar' ? (
+                <BarChart data={frequencyChartData} height={150} color="#ff2d2d" />
+              ) : (
+                <LineChart 
+                  data={Object.values(frequencyChartData)} 
+                  labels={Object.keys(frequencyChartData).map(k => {
+                    const d = new Date(k + 'T12:00:00')
+                    return `${d.getMonth() + 1}/${d.getDate()}`
+                  })}
+                  height={150}
+                  color="#ff2d2d"
+                />
+              )}
+            </>
+          )}
+          {trendsChartType === 'volume' && Object.keys(volumeChartData).length > 0 && (
+            <>
+              <h4 className={styles.chartTitle}>Training Volume (Sets Per Week)</h4>
+              {trendsChartView === 'bar' ? (
+                <BarChart data={volumeChartData} height={150} color="#9C27B0" />
+              ) : (
+                <LineChart 
+                  data={Object.values(volumeChartData)} 
+                  labels={Object.keys(volumeChartData).map(k => {
+                    const d = new Date(k + 'T12:00:00')
+                    return `${d.getMonth() + 1}/${d.getDate()}`
+                  })}
+                  height={150}
+                  color="#9C27B0"
+                />
+              )}
+            </>
+          )}
+          {trendsChartType === 'exercises' && Object.keys(topExercisesChartData).length > 0 && (
+            <>
+              <h4 className={styles.chartTitle}>Top Exercises</h4>
+              {trendsChartView === 'bar' ? (
+                <BarChart data={topExercisesChartData} height={150} color="#FF9800" />
+              ) : (
+                <LineChart 
+                  data={Object.values(topExercisesChartData)} 
+                  labels={Object.keys(topExercisesChartData)}
+                  height={150}
+                  color="#FF9800"
+                />
+              )}
+            </>
+          )}
+        </div>
 
         <h3 className={styles.sectionTitle}>Top Exercises List</h3>
         {data.topExercises.length === 0 ? (

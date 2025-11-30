@@ -79,6 +79,11 @@ export async function saveTemplate(template) {
   return db.put('templates', template)
 }
 
+export async function deleteTemplate(id) {
+  const db = await getDB()
+  return db.delete('templates', id)
+}
+
 export async function bulkAddTemplates(templates) {
   const db = await getDB()
   const tx = db.transaction('templates', 'readwrite')

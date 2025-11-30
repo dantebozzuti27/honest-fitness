@@ -2,7 +2,15 @@
   width: 100%;
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
-  padding: 16px;
+  padding: 8px;
+  max-height: 180px;
+}
+
+@media (max-width: 768px) {
+  .chartContainer {
+    padding: 6px;
+    max-height: 150px;
+  }
 }
 
 .chart {

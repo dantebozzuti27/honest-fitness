@@ -38,13 +38,30 @@
   margin-bottom: 32px;
 }
 
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
 .sectionTitle {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 4px;
+  margin: 0;
+}
+
+.manageTemplatesBtn {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-weight: 500;
 }
 
 .sectionNote {

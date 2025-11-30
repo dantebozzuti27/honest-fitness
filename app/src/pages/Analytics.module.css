@@ -769,5 +769,92 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.chartTypeSelector {
+  display: flex;
+  gap: 8px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.chartTypeBtn {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+
+.chartTypeBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chartTypeBtn:not(:disabled):hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+}
+
+.chartTypeBtn.activeChartType {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-primary);
+}
+
+.chartViewToggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chartViewBtn {
+  padding: 6px 12px;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+
+.chartViewBtn.activeChartView {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .chartSection {
+    margin-bottom: 16px;
+  }
+  
+  .chartTypeSelector {
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  
+  .chartTypeBtn {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  
+  .chartViewToggle {
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  
+  .chartViewBtn {
+    padding: 5px 10px;
+    font-size: 10px;
+  }
+  
+  .chartTitle {
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
 }

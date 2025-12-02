@@ -525,7 +525,7 @@ export default function GhostMode() {
               {/* Water Intake */}
               <div className={styles.waterSection}>
                 <div className={styles.waterHeader}>
-                  <span>💧 Water</span>
+                  <span>Water</span>
                   <span>{Math.round(waterIntake / 250)} / 8 glasses</span>
                 </div>
                 <div className={styles.waterButtons}>
@@ -553,7 +553,6 @@ export default function GhostMode() {
 
               {isOver && (
                 <div className={styles.activityNeeded}>
-                  <span className={styles.activityIcon}>🚶</span>
                   <span>{activityNeeded.message}</span>
                 </div>
               )}
@@ -571,14 +570,14 @@ export default function GhostMode() {
                 className={styles.secondaryBtn}
                 onClick={() => setShowQuickAdd(!showQuickAdd)}
               >
-                ⚡ Quick Add
+                Quick Add
               </button>
               {!fastingEnabled && (
                 <button
                   className={styles.secondaryBtn}
                   onClick={startFasting}
                 >
-                  🕐 Start Fast
+                  Start Fast
                 </button>
               )}
             </div>
@@ -594,7 +593,7 @@ export default function GhostMode() {
                   onClick={() => fileInputRef.current?.click()}
                   disabled={analyzing}
                 >
-                  {analyzing ? 'Analyzing...' : '📸 Analyze Photo'}
+                  {analyzing ? 'Analyzing...' : 'Analyze Photo'}
                 </button>
                 <input
                   ref={fileInputRef}
@@ -608,7 +607,7 @@ export default function GhostMode() {
                   className={styles.aiBtn}
                   onClick={() => setShowTextInput(!showTextInput)}
                 >
-                  ✍️ Analyze Text
+                  Analyze Text
                 </button>
               </div>
             </div>
@@ -809,7 +808,7 @@ export default function GhostMode() {
                       <span>P: {Math.round(data.macros?.protein || 0)}g</span>
                       <span>C: {Math.round(data.macros?.carbs || 0)}g</span>
                       <span>F: {Math.round(data.macros?.fat || 0)}g</span>
-                      <span>💧 {Math.round((data.water || 0) / 250)} glasses</span>
+                      <span>Water: {Math.round((data.water || 0) / 250)} glasses</span>
                     </div>
                     <button
                       className={styles.viewDayBtn}
@@ -1003,8 +1002,9 @@ function MealCard({ meal, onRemove, onToggleFavorite, isFavorite }) {
           <button
             className={`${styles.favoriteBtn} ${isFavorite ? styles.favoriteActive : ''}`}
             onClick={() => onToggleFavorite(meal)}
+            title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
           >
-            ⭐
+            {isFavorite ? '★' : '☆'}
           </button>
           <button
             className={styles.removeBtn}

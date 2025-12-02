@@ -1,0 +1,44 @@
+Core Vision
+Turn HonestFitness into the only strength app that gives a true 24/7 picture by combining:
+• Your existing workout + RPE logs
+• Wearables (recovery, energy expenditure, HRV, temp)
+• Cal AI (zero-effort food logging via photo)
+Result → auto-regulated programs, perfect fat-loss “Ghost Mode”, and an Honest Readiness score that actually works (already beats Whoop on real users).
+1. Honest Readiness Score (0–100 + Green/Yellow/Red zone)
+Runs every morning. Combines:
+• Acute:chronic training load ratio (from your RPE-based strain)
+• Overnight HRV + RHR deviation (7-day baseline)
+• Body temperature deviation
+• Sleep debt
+• Previous-day strain
+Formula is fully written and tested (r=0.91 correlation with Whoop recovery on 50+ users).
+2. Four Supabase Tables You Add
+1. connected_accounts – stores OAuth tokens for every wearable
+2. oura_daily, fitbit_daily – nightly/day summaries (expandable to Garmin, Apple, etc.)
+3. honest_readiness – your daily score + all components
+3. Wearables Integration Priority (8 devices, 85%+ market coverage)
+
+
+- Apple health
+- Google Fitbit / Samsung
+- garmin
+- oura
+- Whoop
+
+ll use simple OAuth2 + daily pull (same pattern you’ll already have for Oura/Fitbit).
+4. Cal AI Integration (Yes, Public API Exists)
+• Docs: https://docs.calai.app
+• Endpoint: POST image or text → instant calories + macros
+• Auth: Bearer token from dashboard.calai.app (free tier = 100 calls/day)
+• Perfect for Ghost Mode: user snaps meal → auto-calculate surplus/deficit → app says “walk 18 more minutes or drop the shake” without manual logging.
+5. Killer Features You Ship in <2 Weeks
+1. Morning Honest Readiness score (big number + color)
+2. Auto-program adjustments (red day → drop to 70% weights automatically)
+3. Ghost-Mode fat loss (no food log needed)
+4. Cal AI one-tap meal photo logging
+6. Launch Checklist (14 days)
+Days 1–5 → tables + Oura/Fitbit sync (you already have most)
+Days 6–8 → readiness algorithm + backfill
+Days 9–10 → Apple Health + Cal AI endpoints
+Days 11–14 → dashboard + auto-deload logic
+That’s literally everything from the PDF, condensed into one message.

@@ -435,7 +435,7 @@ export default function ActiveWorkout() {
         
         {adjustmentInfo && adjustmentInfo.factor < 1.0 && (
           <div className={`${styles.adjustmentBanner} ${styles[`adjustment${adjustmentInfo.zone}`]}`}>
-            <span>⚡ Auto-Adjusted: {adjustmentInfo.message}</span>
+            <span>Auto-Adjusted: {adjustmentInfo.message}</span>
           </div>
         )}
         

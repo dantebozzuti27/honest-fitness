@@ -228,9 +228,6 @@ h1 {
   opacity: 0.6;
 }
 
-.sourceIcon {
-  font-size: 24px;
-}
 
 .sourceInfo {
   display: flex;
@@ -264,10 +261,6 @@ h1 {
   text-align: center;
 }
 
-.statIcon {
-  font-size: 32px;
-  margin-bottom: 8px;
-}
 
 .statValue {
   font-size: 28px;
@@ -315,10 +308,6 @@ h1 {
   line-height: 1.5;
 }
 
-.insightIcon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
 
 /* Actions Card */
 .actionsCard {

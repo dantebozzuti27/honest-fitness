@@ -207,7 +207,6 @@ export default function Health() {
           <h3>Data Sources</h3>
           <div className={styles.sourcesList}>
             <div className={`${styles.sourceItem} ${healthMetrics.hasWorkouts ? styles.connected : styles.disconnected}`}>
-              <span className={styles.sourceIcon}>💪</span>
               <div className={styles.sourceInfo}>
                 <span className={styles.sourceName}>Workouts</span>
                 <span className={styles.sourceStatus}>
@@ -216,7 +215,6 @@ export default function Health() {
               </div>
             </div>
             <div className={`${styles.sourceItem} ${healthMetrics.hasNutrition ? styles.connected : styles.disconnected}`}>
-              <span className={styles.sourceIcon}>🍎</span>
               <div className={styles.sourceInfo}>
                 <span className={styles.sourceName}>Nutrition</span>
                 <span className={styles.sourceStatus}>
@@ -225,7 +223,6 @@ export default function Health() {
               </div>
             </div>
             <div className={`${styles.sourceItem} ${healthMetrics.hasWearables ? styles.connected : styles.disconnected}`}>
-              <span className={styles.sourceIcon}>⌚</span>
               <div className={styles.sourceInfo}>
                 <span className={styles.sourceName}>Wearables</span>
                 <span className={styles.sourceStatus}>
@@ -239,27 +236,23 @@ export default function Health() {
         {/* Quick Stats */}
         <div className={styles.statsGrid}>
           <div className={styles.statCard}>
-            <div className={styles.statIcon}>💪</div>
             <div className={styles.statValue}>{healthMetrics.workouts}</div>
             <div className={styles.statLabel}>Workouts</div>
           </div>
           {nutrition && (
             <div className={styles.statCard}>
-              <div className={styles.statIcon}>🔥</div>
               <div className={styles.statValue}>{nutrition.calories}</div>
               <div className={styles.statLabel}>Calories</div>
             </div>
           )}
           {nutrition && (
             <div className={styles.statCard}>
-              <div className={styles.statIcon}>🥩</div>
               <div className={styles.statValue}>{Math.round(nutrition.macros.protein)}g</div>
               <div className={styles.statLabel}>Protein</div>
             </div>
           )}
           {nutrition && nutrition.water > 0 && (
             <div className={styles.statCard}>
-              <div className={styles.statIcon}>💧</div>
               <div className={styles.statValue}>{Math.round(nutrition.water / 250)}</div>
               <div className={styles.statLabel}>Water (glasses)</div>
             </div>
@@ -272,31 +265,26 @@ export default function Health() {
           <div className={styles.insightsList}>
             {readiness && readiness.zone === 'green' && (
               <div className={styles.insightItem}>
-                <span className={styles.insightIcon}>✅</span>
                 <span>High readiness - Great time to push your limits!</span>
               </div>
             )}
             {readiness && readiness.zone === 'red' && (
               <div className={styles.insightItem}>
-                <span className={styles.insightIcon}>⚠️</span>
                 <span>Low readiness - Consider rest or light activity</span>
               </div>
             )}
             {healthMetrics.hasWorkouts && healthMetrics.hasNutrition && (
               <div className={styles.insightItem}>
-                <span className={styles.insightIcon}>📊</span>
                 <span>Complete picture: Tracking workouts + nutrition</span>
               </div>
             )}
             {healthMetrics.hasWearables && (
               <div className={styles.insightItem}>
-                <span className={styles.insightIcon}>⌚</span>
                 <span>Wearable data improving readiness accuracy</span>
               </div>
             )}
             {!healthMetrics.hasWorkouts && !healthMetrics.hasNutrition && !healthMetrics.hasWearables && (
               <div className={styles.insightItem}>
-                <span className={styles.insightIcon}>💡</span>
                 <span>Start logging workouts and meals to see your full health picture</span>
               </div>
             )}
@@ -312,7 +300,7 @@ export default function Health() {
                 className={styles.actionBtn}
                 onClick={() => navigate('/workout')}
               >
-                💪 Log Workout
+                Log Workout
               </button>
             )}
             {!healthMetrics.hasNutrition && (
@@ -320,7 +308,7 @@ export default function Health() {
                 className={styles.actionBtn}
                 onClick={() => navigate('/ghost-mode')}
               >
-                🍎 Log Meal
+                Log Meal
               </button>
             )}
             {!healthMetrics.hasWearables && (
@@ -328,7 +316,7 @@ export default function Health() {
                 className={styles.actionBtn}
                 onClick={() => navigate('/wearables')}
               >
-                ⌚ Connect Wearable
+                Connect Wearable
               </button>
             )}
           </div>

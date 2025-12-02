@@ -306,9 +306,6 @@ h1 {
   color: var(--text-primary);
 }
 
-.activityIcon {
-  font-size: 20px;
-}
 
 /* Actions */
 .actions {

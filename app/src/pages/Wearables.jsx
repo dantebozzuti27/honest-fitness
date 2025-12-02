@@ -23,6 +23,10 @@ export default function Wearables() {
     if (user) {
       loadConnectedAccounts()
     }
+    
+    // Debug: Log environment variables on mount
+    console.log('[Wearables] VITE_FITBIT_CLIENT_ID:', import.meta.env.VITE_FITBIT_CLIENT_ID ? 'SET' : 'NOT SET')
+    console.log('[Wearables] VITE_FITBIT_REDIRECT_URI:', import.meta.env.VITE_FITBIT_REDIRECT_URI || 'Using default')
   }, [user])
 
   const loadConnectedAccounts = async () => {
@@ -39,11 +43,17 @@ export default function Wearables() {
   }
 
   const handleConnectFitbit = () => {
-    if (!user) return
+    if (!user) {
+      alert('Please log in to connect Fitbit')
+      return
+    }
+    
+    console.log('handleConnectFitbit called, user:', user)
     
     try {
       connectFitbit(user.id)
     } catch (error) {
+      console.error('Error in handleConnectFitbit:', error)
       alert(`Error connecting Fitbit: ${error.message}`)
     }
   }
@@ -113,6 +123,7 @@ export default function Wearables() {
   }, [])
 
   const fitbitAccount = connectedAccounts.find(a => a.provider === 'fitbit')
+  const fitbitClientId = import.meta.env.VITE_FITBIT_CLIENT_ID
 
   if (loading) {
     return (
@@ -137,7 +148,6 @@ export default function Wearables() {
         <div className={styles.providerCard}>
           <div className={styles.providerHeader}>
               <div className={styles.providerInfo}>
-              <div className={styles.providerLogo}>⌚</div>
               <div>
                 <h2>Fitbit</h2>
                 <p className={styles.providerDesc}>
@@ -148,12 +158,27 @@ export default function Wearables() {
             {fitbitAccount ? (
               <div className={styles.connectedBadge}>Connected</div>
             ) : (
-              <button
-                className={styles.connectBtn}
-                onClick={handleConnectFitbit}
-              >
-                Sign In with Fitbit
-              </button>
+              <>
+                {!fitbitClientId && (
+                  <div style={{ 
+                    padding: '10px', 
+                    background: '#ffebee', 
+                    color: '#c62828', 
+                    borderRadius: '4px',
+                    marginBottom: '10px',
+                    fontSize: '14px'
+                  }}>
+                    ⚠️ Fitbit Client ID not configured. Please set VITE_FITBIT_CLIENT_ID in your environment variables.
+                  </div>
+                )}
+                <button
+                  className={styles.connectBtn}
+                  onClick={handleConnectFitbit}
+                  disabled={!fitbitClientId}
+                >
+                  Sign In with Fitbit
+                </button>
+              </>
             )}
           </div>
 
@@ -222,19 +247,15 @@ export default function Wearables() {
           <h3>More Wearables Coming Soon</h3>
           <div className={styles.comingSoonList}>
             <div className={styles.comingSoonItem}>
-              <span>💍</span>
               <span>Oura Ring</span>
             </div>
             <div className={styles.comingSoonItem}>
-              <span>⌚</span>
               <span>Garmin</span>
             </div>
             <div className={styles.comingSoonItem}>
-              <span>📱</span>
               <span>Apple Health</span>
             </div>
             <div className={styles.comingSoonItem}>
-              <span>💪</span>
               <span>Whoop</span>
             </div>
           </div>

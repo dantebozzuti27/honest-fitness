@@ -180,6 +180,71 @@ export default function Health() {
       </div>
 
       <div className={styles.content}>
+        {/* Fitbit Stats - Show at top */}
+        {fitbitData && (
+          <div className={styles.fitbitCard}>
+            <h3>Fitbit Data</h3>
+            <div className={styles.fitbitStatsGrid}>
+              {fitbitData.steps != null && (
+                <div className={styles.fitbitStatItem}>
+                  <span className={styles.fitbitStatLabel}>Steps</span>
+                  <span className={styles.fitbitStatValue}>{Number(fitbitData.steps).toLocaleString()}</span>
+                </div>
+              )}
+              {fitbitData.calories != null && (
+                <div className={styles.fitbitStatItem}>
+                  <span className={styles.fitbitStatLabel}>Calories</span>
+                  <span className={styles.fitbitStatValue}>{Number(fitbitData.calories).toLocaleString()}</span>
+                </div>
+              )}
+              {fitbitData.active_calories != null && (
+                <div className={styles.fitbitStatItem}>
+                  <span className={styles.fitbitStatLabel}>Active Calories</span>
+                  <span className={styles.fitbitStatValue}>{Number(fitbitData.active_calories).toLocaleString()}</span>
+                </div>
+              )}
+              {fitbitData.sleep_duration != null && (
+                <div className={styles.fitbitStatItem}>
+                  <span className={styles.fitbitStatLabel}>Sleep</span>
+                  <span className={styles.fitbitStatValue}>
+                    {Math.floor(Number(fitbitData.sleep_duration) / 60)}h {Math.round(Number(fitbitData.sleep_duration) % 60)}m
+                  </span>
+                </div>
+              )}
+              {fitbitData.sleep_efficiency != null && (
+                <div className={styles.fitbitStatItem}>
+                  <span className={styles.fitbitStatLabel}>Sleep Efficiency</span>
+                  <span className={styles.fitbitStatValue}>{Math.round(Number(fitbitData.sleep_efficiency))}%</span>
+                </div>
+              )}
+              {fitbitData.hrv != null && (
+                <div className={styles.fitbitStatItem}>
+                  <span className={styles.fitbitStatLabel}>HRV</span>
+                  <span className={styles.fitbitStatValue}>{Math.round(Number(fitbitData.hrv))} ms</span>
+                </div>
+              )}
+              {fitbitData.resting_heart_rate != null && (
+                <div className={styles.fitbitStatItem}>
+                  <span className={styles.fitbitStatLabel}>Resting HR</span>
+                  <span className={styles.fitbitStatValue}>{Math.round(Number(fitbitData.resting_heart_rate))} bpm</span>
+                </div>
+              )}
+              {fitbitData.distance != null && (
+                <div className={styles.fitbitStatItem}>
+                  <span className={styles.fitbitStatLabel}>Distance</span>
+                  <span className={styles.fitbitStatValue}>{Number(fitbitData.distance).toFixed(2)} km</span>
+                </div>
+              )}
+              {fitbitData.floors != null && (
+                <div className={styles.fitbitStatItem}>
+                  <span className={styles.fitbitStatLabel}>Floors</span>
+                  <span className={styles.fitbitStatValue}>{Number(fitbitData.floors)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
         {/* Readiness Score Card */}
         {readiness && (
           <div className={`${styles.readinessCard} ${styles[`readiness${readiness.zone}`]}`}>
@@ -273,71 +338,6 @@ export default function Health() {
             </div>
           )}
         </div>
-
-        {/* Fitbit Stats */}
-        {fitbitData && (
-          <div className={styles.fitbitCard}>
-            <h3>Fitbit Data - Today</h3>
-            <div className={styles.fitbitStatsGrid}>
-              {fitbitData.steps !== null && fitbitData.steps !== undefined && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Steps</span>
-                  <span className={styles.fitbitStatValue}>{fitbitData.steps.toLocaleString()}</span>
-                </div>
-              )}
-              {fitbitData.calories !== null && fitbitData.calories !== undefined && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Calories</span>
-                  <span className={styles.fitbitStatValue}>{fitbitData.calories.toLocaleString()}</span>
-                </div>
-              )}
-              {fitbitData.active_calories !== null && fitbitData.active_calories !== undefined && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Active Calories</span>
-                  <span className={styles.fitbitStatValue}>{fitbitData.active_calories.toLocaleString()}</span>
-                </div>
-              )}
-              {fitbitData.sleep_duration !== null && fitbitData.sleep_duration !== undefined && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Sleep</span>
-                  <span className={styles.fitbitStatValue}>
-                    {Math.floor(fitbitData.sleep_duration / 60)}h {Math.round(fitbitData.sleep_duration % 60)}m
-                  </span>
-                </div>
-              )}
-              {fitbitData.sleep_efficiency !== null && fitbitData.sleep_efficiency !== undefined && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Sleep Efficiency</span>
-                  <span className={styles.fitbitStatValue}>{Math.round(fitbitData.sleep_efficiency)}%</span>
-                </div>
-              )}
-              {fitbitData.hrv !== null && fitbitData.hrv !== undefined && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>HRV</span>
-                  <span className={styles.fitbitStatValue}>{Math.round(fitbitData.hrv)} ms</span>
-                </div>
-              )}
-              {fitbitData.resting_heart_rate !== null && fitbitData.resting_heart_rate !== undefined && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Resting HR</span>
-                  <span className={styles.fitbitStatValue}>{Math.round(fitbitData.resting_heart_rate)} bpm</span>
-                </div>
-              )}
-              {fitbitData.distance !== null && fitbitData.distance !== undefined && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Distance</span>
-                  <span className={styles.fitbitStatValue}>{fitbitData.distance.toFixed(2)} km</span>
-                </div>
-              )}
-              {fitbitData.floors !== null && fitbitData.floors !== undefined && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Floors</span>
-                  <span className={styles.fitbitStatValue}>{fitbitData.floors}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Insights */}
         <div className={styles.insightsCard}>

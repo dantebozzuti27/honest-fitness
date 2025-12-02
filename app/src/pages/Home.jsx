@@ -45,10 +45,16 @@ export default function Home() {
           }
           setReadiness(readinessData)
           
-          // Load today's Fitbit data
+          // Load Fitbit data (try today, then yesterday)
           try {
             const today = getTodayEST()
-            const fitbit = await getFitbitDaily(user.id, today)
+            let fitbit = await getFitbitDaily(user.id, today)
+            if (!fitbit) {
+              // Try yesterday if today has no data
+              const { getYesterdayEST } = await import('../utils/dateUtils')
+              const yesterday = getYesterdayEST()
+              fitbit = await getFitbitDaily(user.id, yesterday)
+            }
             if (fitbit) {
               setFitbitData(fitbit)
             }
@@ -116,26 +122,32 @@ export default function Home() {
         <img src="/logo.jpg" alt="" className={styles.logoBgImg} />
       </div>
       <div className={styles.content}>
-        <img src="/logo.jpg" alt="HonestFitness" className={styles.logo} />
-        
         {/* Fitbit Stats at Top */}
-        {fitbitData && (
+        {fitbitData && (fitbitData.steps != null || fitbitData.calories != null || fitbitData.active_calories != null) && (
           <div className={styles.fitbitCard}>
             <div className={styles.fitbitHeader}>
-              <span className={styles.fitbitLabel}>Today's Activity</span>
+              <span className={styles.fitbitLabel}>Activity</span>
             </div>
             <div className={styles.fitbitStats}>
-              <div className={styles.fitbitStat}>
-                <span className={styles.fitbitStatValue}>{fitbitData.steps?.toLocaleString() || '0'}</span>
-                <span className={styles.fitbitStatLabel}>Steps</span>
-              </div>
-              <div className={styles.fitbitStat}>
-                <span className={styles.fitbitStatValue}>{fitbitData.calories?.toLocaleString() || fitbitData.active_calories?.toLocaleString() || '0'}</span>
-                <span className={styles.fitbitStatLabel}>Calories</span>
-              </div>
+              {fitbitData.steps != null && (
+                <div className={styles.fitbitStat}>
+                  <span className={styles.fitbitStatValue}>{Number(fitbitData.steps).toLocaleString()}</span>
+                  <span className={styles.fitbitStatLabel}>Steps</span>
+                </div>
+              )}
+              {(fitbitData.calories != null || fitbitData.active_calories != null) && (
+                <div className={styles.fitbitStat}>
+                  <span className={styles.fitbitStatValue}>
+                    {Number(fitbitData.calories || fitbitData.active_calories || 0).toLocaleString()}
+                  </span>
+                  <span className={styles.fitbitStatLabel}>Calories</span>
+                </div>
+              )}
             </div>
           </div>
         )}
+        
+        <img src="/logo.jpg" alt="HonestFitness" className={styles.logo} />
         
         {/* Honest Readiness Score */}
         {readiness && (

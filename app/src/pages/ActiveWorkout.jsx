@@ -4,6 +4,7 @@ import { getTemplate, getAllExercises, saveWorkout } from '../db'
 import { saveWorkoutToSupabase } from '../lib/supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { useAuth } from '../context/AuthContext'
+import { getAutoAdjustmentFactor, applyAutoAdjustment, getWorkoutRecommendation } from '../lib/autoAdjust'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import styles from './ActiveWorkout.module.css'
@@ -26,6 +27,7 @@ export default function ActiveWorkout() {
   const [showSummary, setShowSummary] = useState(false)
   const [feedback, setFeedback] = useState({ rpe: 7, moodAfter: 3, notes: '' })
   const [showTimesUp, setShowTimesUp] = useState(false)
+  const [adjustmentInfo, setAdjustmentInfo] = useState(null)
   const workoutTimerRef = useRef(null)
   const restTimerRef = useRef(null)
   const workoutStartTimeRef = useRef(null)
@@ -59,7 +61,25 @@ export default function ActiveWorkout() {
               expanded: idx === 0
             }
           })
-          setExercises(workoutExercises)
+          
+          // Apply auto-adjustment based on readiness
+          if (user) {
+            try {
+              const adjustment = await getAutoAdjustmentFactor(user.id)
+              setAdjustmentInfo(adjustment)
+              if (adjustment.factor < 1.0) {
+                const adjusted = applyAutoAdjustment(workoutExercises, adjustment.factor)
+                setExercises(adjusted)
+              } else {
+                setExercises(workoutExercises)
+              }
+            } catch (error) {
+              console.error('Error applying auto-adjustment:', error)
+              setExercises(workoutExercises)
+            }
+          } else {
+            setExercises(workoutExercises)
+          }
         }
       } else if (randomWorkout) {
         // Generate random workout
@@ -412,6 +432,12 @@ export default function ActiveWorkout() {
             Finish
           </button>
         </div>
+        
+        {adjustmentInfo && adjustmentInfo.factor < 1.0 && (
+          <div className={`${styles.adjustmentBanner} ${styles[`adjustment${adjustmentInfo.zone}`]}`}>
+            <span>⚡ Auto-Adjusted: {adjustmentInfo.message}</span>
+          </div>
+        )}
         
         {isResting && (
           <div className={styles.restBar}>

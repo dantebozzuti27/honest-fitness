@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getAllTemplates, saveMetrics, saveTemplate, deleteTemplate } from '../db'
-import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan } from '../lib/supabaseDb'
+import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
-import { getTodayEST } from '../utils/dateUtils'
+import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import styles from './Workout.module.css'
@@ -67,6 +67,22 @@ export default function Workout() {
             const todaysWorkout = plan.schedule.find(d => d.day === today && !d.restDay)
             setTodaysPlan(todaysWorkout)
           }
+          
+          // Load daily metrics from Supabase (for yesterday, as noted in UI)
+          const yesterday = getYesterdayEST()
+          const metricsData = await getMetricsFromSupabase(user.id, yesterday, yesterday)
+          
+          if (metricsData && metricsData.length > 0) {
+            const yesterdayMetrics = metricsData[0]
+            setMetrics({
+              sleepScore: yesterdayMetrics.sleep_score ? String(yesterdayMetrics.sleep_score) : '',
+              sleepTime: yesterdayMetrics.sleep_time ? formatSleepTime(yesterdayMetrics.sleep_time) : '',
+              hrv: yesterdayMetrics.hrv ? String(yesterdayMetrics.hrv) : '',
+              steps: yesterdayMetrics.steps ? String(yesterdayMetrics.steps) : '',
+              caloriesBurned: yesterdayMetrics.calories ? String(yesterdayMetrics.calories) : '',
+              weight: yesterdayMetrics.weight ? String(yesterdayMetrics.weight) : ''
+            })
+          }
         } catch (e) {
           console.error('Error loading plan:', e)
         }
@@ -74,6 +90,14 @@ export default function Workout() {
     }
     load()
   }, [user, location.state])
+  
+  // Helper function to format sleep time (minutes to "Xh Ym")
+  const formatSleepTime = (minutes) => {
+    if (!minutes) return ''
+    const hours = Math.floor(minutes / 60)
+    const mins = Math.round(minutes % 60)
+    return `${hours}h ${mins}m`
+  }
 
   const handleMetricChange = (field, value) => {
     setMetrics(prev => ({ ...prev, [field]: value }))

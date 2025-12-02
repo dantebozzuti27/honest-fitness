@@ -211,8 +211,44 @@ async function refreshFitbitToken(userId, account) {
 
 /**
  * Sync Fitbit data for a date
+ * Uses serverless function to avoid CORS issues
  */
 export async function syncFitbitData(userId, date = null) {
+  const targetDate = date || getTodayEST()
+  
+  try {
+    // Use serverless function to proxy Fitbit API calls
+    const response = await fetch('/api/fitbit/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        date: targetDate
+      })
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.message || 'Failed to sync Fitbit data')
+    }
+    
+    const result = await response.json()
+    return result
+    
+  } catch (error) {
+    console.error('Error syncing Fitbit data:', error)
+    
+    // If 401, token might be invalid
+    if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
+      throw new Error('Fitbit authorization expired. Please reconnect your account.')
+    }
+    
+    throw new Error(`Failed to sync Fitbit data: ${error.message}`)
+  }
+}
+
+// Legacy function - kept for backwards compatibility but now uses serverless function
+async function syncFitbitDataDirect(userId, date = null) {
   const targetDate = date || getTodayEST()
   const account = await getConnectedAccount(userId, 'fitbit')
   
@@ -475,20 +511,30 @@ export async function mergeWearableDataToMetrics(userId, date = null) {
   const fitbitData = await getFitbitDaily(userId, targetDate)
   
   // Merge into daily_metrics (prefer Oura, fallback to Fitbit)
+  // Map Fitbit sleep_duration (minutes) to sleep_time
+  // Map Fitbit calories to calories
   const merged = {
     hrv: ouraData?.hrv || fitbitData?.hrv || null,
-    sleep_time: ouraData?.total_sleep || fitbitData?.sleep_duration || null,
-    sleep_score: ouraData?.sleep_score || null,
+    sleep_time: ouraData?.total_sleep || fitbitData?.sleep_duration || null, // Both in minutes
+    sleep_score: ouraData?.sleep_score || (fitbitData?.sleep_efficiency ? Math.round(fitbitData.sleep_efficiency) : null),
     steps: ouraData?.steps || fitbitData?.steps || null,
-    calories: ouraData?.calories || fitbitData?.calories || null,
+    calories: ouraData?.calories || fitbitData?.calories || fitbitData?.active_calories || null,
     weight: null // Would come from scale or manual entry
   }
   
-  // Update daily_metrics
-  const { supabase } = await import('./supabase')
-  const { saveMetricsToSupabase } = await import('./supabaseDb')
-  
-  await saveMetricsToSupabase(userId, targetDate, merged)
+  // Only update if we have at least one metric
+  if (merged.hrv || merged.sleep_time || merged.steps || merged.calories) {
+    // Update daily_metrics - map to the format expected by saveMetricsToSupabase
+    const { saveMetricsToSupabase } = await import('./supabaseDb')
+    await saveMetricsToSupabase(userId, targetDate, {
+      sleepScore: merged.sleep_score ? String(merged.sleep_score) : null,
+      sleepTime: merged.sleep_time ? String(merged.sleep_time) : null, // Keep as minutes
+      hrv: merged.hrv ? String(merged.hrv) : null,
+      steps: merged.steps ? String(merged.steps) : null,
+      caloriesBurned: merged.calories ? String(merged.calories) : null,
+      weight: null
+    })
+  }
   
   return merged
 }

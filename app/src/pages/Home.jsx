@@ -141,42 +141,42 @@ export default function Home() {
             className={styles.primaryBtn}
             onClick={() => navigate('/workout')}
           >
-            Start Workout
+            💪 Workout
           </button>
           
           <button 
             className={styles.secondaryBtn}
-            onClick={() => navigate('/calendar')}
+            onClick={() => navigate('/ghost-mode')}
           >
-            Calendar
+            🍎 Nutrition
           </button>
           
           <button 
             className={styles.secondaryBtn}
             onClick={() => navigate('/analytics')}
           >
-            Analytics
+            📊 Analyze
+          </button>
+
+          <button 
+            className={styles.secondaryBtn}
+            onClick={() => navigate('/calendar')}
+          >
+            📅 Calendar
           </button>
 
           <button 
             className={styles.secondaryBtn}
             onClick={() => navigate('/planner')}
           >
-            Plan
+            📋 Plan
           </button>
 
           <button 
             className={styles.secondaryBtn}
-            onClick={() => navigate('/ghost-mode')}
+            onClick={() => navigate('/health')}
           >
-            Ghost Mode
-          </button>
-
-          <button 
-            className={styles.secondaryBtn}
-            onClick={() => navigate('/wearables')}
-          >
-            Wearables
+            ❤️ Health
           </button>
 
           <button 

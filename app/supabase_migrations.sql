@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS fitbit_daily (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   date DATE NOT NULL,
+  hrv NUMERIC, -- Heart Rate Variability
   resting_heart_rate NUMERIC,
   body_temp NUMERIC,
   sleep_duration NUMERIC, -- minutes
@@ -59,6 +60,17 @@ CREATE TABLE IF NOT EXISTS fitbit_daily (
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, date)
 );
+
+-- Add HRV column if it doesn't exist (for existing tables)
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'fitbit_daily' AND column_name = 'hrv'
+  ) THEN
+    ALTER TABLE fitbit_daily ADD COLUMN hrv NUMERIC;
+  END IF;
+END $$;
 
 -- 4. honest_readiness - daily readiness score + components
 CREATE TABLE IF NOT EXISTS honest_readiness (

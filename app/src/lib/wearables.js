@@ -135,6 +135,7 @@ export async function saveFitbitDaily(userId, date, data) {
     .upsert({
       user_id: userId,
       date: date,
+      hrv: data.hrv || null,
       resting_heart_rate: data.resting_heart_rate || null,
       body_temp: data.body_temp || null,
       sleep_duration: data.sleep_duration || null,
@@ -245,7 +246,7 @@ export async function syncFitbitData(userId, date = null) {
       }
     }
     
-    // Fetch heart rate data (for resting heart rate)
+    // Fetch heart rate data (for resting heart rate and HRV)
     const hrResponse = await fetch(
       `https://api.fitbit.com/1/user/-/activities/heart/date/${targetDate}/1d.json`,
       {
@@ -259,10 +260,72 @@ export async function syncFitbitData(userId, date = null) {
     if (hrResponse.ok) {
       const hrJson = await hrResponse.json()
       if (hrJson['activities-heart'] && hrJson['activities-heart'].length > 0) {
-        const restingHR = hrJson['activities-heart'][0].value?.restingHeartRate
+        const heartData = hrJson['activities-heart'][0].value
         hrData = {
-          resting_heart_rate: restingHR || null
+          resting_heart_rate: heartData?.restingHeartRate || null
         }
+      }
+    }
+    
+    // Fetch HRV data (Heart Rate Variability)
+    // HRV is typically available in the heart rate intraday data or sleep data
+    let hrvData = null
+    try {
+      // Try to get HRV from heart rate intraday endpoint
+      const hrvResponse = await fetch(
+        `https://api.fitbit.com/1/user/-/hrv/date/${targetDate}.json`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`
+          }
+        }
+      )
+      
+      if (hrvResponse.ok) {
+        const hrvJson = await hrvResponse.json()
+        // Fitbit HRV endpoint returns data in different formats
+        // Check for daily summary or intraday data
+        if (hrvJson.hrv && hrvJson.hrv.length > 0) {
+          // Get average HRV for the day
+          const hrvValues = hrvJson.hrv
+            .map(entry => entry.value?.dailyRmssd || entry.value?.rmssd)
+            .filter(v => v != null)
+          
+          if (hrvValues.length > 0) {
+            const avgHRV = hrvValues.reduce((a, b) => a + b, 0) / hrvValues.length
+            hrvData = { hrv: avgHRV }
+          }
+        }
+      }
+    } catch (hrvError) {
+      // HRV endpoint might not be available for all devices
+      console.log('HRV data not available:', hrvError)
+    }
+    
+    // Also check sleep data for HRV (some Fitbit devices include HRV in sleep)
+    if (!hrvData && sleepData) {
+      try {
+        const sleepDetailResponse = await fetch(
+          `https://api.fitbit.com/1.2/user/-/sleep/date/${targetDate}.json`,
+          {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`
+            }
+          }
+        )
+        
+        if (sleepDetailResponse.ok) {
+          const sleepDetailJson = await sleepDetailResponse.json()
+          if (sleepDetailJson.sleep && sleepDetailJson.sleep.length > 0) {
+            const sleep = sleepDetailJson.sleep[0]
+            // Some Fitbit devices include HRV in sleep data
+            if (sleep.levels?.summary?.rem?.hrv) {
+              hrvData = { hrv: sleep.levels.summary.rem.hrv }
+            }
+          }
+        }
+      } catch (sleepHrvError) {
+        // Continue if HRV not in sleep data
       }
     }
     
@@ -295,6 +358,7 @@ export async function syncFitbitData(userId, date = null) {
     const fitbitData = {
       ...sleepData,
       ...hrData,
+      ...hrvData,
       ...activityData
     }
     
@@ -412,7 +476,7 @@ export async function mergeWearableDataToMetrics(userId, date = null) {
   
   // Merge into daily_metrics (prefer Oura, fallback to Fitbit)
   const merged = {
-    hrv: ouraData?.hrv || null,
+    hrv: ouraData?.hrv || fitbitData?.hrv || null,
     sleep_time: ouraData?.total_sleep || fitbitData?.sleep_duration || null,
     sleep_score: ouraData?.sleep_score || null,
     steps: ouraData?.steps || fitbitData?.steps || null,

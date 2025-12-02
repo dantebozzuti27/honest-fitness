@@ -36,8 +36,16 @@ export default function GhostMode() {
   const [analyzing, setAnalyzing] = useState(false)
   const [showTextInput, setShowTextInput] = useState(false)
   const [showQuickAdd, setShowQuickAdd] = useState(false)
+  const [showManualEntry, setShowManualEntry] = useState(false)
   const [textInput, setTextInput] = useState('')
   const [selectedMealType, setSelectedMealType] = useState('Snacks')
+  const [manualEntry, setManualEntry] = useState({
+    name: '',
+    calories: '',
+    protein: '',
+    carbs: '',
+    fat: ''
+  })
   const [fastingStartTime, setFastingStartTime] = useState(null)
   const [fastingEnabled, setFastingEnabled] = useState(false)
   const fileInputRef = useRef(null)
@@ -197,6 +205,35 @@ export default function GhostMode() {
       type: 'quick'
     })
     setShowQuickAdd(false)
+  }
+
+  const handleManualEntry = () => {
+    if (!manualEntry.calories || manualEntry.calories <= 0) {
+      alert('Please enter calories')
+      return
+    }
+
+    addMeal({
+      calories: parseInt(manualEntry.calories) || 0,
+      macros: {
+        protein: parseFloat(manualEntry.protein) || 0,
+        carbs: parseFloat(manualEntry.carbs) || 0,
+        fat: parseFloat(manualEntry.fat) || 0
+      },
+      foods: manualEntry.name ? [manualEntry.name] : [],
+      description: manualEntry.name || 'Manual entry',
+      type: 'manual'
+    })
+
+    // Reset form
+    setManualEntry({
+      name: '',
+      calories: '',
+      protein: '',
+      carbs: '',
+      fat: ''
+    })
+    setShowManualEntry(false)
   }
 
   const removeMeal = (mealId) => {
@@ -526,24 +563,9 @@ export default function GhostMode() {
             <div className={styles.actions}>
               <button
                 className={styles.primaryBtn}
-                onClick={() => fileInputRef.current?.click()}
-                disabled={analyzing}
+                onClick={() => setShowManualEntry(!showManualEntry)}
               >
-                {analyzing ? 'Analyzing...' : '📸 Photo'}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleImageUpload}
-                style={{ display: 'none' }}
-              />
-              <button
-                className={styles.secondaryBtn}
-                onClick={() => setShowTextInput(!showTextInput)}
-              >
-                ✍️ Text
+                ➕ Add Meal
               </button>
               <button
                 className={styles.secondaryBtn}
@@ -560,6 +582,122 @@ export default function GhostMode() {
                 </button>
               )}
             </div>
+
+            {/* AI Options (Optional) */}
+            <div className={styles.aiOptions}>
+              <div className={styles.aiOptionsHeader}>
+                <span className={styles.aiOptionsLabel}>AI Analysis (Optional)</span>
+              </div>
+              <div className={styles.aiOptionsButtons}>
+                <button
+                  className={styles.aiBtn}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={analyzing}
+                >
+                  {analyzing ? 'Analyzing...' : '📸 Analyze Photo'}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleImageUpload}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  className={styles.aiBtn}
+                  onClick={() => setShowTextInput(!showTextInput)}
+                >
+                  ✍️ Analyze Text
+                </button>
+              </div>
+            </div>
+
+            {/* Manual Entry Form */}
+            {showManualEntry && (
+              <div className={styles.manualEntryCard}>
+                <h3>Add Meal Manually</h3>
+                <div className={styles.manualEntryForm}>
+                  <div className={styles.formRow}>
+                    <label>Food Name (optional)</label>
+                    <input
+                      type="text"
+                      className={styles.formInput}
+                      placeholder="e.g., Grilled Chicken"
+                      value={manualEntry.name}
+                      onChange={(e) => setManualEntry({ ...manualEntry, name: e.target.value })}
+                    />
+                  </div>
+                  <div className={styles.formRow}>
+                    <label>Calories *</label>
+                    <input
+                      type="number"
+                      className={styles.formInput}
+                      placeholder="0"
+                      value={manualEntry.calories}
+                      onChange={(e) => setManualEntry({ ...manualEntry, calories: e.target.value })}
+                      min="0"
+                    />
+                  </div>
+                  <div className={styles.macroInputs}>
+                    <div className={styles.macroInput}>
+                      <label>Protein (g)</label>
+                      <input
+                        type="number"
+                        className={styles.formInput}
+                        placeholder="0"
+                        value={manualEntry.protein}
+                        onChange={(e) => setManualEntry({ ...manualEntry, protein: e.target.value })}
+                        min="0"
+                        step="0.1"
+                      />
+                    </div>
+                    <div className={styles.macroInput}>
+                      <label>Carbs (g)</label>
+                      <input
+                        type="number"
+                        className={styles.formInput}
+                        placeholder="0"
+                        value={manualEntry.carbs}
+                        onChange={(e) => setManualEntry({ ...manualEntry, carbs: e.target.value })}
+                        min="0"
+                        step="0.1"
+                      />
+                    </div>
+                    <div className={styles.macroInput}>
+                      <label>Fat (g)</label>
+                      <input
+                        type="number"
+                        className={styles.formInput}
+                        placeholder="0"
+                        value={manualEntry.fat}
+                        onChange={(e) => setManualEntry({ ...manualEntry, fat: e.target.value })}
+                        min="0"
+                        step="0.1"
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.manualEntryActions}>
+                    <button
+                      className={styles.cancelBtn}
+                      onClick={() => {
+                        setShowManualEntry(false)
+                        setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className={styles.submitBtn}
+                      onClick={handleManualEntry}
+                      disabled={!manualEntry.calories || manualEntry.calories <= 0}
+                    >
+                      Add Meal
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Meal Type Selector */}
             <div className={styles.mealTypeSelector}>
@@ -648,7 +786,7 @@ export default function GhostMode() {
             {meals.length === 0 && (
               <div className={styles.emptyState}>
                 <p>No meals logged today</p>
-                <p className={styles.emptyHint}>Take a photo, describe your meal, or quick add!</p>
+                <p className={styles.emptyHint}>Click "Add Meal" to get started, or use AI analysis for quick entry!</p>
               </div>
             )}
           </>

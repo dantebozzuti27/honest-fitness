@@ -14,7 +14,8 @@ export function getFitbitAuthUrl(userId) {
     'activity',
     'heartrate',
     'sleep',
-    'profile'
+    'profile',
+    'settings'
   ].join(' ')
   
   const params = new URLSearchParams({

@@ -54,10 +54,15 @@ export default async function handler(req, res) {
 
     // Save tokens to Supabase
     const { createClient } = await import('@supabase/supabase-js')
-    const supabase = createClient(
-      process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
-      process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
-    )
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+    const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+    
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Missing Supabase credentials')
+      return res.redirect(`/?fitbit_error=${encodeURIComponent('Server configuration error')}`)
+    }
+    
+    const supabase = createClient(supabaseUrl, supabaseKey)
 
     // Calculate token expiration
     const expiresAt = new Date()

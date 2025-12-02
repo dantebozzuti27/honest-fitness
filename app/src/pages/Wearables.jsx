@@ -105,6 +105,8 @@ export default function Wearables() {
 
   // Check for OAuth callback messages
   useEffect(() => {
+    if (!user) return
+    
     const params = new URLSearchParams(window.location.search)
     const fitbitConnected = params.get('fitbit_connected')
     const fitbitError = params.get('fitbit_error')
@@ -112,6 +114,25 @@ export default function Wearables() {
     if (fitbitConnected) {
       alert('Fitbit connected successfully!')
       loadConnectedAccounts()
+      
+      // Auto-sync data after connection
+      setTimeout(async () => {
+        try {
+          setSyncing(true)
+          const result = await syncFitbitData(user.id)
+          await mergeWearableDataToMetrics(user.id, getTodayEST())
+          setSyncStatus({
+            success: true,
+            message: `Synced Fitbit data for ${result.date}`,
+            data: result.data
+          })
+          setSyncing(false)
+        } catch (error) {
+          console.error('Auto-sync failed:', error)
+          setSyncing(false)
+        }
+      }, 1000)
+      
       // Clean URL
       window.history.replaceState({}, document.title, window.location.pathname)
     }
@@ -120,7 +141,7 @@ export default function Wearables() {
       alert(`Fitbit connection error: ${decodeURIComponent(fitbitError)}`)
       window.history.replaceState({}, document.title, window.location.pathname)
     }
-  }, [])
+  }, [user])
 
   const fitbitAccount = connectedAccounts.find(a => a.provider === 'fitbit')
   const fitbitClientId = import.meta.env.VITE_FITBIT_CLIENT_ID

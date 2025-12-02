@@ -86,8 +86,8 @@ export default async function handler(req, res) {
       return res.redirect(`/?fitbit_error=${encodeURIComponent('Failed to save connection')}`)
     }
 
-    // Success! Redirect back to app
-    return res.redirect(`/?fitbit_connected=true`)
+    // Success! Redirect to Wearables page
+    return res.redirect(`/wearables?fitbit_connected=true`)
 
   } catch (error) {
     console.error('Fitbit callback error:', error)

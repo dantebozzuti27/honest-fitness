@@ -48,7 +48,20 @@ export default function Home() {
       setLoading(false)
     }
     init()
-  }, [user])
+    
+    // Check for Fitbit callback redirects
+    const params = new URLSearchParams(window.location.search)
+    const fitbitConnected = params.get('fitbit_connected')
+    const fitbitError = params.get('fitbit_error')
+    
+    if (fitbitConnected) {
+      // Redirect to Wearables page to show connection
+      navigate('/wearables?fitbit_connected=true', { replace: true })
+    } else if (fitbitError) {
+      // Redirect to Wearables page to show error
+      navigate(`/wearables?fitbit_error=${fitbitError}`, { replace: true })
+    }
+  }, [user, navigate])
 
   const handleReloadData = async () => {
     setLoading(true)

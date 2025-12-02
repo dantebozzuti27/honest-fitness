@@ -6,6 +6,8 @@ import { useAuth } from '../context/AuthContext'
 import { calculateStreakFromSupabase } from '../lib/supabaseDb'
 import { exportWorkoutData } from '../utils/exportData'
 import { calculateReadinessScore, getReadinessScore, saveReadinessScore } from '../lib/readiness'
+import { getFitbitDaily } from '../lib/wearables'
+import { getTodayEST } from '../utils/dateUtils'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -16,6 +18,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [calculatingReadiness, setCalculatingReadiness] = useState(false)
+  const [fitbitData, setFitbitData] = useState(null)
 
   useEffect(() => {
     async function init() {
@@ -41,6 +44,17 @@ export default function Home() {
             setCalculatingReadiness(false)
           }
           setReadiness(readinessData)
+          
+          // Load today's Fitbit data
+          try {
+            const today = getTodayEST()
+            const fitbit = await getFitbitDaily(user.id, today)
+            if (fitbit) {
+              setFitbitData(fitbit)
+            }
+          } catch (fitbitError) {
+            console.error('Error loading Fitbit data:', fitbitError)
+          }
         } catch (e) {
           console.error('Error loading data:', e)
         }
@@ -103,6 +117,25 @@ export default function Home() {
       </div>
       <div className={styles.content}>
         <img src="/logo.jpg" alt="HonestFitness" className={styles.logo} />
+        
+        {/* Fitbit Stats at Top */}
+        {fitbitData && (
+          <div className={styles.fitbitCard}>
+            <div className={styles.fitbitHeader}>
+              <span className={styles.fitbitLabel}>Today's Activity</span>
+            </div>
+            <div className={styles.fitbitStats}>
+              <div className={styles.fitbitStat}>
+                <span className={styles.fitbitStatValue}>{fitbitData.steps?.toLocaleString() || '0'}</span>
+                <span className={styles.fitbitStatLabel}>Steps</span>
+              </div>
+              <div className={styles.fitbitStat}>
+                <span className={styles.fitbitStatValue}>{fitbitData.calories?.toLocaleString() || fitbitData.active_calories?.toLocaleString() || '0'}</span>
+                <span className={styles.fitbitStatLabel}>Calories</span>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Honest Readiness Score */}
         {readiness && (

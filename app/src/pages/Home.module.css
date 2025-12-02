@@ -75,6 +75,58 @@
   color: var(--text-primary);
 }
 
+.fitbitCard {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.fitbitHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fitbitLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.fitbitStats {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+}
+
+.fitbitStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.fitbitStatValue {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.fitbitStatLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .streakCard {
   display: flex;
   flex-direction: column;

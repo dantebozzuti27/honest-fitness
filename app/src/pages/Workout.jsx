@@ -93,9 +93,11 @@ export default function Workout() {
   
   // Helper function to format sleep time (minutes to "Xh Ym")
   const formatSleepTime = (minutes) => {
-    if (!minutes) return ''
-    const hours = Math.floor(minutes / 60)
-    const mins = Math.round(minutes % 60)
+    if (!minutes || isNaN(minutes)) return ''
+    const numMinutes = Number(minutes)
+    if (isNaN(numMinutes)) return ''
+    const hours = Math.floor(numMinutes / 60)
+    const mins = Math.round(numMinutes % 60)
     return `${hours}h ${mins}m`
   }
 

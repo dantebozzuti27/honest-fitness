@@ -585,7 +585,7 @@ export default function Analytics() {
                 ])
               )}
               height={150}
-              color="#ffffff"
+              color="var(--text-primary)"
             />
           </div>
         )}
@@ -763,7 +763,7 @@ export default function Analytics() {
                         return `${d.getMonth() + 1}/${d.getDate()}`
                       })}
                       height={150}
-                      color="#ff2d2d"
+                      color="var(--text-primary)"
                     />
                   )}
                 </>
@@ -776,13 +776,13 @@ export default function Analytics() {
                       data={durationData} 
                       labels={durationLabels}
                       height={150}
-                      color="#ff2d2d"
+                      color="var(--text-primary)"
                     />
                   ) : (
                     <BarChart 
                       data={Object.fromEntries(durationData.map((d, i) => [durationLabels[i], d]))} 
                       height={150} 
-                      color="#ff2d2d"
+                      color="var(--text-primary)"
                     />
                   )}
                 </>
@@ -930,13 +930,13 @@ export default function Analytics() {
                       data={weightData} 
                       labels={weightLabels}
                       height={150}
-                      color="#4CAF50"
+                      color="var(--text-primary)"
                     />
                   ) : (
                     <BarChart 
                       data={Object.fromEntries(weightData.map((d, i) => [weightLabels[i], d]))} 
                       height={150} 
-                      color="#4CAF50"
+                      color="var(--text-primary)"
                     />
                   )}
                 </>
@@ -949,13 +949,13 @@ export default function Analytics() {
                       data={sleepData} 
                       labels={sleepLabels}
                       height={150}
-                      color="#2196F3"
+                      color="var(--text-primary)"
                     />
                   ) : (
                     <BarChart 
                       data={Object.fromEntries(sleepData.map((d, i) => [sleepLabels[i], d]))} 
                       height={150} 
-                      color="#2196F3"
+                      color="var(--text-primary)"
                     />
                   )}
                 </>
@@ -968,13 +968,13 @@ export default function Analytics() {
                       data={stepsData} 
                       labels={stepsLabels}
                       height={150}
-                      color="#FF9800"
+                      color="var(--text-primary)"
                     />
                   ) : (
                     <BarChart 
                       data={Object.fromEntries(stepsData.map((d, i) => [stepsLabels[i], d]))} 
                       height={150} 
-                      color="#FF9800"
+                      color="var(--text-primary)"
                     />
                   )}
                 </>
@@ -987,13 +987,13 @@ export default function Analytics() {
                       data={hrvData} 
                       labels={hrvLabels}
                       height={150}
-                      color="#9C27B0"
+                      color="var(--text-primary)"
                     />
                   ) : (
                     <BarChart 
                       data={Object.fromEntries(hrvData.map((d, i) => [hrvLabels[i], d]))} 
                       height={150} 
-                      color="#9C27B0"
+                      color="var(--text-primary)"
                     />
                   )}
                 </>
@@ -1006,13 +1006,13 @@ export default function Analytics() {
                       data={caloriesData} 
                       labels={caloriesLabels}
                       height={150}
-                      color="#F44336"
+                      color="var(--text-primary)"
                     />
                   ) : (
                     <BarChart 
                       data={Object.fromEntries(caloriesData.map((d, i) => [caloriesLabels[i], d]))} 
                       height={150} 
-                      color="#F44336"
+                      color="var(--text-primary)"
                     />
                   )}
                 </>
@@ -1108,6 +1108,18 @@ export default function Analytics() {
             <span className={styles.statNumber}>{avgPerWeek}</span>
             <span className={styles.statLabel}>Avg/Week</span>
           </div>
+          {totalVolume > 0 && (
+            <div className={styles.statCard}>
+              <span className={styles.statNumber}>{totalVolume}</span>
+              <span className={styles.statLabel}>Total Sets (30d)</span>
+            </div>
+          )}
+          {avgDuration > 0 && (
+            <div className={styles.statCard}>
+              <span className={styles.statNumber}>{Math.floor(avgDuration / 60)}:{String(avgDuration % 60).padStart(2, '0')}</span>
+              <span className={styles.statLabel}>Avg Duration</span>
+            </div>
+          )}
         </div>
 
         <div className={styles.chartTypeSelector}>

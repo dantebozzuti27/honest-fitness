@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import styles from './BarChart.module.css'
 
-export default function BarChart({ data, labels, height = 200, color = '#ff2d2d', showValues = true }) {
+export default function BarChart({ data, labels, height = 200, color = 'var(--text-primary)', showValues = true }) {
   const chartData = useMemo(() => {
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
     

@@ -248,10 +248,13 @@ export async function syncFitbitData(userId, date = null) {
   const targetDate = date || getTodayEST()
   
   try {
-    // Use serverless function to proxy Fitbit API calls
-    const response = await fetch('/api/fitbit/sync', {
+    // Use backend API to sync Fitbit data
+    const response = await fetch('/api/input/fitbit/sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(await import('./supabase')).default.auth.session()?.access_token || ''}`
+      },
       body: JSON.stringify({
         userId,
         date: targetDate
@@ -260,15 +263,25 @@ export async function syncFitbitData(userId, date = null) {
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.message || 'Failed to sync Fitbit data')
+      throw new Error(errorData.message || errorData.error || 'Failed to sync Fitbit data')
     }
     
     const result = await response.json()
-    return result
+    
+    // Also save directly to fitbit_daily table
+    if (result.data) {
+      await saveFitbitDaily(userId, targetDate, result.data)
+      // Merge into daily_metrics
+      await mergeWearableDataToMetrics(userId, targetDate)
+    }
+    
+    return {
+      synced: true,
+      date: targetDate,
+      data: result.data || result
+    }
     
   } catch (error) {
-    console.error('Error syncing Fitbit data:', error)
-    
     // If 401, token might be invalid
     if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
       throw new Error('Fitbit authorization expired. Please reconnect your account.')

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import styles from './LineChart.module.css'
 
-export default function LineChart({ data, labels, height = 200, color = '#ff2d2d', showPoints = true, showGrid = true }) {
+export default function LineChart({ data, labels, height = 200, color = 'var(--text-primary)', showPoints = true, showGrid = true }) {
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return null
     

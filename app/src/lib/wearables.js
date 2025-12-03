@@ -171,7 +171,29 @@ export async function getFitbitDaily(userId, date) {
     .eq('date', date)
     .single()
   
-  if (error && error.code !== 'PGRST116') throw error
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error getting Fitbit daily data:', error)
+    throw error
+  }
+  return data
+}
+
+/**
+ * Get most recent Fitbit data
+ */
+export async function getMostRecentFitbitData(userId) {
+  const { data, error } = await supabase
+    .from('fitbit_daily')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: false })
+    .limit(1)
+    .single()
+  
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error getting most recent Fitbit data:', error)
+    return null
+  }
   return data
 }
 

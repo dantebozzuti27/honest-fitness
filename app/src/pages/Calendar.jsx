@@ -49,7 +49,7 @@ export default function Calendar() {
             setWeeklyPlan(plan)
           }
         } catch (e) {
-          console.error('Error loading plan:', e)
+          // Plan loading failed, continue without plan
         }
       }
       const t = await getAllTemplates()
@@ -152,7 +152,7 @@ export default function Calendar() {
       await refreshData()
       closeModal()
     } catch (e) {
-      console.error('Error deleting workout:', e)
+      alert('Failed to delete workout. Please try again.')
       alert('Failed to delete workout')
     }
   }

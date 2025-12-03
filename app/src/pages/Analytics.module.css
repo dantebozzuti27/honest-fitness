@@ -121,6 +121,242 @@
   box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
 }
 
+/* Overview Tab */
+.overviewContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.combinedStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.readinessCard {
+  padding: 24px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  border: 2px solid var(--border);
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.05);
+}
+
+.readinessCard.readinessgreen {
+  border-color: #ffffff;
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
+}
+
+.readinessCard.readinessyellow {
+  border-color: #cccccc;
+  box-shadow: 0 0 30px rgba(204, 204, 204, 0.1);
+}
+
+.readinessCard.readinessred {
+  border-color: #888888;
+  box-shadow: 0 0 30px rgba(136, 136, 136, 0.1);
+}
+
+.readinessHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.readinessZone {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.readinessScore {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.readinessNumber {
+  font-size: 48px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.readinessLabel {
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.readinessComponents {
+  display: flex;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.component {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.componentLabel {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.componentValue {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.nutritionCard {
+  padding: 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+
+.nutritionCard h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  color: var(--text-primary);
+}
+
+.nutritionStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 12px;
+}
+
+.nutritionItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nutritionLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.nutritionValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.fitbitSummaryCard {
+  padding: 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+
+.fitbitSummaryCard h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  color: var(--text-primary);
+}
+
+.fitbitSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.fitbitSummaryItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fitbitSummaryLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.fitbitSummaryValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.trendsCard {
+  padding: 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+
+.trendsCard h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  color: var(--text-primary);
+}
+
+/* ML Insights */
+.mlInsightsCard {
+  background: var(--bg-secondary);
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+}
+
+.mlInsightsTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.mlInsightsList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mlInsightItem {
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  border-left: 2px solid var(--accent);
+}
+
+.mlInsightText {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mlLoadingText {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-style: italic;
+}
+
 /* Body Parts Heatmap */
 .heatmapContainer {
   padding: 4px 0;
@@ -878,6 +1114,30 @@
 }
 
 @media (max-width: 768px) {
+  .container {
+    padding: 12px;
+  }
+  
+  .content {
+    padding: 12px;
+    gap: 16px;
+  }
+  
+  .mlInsightsCard {
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+  
+  .mlInsightsTitle {
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+  
+  .mlInsightItem {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  
   .chartSection {
     margin-bottom: 16px;
   }

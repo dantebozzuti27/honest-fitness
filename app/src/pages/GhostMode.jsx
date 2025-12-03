@@ -55,21 +55,111 @@ export default function GhostMode() {
   useEffect(() => {
     if (!user) return
     
-    const saved = localStorage.getItem(`ghostMode_${user.id}`)
-    if (saved) {
-      const data = JSON.parse(saved)
-      setTargetCalories(data.targetCalories || 2000)
-      setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
-      setHistoryData(data.historyData || {})
-      setFavorites(data.favorites || [])
-      setFastingEnabled(data.fastingEnabled || false)
-      if (data.fastingStartTime) {
-        setFastingStartTime(new Date(data.fastingStartTime))
+    // Load settings from Supabase (with localStorage fallback for migration)
+    loadSettings()
+    
+    // Load meal data from Supabase
+    loadDateDataFromSupabase(selectedDate)
+  }, [user, selectedDate])
+  
+  const loadSettings = async () => {
+    if (!user) return
+    
+    try {
+      const { getNutritionSettingsFromSupabase } = await import('../lib/nutritionDb')
+      const settings = await getNutritionSettingsFromSupabase(user.id)
+      
+      if (settings) {
+        setTargetCalories(settings.targetCalories || 2000)
+        setTargetMacros(settings.targetMacros || { protein: 150, carbs: 200, fat: 67 })
+        setFavorites(settings.favorites || [])
+        setFastingEnabled(settings.fastingEnabled || false)
+        if (settings.fastingStartTime) {
+          setFastingStartTime(new Date(settings.fastingStartTime))
+        }
+      } else {
+        // Fallback to localStorage for migration
+        const saved = localStorage.getItem(`ghostMode_${user.id}`)
+        if (saved) {
+          const data = JSON.parse(saved)
+          setTargetCalories(data.targetCalories || 2000)
+          setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
+          setFavorites(data.favorites || [])
+          setFastingEnabled(data.fastingEnabled || false)
+          if (data.fastingStartTime) {
+            setFastingStartTime(new Date(data.fastingStartTime))
+          }
+          // Migrate to Supabase
+          const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+          await saveNutritionSettingsToSupabase(user.id, {
+            targetCalories: data.targetCalories || 2000,
+            targetMacros: data.targetMacros || { protein: 150, carbs: 200, fat: 67 },
+            favorites: data.favorites || [],
+            fastingEnabled: data.fastingEnabled || false,
+            fastingStartTime: data.fastingStartTime || null
+          })
+        }
+      }
+    } catch (error) {
+      logError('Error loading settings', error)
+      // Fallback to localStorage
+      const saved = localStorage.getItem(`ghostMode_${user.id}`)
+      if (saved) {
+        const data = JSON.parse(saved)
+        setTargetCalories(data.targetCalories || 2000)
+        setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
+        setFavorites(data.favorites || [])
+        setFastingEnabled(data.fastingEnabled || false)
+        if (data.fastingStartTime) {
+          setFastingStartTime(new Date(data.fastingStartTime))
+        }
       }
     }
+  }
+  
+  const loadDateDataFromSupabase = async (date) => {
+    if (!user) return
     
-    loadDateData(selectedDate)
-  }, [user, selectedDate])
+    try {
+      const { getMealsFromSupabase } = await import('../lib/nutritionDb')
+      const dayData = await getMealsFromSupabase(user.id, date)
+      setMeals(dayData.meals || [])
+      setCurrentCalories(dayData.calories || 0)
+      setCurrentMacros(dayData.macros || { protein: 0, carbs: 0, fat: 0 })
+      setWaterIntake(dayData.water || 0)
+      
+      // Also load history for analytics
+      const { getNutritionRangeFromSupabase } = await import('../lib/nutritionDb')
+      const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      const endDate = getTodayEST()
+      const history = await getNutritionRangeFromSupabase(user.id, startDate, endDate)
+      
+      // Convert to historyData format
+      const historyObj = {}
+      history.forEach(item => {
+        historyObj[item.date] = {
+          meals: item.meals,
+          calories: item.calories,
+          macros: item.macros,
+          water: item.water
+        }
+      })
+      setHistoryData(historyObj)
+    } catch (error) {
+      logError('Error loading nutrition data', error)
+      // Fallback to localStorage if Supabase fails
+      const saved = localStorage.getItem(`ghostMode_${user.id}`)
+      if (saved) {
+        const data = JSON.parse(saved)
+        const dayData = data.historyData?.[date] || { meals: [], calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, water: 0 }
+        setMeals(dayData.meals || [])
+        setCurrentCalories(dayData.calories || 0)
+        setCurrentMacros(dayData.macros || { protein: 0, carbs: 0, fat: 0 })
+        setWaterIntake(dayData.water || 0)
+        setHistoryData(data.historyData || {})
+      }
+    }
+  }
 
   // Fasting timer
   useEffect(() => {
@@ -89,7 +179,7 @@ export default function GhostMode() {
     setWaterIntake(dayData.water || 0)
   }
 
-  const saveData = () => {
+  const saveData = async () => {
     if (!user) return
     
     const updatedHistory = {
@@ -102,22 +192,37 @@ export default function GhostMode() {
       }
     }
     
-    localStorage.setItem(`ghostMode_${user.id}`, JSON.stringify({
-      targetCalories,
-      targetMacros,
-      historyData: updatedHistory,
-      favorites,
-      fastingEnabled,
-      fastingStartTime: fastingStartTime?.toISOString() || null
-    }))
+    // Save settings to Supabase
+    try {
+      const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+      await saveNutritionSettingsToSupabase(user.id, {
+        targetCalories,
+        targetMacros,
+        favorites,
+        fastingEnabled,
+        fastingStartTime: fastingStartTime?.toISOString() || null
+      })
+    } catch (error) {
+      logError('Error saving settings to Supabase', error)
+      // Fallback to localStorage
+      localStorage.setItem(`ghostMode_${user.id}`, JSON.stringify({
+        targetCalories,
+        targetMacros,
+        favorites,
+        fastingEnabled,
+        fastingStartTime: fastingStartTime?.toISOString() || null
+      }))
+    }
     
     setHistoryData(updatedHistory)
   }
 
-  const addMeal = (meal) => {
+  const addMeal = async (meal) => {
+    if (!user) return
+    
     const newMeal = {
       ...meal,
-      id: Date.now(),
+      id: Date.now().toString(),
       mealType: meal.mealType || selectedMealType,
       timestamp: new Date().toISOString()
     }
@@ -134,21 +239,28 @@ export default function GhostMode() {
     setCurrentCalories(updatedCalories)
     setCurrentMacros(updatedMacros)
     
-    // Save after state updates
-    setTimeout(() => {
-      const dayData = {
-        meals: updatedMeals,
-        calories: updatedCalories,
-        macros: updatedMacros,
-        water: waterIntake
-      }
-      const updatedHistory = {
-        ...historyData,
-        [selectedDate]: dayData
-      }
-      setHistoryData(updatedHistory)
-      saveData()
-    }, 0)
+    // Save to Supabase immediately
+    try {
+      const { saveMealToSupabase } = await import('../lib/nutritionDb')
+      await saveMealToSupabase(user.id, selectedDate, newMeal)
+    } catch (error) {
+      logError('Error saving meal to database', error)
+      // Fallback to localStorage if Supabase fails
+      setTimeout(() => {
+        const dayData = {
+          meals: updatedMeals,
+          calories: updatedCalories,
+          macros: updatedMacros,
+          water: waterIntake
+        }
+        const updatedHistory = {
+          ...historyData,
+          [selectedDate]: dayData
+        }
+        setHistoryData(updatedHistory)
+        saveData()
+      }, 0)
+    }
   }
 
   const handleImageUpload = async (e) => {
@@ -207,18 +319,33 @@ export default function GhostMode() {
     setShowQuickAdd(false)
   }
 
-  const handleManualEntry = () => {
-    if (!manualEntry.calories || manualEntry.calories <= 0) {
-      alert('Please enter calories')
+  const handleManualEntry = async () => {
+    // Import validation dynamically
+    const { validateCalories, validateMacro } = await import('../utils/validation')
+    
+    // Validate calories
+    const caloriesValidation = validateCalories(manualEntry.calories)
+    if (!caloriesValidation.valid) {
+      alert(caloriesValidation.error)
+      return
+    }
+    
+    // Validate macros
+    const proteinValidation = validateMacro(manualEntry.protein || 0)
+    const carbsValidation = validateMacro(manualEntry.carbs || 0)
+    const fatValidation = validateMacro(manualEntry.fat || 0)
+    
+    if (!proteinValidation.valid || !carbsValidation.valid || !fatValidation.valid) {
+      alert('Please enter valid macro values (0-1000g)')
       return
     }
 
     addMeal({
-      calories: parseInt(manualEntry.calories) || 0,
+      calories: caloriesValidation.value,
       macros: {
-        protein: parseFloat(manualEntry.protein) || 0,
-        carbs: parseFloat(manualEntry.carbs) || 0,
-        fat: parseFloat(manualEntry.fat) || 0
+        protein: proteinValidation.value,
+        carbs: carbsValidation.value,
+        fat: fatValidation.value
       },
       foods: manualEntry.name ? [manualEntry.name] : [],
       description: manualEntry.name || 'Manual entry',
@@ -236,7 +363,9 @@ export default function GhostMode() {
     setShowManualEntry(false)
   }
 
-  const removeMeal = (mealId) => {
+  const removeMeal = async (mealId) => {
+    if (!user) return
+    
     const meal = meals.find(m => m.id === mealId)
     if (meal) {
       const updatedMeals = meals.filter(m => m.id !== mealId)
@@ -251,20 +380,28 @@ export default function GhostMode() {
       setCurrentCalories(updatedCalories)
       setCurrentMacros(updatedMacros)
       
-      setTimeout(() => {
-        const dayData = {
-          meals: updatedMeals,
-          calories: updatedCalories,
-          macros: updatedMacros,
-          water: waterIntake
-        }
-        const updatedHistory = {
-          ...historyData,
-          [selectedDate]: dayData
-        }
-        setHistoryData(updatedHistory)
-        saveData()
-      }, 0)
+      // Delete from Supabase
+      try {
+        const { deleteMealFromSupabase } = await import('../lib/nutritionDb')
+        await deleteMealFromSupabase(user.id, selectedDate, mealId)
+      } catch (error) {
+        logError('Error deleting meal from database', error)
+        // Fallback to localStorage
+        setTimeout(() => {
+          const dayData = {
+            meals: updatedMeals,
+            calories: updatedCalories,
+            macros: updatedMacros,
+            water: waterIntake
+          }
+          const updatedHistory = {
+            ...historyData,
+            [selectedDate]: dayData
+          }
+          setHistoryData(updatedHistory)
+          saveData()
+        }, 0)
+      }
     }
   }
 
@@ -288,23 +425,33 @@ export default function GhostMode() {
     })
   }
 
-  const addWater = (amount) => {
+  const addWater = async (amount) => {
+    if (!user) return
+    
     const newAmount = waterIntake + amount
     setWaterIntake(newAmount)
-    setTimeout(() => {
-      const dayData = {
-        meals,
-        calories: currentCalories,
-        macros: currentMacros,
-        water: newAmount
-      }
-      const updatedHistory = {
-        ...historyData,
-        [selectedDate]: dayData
-      }
-      setHistoryData(updatedHistory)
-      saveData()
-    }, 0)
+    
+    // Save to Supabase
+    try {
+      const { updateWaterIntake } = await import('../lib/nutritionDb')
+      await updateWaterIntake(user.id, selectedDate, newAmount)
+    } catch (error) {
+      // Fallback to localStorage if Supabase fails
+      setTimeout(() => {
+        const dayData = {
+          meals,
+          calories: currentCalories,
+          macros: currentMacros,
+          water: newAmount
+        }
+        const updatedHistory = {
+          ...historyData,
+          [selectedDate]: dayData
+        }
+        setHistoryData(updatedHistory)
+        saveData()
+      }, 0)
+    }
   }
 
   const resetDay = () => {

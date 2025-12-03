@@ -5,6 +5,14 @@
 
 import { createClient } from '@supabase/supabase-js'
 
+if (!process.env.SUPABASE_URL) {
+  throw new Error('SUPABASE_URL environment variable is required')
+}
+
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_ANON_KEY) {
+  throw new Error('Either SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY environment variable is required')
+}
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
@@ -36,8 +44,10 @@ export async function saveToDatabase(type, normalizedData) {
       dataToSave = {
         user_id: normalizedData.user_id,
         date: normalizedData.date,
-        calories: normalizedData.calories,
-        // Note: macros would need separate table or JSON field
+        calories: normalizedData.calories || 0,
+        meals: normalizedData.meals ? (typeof normalizedData.meals === 'string' ? normalizedData.meals : JSON.stringify(normalizedData.meals)) : null,
+        macros: normalizedData.macros ? (typeof normalizedData.macros === 'string' ? normalizedData.macros : JSON.stringify(normalizedData.macros)) : null,
+        water: normalizedData.water || null
       }
       break
       
@@ -145,6 +155,27 @@ export async function getFromDatabase(type, userId, filters = {}) {
     throw new Error(`Database error: ${error.message}`)
   }
   
-  return data
+  // Parse JSON fields for nutrition data
+  if (type === 'nutrition' && data && Array.isArray(data)) {
+    return data.map(item => {
+      if (item.meals && typeof item.meals === 'string') {
+        try {
+          item.meals = JSON.parse(item.meals)
+        } catch (e) {
+          item.meals = []
+        }
+      }
+      if (item.macros && typeof item.macros === 'string') {
+        try {
+          item.macros = JSON.parse(item.macros)
+        } catch (e) {
+          item.macros = { protein: 0, carbs: 0, fat: 0 }
+        }
+      }
+      return item
+    })
+  }
+  
+  return data || []
 }
 

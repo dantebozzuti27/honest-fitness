@@ -4,152 +4,84 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 16px;
   padding-top: calc(env(safe-area-inset-top, 16px) + 16px);
   padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
-  position: relative;
-  overflow: hidden;
-}
-
-.logoBg {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.logoBgImg {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0.15;
-  filter: blur(4px);
-  mask-image: radial-gradient(ellipse at center top, black 0%, transparent 60%);
-  -webkit-mask-image: radial-gradient(ellipse at center top, black 0%, transparent 60%);
+  background: var(--bg-primary);
 }
 
 .content {
   width: 100%;
-  max-width: 400px;
+  max-width: 500px;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 20px;
-  position: relative;
-  z-index: 1;
 }
 
-@media (max-height: 700px) {
-  .content {
-    gap: 12px;
-  }
-}
-
-@media (max-height: 600px) {
-  .content {
-    gap: 8px;
-  }
-}
-
-.logo {
-  width: min(180px, 50vw);
-  height: auto;
-  border-radius: var(--radius-lg);
-  box-shadow: 0 0 60px rgba(255, 255, 255, 0.1), 0 0 100px rgba(255, 255, 255, 0.05);
-}
-
-@media (max-height: 700px) {
-  .logo {
-    width: min(140px, 40vw);
-  }
-}
-
-.title {
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-  color: var(--text-primary);
-}
-
-.fitbitCard {
+/* Steps Card - Top Priority */
+.stepsCard {
   width: 100%;
   background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 28px 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
-.fitbitHeader {
+.stepsHeader {
+  width: 100%;
   display: flex;
-  align-items: center;
   justify-content: space-between;
-}
-
-.fitbitLabel {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.fitbitStats {
-  display: flex;
-  gap: 24px;
-  justify-content: center;
-}
-
-.fitbitStat {
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
 }
 
-.fitbitStatValue {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.fitbitStatLabel {
-  font-size: 12px;
+.stepsLabel {
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
+.stepsDate {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.stepsValue {
+  font-size: 72px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  line-height: 1;
+  text-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
+}
+
+.stepsSubtext {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Streak Card */
 .streakCard {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 16px 28px;
+  gap: 6px;
+  padding: 20px 28px;
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
-  box-shadow: 0 0 30px rgba(255, 255, 255, 0.05), inset 0 0 20px rgba(255, 255, 255, 0.02);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
 
 .streakRow {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.streakIcon {
-  width: 44px;
-  height: 44px;
-  object-fit: contain;
-  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.2));
+  justify-content: center;
 }
 
 .streakNumber {
@@ -158,113 +90,52 @@
   font-family: var(--font-mono);
   color: var(--text-primary);
   line-height: 1;
-  text-shadow: 0 0 40px rgba(255, 255, 255, 0.1);
 }
 
 .streakLabel {
   font-size: 13px;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 2px;
 }
 
-@media (max-height: 700px) {
-  .streakCard {
-    padding: 12px 24px;
-  }
-  .streakIcon {
-    width: 36px;
-    height: 36px;
-  }
-  .streakNumber {
-    font-size: 36px;
-  }
+/* Navigation Grid */
+.navGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
 }
 
-.actions {
-  width: 100%;
+.navItem {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.primaryBtn {
-  width: 100%;
-  padding: 14px 20px;
-  font-size: 15px;
-  font-weight: 600;
-  background: var(--text-primary);
-  color: var(--bg-primary);
-  border-radius: var(--radius-md);
-  transition: transform 0.1s, box-shadow 0.2s, opacity 0.2s;
-  box-shadow: 0 0 25px rgba(255, 255, 255, 0.1), 0 0 50px rgba(255, 255, 255, 0.05);
-}
-
-.primaryBtn:hover {
-  opacity: 0.9;
-}
-
-.primaryBtn:active {
-  transform: scale(0.98);
-}
-
-.secondaryBtn {
-  width: 100%;
-  padding: 14px 20px;
-  font-size: 15px;
-  font-weight: 600;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-radius: var(--radius-md);
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 12px;
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
-  transition: transform 0.1s, border-color 0.2s;
-  box-shadow: 0 0 20px rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-height: 80px;
 }
 
-.secondaryBtn:hover {
-  border-color: var(--border-light);
-}
-
-.secondaryBtn:active {
-  transform: scale(0.98);
+.navItem:hover {
   background: var(--bg-elevated);
-}
-
-.exportBtn {
-  width: 100%;
-  padding: 14px 20px;
-  font-size: 14px;
-  font-weight: 600;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: var(--radius-md);
-  border: 1px dashed var(--border);
-  transition: transform 0.1s, color 0.15s;
-  margin-top: 4px;
-}
-
-.exportBtn:active {
-  transform: scale(0.98);
-  color: var(--text-primary);
   border-color: var(--border-light);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.exportBtn:disabled {
-  opacity: 0.5;
+.navItem:active {
+  transform: translateY(0);
 }
 
-@media (max-height: 700px) {
-  .actions {
-    gap: 8px;
-  }
-  .primaryBtn, .secondaryBtn {
-    padding: 12px 16px;
-    font-size: 14px;
-  }
-  .exportBtn {
-    padding: 10px 16px;
-    font-size: 13px;
-  }
+.navLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: center;
 }
 
 .loading {
@@ -272,148 +143,179 @@
   font-size: 16px;
 }
 
-/* Readiness Score Card */
-.readinessCard {
-  width: 100%;
-  padding: 20px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
-  border: 2px solid var(--border);
-  box-shadow: 0 0 30px rgba(255, 255, 255, 0.05), inset 0 0 20px rgba(255, 255, 255, 0.02);
+/* Quick Action Button */
+.quickActionBtn {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 16px) + 16px);
+  right: 16px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  border: none;
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.readinessCard.readinessgreen {
-  border-color: #ffffff;
-  box-shadow: 0 0 30px rgba(255, 255, 255, 0.1), inset 0 0 20px rgba(255, 255, 255, 0.05);
-}
-
-.readinessCard.readinessyellow {
-  border-color: #cccccc;
-  box-shadow: 0 0 30px rgba(204, 204, 204, 0.1), inset 0 0 20px rgba(204, 204, 204, 0.05);
-}
-
-.readinessCard.readinessred {
-  border-color: #888888;
-  box-shadow: 0 0 30px rgba(136, 136, 136, 0.1), inset 0 0 20px rgba(136, 136, 136, 0.05);
-}
-
-.readinessHeader {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-}
-
-.readinessLabel {
-  font-size: 12px;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  font-weight: 600;
-}
-
-.calculating {
-  font-size: 11px;
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.readinessScore {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-
-.readinessNumber {
-  font-size: 56px;
-  font-weight: 700;
-  font-family: var(--font-mono);
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  transition: all 0.2s;
+  font-size: 32px;
+  font-weight: 300;
   line-height: 1;
-  color: var(--text-primary);
 }
 
-.readinessCard.readinessgreen .readinessNumber {
-  color: #ffffff;
-  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+.quickActionBtn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
-.readinessCard.readinessyellow .readinessNumber {
-  color: #cccccc;
-  text-shadow: 0 0 20px rgba(204, 204, 204, 0.3);
+.quickActionBtn:active {
+  transform: scale(0.95);
 }
 
-.readinessCard.readinessred .readinessNumber {
-  color: #888888;
-  text-shadow: 0 0 20px rgba(136, 136, 136, 0.3);
+.plusIcon {
+  display: block;
+  line-height: 1;
 }
 
-.readinessZone {
-  font-size: 14px;
-  font-weight: 600;
-  padding: 4px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+/* Quick Action Menu */
+.menuOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+  animation: fadeIn 0.2s;
 }
 
-.readinessCard.readinessgreen .readinessZone {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
-.readinessCard.readinessyellow .readinessZone {
-  background: rgba(204, 204, 204, 0.1);
-  color: #cccccc;
-}
-
-.readinessCard.readinessred .readinessZone {
-  background: rgba(136, 136, 136, 0.1);
-  color: #888888;
-}
-
-.readinessComponents {
-  display: flex;
-  gap: 16px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-
-.component {
+.quickMenu {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 16px) + 80px);
+  right: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 8px;
+  min-width: 180px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  animation: slideDown 0.2s;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
 }
 
-.componentLabel {
-  font-size: 11px;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 1px;
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.componentValue {
-  font-size: 18px;
-  font-weight: 600;
-  font-family: var(--font-mono);
+.quickMenuItem {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 14px 16px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
   color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 500;
+  width: 100%;
 }
 
-@media (max-height: 700px) {
-  .readinessCard {
-    padding: 16px;
+.quickMenuItem:hover {
+  background: var(--bg-tertiary);
+}
+
+.quickMenuItem:active {
+  transform: scale(0.98);
+}
+
+.quickMenuLabel {
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .quickActionBtn {
+    width: 52px;
+    height: 52px;
+    font-size: 28px;
+    top: calc(env(safe-area-inset-top, 12px) + 12px);
+    right: 12px;
+  }
+
+  .quickMenu {
+    top: calc(env(safe-area-inset-top, 12px) + 72px);
+    right: 12px;
+    min-width: 160px;
+  }
+
+  .quickMenuItem {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 12px;
+    padding-top: calc(env(safe-area-inset-top, 12px) + 12px);
+    padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 12px);
+  }
+  
+  .content {
+    gap: 16px;
+  }
+  
+  .navGrid {
     gap: 10px;
   }
-  .readinessNumber {
-    font-size: 48px;
+  
+  .navItem {
+    padding: 20px 10px;
+    min-height: 70px;
   }
-  .readinessComponents {
-    gap: 12px;
+  
+  .navLabel {
+    font-size: 13px;
   }
-  .componentValue {
-    font-size: 16px;
+  
+  .stepsCard {
+    padding: 20px 16px;
+  }
+  
+  .stepsValue {
+    font-size: 56px;
+  }
+  
+  .streakCard {
+    padding: 16px 20px;
+  }
+  
+  .streakNumber {
+    font-size: 36px;
   }
 }
-

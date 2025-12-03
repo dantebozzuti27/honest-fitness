@@ -1,24 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { hasExercises } from '../db'
-import { initializeData, reloadData } from '../utils/initData'
+import { initializeData } from '../utils/initData'
 import { useAuth } from '../context/AuthContext'
 import { calculateStreakFromSupabase } from '../lib/supabaseDb'
-import { exportWorkoutData } from '../utils/exportData'
-import { calculateReadinessScore, getReadinessScore, saveReadinessScore } from '../lib/readiness'
-import { getFitbitDaily } from '../lib/wearables'
+import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getTodayEST } from '../utils/dateUtils'
 import styles from './Home.module.css'
 
 export default function Home() {
   const navigate = useNavigate()
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
   const [streak, setStreak] = useState(0)
-  const [readiness, setReadiness] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [exporting, setExporting] = useState(false)
-  const [calculatingReadiness, setCalculatingReadiness] = useState(false)
-  const [fitbitData, setFitbitData] = useState(null)
+  const [fitbitSteps, setFitbitSteps] = useState(null)
+  const [showQuickMenu, setShowQuickMenu] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -28,41 +24,35 @@ export default function Home() {
         await initializeData()
       }
       
-      // Get streak and readiness from Supabase if logged in
+      // Get streak and Fitbit data if logged in
       if (user) {
         try {
           const currentStreak = await calculateStreakFromSupabase(user.id)
           setStreak(currentStreak)
           
-          // Get or calculate readiness score
-          let readinessData = await getReadinessScore(user.id)
-          if (!readinessData) {
-            // Calculate if not exists
-            setCalculatingReadiness(true)
-            readinessData = await calculateReadinessScore(user.id)
-            await saveReadinessScore(user.id, readinessData)
-            setCalculatingReadiness(false)
-          }
-          setReadiness(readinessData)
-          
-          // Load Fitbit data (try today, then yesterday)
+          // Load Fitbit steps (try today, then yesterday, then most recent)
           try {
             const today = getTodayEST()
             let fitbit = await getFitbitDaily(user.id, today)
             if (!fitbit) {
-              // Try yesterday if today has no data
               const { getYesterdayEST } = await import('../utils/dateUtils')
               const yesterday = getYesterdayEST()
               fitbit = await getFitbitDaily(user.id, yesterday)
             }
-            if (fitbit) {
-              setFitbitData(fitbit)
+            if (!fitbit) {
+              fitbit = await getMostRecentFitbitData(user.id)
+            }
+            if (fitbit && fitbit.steps != null) {
+              setFitbitSteps({
+                steps: Number(fitbit.steps),
+                date: fitbit.date
+              })
             }
           } catch (fitbitError) {
-            console.error('Error loading Fitbit data:', fitbitError)
+            // Silently fail - Fitbit data is optional
           }
         } catch (e) {
-          console.error('Error loading data:', e)
+          // Silently fail - data will load on retry
         }
       }
       setLoading(false)
@@ -75,38 +65,11 @@ export default function Home() {
     const fitbitError = params.get('fitbit_error')
     
     if (fitbitConnected) {
-      // Redirect to Wearables page to show connection
       navigate('/wearables?fitbit_connected=true', { replace: true })
     } else if (fitbitError) {
-      // Redirect to Wearables page to show error
       navigate(`/wearables?fitbit_error=${fitbitError}`, { replace: true })
     }
   }, [user, navigate])
-
-  const handleReloadData = async () => {
-    setLoading(true)
-    await reloadData()
-    setLoading(false)
-    alert('Exercise database reloaded!')
-  }
-
-  const handleLogout = async () => {
-    await signOut()
-    navigate('/auth')
-  }
-
-  const handleExport = async () => {
-    if (!user) return
-    setExporting(true)
-    try {
-      const result = await exportWorkoutData(user.id, user.email)
-      alert(`Exported ${result.workouts} workouts and ${result.metrics} daily metrics!\n\nThe Excel file has been downloaded. Attach it to the email that just opened.`)
-    } catch (err) {
-      console.error('Export error:', err)
-      alert('Failed to export data')
-    }
-    setExporting(false)
-  }
 
   if (loading) {
     return (
@@ -116,144 +79,102 @@ export default function Home() {
     )
   }
 
+  const navItems = [
+    { id: 'fitness', label: 'Fitness', path: '/workout' },
+    { id: 'nutrition', label: 'Nutrition', path: '/ghost-mode' },
+    { id: 'health', label: 'Health', path: '/health' },
+    { id: 'analytics', label: 'Analytics', path: '/analytics' },
+    { id: 'schedule', label: 'Schedule', path: '/calendar' },
+    { id: 'account', label: 'Account', path: '/account' }
+  ]
+
+  const quickActions = [
+    { id: 'workout', label: 'Start Workout', path: '/workout' },
+    { id: 'meal', label: 'Log Meal', path: '/ghost-mode' },
+    { id: 'metrics', label: 'Log Metrics', path: '/workout' }
+  ]
+
+  const handleQuickAction = (path) => {
+    setShowQuickMenu(false)
+    navigate(path)
+  }
+
   return (
     <div className={styles.container}>
-      <div className={styles.logoBg}>
-        <img src="/logo.jpg" alt="" className={styles.logoBgImg} />
-      </div>
+      {/* Quick Action Button */}
+      <button 
+        className={styles.quickActionBtn}
+        onClick={() => setShowQuickMenu(!showQuickMenu)}
+        aria-label="Quick actions"
+      >
+        <span className={styles.plusIcon}>+</span>
+      </button>
+
+      {/* Quick Action Menu */}
+      {showQuickMenu && (
+        <>
+          <div 
+            className={styles.menuOverlay}
+            onClick={() => setShowQuickMenu(false)}
+          />
+          <div className={styles.quickMenu}>
+            {quickActions.map(action => (
+              <button
+                key={action.id}
+                className={styles.quickMenuItem}
+                onClick={() => handleQuickAction(action.path)}
+              >
+                <span className={styles.quickMenuLabel}>{action.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       <div className={styles.content}>
-        {/* Fitbit Stats at Top */}
-        {fitbitData && (fitbitData.steps != null || fitbitData.calories != null || fitbitData.active_calories != null) && (
-          <div className={styles.fitbitCard}>
-            <div className={styles.fitbitHeader}>
-              <span className={styles.fitbitLabel}>Activity</span>
-            </div>
-            <div className={styles.fitbitStats}>
-              {fitbitData.steps != null && (
-                <div className={styles.fitbitStat}>
-                  <span className={styles.fitbitStatValue}>{Number(fitbitData.steps).toLocaleString()}</span>
-                  <span className={styles.fitbitStatLabel}>Steps</span>
-                </div>
-              )}
-              {(fitbitData.calories != null || fitbitData.active_calories != null) && (
-                <div className={styles.fitbitStat}>
-                  <span className={styles.fitbitStatValue}>
-                    {Number(fitbitData.calories || fitbitData.active_calories || 0).toLocaleString()}
-                  </span>
-                  <span className={styles.fitbitStatLabel}>Calories</span>
-                </div>
+        {/* Fitbit Steps at Top */}
+        {fitbitSteps && (
+          <div className={styles.stepsCard}>
+            <div className={styles.stepsHeader}>
+              <span className={styles.stepsLabel}>Today's Steps</span>
+              {fitbitSteps.date && fitbitSteps.date !== getTodayEST() && (
+                <span className={styles.stepsDate}>{fitbitSteps.date}</span>
               )}
             </div>
+            <div className={styles.stepsValue}>
+              {fitbitSteps.steps.toLocaleString()}
+            </div>
+            {!fitbitSteps.date || fitbitSteps.date === getTodayEST() ? (
+              <div className={styles.stepsSubtext}>Keep moving!</div>
+            ) : (
+              <div className={styles.stepsSubtext}>Last recorded</div>
+            )}
           </div>
         )}
-        
-        <img src="/logo.jpg" alt="HonestFitness" className={styles.logo} />
-        
-        {/* Honest Readiness Score */}
-        {readiness && (
-          <div className={`${styles.readinessCard} ${styles[`readiness${readiness.zone}`]}`}>
-            <div className={styles.readinessHeader}>
-              <span className={styles.readinessLabel}>Honest Readiness</span>
-              {calculatingReadiness && <span className={styles.calculating}>Calculating...</span>}
+
+        {/* Streak Card */}
+        {streak > 0 && (
+          <div className={styles.streakCard}>
+            <div className={styles.streakRow}>
+              <span className={styles.streakNumber}>{streak}</span>
             </div>
-            <div className={styles.readinessScore}>
-              <span className={styles.readinessNumber}>{readiness.score}</span>
-              <span className={styles.readinessZone}>{readiness.zone.toUpperCase()}</span>
-            </div>
-            <div className={styles.readinessComponents}>
-              <div className={styles.component}>
-                <span className={styles.componentLabel}>Load</span>
-                <span className={styles.componentValue}>
-                  {readiness.ac_ratio !== undefined ? readiness.ac_ratio : 
-                   readiness.components?.acRatio !== undefined ? readiness.components.acRatio : 'N/A'}
-                </span>
-              </div>
-              <div className={styles.component}>
-                <span className={styles.componentLabel}>HRV</span>
-                <span className={styles.componentValue}>
-                  {readiness.hrv_score !== undefined ? readiness.hrv_score : 
-                   readiness.components?.hrvScore !== undefined ? readiness.components.hrvScore : 'N/A'}
-                </span>
-              </div>
-              <div className={styles.component}>
-                <span className={styles.componentLabel}>Sleep</span>
-                <span className={styles.componentValue}>
-                  {readiness.sleep_score !== undefined ? readiness.sleep_score : 
-                   readiness.components?.sleepScore !== undefined ? readiness.components.sleepScore : 'N/A'}
-                </span>
-              </div>
-            </div>
+            <span className={styles.streakLabel}>day streak</span>
           </div>
         )}
-        
-        <div className={styles.streakCard}>
-          <div className={styles.streakRow}>
-            <span className={styles.streakNumber}>{streak}</span>
-            <img src="/streak-icon.png" alt="" className={styles.streakIcon} />
-          </div>
-          <span className={styles.streakLabel}>day streak</span>
-        </div>
 
-        <div className={styles.actions}>
-          <button 
-            className={styles.primaryBtn}
-            onClick={() => navigate('/workout')}
-          >
-            Workout
-          </button>
-          
-          <button 
-            className={styles.secondaryBtn}
-            onClick={() => navigate('/ghost-mode')}
-          >
-            Nutrition
-          </button>
-          
-          <button 
-            className={styles.secondaryBtn}
-            onClick={() => navigate('/analytics')}
-          >
-            Analyze
-          </button>
-
-          <button 
-            className={styles.secondaryBtn}
-            onClick={() => navigate('/calendar')}
-          >
-            Calendar
-          </button>
-
-          <button 
-            className={styles.secondaryBtn}
-            onClick={() => navigate('/planner')}
-          >
-            Plan
-          </button>
-
-          <button 
-            className={styles.secondaryBtn}
-            onClick={() => navigate('/health')}
-          >
-            Health
-          </button>
-
-          <button 
-            className={styles.secondaryBtn}
-            onClick={() => navigate('/data')}
-          >
-            Data Explorer
-          </button>
-
-          <button 
-            className={styles.exportBtn}
-            onClick={handleExport}
-            disabled={exporting}
-          >
-            {exporting ? 'Exporting...' : 'Export Data'}
-          </button>
+        {/* Navigation Grid */}
+        <div className={styles.navGrid}>
+          {navItems.map(item => (
+            <button
+              key={item.id}
+              className={styles.navItem}
+              onClick={() => navigate(item.path)}
+            >
+              <div className={styles.navLabel}>{item.label}</div>
+            </button>
+          ))}
         </div>
       </div>
     </div>
   )
 }
-

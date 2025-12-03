@@ -9,8 +9,12 @@ import { mlRouter } from './ml.js'
 import { personalizationRouter } from './personalization.js'
 import { outputRouter } from './output.js'
 import { pipelineRouter } from './pipeline.js'
+import { authenticate } from '../middleware/auth.js'
 
 export const apiRouter = express.Router()
+
+// Apply authentication to all API routes except health check
+apiRouter.use(authenticate)
 
 // Route to input layer
 apiRouter.use('/input', inputRouter)

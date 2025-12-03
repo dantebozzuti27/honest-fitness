@@ -15,12 +15,18 @@ import {
   saveMetricsToSupabase
 } from '../lib/supabaseDb'
 import { getAllTemplates } from '../db'
+import { getReadinessScore } from '../lib/readiness'
+import { getAllConnectedAccounts, getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
+import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
+import { getTodayEST } from '../utils/dateUtils'
 import BodyHeatmap from '../components/BodyHeatmap'
 import LineChart from '../components/LineChart'
 import BarChart from '../components/BarChart'
+import { getInsights } from '../lib/backend'
+import { logError, logWarn } from '../utils/logger'
 import styles from './Analytics.module.css'
 
-const TABS = ['Scan', 'History', 'Metrics', 'Upcoming', 'Trends']
+const TABS = ['Overview', 'Scan', 'History', 'Metrics', 'Trends']
 const DATE_FILTERS = [
   { label: 'This Week', type: 'week' },
   { label: 'This Month', type: 'month' },
@@ -54,13 +60,19 @@ export default function Analytics() {
     frequency: {},
     topExercises: [],
     totalWorkouts: 0,
-    workouts: []
+    workouts: [],
+    readiness: null,
+    fitbitData: null,
+    nutrition: null,
+    nutritionHistory: []
   })
   const [templates, setTemplates] = useState([])
   const [selectedWorkout, setSelectedWorkout] = useState(null)
   const [selectedBodyPart, setSelectedBodyPart] = useState(null)
   const [editingWorkout, setEditingWorkout] = useState(null)
   const [editingMetric, setEditingMetric] = useState(null)
+  const [mlInsights, setMlInsights] = useState(null)
+  const [mlLoading, setMlLoading] = useState(false)
 
   useEffect(() => {
     async function loadData() {
@@ -68,7 +80,7 @@ export default function Analytics() {
       setLoading(true)
 
       try {
-        const [bodyParts, streak, metrics, scheduled, frequency, topExercises, workouts, tmpl, detailedStats] = await Promise.all([
+        const [bodyParts, streak, metrics, scheduled, frequency, topExercises, workouts, tmpl, detailedStats, readiness, connected, today] = await Promise.all([
           getBodyPartStats(user.id),
           calculateStreakFromSupabase(user.id),
           getAllMetricsFromSupabase(user.id),
@@ -77,8 +89,43 @@ export default function Analytics() {
           getExerciseStats(user.id),
           getWorkoutsFromSupabase(user.id),
           getAllTemplates(),
-          getDetailedBodyPartStats(user.id)
+          getDetailedBodyPartStats(user.id),
+          getReadinessScore(user.id),
+          getAllConnectedAccounts(user.id),
+          Promise.resolve(getTodayEST())
         ])
+        
+        // Load Fitbit data
+        let fitbitData = null
+        const fitbitAccount = connected?.find(a => a.provider === 'fitbit')
+        if (fitbitAccount) {
+          try {
+            fitbitData = await getFitbitDaily(user.id, today)
+            if (!fitbitData) {
+              const { getYesterdayEST } = await import('../utils/dateUtils')
+              fitbitData = await getFitbitDaily(user.id, getYesterdayEST())
+            }
+            if (!fitbitData) {
+              fitbitData = await getMostRecentFitbitData(user.id)
+            }
+          } catch (e) {
+            // Fitbit data is optional
+          }
+        }
+        
+        // Load nutrition data
+        let nutrition = null
+        let nutritionHistory = []
+        try {
+          nutrition = await getMealsFromSupabase(user.id, today)
+          const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+          nutritionHistory = await getNutritionRangeFromSupabase(user.id, startDate, today)
+        } catch (e) {
+          // Nutrition data is optional
+        }
+        
+        // Load ML insights in background
+        loadMLInsights()
 
         // Calculate reps and sets per body part
         const bodyPartReps = {}
@@ -107,13 +154,32 @@ export default function Analytics() {
           frequency,
           topExercises,
           totalWorkouts: workouts.length,
-          workouts
+          workouts,
+          readiness,
+          fitbitData,
+          nutrition,
+          nutritionHistory
         })
         setTemplates(tmpl)
       } catch (err) {
-        console.error('Error loading analytics:', err)
+        logError('Error loading analytics', err)
       } finally {
         setLoading(false)
+      }
+    }
+    
+    async function loadMLInsights() {
+      if (!user) return
+      setMlLoading(true)
+      try {
+        // Try to get ML insights from backend
+        const insights = await getInsights(user.id)
+        setMlInsights(insights)
+      } catch (error) {
+        // Backend might not be available, continue without ML insights
+        logWarn('ML insights unavailable', error)
+      } finally {
+        setMlLoading(false)
       }
     }
 
@@ -182,7 +248,7 @@ export default function Analytics() {
         workouts
       })
     } catch (err) {
-      console.error('Error refreshing data:', err)
+      logError('Error refreshing data', err)
     } finally {
       setLoading(false)
     }
@@ -195,7 +261,7 @@ export default function Analytics() {
       await refreshData()
       setSelectedWorkout(null)
     } catch (e) {
-      console.error('Error deleting workout:', e)
+      logError('Error deleting workout', e)
       alert('Failed to delete workout')
     }
   }
@@ -234,7 +300,7 @@ export default function Analytics() {
       setEditingWorkout(null)
       setSelectedWorkout(null)
     } catch (e) {
-      console.error('Error updating workout:', e)
+      logError('Error updating workout', e)
       alert('Failed to update workout')
     }
   }
@@ -257,7 +323,7 @@ export default function Analytics() {
       await refreshData()
       setEditingMetric(null)
     } catch (e) {
-      console.error('Error updating metric:', e)
+      logError('Error updating metric', e)
       alert('Failed to update metric')
     }
   }
@@ -354,11 +420,206 @@ export default function Analytics() {
     }
   }
 
+  const renderOverview = () => {
+    return (
+      <div className={styles.overviewContainer}>
+        {/* ML Insights at Top */}
+        {(mlInsights || mlLoading) && (
+          <div className={styles.mlInsightsCard}>
+            <h3 className={styles.mlInsightsTitle}>AI Health Insights</h3>
+            {mlLoading ? (
+              <p className={styles.mlLoadingText}>Analyzing your complete health picture...</p>
+            ) : mlInsights?.insights && Array.isArray(mlInsights.insights) ? (
+              <ul className={styles.mlInsightsList}>
+                {mlInsights.insights.slice(0, 5).map((insight, i) => (
+                  <li key={i} className={styles.mlInsightItem}>
+                    {insight.message || insight.text || insight}
+                  </li>
+                ))}
+              </ul>
+            ) : mlInsights ? (
+              <p className={styles.mlInsightText}>
+                {typeof mlInsights === 'string' ? mlInsights : mlInsights.message || 'AI analysis available'}
+              </p>
+            ) : null}
+          </div>
+        )}
+
+        {/* Readiness Score */}
+        {data.readiness && (
+          <div className={`${styles.readinessCard} ${styles[`readiness${data.readiness.zone}`]}`}>
+            <div className={styles.readinessHeader}>
+              <h2>Honest Readiness</h2>
+              <span className={styles.readinessZone}>{data.readiness.zone.toUpperCase()}</span>
+            </div>
+            <div className={styles.readinessScore}>
+              <span className={styles.readinessNumber}>{data.readiness.score}</span>
+              <span className={styles.readinessLabel}>/ 100</span>
+            </div>
+          </div>
+        )}
+
+        {/* Combined Stats Grid */}
+        <div className={styles.combinedStatsGrid}>
+          <div className={styles.statCard}>
+            <div className={styles.statValue}>{data.totalWorkouts}</div>
+            <div className={styles.statLabel}>Workouts</div>
+          </div>
+          {data.nutrition && (
+            <div className={styles.statCard}>
+              <div className={styles.statValue}>{data.nutrition.calories || 0}</div>
+              <div className={styles.statLabel}>Calories Today</div>
+            </div>
+          )}
+          {data.fitbitData?.steps != null && (
+            <div className={styles.statCard}>
+              <div className={styles.statValue}>{Number(data.fitbitData.steps).toLocaleString()}</div>
+              <div className={styles.statLabel}>Steps</div>
+            </div>
+          )}
+          {data.fitbitData?.hrv != null && (
+            <div className={styles.statCard}>
+              <div className={styles.statValue}>{Math.round(Number(data.fitbitData.hrv))}</div>
+              <div className={styles.statLabel}>HRV (ms)</div>
+            </div>
+          )}
+          {data.fitbitData?.sleep_efficiency != null && (
+            <div className={styles.statCard}>
+              <div className={styles.statValue}>{Math.round(Number(data.fitbitData.sleep_efficiency))}%</div>
+              <div className={styles.statLabel}>Sleep Quality</div>
+            </div>
+          )}
+          {data.streak > 0 && (
+            <div className={styles.statCard}>
+              <div className={styles.statValue}>{data.streak}</div>
+              <div className={styles.statLabel}>Day Streak</div>
+            </div>
+          )}
+        </div>
+
+        {/* Nutrition Summary */}
+        {data.nutrition && data.nutrition.calories > 0 && (
+          <div className={styles.nutritionCard}>
+            <h3>Today's Nutrition</h3>
+            <div className={styles.nutritionStats}>
+              <div className={styles.nutritionItem}>
+                <span className={styles.nutritionLabel}>Calories</span>
+                <span className={styles.nutritionValue}>{data.nutrition.calories}</span>
+              </div>
+              {data.nutrition.macros && (
+                <>
+                  <div className={styles.nutritionItem}>
+                    <span className={styles.nutritionLabel}>Protein</span>
+                    <span className={styles.nutritionValue}>{Math.round(data.nutrition.macros.protein || 0)}g</span>
+                  </div>
+                  <div className={styles.nutritionItem}>
+                    <span className={styles.nutritionLabel}>Carbs</span>
+                    <span className={styles.nutritionValue}>{Math.round(data.nutrition.macros.carbs || 0)}g</span>
+                  </div>
+                  <div className={styles.nutritionItem}>
+                    <span className={styles.nutritionLabel}>Fat</span>
+                    <span className={styles.nutritionValue}>{Math.round(data.nutrition.macros.fat || 0)}g</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Fitbit Summary */}
+        {data.fitbitData && (
+          <div className={styles.fitbitSummaryCard}>
+            <h3>Health Metrics</h3>
+            <div className={styles.fitbitSummaryGrid}>
+              {data.fitbitData.steps != null && (
+                <div className={styles.fitbitSummaryItem}>
+                  <span className={styles.fitbitSummaryLabel}>Steps</span>
+                  <span className={styles.fitbitSummaryValue}>{Number(data.fitbitData.steps).toLocaleString()}</span>
+                </div>
+              )}
+              {data.fitbitData.calories != null && (
+                <div className={styles.fitbitSummaryItem}>
+                  <span className={styles.fitbitSummaryLabel}>Calories</span>
+                  <span className={styles.fitbitSummaryValue}>{Number(data.fitbitData.calories).toLocaleString()}</span>
+                </div>
+              )}
+              {data.fitbitData.hrv != null && (
+                <div className={styles.fitbitSummaryItem}>
+                  <span className={styles.fitbitSummaryLabel}>HRV</span>
+                  <span className={styles.fitbitSummaryValue}>{Math.round(Number(data.fitbitData.hrv))} ms</span>
+                </div>
+              )}
+              {data.fitbitData.resting_heart_rate != null && (
+                <div className={styles.fitbitSummaryItem}>
+                  <span className={styles.fitbitSummaryLabel}>Resting HR</span>
+                  <span className={styles.fitbitSummaryValue}>{Math.round(Number(data.fitbitData.resting_heart_rate))} bpm</span>
+                </div>
+              )}
+              {data.fitbitData.sleep_duration != null && (
+                <div className={styles.fitbitSummaryItem}>
+                  <span className={styles.fitbitSummaryLabel}>Sleep</span>
+                  <span className={styles.fitbitSummaryValue}>
+                    {Math.floor(Number(data.fitbitData.sleep_duration) / 60)}h {Math.round(Number(data.fitbitData.sleep_duration) % 60)}m
+                  </span>
+                </div>
+              )}
+              {data.fitbitData.sleep_efficiency != null && (
+                <div className={styles.fitbitSummaryItem}>
+                  <span className={styles.fitbitSummaryLabel}>Sleep Efficiency</span>
+                  <span className={styles.fitbitSummaryValue}>{Math.round(Number(data.fitbitData.sleep_efficiency))}%</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Weekly Trends Chart */}
+        {data.nutritionHistory.length > 0 && (
+          <div className={styles.trendsCard}>
+            <h3>Weekly Nutrition Trend</h3>
+            <BarChart 
+              data={Object.fromEntries(
+                data.nutritionHistory.slice(-7).map(item => [
+                  new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                  item.calories || 0
+                ])
+              )}
+              height={150}
+              color="#ffffff"
+            />
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const renderBodyParts = () => {
     const bodyPartData = getBodyPartData()
     
     return (
       <div className={styles.heatmapContainer}>
+        {/* ML Insights Section */}
+        {(mlInsights || mlLoading) && (
+          <div className={styles.mlInsightsCard}>
+            <h3 className={styles.mlInsightsTitle}>AI Insights</h3>
+            {mlLoading ? (
+              <p className={styles.mlLoadingText}>Analyzing your data...</p>
+            ) : mlInsights?.insights && Array.isArray(mlInsights.insights) ? (
+              <ul className={styles.mlInsightsList}>
+                {mlInsights.insights.slice(0, 5).map((insight, i) => (
+                  <li key={i} className={styles.mlInsightItem}>
+                    {insight.message || insight.text || insight}
+                  </li>
+                ))}
+              </ul>
+            ) : mlInsights ? (
+              <p className={styles.mlInsightText}>
+                {typeof mlInsights === 'string' ? mlInsights : mlInsights.message || 'AI analysis available'}
+              </p>
+            ) : null}
+          </div>
+        )}
+        
         {/* Date Filters */}
         <div className={styles.filterRow}>
           <span className={styles.filterLabel}>Time Period:</span>
@@ -985,10 +1246,10 @@ export default function Analytics() {
           <div className={styles.loading}>Loading...</div>
         ) : (
           <>
-            {activeTab === 0 && renderBodyParts()}
-            {activeTab === 1 && renderHistory()}
-            {activeTab === 2 && renderMetrics()}
-            {activeTab === 3 && renderUpcoming()}
+            {activeTab === 0 && renderOverview()}
+            {activeTab === 1 && renderBodyParts()}
+            {activeTab === 2 && renderHistory()}
+            {activeTab === 3 && renderMetrics()}
             {activeTab === 4 && renderTrends()}
           </>
         )}

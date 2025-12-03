@@ -42,7 +42,7 @@ export default function DataExplorer() {
       const allData = await getAllUserData(user.id, filters)
       setData(allData)
     } catch (error) {
-      console.error('Error loading data:', error)
+      // Error loading data, will retry
       alert('Failed to load data')
     } finally {
       setLoading(false)

@@ -24,9 +24,7 @@ export default function Wearables() {
       loadConnectedAccounts()
     }
     
-    // Debug: Log environment variables on mount
-    console.log('[Wearables] VITE_FITBIT_CLIENT_ID:', import.meta.env.VITE_FITBIT_CLIENT_ID ? 'SET' : 'NOT SET')
-    console.log('[Wearables] VITE_FITBIT_REDIRECT_URI:', import.meta.env.VITE_FITBIT_REDIRECT_URI || 'Using default')
+    // Environment variables are checked in fitbitAuth
   }, [user])
 
   const loadConnectedAccounts = async () => {
@@ -36,7 +34,7 @@ export default function Wearables() {
       const accounts = await getAllConnectedAccounts(user.id)
       setConnectedAccounts(accounts || [])
     } catch (error) {
-      console.error('Error loading connected accounts:', error)
+      // Silently fail - will retry on next render
     } finally {
       setLoading(false)
     }
@@ -48,12 +46,9 @@ export default function Wearables() {
       return
     }
     
-    console.log('handleConnectFitbit called, user:', user)
-    
     try {
       connectFitbit(user.id)
     } catch (error) {
-      console.error('Error in handleConnectFitbit:', error)
       alert(`Error connecting Fitbit: ${error.message}`)
     }
   }
@@ -68,8 +63,7 @@ export default function Wearables() {
       await loadConnectedAccounts()
       alert(`${provider} disconnected successfully`)
     } catch (error) {
-      console.error('Error disconnecting:', error)
-      alert(`Failed to disconnect ${provider}`)
+      alert(`Failed to disconnect ${provider}. Please try again.`)
     }
   }
 
@@ -81,22 +75,35 @@ export default function Wearables() {
     
     try {
       if (provider === 'fitbit') {
-        const result = await syncFitbitData(user.id)
+        // Sync today's data
+        const today = getTodayEST()
+        const result = await syncFitbitData(user.id, today)
+        
+        // Also sync yesterday to ensure we have recent data
+        const { getYesterdayEST } = await import('../utils/dateUtils')
+        const yesterday = getYesterdayEST()
+        try {
+          await syncFitbitData(user.id, yesterday)
+        } catch (e) {
+          // Yesterday sync is optional, continue
+        }
         
         // Merge into daily_metrics
-        await mergeWearableDataToMetrics(user.id, getTodayEST())
+        await mergeWearableDataToMetrics(user.id, today)
         
         setSyncStatus({
           success: true,
           message: `Synced Fitbit data for ${result.date}`,
           data: result.data
         })
+        
+        // Reload connected accounts to show updated status
+        await loadConnectedAccounts()
       }
     } catch (error) {
-      console.error('Sync error:', error)
       setSyncStatus({
         success: false,
-        message: error.message || 'Failed to sync data'
+        message: error.message || 'Failed to sync data. Please check your connection and try again.'
       })
     } finally {
       setSyncing(false)
@@ -119,8 +126,19 @@ export default function Wearables() {
       setTimeout(async () => {
         try {
           setSyncing(true)
-          const result = await syncFitbitData(user.id)
-          await mergeWearableDataToMetrics(user.id, getTodayEST())
+          const today = getTodayEST()
+          const result = await syncFitbitData(user.id, today)
+          
+          // Also sync yesterday
+          const { getYesterdayEST } = await import('../utils/dateUtils')
+          const yesterday = getYesterdayEST()
+          try {
+            await syncFitbitData(user.id, yesterday)
+          } catch (e) {
+            // Yesterday sync is optional, continue
+          }
+          
+          await mergeWearableDataToMetrics(user.id, today)
           setSyncStatus({
             success: true,
             message: `Synced Fitbit data for ${result.date}`,
@@ -128,7 +146,10 @@ export default function Wearables() {
           })
           setSyncing(false)
         } catch (error) {
-          console.error('Auto-sync failed:', error)
+          setSyncStatus({
+            success: false,
+            message: error.message || 'Auto-sync failed. You can sync manually.'
+          })
           setSyncing(false)
         }
       }, 1000)

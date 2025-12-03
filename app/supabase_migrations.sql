@@ -114,6 +114,12 @@ ALTER TABLE fitbit_daily ENABLE ROW LEVEL SECURITY;
 ALTER TABLE honest_readiness ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies: Users can only access their own data
+-- Drop existing policies if they exist, then create them
+DROP POLICY IF EXISTS "Users can view own connected_accounts" ON connected_accounts;
+DROP POLICY IF EXISTS "Users can insert own connected_accounts" ON connected_accounts;
+DROP POLICY IF EXISTS "Users can update own connected_accounts" ON connected_accounts;
+DROP POLICY IF EXISTS "Users can delete own connected_accounts" ON connected_accounts;
+
 CREATE POLICY "Users can view own connected_accounts" ON connected_accounts
   FOR SELECT USING (auth.uid() = user_id);
 
@@ -126,6 +132,10 @@ CREATE POLICY "Users can update own connected_accounts" ON connected_accounts
 CREATE POLICY "Users can delete own connected_accounts" ON connected_accounts
   FOR DELETE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can view own oura_daily" ON oura_daily;
+DROP POLICY IF EXISTS "Users can insert own oura_daily" ON oura_daily;
+DROP POLICY IF EXISTS "Users can update own oura_daily" ON oura_daily;
+
 CREATE POLICY "Users can view own oura_daily" ON oura_daily
   FOR SELECT USING (auth.uid() = user_id);
 
@@ -135,6 +145,10 @@ CREATE POLICY "Users can insert own oura_daily" ON oura_daily
 CREATE POLICY "Users can update own oura_daily" ON oura_daily
   FOR UPDATE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can view own fitbit_daily" ON fitbit_daily;
+DROP POLICY IF EXISTS "Users can insert own fitbit_daily" ON fitbit_daily;
+DROP POLICY IF EXISTS "Users can update own fitbit_daily" ON fitbit_daily;
+
 CREATE POLICY "Users can view own fitbit_daily" ON fitbit_daily
   FOR SELECT USING (auth.uid() = user_id);
 
@@ -143,6 +157,10 @@ CREATE POLICY "Users can insert own fitbit_daily" ON fitbit_daily
 
 CREATE POLICY "Users can update own fitbit_daily" ON fitbit_daily
   FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can view own honest_readiness" ON honest_readiness;
+DROP POLICY IF EXISTS "Users can insert own honest_readiness" ON honest_readiness;
+DROP POLICY IF EXISTS "Users can update own honest_readiness" ON honest_readiness;
 
 CREATE POLICY "Users can view own honest_readiness" ON honest_readiness
   FOR SELECT USING (auth.uid() = user_id);

@@ -37,7 +37,7 @@ export default function ActiveWorkout() {
   useEffect(() => {
     async function load() {
       const allEx = await getAllExercises()
-      console.log('Loaded exercises from DB:', allEx.length, allEx.slice(0, 3))
+      // Exercises loaded from database
       setAllExercises(allEx)
       
       if (templateId) {
@@ -46,7 +46,7 @@ export default function ActiveWorkout() {
           const workoutExercises = template.exercises.map((name, idx) => {
             const exerciseData = allEx.find(e => e.name === name)
             if (!exerciseData) {
-              console.error(`Exercise "${name}" not found in database!`)
+              // Exercise not found, will use default structure
             }
             const isCardio = exerciseData?.category === 'Cardio'
             const isRecovery = exerciseData?.category === 'Recovery'
@@ -74,7 +74,7 @@ export default function ActiveWorkout() {
                 setExercises(workoutExercises)
               }
             } catch (error) {
-              console.error('Error applying auto-adjustment:', error)
+              // Auto-adjustment failed, continue without adjustment
               setExercises(workoutExercises)
             }
           } else {
@@ -398,7 +398,7 @@ export default function ActiveWorkout() {
       })).filter(ex => ex.sets.length > 0)
     }
     
-    console.log('Saving workout:', workout) // Debug log
+    // Saving workout to database
     
     // Save to local IndexedDB
     await saveWorkout(workout)
@@ -408,7 +408,7 @@ export default function ActiveWorkout() {
       try {
         await saveWorkoutToSupabase(workout, user.id)
       } catch (err) {
-        console.error('Error saving to Supabase:', err)
+        // Error saving, will retry
       }
     }
     

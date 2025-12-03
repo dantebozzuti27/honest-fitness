@@ -6,8 +6,13 @@ import express from 'express'
 import { processML } from '../engines/ml/index.js'
 import { generateAIWorkoutPlan, generateAINutritionPlan, generateAIWeeklySummary, generateAIInsights, interpretPrompt } from '../engines/ai/index.js'
 import { getFromDatabase } from '../database/index.js'
+import { mlLimiter } from '../middleware/rateLimiter.js'
+import { logError } from '../utils/logger.js'
 
 export const mlRouter = express.Router()
+
+// Apply ML rate limiter to all ML routes
+mlRouter.use(mlLimiter)
 
 // Process ML analysis
 mlRouter.post('/analyze', async (req, res, next) => {
@@ -122,22 +127,43 @@ mlRouter.post('/interpret', async (req, res, next) => {
 })
 
 async function loadDataContext(userId, filters = {}) {
-  const endDate = filters.endDate || new Date().toISOString().split('T')[0]
-  const startDate = filters.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  
-  const [workouts, nutrition, health, user] = await Promise.all([
-    getFromDatabase('workout', userId, { startDate, endDate }),
-    getFromDatabase('nutrition', userId, { startDate, endDate }),
-    getFromDatabase('health', userId, { startDate, endDate }),
-    getFromDatabase('user', userId)
-  ])
-  
-  return {
-    workouts,
-    nutrition,
-    health,
-    user: user?.[0] || null,
-    weekData: filters.week || null
+  try {
+    if (!userId) {
+      throw new Error('User ID is required')
+    }
+    
+    const endDate = filters.endDate || new Date().toISOString().split('T')[0]
+    const startDate = filters.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    
+    const [workouts, nutrition, health, user] = await Promise.all([
+      getFromDatabase('workout', userId, { startDate, endDate }).catch(err => {
+        logError('Error loading workouts', err)
+        return []
+      }),
+      getFromDatabase('nutrition', userId, { startDate, endDate }).catch(err => {
+        logError('Error loading nutrition', err)
+        return []
+      }),
+      getFromDatabase('health', userId, { startDate, endDate }).catch(err => {
+        logError('Error loading health data', err)
+        return []
+      }),
+      getFromDatabase('user', userId).catch(err => {
+        logError('Error loading user data', err)
+        return []
+      })
+    ])
+    
+    return {
+      workouts: workouts || [],
+      nutrition: nutrition || [],
+      health: health || [],
+      user: user?.[0] || null,
+      weekData: filters.week || null
+    }
+  } catch (error) {
+    logError('Error in loadDataContext', error)
+    throw new Error(`Failed to load data context: ${error.message}`)
   }
 }
 

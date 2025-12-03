@@ -139,6 +139,13 @@ h1 {
   margin-top: 8px;
 }
 
+.accountActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
 .syncBtn,
 .disconnectBtn {
   flex: 1;

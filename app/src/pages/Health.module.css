@@ -354,6 +354,41 @@ h1 {
   color: var(--text-primary);
 }
 
+/* Metrics Trends */
+.metricsTrendsCard {
+  padding: 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+}
+
+.metricsTrendsCard h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  color: var(--text-primary);
+}
+
+.metricsChartContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.metricChart {
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.metricChart h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  color: var(--text-primary);
+}
+
 /* Actions Card */
 .actionsCard {
   padding: 20px;

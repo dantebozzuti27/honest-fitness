@@ -40,7 +40,7 @@
 .viewLabel {
   font-size: 10px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   text-transform: uppercase;
   letter-spacing: 3px;
   display: flex;
@@ -119,7 +119,7 @@
 .scaleLabel {
   font-size: 9px;
   font-weight: 600;
-  color: #555;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 1px;
   min-width: 60px;
@@ -143,10 +143,10 @@
   height: 100%;
   background: linear-gradient(90deg, 
     #1a1a1a 0%,
-    rgba(255,80,80,0.4) 25%,
-    rgba(255,60,60,0.6) 50%,
-    rgba(255,45,45,0.8) 75%,
-    #ffffff 100%
+    rgba(255,255,255,0.2) 25%,
+    rgba(255,255,255,0.4) 50%,
+    rgba(255,255,255,0.6) 75%,
+    rgba(255,255,255,0.8) 100%
   );
 }
 
@@ -162,8 +162,8 @@
 }
 
 .statItem {
-  background: #0a0a0a;
-  border: 1px solid #1a1a1a;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 10px 12px;
   transition: all 0.2s;
@@ -172,6 +172,7 @@
   text-align: left;
   width: 100%;
   display: block;
+  color: var(--text-primary);
 }
 
 .statItem:hover,
@@ -235,11 +236,11 @@
 .tooltipHeader {
   font-size: 11px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   letter-spacing: 2px;
   margin-bottom: 10px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--border);
 }
 
 .tooltipRow {
@@ -251,13 +252,13 @@
 
 .tooltipLabel {
   font-size: 11px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .tooltipValue {
   font-size: 12px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
   max-width: 100px;
   text-align: right;
   white-space: nowrap;
@@ -275,7 +276,7 @@
 .statName {
   font-size: 9px;
   font-weight: 600;
-  color: #666;
+  color: var(--text-secondary);
   letter-spacing: 0.5px;
 }
 
@@ -283,12 +284,12 @@
   font-size: 16px;
   font-family: var(--font-mono);
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .statBar {
   height: 3px;
-  background: #151515;
+  background: var(--bg-tertiary);
   border-radius: 2px;
   overflow: hidden;
 }

@@ -45,18 +45,30 @@ export async function checkAndRefreshFitbitToken(userId) {
           
           return { needsRefresh: true, refreshed: true }
         } else {
-          console.error('Token refresh failed:', await response.json().catch(() => ({})))
+          const errorData = await response.json().catch(() => ({}))
+          logError('Token refresh failed', errorData)
+          
+          // If refresh token is invalid, user needs to reconnect
+          if (response.status === 401 || response.status === 403) {
+            return { 
+              needsRefresh: true, 
+              refreshed: false, 
+              error: 'Refresh token expired. Please reconnect your Fitbit account.',
+              requiresReconnect: true
+            }
+          }
+          
           return { needsRefresh: true, refreshed: false, error: 'Refresh failed' }
         }
       } catch (error) {
-        console.error('Error refreshing token:', error)
+        logError('Error refreshing token', error)
         return { needsRefresh: true, refreshed: false, error: error.message }
       }
     }
     
     return { needsRefresh: false, refreshed: false }
   } catch (error) {
-    console.error('Error checking token:', error)
+    logError('Error checking token', error)
     return { needsRefresh: false, refreshed: false, error: error.message }
   }
 }

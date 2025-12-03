@@ -100,7 +100,7 @@ export default function Planner() {
             preferences: existing
           })
         } catch (e) {
-          console.error('Error loading:', e)
+          // Error loading, continue without data
         }
       }
       const t = await getAllTemplates()
@@ -147,7 +147,7 @@ export default function Planner() {
         setActiveTab(0)
         setStep(1)
       } catch (e) {
-        console.error('Error generating plan:', e)
+        alert('Failed to generate plan. Please try again.')
         alert('Failed to generate plan')
       }
       setGenerating(false)
@@ -189,7 +189,7 @@ export default function Planner() {
       })
       setCurrentPlan(null)
     } catch (e) {
-      console.error('Error deleting plan:', e)
+      alert('Failed to delete plan. Please try again.')
     }
   }
 

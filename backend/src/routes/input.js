@@ -9,6 +9,7 @@ import { processDataPipeline } from '../pipelines/index.js'
 import { fetchFitbitData } from '../integrations/fitbit.js'
 import { getFromDatabase } from '../database/index.js'
 import { createClient } from '@supabase/supabase-js'
+import { syncLimiter } from '../middleware/rateLimiter.js'
 
 export const inputRouter = express.Router()
 
@@ -57,8 +58,8 @@ inputRouter.post('/user', async (req, res, next) => {
   }
 })
 
-// Sync Fitbit data
-inputRouter.post('/fitbit/sync', async (req, res, next) => {
+// Sync Fitbit data (with rate limiting)
+inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
   try {
     const { userId, date } = req.body
     

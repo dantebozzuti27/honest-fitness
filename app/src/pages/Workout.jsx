@@ -39,7 +39,9 @@ export default function Workout() {
       if (saved) {
         try {
           setAiWorkout(JSON.parse(saved))
-        } catch (e) {}
+        } catch (e) {
+          localStorage.removeItem('aiWorkout')
+        }
       }
     }
 
@@ -68,23 +70,75 @@ export default function Workout() {
             setTodaysPlan(todaysWorkout)
           }
           
-          // Load daily metrics from Supabase (for yesterday, as noted in UI)
+          // Load daily metrics from Supabase (try today first, then yesterday)
+          const { getTodayEST } = await import('../utils/dateUtils')
+          const today = getTodayEST()
           const yesterday = getYesterdayEST()
-          const metricsData = await getMetricsFromSupabase(user.id, yesterday, yesterday)
+          
+          // Try to get today's metrics first (from Fitbit sync)
+          let metricsData = await getMetricsFromSupabase(user.id, today, today)
+          if (!metricsData || metricsData.length === 0) {
+            // Fallback to yesterday
+            metricsData = await getMetricsFromSupabase(user.id, yesterday, yesterday)
+          }
+          
+          // Also try to get Fitbit data directly
+          if (!metricsData || metricsData.length === 0 || !metricsData[0].hrv) {
+            try {
+              const { getFitbitDaily, getMostRecentFitbitData } = await import('../lib/wearables')
+              let fitbitData = await getFitbitDaily(user.id, today)
+              if (!fitbitData) {
+                fitbitData = await getFitbitDaily(user.id, yesterday)
+              }
+              if (!fitbitData) {
+                fitbitData = await getMostRecentFitbitData(user.id)
+              }
+              
+              if (fitbitData) {
+                // Merge Fitbit data into metrics
+                const fitbitMetrics = {
+                  sleepScore: fitbitData.sleep_efficiency ? String(Math.round(fitbitData.sleep_efficiency)) : '',
+                  sleepTime: fitbitData.sleep_duration ? formatSleepTime(fitbitData.sleep_duration) : '',
+                  hrv: fitbitData.hrv ? String(Math.round(fitbitData.hrv)) : '',
+                  steps: fitbitData.steps ? String(fitbitData.steps) : '',
+                  caloriesBurned: fitbitData.calories || fitbitData.active_calories ? String(fitbitData.calories || fitbitData.active_calories) : '',
+                  weight: fitbitData.weight ? String(fitbitData.weight) : ''
+                }
+                
+                // Merge with existing metrics (prefer existing if present)
+                if (metricsData && metricsData.length > 0) {
+                  const existing = metricsData[0]
+                  setMetrics({
+                    sleepScore: existing.sleep_score ? String(existing.sleep_score) : fitbitMetrics.sleepScore,
+                    sleepTime: existing.sleep_time ? formatSleepTime(existing.sleep_time) : fitbitMetrics.sleepTime,
+                    hrv: existing.hrv ? String(existing.hrv) : fitbitMetrics.hrv,
+                    steps: existing.steps ? String(existing.steps) : fitbitMetrics.steps,
+                    caloriesBurned: existing.calories ? String(existing.calories) : fitbitMetrics.caloriesBurned,
+                    weight: existing.weight ? String(existing.weight) : fitbitMetrics.weight
+                  })
+                } else {
+                  setMetrics(fitbitMetrics)
+                }
+                return // Exit early since we have Fitbit data
+              }
+            } catch (fitbitError) {
+              // Fitbit data is optional, continue with metrics data
+            }
+          }
           
           if (metricsData && metricsData.length > 0) {
-            const yesterdayMetrics = metricsData[0]
+            const metricsRecord = metricsData[0]
             setMetrics({
-              sleepScore: yesterdayMetrics.sleep_score ? String(yesterdayMetrics.sleep_score) : '',
-              sleepTime: yesterdayMetrics.sleep_time ? formatSleepTime(yesterdayMetrics.sleep_time) : '',
-              hrv: yesterdayMetrics.hrv ? String(yesterdayMetrics.hrv) : '',
-              steps: yesterdayMetrics.steps ? String(yesterdayMetrics.steps) : '',
-              caloriesBurned: yesterdayMetrics.calories ? String(yesterdayMetrics.calories) : '',
-              weight: yesterdayMetrics.weight ? String(yesterdayMetrics.weight) : ''
+              sleepScore: metricsRecord.sleep_score ? String(metricsRecord.sleep_score) : '',
+              sleepTime: metricsRecord.sleep_time ? formatSleepTime(metricsRecord.sleep_time) : '',
+              hrv: metricsRecord.hrv ? String(metricsRecord.hrv) : '',
+              steps: metricsRecord.steps ? String(metricsRecord.steps) : '',
+              caloriesBurned: metricsRecord.calories ? String(metricsRecord.calories) : '',
+              weight: metricsRecord.weight ? String(metricsRecord.weight) : ''
             })
           }
         } catch (e) {
-          console.error('Error loading plan:', e)
+          // Silently fail - metrics are optional
         }
       }
     }
@@ -102,7 +156,50 @@ export default function Workout() {
   }
 
   const handleMetricChange = (field, value) => {
-    setMetrics(prev => ({ ...prev, [field]: value }))
+    // Import validation dynamically to avoid circular dependencies
+    import('../utils/validation').then(({ validateWeight, validateSteps, validateHRV, validateCalories, validateSleepScore }) => {
+      let validatedValue = value
+      
+      // Validate based on field type
+      if (field === 'weight' && value !== '' && value !== null && value !== undefined) {
+        const validation = validateWeight(value)
+        if (!validation.valid) {
+          alert(validation.error)
+          return
+        }
+        validatedValue = validation.value
+      } else if (field === 'steps' && value !== '' && value !== null && value !== undefined) {
+        const validation = validateSteps(value)
+        if (!validation.valid) {
+          alert(validation.error)
+          return
+        }
+        validatedValue = validation.value
+      } else if (field === 'hrv' && value !== '' && value !== null && value !== undefined) {
+        const validation = validateHRV(value)
+        if (!validation.valid) {
+          alert(validation.error)
+          return
+        }
+        validatedValue = validation.value
+      } else if (field === 'caloriesBurned' && value !== '' && value !== null && value !== undefined) {
+        const validation = validateCalories(value)
+        if (!validation.valid) {
+          alert(validation.error)
+          return
+        }
+        validatedValue = validation.value
+      } else if (field === 'sleepScore' && value !== '' && value !== null && value !== undefined) {
+        const validation = validateSleepScore(value)
+        if (!validation.valid) {
+          alert(validation.error)
+          return
+        }
+        validatedValue = validation.value
+      }
+      
+      setMetrics(prev => ({ ...prev, [field]: validatedValue }))
+    })
   }
 
   const startWorkout = async (templateId) => {
@@ -124,7 +221,7 @@ export default function Workout() {
         try {
           await saveMetricsToSupabase(user.id, yesterday, metricsToSave)
         } catch (err) {
-          console.error('Error saving metrics to Supabase:', err)
+          // Silently fail - metrics will be saved on next attempt
         }
       }
     }
@@ -151,8 +248,8 @@ export default function Workout() {
           return
         }
       }
-    } catch (e) {
-      console.error('Error generating workout:', e)
+      } catch (e) {
+        alert('Failed to generate workout. Please try again.')
     }
     // Fallback to local random
     navigate('/workout/active', { state: { randomWorkout: true } })

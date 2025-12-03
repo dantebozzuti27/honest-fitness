@@ -13,6 +13,7 @@ import GhostMode from './pages/GhostMode'
 import Wearables from './pages/Wearables'
 import Health from './pages/Health'
 import DataExplorer from './pages/DataExplorer'
+import Account from './pages/Account'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -63,6 +64,7 @@ export default function App() {
       <Route path="/wearables" element={<ProtectedRoute><Wearables /></ProtectedRoute>} />
       <Route path="/health" element={<ProtectedRoute><Health /></ProtectedRoute>} />
       <Route path="/data" element={<ProtectedRoute><DataExplorer /></ProtectedRoute>} />
+      <Route path="/account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
     </Routes>
   )
 }

@@ -1087,9 +1087,36 @@ export default function Analytics() {
   }
 
   const renderTrends = () => {
-    const last30Days = Object.keys(data.frequency).length
-    const avgPerWeek = data.totalWorkouts > 0 
-      ? ((last30Days / 30) * 7).toFixed(1) 
+    // Calculate real analytics from actual workout data
+    const now = new Date()
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    
+    const last30Days = data.workouts.filter(w => {
+      const workoutDate = new Date(w.date + 'T12:00:00')
+      return workoutDate >= thirtyDaysAgo
+    }).length
+    
+    const avgPerWeek = last30Days > 0 ? Math.round((last30Days / 30) * 7 * 10) / 10 : 0
+    
+    // Calculate total volume (sets) in last 30 days
+    const totalVolume = data.workouts
+      .filter(w => {
+        const workoutDate = new Date(w.date + 'T12:00:00')
+        return workoutDate >= thirtyDaysAgo
+      })
+      .reduce((sum, w) => {
+        return sum + (w.workout_exercises?.reduce((exSum, ex) => {
+          return exSum + (ex.workout_sets?.length || 0)
+        }, 0) || 0)
+      }, 0)
+    
+    // Calculate average workout duration in last 30 days
+    const recentWorkouts = data.workouts.filter(w => {
+      const workoutDate = new Date(w.date + 'T12:00:00')
+      return workoutDate >= thirtyDaysAgo && w.duration
+    })
+    const avgDuration = recentWorkouts.length > 0
+      ? Math.round(recentWorkouts.reduce((sum, w) => sum + (w.duration || 0), 0) / recentWorkouts.length)
       : 0
 
 

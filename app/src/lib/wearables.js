@@ -137,14 +137,23 @@ export async function saveFitbitDaily(userId, date, data) {
       date: date,
       hrv: data.hrv || null,
       resting_heart_rate: data.resting_heart_rate || null,
+      average_heart_rate: data.average_heart_rate || null,
       body_temp: data.body_temp || null,
       sleep_duration: data.sleep_duration || null,
       sleep_efficiency: data.sleep_efficiency || null,
       calories: data.calories || null,
       steps: data.steps || null,
       active_calories: data.active_calories || null,
+      marginal_calories: data.marginal_calories || null,
       distance: data.distance || null,
       floors: data.floors || null,
+      sedentary_minutes: data.sedentary_minutes || null,
+      lightly_active_minutes: data.lightly_active_minutes || null,
+      fairly_active_minutes: data.fairly_active_minutes || null,
+      very_active_minutes: data.very_active_minutes || null,
+      weight: data.weight || null,
+      bmi: data.bmi || null,
+      fat: data.fat || null,
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id,date' })
     .select()

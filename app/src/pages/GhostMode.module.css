@@ -124,7 +124,7 @@ h1 {
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
-  box-shadow: 0 0 30px rgba(255, 45, 45, 0.1);
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.05);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -175,7 +175,7 @@ h1 {
 }
 
 .calorieValue.over {
-  color: #ef4444;
+  color: #888888;
 }
 
 .progressBar {
@@ -270,7 +270,7 @@ h1 {
 /* Fasting Card */
 .fastingCard {
   padding: 16px;
-  background: linear-gradient(135deg, rgba(255, 45, 45, 0.1), rgba(255, 45, 45, 0.05));
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
   border: 1px solid var(--accent);
   border-radius: var(--radius-lg);
   text-align: center;
@@ -330,7 +330,7 @@ h1 {
 .primaryBtn {
   background: var(--accent);
   color: var(--bg-primary);
-  box-shadow: 0 0 25px rgba(255, 45, 45, 0.4);
+  box-shadow: 0 0 25px rgba(255, 255, 255, 0.2);
 }
 
 .primaryBtn:active {

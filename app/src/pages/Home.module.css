@@ -59,7 +59,7 @@
   width: min(180px, 50vw);
   height: auto;
   border-radius: var(--radius-lg);
-  box-shadow: 0 0 60px rgba(255, 45, 45, 0.3), 0 0 100px rgba(255, 45, 45, 0.15);
+  box-shadow: 0 0 60px rgba(255, 255, 255, 0.1), 0 0 100px rgba(255, 255, 255, 0.05);
 }
 
 @media (max-height: 700px) {
@@ -136,7 +136,7 @@
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
-  box-shadow: 0 0 30px rgba(255, 45, 45, 0.2), inset 0 0 20px rgba(255, 45, 45, 0.05);
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.05), inset 0 0 20px rgba(255, 255, 255, 0.02);
 }
 
 .streakRow {
@@ -149,16 +149,16 @@
   width: 44px;
   height: 44px;
   object-fit: contain;
-  filter: drop-shadow(0 0 10px rgba(255, 45, 45, 0.5));
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.2));
 }
 
 .streakNumber {
   font-size: 44px;
   font-weight: 700;
   font-family: var(--font-mono);
-  color: var(--accent);
+  color: var(--text-primary);
   line-height: 1;
-  text-shadow: 0 0 40px var(--accent-glow);
+  text-shadow: 0 0 40px rgba(255, 255, 255, 0.1);
 }
 
 .streakLabel {
@@ -193,11 +193,15 @@
   padding: 14px 20px;
   font-size: 15px;
   font-weight: 600;
-  background: var(--accent);
+  background: var(--text-primary);
   color: var(--bg-primary);
   border-radius: var(--radius-md);
-  transition: transform 0.1s, box-shadow 0.2s;
-  box-shadow: 0 0 25px rgba(255, 45, 45, 0.5), 0 0 50px rgba(255, 45, 45, 0.2);
+  transition: transform 0.1s, box-shadow 0.2s, opacity 0.2s;
+  box-shadow: 0 0 25px rgba(255, 255, 255, 0.1), 0 0 50px rgba(255, 255, 255, 0.05);
+}
+
+.primaryBtn:hover {
+  opacity: 0.9;
 }
 
 .primaryBtn:active {
@@ -213,8 +217,12 @@
   color: var(--text-primary);
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  transition: transform 0.1s;
-  box-shadow: 0 0 20px rgba(255, 45, 45, 0.15);
+  transition: transform 0.1s, border-color 0.2s;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.05);
+}
+
+.secondaryBtn:hover {
+  border-color: var(--border-light);
 }
 
 .secondaryBtn:active {
@@ -237,7 +245,8 @@
 
 .exportBtn:active {
   transform: scale(0.98);
-  color: var(--accent);
+  color: var(--text-primary);
+  border-color: var(--border-light);
 }
 
 .exportBtn:disabled {
@@ -270,25 +279,25 @@
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 2px solid var(--border);
-  box-shadow: 0 0 30px rgba(255, 45, 45, 0.2), inset 0 0 20px rgba(255, 45, 45, 0.05);
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.05), inset 0 0 20px rgba(255, 255, 255, 0.02);
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
 .readinessCard.readinessgreen {
-  border-color: #22c55e;
-  box-shadow: 0 0 30px rgba(34, 197, 94, 0.3), inset 0 0 20px rgba(34, 197, 94, 0.1);
+  border-color: #ffffff;
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.1), inset 0 0 20px rgba(255, 255, 255, 0.05);
 }
 
 .readinessCard.readinessyellow {
-  border-color: #eab308;
-  box-shadow: 0 0 30px rgba(234, 179, 8, 0.3), inset 0 0 20px rgba(234, 179, 8, 0.1);
+  border-color: #cccccc;
+  box-shadow: 0 0 30px rgba(204, 204, 204, 0.1), inset 0 0 20px rgba(204, 204, 204, 0.05);
 }
 
 .readinessCard.readinessred {
-  border-color: #ef4444;
-  box-shadow: 0 0 30px rgba(239, 68, 68, 0.3), inset 0 0 20px rgba(239, 68, 68, 0.1);
+  border-color: #888888;
+  box-shadow: 0 0 30px rgba(136, 136, 136, 0.1), inset 0 0 20px rgba(136, 136, 136, 0.05);
 }
 
 .readinessHeader {
@@ -326,18 +335,18 @@
 }
 
 .readinessCard.readinessgreen .readinessNumber {
-  color: #22c55e;
-  text-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+  color: #ffffff;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
 }
 
 .readinessCard.readinessyellow .readinessNumber {
-  color: #eab308;
-  text-shadow: 0 0 20px rgba(234, 179, 8, 0.5);
+  color: #cccccc;
+  text-shadow: 0 0 20px rgba(204, 204, 204, 0.3);
 }
 
 .readinessCard.readinessred .readinessNumber {
-  color: #ef4444;
-  text-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+  color: #888888;
+  text-shadow: 0 0 20px rgba(136, 136, 136, 0.3);
 }
 
 .readinessZone {
@@ -350,18 +359,18 @@
 }
 
 .readinessCard.readinessgreen .readinessZone {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
 .readinessCard.readinessyellow .readinessZone {
-  background: rgba(234, 179, 8, 0.2);
-  color: #eab308;
+  background: rgba(204, 204, 204, 0.1);
+  color: #cccccc;
 }
 
 .readinessCard.readinessred .readinessZone {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: rgba(136, 136, 136, 0.1);
+  color: #888888;
 }
 
 .readinessComponents {

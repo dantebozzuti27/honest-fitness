@@ -40,7 +40,7 @@
 .viewLabel {
   font-size: 10px;
   font-weight: 700;
-  color: #ff2d2d;
+  color: #ffffff;
   text-transform: uppercase;
   letter-spacing: 3px;
   display: flex;
@@ -146,7 +146,7 @@
     rgba(255,80,80,0.4) 25%,
     rgba(255,60,60,0.6) 50%,
     rgba(255,45,45,0.8) 75%,
-    #ff2d2d 100%
+    #ffffff 100%
   );
 }
 
@@ -235,7 +235,7 @@
 .tooltipHeader {
   font-size: 11px;
   font-weight: 700;
-  color: #ff2d2d;
+  color: #ffffff;
   letter-spacing: 2px;
   margin-bottom: 10px;
   padding-bottom: 8px;

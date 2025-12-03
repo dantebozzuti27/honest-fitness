@@ -12,7 +12,7 @@
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: #ff2d2d;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -104,18 +104,18 @@
 }
 
 .adjustmentBanner.adjustmentred {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: rgba(136, 136, 136, 0.15);
+  color: #888888;
 }
 
 .adjustmentBanner.adjustmentyellow {
-  background: rgba(234, 179, 8, 0.15);
-  color: #eab308;
+  background: rgba(204, 204, 204, 0.15);
+  color: #cccccc;
 }
 
 .adjustmentBanner.adjustmentgreen {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
 }
 
 .content {
@@ -212,7 +212,7 @@
 .rpeBtn.rpeActive {
   background: var(--accent);
   color: var(--bg-primary);
-  box-shadow: 0 0 15px rgba(255, 45, 45, 0.4);
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
 }
 
 .rpeLabels {
@@ -242,7 +242,7 @@
 .moodBtn.moodActive {
   background: var(--accent);
   color: var(--bg-primary);
-  box-shadow: 0 0 15px rgba(255, 45, 45, 0.4);
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
 }
 
 .notesInput {
@@ -272,6 +272,6 @@
   color: var(--bg-primary);
   border-radius: var(--radius-md);
   margin-top: 8px;
-  box-shadow: 0 0 30px rgba(255, 45, 45, 0.4);
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.2);
 }
 

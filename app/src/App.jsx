@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
+import { startTokenRefreshInterval } from './lib/tokenManager'
 import Home from './pages/Home'
 import Workout from './pages/Workout'
 import Calendar from './pages/Calendar'
@@ -10,6 +12,7 @@ import Auth from './pages/Auth'
 import GhostMode from './pages/GhostMode'
 import Wearables from './pages/Wearables'
 import Health from './pages/Health'
+import DataExplorer from './pages/DataExplorer'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -37,6 +40,16 @@ function ProtectedRoute({ children }) {
 }
 
 export default function App() {
+  const { user } = useAuth()
+  
+  // Start token refresh interval when user is logged in
+  useEffect(() => {
+    if (user) {
+      const cleanup = startTokenRefreshInterval(user.id)
+      return cleanup
+    }
+  }, [user])
+  
   return (
     <Routes>
       <Route path="/auth" element={<Auth />} />
@@ -49,6 +62,7 @@ export default function App() {
       <Route path="/ghost-mode" element={<ProtectedRoute><GhostMode /></ProtectedRoute>} />
       <Route path="/wearables" element={<ProtectedRoute><Wearables /></ProtectedRoute>} />
       <Route path="/health" element={<ProtectedRoute><Health /></ProtectedRoute>} />
+      <Route path="/data" element={<ProtectedRoute><DataExplorer /></ProtectedRoute>} />
     </Routes>
   )
 }

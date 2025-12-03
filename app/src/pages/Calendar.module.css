@@ -39,7 +39,7 @@
   width: 28px;
   height: 28px;
   object-fit: contain;
-  filter: drop-shadow(0 0 6px rgba(255, 45, 45, 0.5));
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5));
 }
 
 .content {

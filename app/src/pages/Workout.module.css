@@ -208,7 +208,7 @@
   background: var(--accent);
   color: var(--bg-primary);
   border-radius: var(--radius-md);
-  box-shadow: 0 0 20px rgba(255, 45, 45, 0.3);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
 }
 
 /* AI Workout Card */
@@ -265,6 +265,6 @@
   background: var(--accent);
   color: var(--bg-primary);
   border-radius: var(--radius-md);
-  box-shadow: 0 0 20px rgba(255, 45, 45, 0.3);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
 }
 

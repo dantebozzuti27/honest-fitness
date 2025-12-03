@@ -238,6 +238,13 @@ export default function Home() {
           </button>
 
           <button 
+            className={styles.secondaryBtn}
+            onClick={() => navigate('/data')}
+          >
+            Data Explorer
+          </button>
+
+          <button 
             className={styles.exportBtn}
             onClick={handleExport}
             disabled={exporting}

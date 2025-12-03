@@ -41,45 +41,60 @@ export default async function handler(req, res) {
       return res.status(404).json({ message: 'Fitbit account not connected' })
     }
 
-    // Check if token needs refresh
+    // Check if token needs refresh (refresh if expires within 10 minutes)
     const expiresAt = account.expires_at ? new Date(account.expires_at) : null
     const now = new Date()
     let accessToken = account.access_token
+    let tokenRefreshed = false
 
-    if (!expiresAt || expiresAt <= new Date(now.getTime() + 5 * 60 * 1000)) {
-      // Refresh token
-      const tokenResponse = await fetch('https://api.fitbit.com/oauth2/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Basic ${Buffer.from(
-            `${process.env.FITBIT_CLIENT_ID}:${process.env.FITBIT_CLIENT_SECRET}`
-          ).toString('base64')}`
-        },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: account.refresh_token
-        })
-      })
-
-      if (tokenResponse.ok) {
-        const tokenData = await tokenResponse.json()
-        accessToken = tokenData.access_token
-        
-        // Update tokens in database
-        const newExpiresAt = new Date()
-        newExpiresAt.setSeconds(newExpiresAt.getSeconds() + (tokenData.expires_in || 28800))
-        
-        await supabase
-          .from('connected_accounts')
-          .update({
-            access_token: tokenData.access_token,
-            refresh_token: tokenData.refresh_token,
-            expires_at: newExpiresAt.toISOString(),
-            updated_at: new Date().toISOString()
+    if (!expiresAt || expiresAt <= new Date(now.getTime() + 10 * 60 * 1000)) {
+      // Refresh token proactively
+      try {
+        const tokenResponse = await fetch('https://api.fitbit.com/oauth2/token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${Buffer.from(
+              `${process.env.FITBIT_CLIENT_ID}:${process.env.FITBIT_CLIENT_SECRET}`
+            ).toString('base64')}`
+          },
+          body: new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: account.refresh_token
           })
-          .eq('user_id', userId)
-          .eq('provider', 'fitbit')
+        })
+
+        if (tokenResponse.ok) {
+          const tokenData = await tokenResponse.json()
+          accessToken = tokenData.access_token
+          tokenRefreshed = true
+          
+          // Update tokens in database
+          const newExpiresAt = new Date()
+          newExpiresAt.setSeconds(newExpiresAt.getSeconds() + (tokenData.expires_in || 28800))
+          
+          const { error: updateError } = await supabase
+            .from('connected_accounts')
+            .update({
+              access_token: tokenData.access_token,
+              refresh_token: tokenData.refresh_token,
+              expires_at: newExpiresAt.toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('user_id', userId)
+            .eq('provider', 'fitbit')
+          
+          if (updateError) {
+            console.error('Error updating refreshed token:', updateError)
+          }
+        } else {
+          // If refresh fails, try to use existing token but log warning
+          const errorData = await tokenResponse.json().catch(() => ({}))
+          console.warn('Token refresh failed, using existing token:', errorData)
+        }
+      } catch (refreshError) {
+        console.error('Error during token refresh:', refreshError)
+        // Continue with existing token
       }
     }
 
@@ -180,18 +195,101 @@ export default async function handler(req, res) {
           ? summary.distances[0].distance || null 
           : null
         fitbitData.floors = summary.floors || null
+        
+        // Additional activity metrics
+        fitbitData.sedentary_minutes = summary.sedentaryMinutes || null
+        fitbitData.lightly_active_minutes = summary.lightlyActiveMinutes || null
+        fitbitData.fairly_active_minutes = summary.fairlyActiveMinutes || null
+        fitbitData.very_active_minutes = summary.veryActiveMinutes || null
+        fitbitData.marginal_calories = summary.marginalCalories || null
+      } else if (activityResponse.status === 401) {
+        // Token expired, try one more refresh
+        throw new Error('Token expired during activity fetch')
       }
     } catch (e) {
       console.error('Error fetching activity:', e)
+      if (e.message === 'Token expired during activity fetch' && !tokenRefreshed) {
+        // Retry with token refresh
+        throw new Error('Authorization expired. Please reconnect your Fitbit account.')
+      }
+    }
+    
+    // Fetch body composition (weight, BMI, fat) if available
+    try {
+      const bodyResponse = await fetch(
+        `https://api.fitbit.com/1/user/-/body/log/weight/date/${date}.json`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`
+          }
+        }
+      )
+      
+      if (bodyResponse.ok) {
+        const bodyJson = await bodyResponse.json()
+        if (bodyJson.weight && bodyJson.weight.length > 0) {
+          const latestWeight = bodyJson.weight[bodyJson.weight.length - 1]
+          fitbitData.weight = latestWeight.weight || null
+          fitbitData.bmi = latestWeight.bmi || null
+          fitbitData.fat = latestWeight.fat || null
+        }
+      }
+    } catch (e) {
+      // Body composition is optional, don't fail if unavailable
+      console.log('Body composition data not available:', e.message)
+    }
+    
+    // Fetch heart rate zones if available
+    try {
+      const hrZonesResponse = await fetch(
+        `https://api.fitbit.com/1/user/-/activities/heart/date/${date}/1d/1min.json`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`
+          }
+        }
+      )
+      
+      if (hrZonesResponse.ok) {
+        const hrZonesJson = await hrZonesResponse.json()
+        if (hrZonesJson['activities-heart-intraday']?.dataset) {
+          const dataset = hrZonesJson['activities-heart-intraday'].dataset
+          if (dataset.length > 0) {
+            // Calculate average heart rate for the day
+            const avgHR = dataset.reduce((sum, entry) => sum + (entry.value || 0), 0) / dataset.length
+            fitbitData.average_heart_rate = Math.round(avgHR) || null
+          }
+        }
+      }
+    } catch (e) {
+      // Heart rate zones are optional
+      console.log('Heart rate zones data not available:', e.message)
     }
 
-    // Save to fitbit_daily table
+    // Save to fitbit_daily table - ensure all stats are saved
     const { error: saveError } = await supabase
       .from('fitbit_daily')
       .upsert({
         user_id: userId,
         date: date,
-        ...fitbitData,
+        hrv: fitbitData.hrv || null,
+        resting_heart_rate: fitbitData.resting_heart_rate || null,
+        average_heart_rate: fitbitData.average_heart_rate || null,
+        sleep_duration: fitbitData.sleep_duration || null,
+        sleep_efficiency: fitbitData.sleep_efficiency || null,
+        steps: fitbitData.steps || null,
+        calories: fitbitData.calories || null,
+        active_calories: fitbitData.active_calories || null,
+        marginal_calories: fitbitData.marginal_calories || null,
+        distance: fitbitData.distance || null,
+        floors: fitbitData.floors || null,
+        sedentary_minutes: fitbitData.sedentary_minutes || null,
+        lightly_active_minutes: fitbitData.lightly_active_minutes || null,
+        fairly_active_minutes: fitbitData.fairly_active_minutes || null,
+        very_active_minutes: fitbitData.very_active_minutes || null,
+        weight: fitbitData.weight || null,
+        bmi: fitbitData.bmi || null,
+        fat: fitbitData.fat || null,
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id,date' })
 

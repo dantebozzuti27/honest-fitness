@@ -55,7 +55,7 @@
 .tab.activeTab {
   color: var(--accent);
   border-bottom-color: var(--accent);
-  box-shadow: 0 2px 8px rgba(255, 45, 45, 0.2);
+  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.2);
 }
 
 .content {
@@ -118,7 +118,7 @@
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
-  box-shadow: 0 0 15px rgba(255, 45, 45, 0.3);
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
 }
 
 /* Body Parts Heatmap */
@@ -849,7 +849,7 @@
   background: var(--accent);
   border-color: var(--accent);
   color: var(--bg-primary);
-  box-shadow: 0 0 10px rgba(255, 45, 45, 0.5), 0 0 20px rgba(255, 45, 45, 0.3);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5), 0 0 20px rgba(255, 255, 255, 0.3);
 }
 
 .chartViewToggle {
@@ -874,7 +874,7 @@
   background: var(--accent-dim);
   color: var(--accent);
   border-color: var(--accent);
-  box-shadow: 0 0 8px rgba(255, 45, 45, 0.4), 0 0 16px rgba(255, 45, 45, 0.2);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4), 0 0 16px rgba(255, 255, 255, 0.2);
 }
 
 @media (max-width: 768px) {

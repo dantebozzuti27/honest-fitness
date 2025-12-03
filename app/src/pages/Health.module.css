@@ -74,22 +74,22 @@ h1 {
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 2px solid var(--border);
-  box-shadow: 0 0 30px rgba(255, 45, 45, 0.2);
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.05);
 }
 
 .readinessCard.readinessgreen {
-  border-color: #22c55e;
-  box-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
+  border-color: #ffffff;
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
 }
 
 .readinessCard.readinessyellow {
-  border-color: #eab308;
-  box-shadow: 0 0 30px rgba(234, 179, 8, 0.3);
+  border-color: #cccccc;
+  box-shadow: 0 0 30px rgba(204, 204, 204, 0.1);
 }
 
 .readinessCard.readinessred {
-  border-color: #ef4444;
-  box-shadow: 0 0 30px rgba(239, 68, 68, 0.3);
+  border-color: #888888;
+  box-shadow: 0 0 30px rgba(136, 136, 136, 0.1);
 }
 
 .readinessHeader {
@@ -115,18 +115,18 @@ h1 {
 }
 
 .readinessCard.readinessgreen .readinessZone {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
 .readinessCard.readinessyellow .readinessZone {
-  background: rgba(234, 179, 8, 0.2);
-  color: #eab308;
+  background: rgba(204, 204, 204, 0.1);
+  color: #cccccc;
 }
 
 .readinessCard.readinessred .readinessZone {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: rgba(136, 136, 136, 0.1);
+  color: #888888;
 }
 
 .readinessScore {
@@ -145,15 +145,15 @@ h1 {
 }
 
 .readinessCard.readinessgreen .readinessNumber {
-  color: #22c55e;
+  color: #ffffff;
 }
 
 .readinessCard.readinessyellow .readinessNumber {
-  color: #eab308;
+  color: #cccccc;
 }
 
 .readinessCard.readinessred .readinessNumber {
-  color: #ef4444;
+  color: #888888;
 }
 
 .readinessLabel {
@@ -220,7 +220,7 @@ h1 {
 }
 
 .sourceItem.connected {
-  border-color: #22c55e;
+  border-color: #ffffff;
   background: rgba(34, 197, 94, 0.05);
 }
 

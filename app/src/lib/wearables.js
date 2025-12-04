@@ -248,12 +248,16 @@ export async function syncFitbitData(userId, date = null) {
   const targetDate = date || getTodayEST()
   
   try {
+    // Get auth token
+    const { data: { session } } = await supabase.auth.getSession()
+    const authToken = session?.access_token || ''
+    
     // Use backend API to sync Fitbit data
     const response = await fetch('/api/input/fitbit/sync', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${(await import('./supabase')).default.auth.session()?.access_token || ''}`
+        'Authorization': `Bearer ${authToken}`
       },
       body: JSON.stringify({
         userId,

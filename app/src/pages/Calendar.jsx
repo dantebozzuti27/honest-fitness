@@ -16,7 +16,7 @@ export default function Calendar() {
   const [selectedWorkout, setSelectedWorkout] = useState(null)
   const [streak, setStreak] = useState(0)
   const [templates, setTemplates] = useState([])
-  const [showScheduler, setShowScheduler] = useState(false)
+  const [showScheduler, setShowScheduler] = useState(false) // false, 'workout', 'meal', 'goal'
   const [scheduledInfo, setScheduledInfo] = useState(null)
   const [weeklyPlan, setWeeklyPlan] = useState(null)
 
@@ -128,6 +128,14 @@ export default function Calendar() {
     setSelectedWorkout(null)
     setShowScheduler(false)
     setScheduledInfo(null)
+  }
+
+  const handleScheduleGoal = () => {
+    navigate('/goals')
+  }
+
+  const handleScheduleMeal = () => {
+    navigate('/nutrition')
   }
 
   const handleSchedule = async (templateId) => {
@@ -266,17 +274,55 @@ export default function Calendar() {
               </div>
             ) : showScheduler ? (
               <div className={styles.scheduler}>
-                <h3>Schedule Workout</h3>
-                <div className={styles.scheduleOptions}>
-                  {templates.map(t => (
-                    <button key={t.id} className={styles.scheduleBtn} onClick={() => handleSchedule(t.id)}>
-                      {t.name}
-                    </button>
-                  ))}
-                  <button className={styles.scheduleBtn} onClick={() => handleSchedule('freestyle')}>
-                    Freestyle
+                <h3>Schedule</h3>
+                <div className={styles.scheduleTabs}>
+                  <button 
+                    className={styles.scheduleTab}
+                    onClick={() => setShowScheduler('workout')}
+                  >
+                    Workout
+                  </button>
+                  <button 
+                    className={styles.scheduleTab}
+                    onClick={() => setShowScheduler('meal')}
+                  >
+                    Meal
+                  </button>
+                  <button 
+                    className={styles.scheduleTab}
+                    onClick={() => setShowScheduler('goal')}
+                  >
+                    Goal
                   </button>
                 </div>
+                {showScheduler === 'workout' && (
+                  <div className={styles.scheduleOptions}>
+                    {templates.map(t => (
+                      <button key={t.id} className={styles.scheduleBtn} onClick={() => handleSchedule(t.id)}>
+                        {t.name}
+                      </button>
+                    ))}
+                    <button className={styles.scheduleBtn} onClick={() => handleSchedule('freestyle')}>
+                      Freestyle
+                    </button>
+                  </div>
+                )}
+                {showScheduler === 'meal' && (
+                  <div className={styles.scheduleOptions}>
+                    <button className={styles.scheduleBtn} onClick={() => navigate('/nutrition')}>
+                      Log Meal
+                    </button>
+                    <p className={styles.scheduleNote}>Meals sync to Nutrition and Goals pages</p>
+                  </div>
+                )}
+                {showScheduler === 'goal' && (
+                  <div className={styles.scheduleOptions}>
+                    <button className={styles.scheduleBtn} onClick={() => navigate('/goals')}>
+                      Create Goal
+                    </button>
+                    <p className={styles.scheduleNote}>Goals sync to Fitness, Health, Nutrition, and Analytics pages</p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className={styles.noWorkout}>
@@ -291,8 +337,8 @@ export default function Calendar() {
                   <p>No workout recorded</p>
                 )}
                 {isFutureDate(selectedDate) && (
-                  <button className={styles.scheduleAction} onClick={() => setShowScheduler(true)}>
-                    {scheduledInfo ? 'Change Schedule' : 'Schedule Workout'}
+                  <button className={styles.scheduleAction} onClick={() => setShowScheduler('workout')}>
+                    {scheduledInfo ? 'Change Schedule' : 'Schedule'}
                   </button>
                 )}
               </div>

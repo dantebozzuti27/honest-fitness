@@ -80,18 +80,19 @@ export default function Home() {
   }
 
   const navItems = [
-    { id: 'fitness', label: 'Fitness', path: '/workout' },
-    { id: 'nutrition', label: 'Nutrition', path: '/ghost-mode' },
+    { id: 'fitness', label: 'Fitness', path: '/fitness' },
+    { id: 'nutrition', label: 'Nutrition', path: '/nutrition' },
     { id: 'health', label: 'Health', path: '/health' },
+    { id: 'calendar', label: 'Calendar', path: '/calendar' },
     { id: 'analytics', label: 'Analytics', path: '/analytics' },
-    { id: 'schedule', label: 'Schedule', path: '/calendar' },
-    { id: 'account', label: 'Account', path: '/account' }
+    { id: 'goals', label: 'Goals', path: '/goals' },
+    { id: 'profile', label: 'Profile', path: '/profile' }
   ]
 
   const quickActions = [
-    { id: 'workout', label: 'Start Workout', path: '/workout' },
-    { id: 'meal', label: 'Log Meal', path: '/ghost-mode' },
-    { id: 'metrics', label: 'Log Metrics', path: '/workout' }
+    { id: 'workout', label: 'Start Workout', path: '/fitness' },
+    { id: 'meal', label: 'Log Meal', path: '/nutrition' },
+    { id: 'metrics', label: 'Log Metrics', path: '/health' }
   ]
 
   const handleQuickAction = (path) => {

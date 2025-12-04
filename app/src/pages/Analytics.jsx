@@ -18,6 +18,7 @@ import { getAllTemplates } from '../db'
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
+import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
 import BodyHeatmap from '../components/BodyHeatmap'
 import LineChart from '../components/LineChart'
@@ -64,7 +65,8 @@ export default function Analytics() {
     readiness: null,
     fitbitData: null,
     nutrition: null,
-    nutritionHistory: []
+    nutritionHistory: [],
+    goals: []
   })
   const [templates, setTemplates] = useState([])
   const [selectedWorkout, setSelectedWorkout] = useState(null)
@@ -80,7 +82,7 @@ export default function Analytics() {
       setLoading(true)
 
       try {
-        const [bodyParts, streak, metrics, scheduled, frequency, topExercises, workouts, tmpl, detailedStats, readiness, connected, today] = await Promise.all([
+        const [bodyParts, streak, metrics, scheduled, frequency, topExercises, workouts, tmpl, detailedStats, readiness, connected, today, goals] = await Promise.all([
           getBodyPartStats(user.id),
           calculateStreakFromSupabase(user.id),
           getAllMetricsFromSupabase(user.id),
@@ -92,7 +94,8 @@ export default function Analytics() {
           getDetailedBodyPartStats(user.id),
           getReadinessScore(user.id),
           getAllConnectedAccounts(user.id),
-          Promise.resolve(getTodayEST())
+          Promise.resolve(getTodayEST()),
+          getActiveGoalsFromSupabase(user.id)
         ])
         
         // Load Fitbit data
@@ -158,7 +161,8 @@ export default function Analytics() {
           readiness,
           fitbitData,
           nutrition,
-          nutritionHistory
+          nutritionHistory,
+          goals: goals || []
         })
         setTemplates(tmpl)
       } catch (err) {
@@ -526,6 +530,49 @@ export default function Analytics() {
           </div>
         )}
 
+        {/* Goals Summary */}
+        {data.goals && data.goals.length > 0 && (
+          <div className={styles.goalsCard}>
+            <div className={styles.goalsHeader}>
+              <h3>Goals Progress</h3>
+              <button
+                className={styles.linkBtn}
+                onClick={() => navigate('/goals')}
+              >
+                View All →
+              </button>
+            </div>
+            <div className={styles.goalsList}>
+              {data.goals.slice(0, 5).map(goal => {
+                const progress = goal.target_value > 0 
+                  ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
+                  : 0
+                return (
+                  <div key={goal.id} className={styles.goalItem}>
+                    <div className={styles.goalInfo}>
+                      <span className={styles.goalName}>
+                        {goal.custom_name || goal.type}
+                      </span>
+                      <span className={styles.goalProgress}>
+                        {Math.round(progress)}%
+                      </span>
+                    </div>
+                    <div className={styles.goalBar}>
+                      <div
+                        className={styles.goalBarFill}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <div className={styles.goalValues}>
+                      {goal.current_value} / {goal.target_value} {goal.unit}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Fitbit Summary */}
         {data.fitbitData && (
           <div className={styles.fitbitSummaryCard}>
@@ -574,21 +621,32 @@ export default function Analytics() {
         )}
 
         {/* Weekly Trends Chart */}
-        {data.nutritionHistory.length > 0 && (
-          <div className={styles.trendsCard}>
-            <h3>Weekly Nutrition Trend</h3>
-            <BarChart 
-              data={Object.fromEntries(
-                data.nutritionHistory.slice(-7).map(item => [
-                  new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                  item.calories || 0
-                ])
-              )}
-              height={150}
-              color="var(--text-primary)"
-            />
-          </div>
-        )}
+        {data.nutritionHistory && data.nutritionHistory.length > 0 && (() => {
+          const weeklyData = data.nutritionHistory.slice(-7)
+          const chartData = Object.fromEntries(
+            weeklyData.map(item => {
+              const date = new Date(item.date + 'T12:00:00')
+              const label = `${date.getMonth() + 1}/${date.getDate()}`
+              return [label, Number(item.calories) || 0]
+            })
+          )
+          const chartLabels = weeklyData.map(item => {
+            const date = new Date(item.date + 'T12:00:00')
+            return `${date.getMonth() + 1}/${date.getDate()}`
+          })
+          
+          return (
+            <div className={styles.trendsCard}>
+              <h3>Weekly Nutrition Trend</h3>
+              <BarChart 
+                data={chartData}
+                labels={chartLabels}
+                height={150}
+                color="var(--text-primary)"
+              />
+            </div>
+          )
+        })()}
       </div>
     )
   }

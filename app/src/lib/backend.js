@@ -9,7 +9,9 @@
 
 import { supabase } from './supabase'
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+// Use relative path in production, absolute in development
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 
+  (import.meta.env.PROD ? '' : 'http://localhost:3001')
 
 /**
  * Check if backend is available

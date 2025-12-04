@@ -335,6 +335,45 @@ export default function Health() {
           </div>
         )}
 
+        {/* Manual Logging Section */}
+        <div className={styles.metricsCard}>
+          <h3>Manually Log Metrics</h3>
+          <p className={styles.sectionNote}>Log metrics for previous day</p>
+          <div className={styles.manualLoggingGrid}>
+            <button
+              className={styles.actionBtn}
+              onClick={() => {
+                const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+                setEditingMetric({
+                  date: yesterday,
+                  steps: null,
+                  sleep_hours: null,
+                  sleep_score: null,
+                  hrv: null,
+                  calories: null,
+                  weight: null
+                })
+              }}
+            >
+              Log Previous Day Metrics
+            </button>
+          </div>
+        </div>
+
+        {/* Goals Section */}
+        <div className={styles.metricsCard}>
+          <div className={styles.sectionHeader}>
+            <h3>Goals</h3>
+            <button
+              className={styles.linkBtn}
+              onClick={() => navigate('/goals')}
+            >
+              View All →
+            </button>
+          </div>
+          <p className={styles.sectionNote}>Syncs to Goals page</p>
+        </div>
+
         {/* Metrics History */}
         <div className={styles.metricsCard}>
           <h3>Edit Past Metrics</h3>
@@ -371,32 +410,42 @@ export default function Health() {
           )}
         </div>
 
+        {/* Goals Section */}
+        <div className={styles.actionsCard}>
+          <div className={styles.sectionHeader}>
+            <h3>Goals</h3>
+            <button
+              className={styles.linkBtn}
+              onClick={() => navigate('/goals')}
+            >
+              View All →
+            </button>
+          </div>
+          <p className={styles.sectionNote}>Syncs to Goals page</p>
+        </div>
+
         {/* Quick Actions */}
         <div className={styles.actionsCard}>
           <h3>Quick Actions</h3>
           <div className={styles.actionsGrid}>
-            {!healthMetrics.hasWorkouts && (
-              <button
-                className={styles.actionBtn}
-                onClick={() => navigate('/workout')}
-              >
-                Log Workout
-              </button>
-            )}
-            {!healthMetrics.hasNutrition && (
-              <button
-                className={styles.actionBtn}
-                onClick={() => navigate('/ghost-mode')}
-              >
-                Log Meal
-              </button>
-            )}
+            <button
+              className={styles.actionBtn}
+              onClick={() => navigate('/fitness')}
+            >
+              Log Workout
+            </button>
+            <button
+              className={styles.actionBtn}
+              onClick={() => navigate('/nutrition')}
+            >
+              Log Meal
+            </button>
             {!healthMetrics.hasWearables && (
               <button
                 className={styles.actionBtn}
                 onClick={() => navigate('/wearables')}
               >
-                Connect Wearable
+                Connect Fitbit
               </button>
             )}
           </div>

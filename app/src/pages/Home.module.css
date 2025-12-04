@@ -5,32 +5,47 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding: 16px;
-  padding-top: calc(env(safe-area-inset-top, 16px) + 16px);
-  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
+  padding: var(--space-md);
+  padding-top: calc(env(safe-area-inset-top, 20px) + var(--space-md));
+  padding-bottom: calc(env(safe-area-inset-bottom, 20px) + var(--space-md));
   background: var(--bg-primary);
+  position: relative;
 }
 
 .content {
   width: 100%;
-  max-width: 500px;
+  max-width: 540px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-lg);
+  animation: fadeIn var(--transition-base) ease-out;
 }
 
-/* Steps Card - Top Priority */
+/* Steps Card - Hero Display */
 .stepsCard {
   width: 100%;
-  background: var(--bg-secondary);
-  border: 2px solid var(--border);
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-xl);
-  padding: 28px 24px;
+  padding: var(--space-xl) var(--space-lg);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  gap: var(--space-md);
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  overflow: hidden;
+}
+
+.stepsCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.3;
 }
 
 .stepsHeader {
@@ -41,28 +56,33 @@
 }
 
 .stepsLabel {
-  font-size: 14px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-secondary);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
 
 .stepsDate {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
+  font-weight: 400;
 }
 
 .stepsValue {
-  font-size: 72px;
+  font-size: var(--text-5xl);
   font-weight: 700;
   font-family: var(--font-mono);
   color: var(--text-primary);
   line-height: 1;
-  text-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 40px rgba(255, 255, 255, 0.15);
 }
 
 .stepsSubtext {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
+  font-weight: 400;
 }
 
 /* Streak Card */
@@ -70,12 +90,18 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 20px 28px;
+  gap: var(--space-sm);
+  padding: var(--space-lg) var(--space-xl);
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
+}
+
+.streakCard:hover {
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-lg);
 }
 
 .streakRow {
@@ -85,23 +111,25 @@
 }
 
 .streakNumber {
-  font-size: 44px;
+  font-size: var(--text-4xl);
   font-weight: 700;
   font-family: var(--font-mono);
   color: var(--text-primary);
   line-height: 1;
+  letter-spacing: -0.02em;
 }
 
 .streakLabel {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
+  font-weight: 400;
 }
 
 /* Navigation Grid */
 .navGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .navItem {
@@ -109,22 +137,40 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 24px 12px;
+  gap: var(--space-sm);
+  padding: var(--space-lg) var(--space-md);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  min-height: 80px;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-sm);
+  min-height: 100px;
+  position: relative;
+  overflow: hidden;
+}
+
+.navItem::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+  opacity: 0;
+  transition: opacity var(--transition-base);
 }
 
 .navItem:hover {
   background: var(--bg-elevated);
   border-color: var(--border-light);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-md);
+}
+
+.navItem:hover::before {
+  opacity: 1;
 }
 
 .navItem:active {
@@ -132,47 +178,50 @@
 }
 
 .navLabel {
-  font-size: 14px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-primary);
   text-align: center;
+  letter-spacing: -0.01em;
 }
 
 .loading {
   color: var(--text-secondary);
-  font-size: 16px;
+  font-size: var(--text-base);
+  text-align: center;
+  padding: var(--space-xl);
 }
 
 /* Quick Action Button */
 .quickActionBtn {
   position: fixed;
-  top: calc(env(safe-area-inset-top, 16px) + 16px);
-  right: 16px;
-  width: 56px;
-  height: 56px;
+  top: calc(env(safe-area-inset-top, 20px) + var(--space-md));
+  right: var(--space-md);
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
-  background: var(--text-primary);
+  background: var(--accent);
   color: var(--bg-primary);
   border: none;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-xl);
   z-index: 100;
-  transition: all 0.2s;
-  font-size: 32px;
+  transition: all var(--transition-base);
+  font-size: 36px;
   font-weight: 300;
   line-height: 1;
 }
 
 .quickActionBtn:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  transform: scale(1.08) rotate(90deg);
+  box-shadow: 0 8px 32px rgba(255, 255, 255, 0.2);
 }
 
 .quickActionBtn:active {
-  transform: scale(0.95);
+  transform: scale(0.95) rotate(90deg);
 }
 
 .plusIcon {
@@ -187,41 +236,33 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
   z-index: 99;
-  animation: fadeIn 0.2s;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  animation: fadeIn var(--transition-fast) ease-out;
 }
 
 .quickMenu {
   position: fixed;
-  top: calc(env(safe-area-inset-top, 16px) + 80px);
-  right: 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  top: calc(env(safe-area-inset-top, 20px) + 88px);
+  right: var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
-  padding: 8px;
-  min-width: 180px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: var(--space-sm);
+  min-width: 200px;
+  box-shadow: var(--shadow-xl);
   z-index: 100;
-  animation: slideDown 0.2s;
+  animation: slideDown var(--transition-base) ease-out;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 @keyframes slideDown {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-12px);
   }
   to {
     opacity: 1;
@@ -233,15 +274,15 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  padding: 14px 16px;
+  padding: var(--space-md) var(--space-lg);
   background: transparent;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
   text-align: left;
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: var(--text-base);
   font-weight: 500;
   width: 100%;
 }
@@ -258,64 +299,63 @@
   width: 100%;
 }
 
-@media (max-width: 480px) {
-  .quickActionBtn {
-    width: 52px;
-    height: 52px;
-    font-size: 28px;
-    top: calc(env(safe-area-inset-top, 12px) + 12px);
-    right: 12px;
-  }
-
-  .quickMenu {
-    top: calc(env(safe-area-inset-top, 12px) + 72px);
-    right: 12px;
-    min-width: 160px;
-  }
-
-  .quickMenuItem {
-    padding: 12px 14px;
-    font-size: 14px;
-  }
-}
-
+/* Mobile Responsive */
 @media (max-width: 480px) {
   .container {
-    padding: 12px;
-    padding-top: calc(env(safe-area-inset-top, 12px) + 12px);
-    padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 12px);
+    padding: var(--space-md);
+    padding-top: calc(env(safe-area-inset-top, 16px) + var(--space-md));
+    padding-bottom: calc(env(safe-area-inset-bottom, 16px) + var(--space-md));
   }
   
   .content {
-    gap: 16px;
+    gap: var(--space-md);
   }
   
   .navGrid {
-    gap: 10px;
+    gap: var(--space-sm);
   }
   
   .navItem {
-    padding: 20px 10px;
-    min-height: 70px;
+    padding: var(--space-md) var(--space-sm);
+    min-height: 90px;
   }
   
   .navLabel {
-    font-size: 13px;
+    font-size: var(--text-xs);
   }
   
   .stepsCard {
-    padding: 20px 16px;
+    padding: var(--space-lg) var(--space-md);
   }
   
   .stepsValue {
-    font-size: 56px;
+    font-size: var(--text-4xl);
   }
   
   .streakCard {
-    padding: 16px 20px;
+    padding: var(--space-md) var(--space-lg);
   }
   
   .streakNumber {
-    font-size: 36px;
+    font-size: var(--text-3xl);
+  }
+
+  .quickActionBtn {
+    width: 56px;
+    height: 56px;
+    font-size: 32px;
+    top: calc(env(safe-area-inset-top, 16px) + var(--space-md));
+    right: var(--space-md);
+  }
+
+  .quickMenu {
+    top: calc(env(safe-area-inset-top, 16px) + 80px);
+    right: var(--space-md);
+    min-width: 180px;
+  }
+
+  .quickMenuItem {
+    padding: var(--space-md);
+    font-size: var(--text-sm);
   }
 }

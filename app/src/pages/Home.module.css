@@ -12,27 +12,33 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px;
-  padding-top: calc(env(safe-area-inset-top, 20px) + 20px);
-  padding-bottom: 20px;
+  padding: 24px;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
+  padding-bottom: 24px;
+  min-height: 80px;
 }
 
 .title {
-  font-size: 28px;
+  font-size: 34px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
+  letter-spacing: -0.02em;
+  text-align: center;
+  flex: 1;
 }
 
 .content {
   flex: 1;
   display: flex;
-  flex-direction: row;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 0 20px 20px;
-  padding-bottom: calc(env(safe-area-inset-bottom, 20px) + 20px);
-  gap: 20px;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  padding: 0 24px 24px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  gap: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 /* Steps Card - Hero Display */
@@ -139,26 +145,30 @@
   font-weight: 400;
 }
 
-/* Navigation Menu - Centered */
+/* Navigation Menu - Full Width for Mobile */
 .navMenu {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: 200px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .navItem {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
+  gap: 16px;
+  padding: 20px 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all var(--transition-base);
   text-align: left;
   color: var(--text-primary);
+  min-height: 64px;
+  width: 100%;
+  justify-content: flex-start;
 }
 
 .navItem:hover {
@@ -177,9 +187,10 @@
 }
 
 .navLabel {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 22px;
+  font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .loading {
@@ -189,10 +200,10 @@
   padding: var(--space-xl);
 }
 
-/* Quick Action Button */
+/* Quick Action Button - Larger for iPhone 17 */
 .quickActionBtn {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: var(--accent);
   color: var(--bg-primary);
@@ -201,12 +212,14 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
   transition: all var(--transition-base);
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 300;
   line-height: 1;
   position: relative;
+  min-width: 56px;
+  min-height: 56px;
 }
 
 .quickActionBtn:hover {
@@ -238,19 +251,19 @@
 
 .quickMenu {
   position: absolute;
-  top: 68px;
-  right: 20px;
+  top: 80px;
+  right: 24px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
-  padding: 8px;
-  min-width: 180px;
+  padding: 12px;
+  min-width: 220px;
   box-shadow: var(--shadow-xl);
   z-index: 100;
   animation: slideDown var(--transition-base) ease-out;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .quickMenu::before {
@@ -280,7 +293,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  padding: var(--space-md) var(--space-lg);
+  padding: 18px 24px;
   background: transparent;
   border: none;
   border-radius: var(--radius-md);
@@ -288,9 +301,10 @@
   transition: all var(--transition-fast);
   text-align: left;
   color: var(--text-primary);
-  font-size: var(--text-base);
-  font-weight: 500;
+  font-size: 19px;
+  font-weight: 600;
   width: 100%;
+  min-height: 56px;
 }
 
 .quickMenuItem:hover {
@@ -303,6 +317,7 @@
 
 .quickMenuLabel {
   width: 100%;
+  font-size: 19px;
 }
 
 /* Mobile Responsive */

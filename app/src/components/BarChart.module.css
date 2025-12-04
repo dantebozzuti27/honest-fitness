@@ -3,8 +3,9 @@
   background: #000000;
   border: 1px solid #333333;
   border-radius: var(--radius-lg);
-  padding: var(--space-md);
-  max-height: 250px;
+  padding: 20px;
+  max-height: 300px;
+  min-height: 280px;
   box-shadow: var(--shadow-md);
   position: relative;
   overflow: visible;
@@ -55,17 +56,17 @@
 .xAxisLabels {
   display: flex;
   justify-content: space-between;
-  margin-top: 8px;
-  padding: 0 50px 0 50px;
-  font-size: 8px;
+  margin-top: 12px;
+  padding: 0 20px 0 20px;
+  font-size: 11px;
   color: #ffffff;
   flex-wrap: wrap;
-  gap: 2px;
-  min-height: 20px;
+  gap: 4px;
+  min-height: 32px;
 }
 
 .xAxisLabel {
-  font-size: 8px;
+  font-size: 11px;
   text-align: center;
   flex: 1;
   min-width: 0;
@@ -73,26 +74,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #ffffff;
+  line-height: 1.4;
 }
 
 .xAxisLabelText {
   text-align: center;
-  margin-top: 8px;
-  font-size: 12px;
+  margin-top: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: #ffffff;
+  letter-spacing: -0.01em;
 }
 
 .yAxisLabel {
   position: absolute;
-  left: 8px;
+  left: 12px;
   top: 50%;
   transform: translateY(-50%) rotate(-90deg);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: #ffffff;
   white-space: nowrap;
   z-index: 1;
+  letter-spacing: -0.01em;
 }
 
 .axisLabel {
@@ -101,8 +105,9 @@
 }
 
 .value {
-  font-weight: 500;
-  font-size: 0.6rem;
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: -0.01em;
 }
 
 @media (max-width: 480px) {

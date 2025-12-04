@@ -17,14 +17,36 @@
 }
 
 .backBtn {
-  font-size: 15px;
-  color: var(--accent);
-  padding: 8px 0;
+  padding: 14px 20px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+  min-height: 48px;
+  min-width: 80px;
+}
+
+.backBtn:hover {
+  background: var(--bg-tertiary);
+}
+
+.backBtn:active {
+  transform: scale(0.98);
 }
 
 .title {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+  flex: 1;
+  letter-spacing: -0.02em;
+  margin: 0;
 }
 
 .tabs {
@@ -74,13 +96,10 @@
 }
 
 .sectionTitle {
-  font-size: 12px;
+  font-size: 20px;
   font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 12px;
-  margin-top: 6px;
+  color: var(--text-primary);
+  margin: 0;
 }
 
 /* Filters */
@@ -93,7 +112,7 @@
 
 .filterLabel {
   font-size: 11px;
-  color: var(--text-muted);
+  color: #000;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -110,14 +129,14 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  color: var(--text-secondary);
+  color: #000;
   transition: all 0.15s;
 }
 
 .filterBtn.activeFilter {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: #000 !important;
   box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
 }
 
@@ -228,7 +247,7 @@
 }
 
 .nutritionCard h3 {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
   margin: 0 0 16px 0;
   color: var(--text-primary);
@@ -266,7 +285,7 @@
 }
 
 .fitbitSummaryCard h3 {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
   margin: 0 0 16px 0;
   color: var(--text-primary);
@@ -304,11 +323,12 @@
 }
 
 .trendsCard h3 {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
   margin: 0 0 16px 0;
   color: var(--text-primary);
 }
+
 
 /* ML Insights */
 .mlInsightsCard {
@@ -374,10 +394,10 @@
 }
 
 .goalsHeader h3 {
-  color: var(--text-primary);
-  margin: 0;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
 }
 
 .goalsList {
@@ -828,9 +848,12 @@
 }
 
 .modalHeader h2 {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
 }
+
 
 .modalHeader button {
   width: 32px;

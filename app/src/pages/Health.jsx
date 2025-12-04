@@ -249,7 +249,7 @@ export default function Health() {
         <button className={styles.backBtn} onClick={() => navigate('/')}>
           ← Back
         </button>
-        <h1>Health Overview</h1>
+        <h1 className={styles.title}>Health Overview</h1>
         <div className={styles.periodSelector}>
           <select
             className={styles.periodSelect}

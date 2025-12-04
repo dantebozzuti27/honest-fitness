@@ -175,6 +175,10 @@
   color: var(--text-primary);
 }
 
+.statItem * {
+  color: var(--text-primary);
+}
+
 .statItem:hover,
 .statItem:active,
 .statItemHovered {

@@ -116,9 +116,13 @@ export default function Fitness() {
 
   return (
     <div className={styles.container}>
-      <header className={styles.header}>
+      <div className={styles.header}>
+        <button className={styles.backBtn} onClick={() => navigate('/')}>
+          Back
+        </button>
         <h1 className={styles.title}>Fitness</h1>
-      </header>
+        <div style={{ width: 80 }} /> {/* Spacer for alignment */}
+      </div>
 
       <div className={styles.content}>
         {/* Start Workout Button */}

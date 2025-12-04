@@ -17,14 +17,36 @@
 }
 
 .backBtn {
-  font-size: 16px;
-  color: var(--accent);
-  padding: 8px 0;
+  padding: 14px 20px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+  min-height: 48px;
+  min-width: 80px;
+}
+
+.backBtn:hover {
+  background: var(--bg-tertiary);
+}
+
+.backBtn:active {
+  transform: scale(0.98);
 }
 
 .title {
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+  flex: 1;
+  letter-spacing: -0.02em;
+  margin: 0;
 }
 
 .streak {

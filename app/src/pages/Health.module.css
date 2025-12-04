@@ -16,26 +16,33 @@
 }
 
 .backBtn {
-  padding: 8px 16px;
+  padding: 14px 20px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
+  white-space: nowrap;
+  min-height: 48px;
+  min-width: 80px;
 }
 
 .backBtn:hover {
   background: var(--bg-tertiary);
 }
 
-h1 {
-  font-size: 24px;
+h1,
+.title {
+  font-size: 34px;
   font-weight: 700;
   margin: 0;
   flex: 1;
+  text-align: center;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
 }
 
 .periodSelector {
@@ -99,10 +106,12 @@ h1 {
   margin-bottom: 16px;
 }
 
-.readinessHeader h2 {
-  font-size: 18px;
+.readinessHeader h2,
+h2 {
+  font-size: 20px;
   font-weight: 600;
   margin: 0;
+  color: var(--text-primary);
 }
 
 .readinessZone {
@@ -197,10 +206,16 @@ h1 {
   border: 1px solid var(--border);
 }
 
-.sourcesCard h3 {
-  font-size: 16px;
+.sourcesCard h3,
+.insightsCard h3,
+.fitbitCard h3,
+.metricsTrendsCard h3,
+.actionsCard h3,
+h3 {
+  font-size: 20px;
   font-weight: 600;
-  margin: 0 0 16px 0;
+  margin: 0;
+  color: var(--text-primary);
 }
 
 .sourcesList {
@@ -285,11 +300,6 @@ h1 {
   border: 1px solid var(--border);
 }
 
-.insightsCard h3 {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 16px 0;
-}
 
 .insightsList {
   display: flex;
@@ -317,12 +327,6 @@ h1 {
   margin-bottom: 24px;
 }
 
-.fitbitCard h3 {
-  margin: 0 0 16px 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
 
 .fitbitStatsGrid {
   display: grid;
@@ -362,12 +366,6 @@ h1 {
   border: 1px solid var(--border);
 }
 
-.metricsTrendsCard h3 {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 16px 0;
-  color: var(--text-primary);
-}
 
 .metricsChartContainer {
   display: flex;
@@ -397,11 +395,6 @@ h1 {
   border: 1px solid var(--border);
 }
 
-.actionsCard h3 {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 16px 0;
-}
 
 .actionsGrid {
   display: flex;

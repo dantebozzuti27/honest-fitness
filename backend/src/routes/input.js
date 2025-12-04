@@ -67,6 +67,11 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
       return res.status(400).json({ error: 'Missing userId or date' })
     }
     
+    // Validate Supabase connection
+    if (!supabase) {
+      return res.status(500).json({ error: 'Database connection error' })
+    }
+    
     // Get Fitbit access token
     const { data: account, error: accountError } = await supabase
       .from('connected_accounts')
@@ -75,7 +80,14 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
       .eq('provider', 'fitbit')
       .single()
     
-    if (accountError || !account) {
+    if (accountError) {
+      if (accountError.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Fitbit account not connected' })
+      }
+      throw new Error(`Database error: ${accountError.message}`)
+    }
+    
+    if (!account) {
       return res.status(404).json({ error: 'Fitbit account not connected' })
     }
     
@@ -271,7 +283,7 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     }
     
     // Save to fitbit_daily table
-    await supabase
+    const { error: fitbitDailyError } = await supabase
       .from('fitbit_daily')
       .upsert({
         user_id: userId,
@@ -280,8 +292,12 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id,date' })
     
+    if (fitbitDailyError) {
+      throw new Error(`Failed to save Fitbit data: ${fitbitDailyError.message}`)
+    }
+    
     // Also merge into daily_metrics
-    await supabase
+    const { error: metricsError } = await supabase
       .from('daily_metrics')
       .upsert({
         user_id: userId,
@@ -293,6 +309,11 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         sleep_score: fitbitData.sleep_efficiency ? Math.round(fitbitData.sleep_efficiency) : null
       }, { onConflict: 'user_id,date' })
     
+    if (metricsError) {
+      // Log but don't fail - metrics update is secondary
+      console.error('Failed to update daily_metrics:', metricsError)
+    }
+    
     res.json({
       success: true,
       data: fitbitData,
@@ -301,19 +322,37 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     })
   } catch (error) {
     // Log the error for debugging
-    const { logError } = await import('../utils/logger.js')
-    logError('Fitbit sync error', { 
-      userId, 
-      date, 
-      error: error.message,
-      stack: error.stack 
-    })
+    try {
+      const { logError } = await import('../utils/logger.js')
+      logError('Fitbit sync error', { 
+        userId, 
+        date, 
+        error: error.message,
+        stack: error.stack 
+      })
+    } catch (logErr) {
+      console.error('Fitbit sync error:', error)
+      console.error('Log error:', logErr)
+    }
     
     // Return user-friendly error message
-    const statusCode = error.message?.includes('authorization') ? 401 : 500
+    let statusCode = 500
+    let errorMessage = 'Failed to sync Fitbit data'
+    
+    if (error.message?.includes('authorization') || error.message?.includes('reconnect')) {
+      statusCode = 401
+      errorMessage = 'Fitbit authorization expired. Please reconnect your account.'
+    } else if (error.message?.includes('not connected') || error.message?.includes('404')) {
+      statusCode = 404
+      errorMessage = 'Fitbit account not connected'
+    } else if (error.message) {
+      errorMessage = error.message
+    }
+    
     res.status(statusCode).json({ 
-      error: error.message || 'Failed to sync Fitbit data',
-      success: false
+      error: errorMessage,
+      success: false,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     })
   }
 })

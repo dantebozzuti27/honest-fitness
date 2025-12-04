@@ -10,7 +10,7 @@ import BarChart from '../components/BarChart'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
-const TABS = ['Today', 'History', 'Analytics', 'Settings']
+const TABS = ['Today', 'History', 'Plan', 'Goals']
 const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snacks']
 const COMMON_FOODS = [
   { name: 'Banana', calories: 105, macros: { protein: 1, carbs: 27, fat: 0 } },
@@ -55,6 +55,8 @@ export default function Nutrition() {
   const [weeklyMealPlan, setWeeklyMealPlan] = useState(null)
   const [showMealPlanEditor, setShowMealPlanEditor] = useState(false)
   const [editingMealPlanDay, setEditingMealPlanDay] = useState(null)
+  const [goalsStartDate, setGoalsStartDate] = useState(getTodayEST())
+  const [goalsEndDate, setGoalsEndDate] = useState(getTodayEST())
   const fastingTimerRef = useRef(null)
 
   useEffect(() => {
@@ -505,6 +507,33 @@ export default function Nutrition() {
     return datesWithFullMeals.length >= 7
   }, [historyData])
 
+  const calculateGoalProgress = (goal, startDate, endDate) => {
+    // Calculate total progress for the date range
+    let total = 0
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+    const current = new Date(start)
+    
+    while (current <= end) {
+      const dateStr = current.toISOString().split('T')[0]
+      const dayData = historyData[dateStr]
+      if (dayData) {
+        if (goal.type === 'calories') {
+          total += dayData.calories || 0
+        } else if (goal.type === 'protein') {
+          total += dayData.macros?.protein || 0
+        } else if (goal.type === 'carbs') {
+          total += dayData.macros?.carbs || 0
+        } else if (goal.type === 'fat') {
+          total += dayData.macros?.fat || 0
+        }
+      }
+      current.setDate(current.getDate() + 1)
+    }
+    
+    return { current: total }
+  }
+
   const handleDieticianAnalysis = async () => {
     if (!user || !canUseDietician) {
       alert('You need at least 7 days of full meals (3+ meals per day) to use the Dietician feature.')
@@ -632,98 +661,7 @@ export default function Nutrition() {
               Log meal
             </button>
 
-            {/* Options List */}
-            <div className={styles.optionsList}>
-              <button
-                className={styles.optionItem}
-                onClick={() => {
-                  // Scroll to daily intake section
-                  const intakeSection = document.querySelector(`.${styles.summaryCard}`)
-                  if (intakeSection) {
-                    intakeSection.scrollIntoView({ behavior: 'smooth' })
-                  }
-                }}
-              >
-                <div className={styles.optionContent}>
-                  <span className={styles.optionTitle}>Daily intake</span>
-                  <span className={styles.optionSubtitle}>calories, protein, carbs, fats</span>
-                </div>
-              </button>
-              
-              <button
-                className={styles.optionItem}
-                onClick={() => {
-                  // Scroll to goals section
-                  const goalsSection = document.querySelector(`.${styles.goalsLink}`)
-                  if (goalsSection) {
-                    goalsSection.scrollIntoView({ behavior: 'smooth' })
-                  }
-                }}
-              >
-                <div className={styles.optionContent}>
-                  <span className={styles.optionTitle}>Daily goals</span>
-                  <span className={styles.optionSubtitle}>calories, protein, carbs, fat</span>
-                </div>
-              </button>
-              
-              <button
-                className={styles.optionItem}
-                onClick={() => {
-                  // Scroll to meals section
-                  const mealsSection = document.querySelector(`.${styles.mealsSection}`)
-                  if (mealsSection) {
-                    mealsSection.scrollIntoView({ behavior: 'smooth' })
-                  }
-                }}
-              >
-                <div className={styles.optionContent}>
-                  <span className={styles.optionTitle}>Daily meals</span>
-                </div>
-              </button>
-              
-              <button
-                className={styles.optionItem}
-                onClick={() => {
-                  if (canUseDietician) {
-                    handleDieticianAnalysis()
-                  } else {
-                    alert('You need at least 7 days of full meals (3+ meals per day) to use the Dietician feature.')
-                  }
-                }}
-              >
-                <div className={styles.optionContent}>
-                  <span className={styles.optionTitle}>Dietician</span>
-                  <span className={styles.optionSubtitle}>LLM analyzes diet if it has 7 days or more of full meals</span>
-                </div>
-              </button>
-            </div>
-
-            {/* Daily Intake Section */}
-            <div className={styles.dateSelector}>
-              <button onClick={() => {
-                const prev = new Date(selectedDate)
-                prev.setDate(prev.getDate() - 1)
-                setSelectedDate(prev.toISOString().split('T')[0])
-              }}>
-                Prev
-              </button>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className={styles.dateInput}
-              />
-              <button onClick={() => {
-                const next = new Date(selectedDate)
-                next.setDate(next.getDate() + 1)
-                if (next <= new Date()) {
-                  setSelectedDate(next.toISOString().split('T')[0])
-                }
-              }} disabled={selectedDate >= getTodayEST()}>
-                Next
-              </button>
-            </div>
-
+            {/* Calories and Macros vs Goal */}
             <div className={styles.summaryCard}>
               <div className={styles.calorieRow}>
                 <div>
@@ -837,35 +775,37 @@ export default function Nutrition() {
               )}
             </div>
 
-            {/* Daily Meals Section */}
-            <div className={`${styles.mealsSection} ${styles.goalsLink}`}>
-              <h3 className={styles.sectionTitle}>Daily Meals</h3>
-              {MEAL_TYPES.map(type => {
-                const typeMeals = mealsByType[type] || []
-                if (typeMeals.length === 0) return null
-                return (
-                  <div key={type} className={styles.mealTypeGroup}>
-                    <h4 className={styles.mealTypeTitle}>{type}</h4>
-                    <div className={styles.mealsList}>
-                      {typeMeals.map(meal => (
-                        <MealCard
-                          key={meal.id}
-                          meal={meal}
-                          onRemove={removeMeal}
-                          onToggleFavorite={toggleFavorite}
-                          isFavorite={favorites.some(f => f.id === meal.id)}
-                        />
-                      ))}
+            {/* Daily Meals Section - Compact */}
+            <div className={styles.mealsSection}>
+              <h3 className={styles.sectionTitle}>Meals</h3>
+              {meals.length === 0 ? (
+                <p className={styles.emptyHint}>No meals logged. Tap "Log meal" to add one.</p>
+              ) : (
+                MEAL_TYPES.map(type => {
+                  const typeMeals = mealsByType[type] || []
+                  if (typeMeals.length === 0) return null
+                  return (
+                    <div key={type} className={styles.mealTypeGroup}>
+                      <h4 className={styles.mealTypeTitle}>{type}</h4>
+                      <div className={styles.mealsList}>
+                        {typeMeals.map(meal => (
+                          <MealCard
+                            key={meal.id}
+                            meal={meal}
+                            onRemove={removeMeal}
+                            onToggleFavorite={toggleFavorite}
+                            isFavorite={favorites.some(f => f.id === meal.id)}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-              {meals.length === 0 && (
-                <p className={styles.emptyHint}>No meals logged yet. Tap "Log meal" to get started!</p>
+                  )
+                })
               )}
             </div>
 
-            {/* Goals Section */}
+            {/* Goals Section - Compact */}
+            {nutritionGoals.length > 0 && (
             <div className={styles.goalsLink}>
               <div className={styles.goalsHeader}>
                 <h3>Goals</h3>
@@ -904,8 +844,9 @@ export default function Nutrition() {
                 </div>
               )}
             </div>
+            )}
 
-            {/* Dietician LLM */}
+            {/* Dietician LLM - Compact */}
             <div className={styles.dieticianSection}>
               <h3>Dietician</h3>
               <p className={styles.dieticianNote}>
@@ -1103,207 +1044,85 @@ export default function Nutrition() {
 
         {activeTab === 'History' && (
           <div className={styles.historyContent}>
-            <h2>Meal History</h2>
-            <div className={styles.historyList}>
-              {Object.entries(historyData)
-                .sort((a, b) => b[0].localeCompare(a[0]))
-                .map(([date, data]) => (
-                  <div key={date} className={styles.historyDay}>
-                    <div className={styles.historyDate}>
-                      {new Date(date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-                    </div>
-                    <div className={styles.historyStats}>
-                      <span>{data.calories || 0} cal</span>
-                      <span>P: {Math.round(data.macros?.protein || 0)}g</span>
-                      <span>C: {Math.round(data.macros?.carbs || 0)}g</span>
-                      <span>F: {Math.round(data.macros?.fat || 0)}g</span>
-                      <span>Water: {Math.round((data.water || 0) / 250)} glasses</span>
-                    </div>
-                    <button
-                      className={styles.viewDayBtn}
-                      onClick={() => {
-                        setSelectedDate(date)
-                        setActiveTab('Today')
-                      }}
-                    >
-                      View Day
-                    </button>
-                  </div>
-                ))}
-              {Object.keys(historyData).length === 0 && (
-                <div className={styles.emptyState}>No history yet</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Analytics' && (
-          <div className={styles.analyticsContent}>
-            <h2>Nutrition Analytics</h2>
-            <div className={styles.chartCard}>
-              <h3>Weekly Calories</h3>
-              <BarChart
-                data={Object.fromEntries(weeklyData.dates.map((d, i) => {
-                  const date = new Date(d)
-                  return [`${date.getMonth() + 1}/${date.getDate()}`, weeklyData.calories[i] || 0]
-                }))}
-                height={150}
-                color="#ff2d2d"
-                xAxisLabel="Date"
-                yAxisLabel="Calories"
-              />
-            </div>
-            <div className={styles.chartCard}>
-              <h3>Today's Macro Distribution</h3>
-              <div className={styles.macroPie}>
-                <div className={styles.macroSlice} style={{
-                  background: `conic-gradient(#4CAF50 0% ${macroDistribution.protein}%, #2196F3 ${macroDistribution.protein}% ${macroDistribution.protein + macroDistribution.carbs}%, #FF9800 ${macroDistribution.protein + macroDistribution.carbs}% 100%)`
-                }}>
-                  <div className={styles.macroPieCenter}>
-                    <div className={styles.macroPieValue}>
-                      {Math.round(macroDistribution.protein)}% P
-                    </div>
-                    <div className={styles.macroPieValue}>
-                      {Math.round(macroDistribution.carbs)}% C
-                    </div>
-                    <div className={styles.macroPieValue}>
-                      {Math.round(macroDistribution.fat)}% F
-                    </div>
-                  </div>
-                </div>
+            <h2 className={styles.sectionTitle}>History</h2>
+            <div className={styles.historyTable}>
+              <div className={styles.historyTableHeader}>
+                <div className={styles.historyTableCol}>Date</div>
+                <div className={styles.historyTableCol}>Calories</div>
+                <div className={styles.historyTableCol}>Protein</div>
+                <div className={styles.historyTableCol}>Carbs</div>
+                <div className={styles.historyTableCol}>Fat</div>
               </div>
-            </div>
-            <div className={styles.chartCard}>
-              <h3>Weekly Protein</h3>
-              <BarChart
-                data={Object.fromEntries(weeklyData.dates.map((d, i) => {
-                  const date = new Date(d)
-                  return [`${date.getMonth() + 1}/${date.getDate()}`, weeklyData.proteins[i] || 0]
-                }))}
-                height={150}
-                color="#ff2d2d"
-                xAxisLabel="Date"
-                yAxisLabel="Protein (g)"
-              />
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Settings' && (
-          <div className={styles.settingsContent}>
-            <h2>Settings</h2>
-            <div className={styles.settingsSection}>
-              <h3>Daily Goals</h3>
-              <p className={styles.goalsNote}>Syncs to Goals page</p>
-              <div className={styles.settingItem}>
-                <label>Target Calories</label>
-                <input
-                  type="number"
-                  value={targetCalories}
-                  onChange={(e) => {
-                    setTargetCalories(parseInt(e.target.value) || 2000)
-                  }}
-                  min="1000"
-                  max="5000"
-                />
-              </div>
-              <div className={styles.settingItem}>
-                <label>Target Protein (g)</label>
-                <input
-                  type="number"
-                  value={targetMacros.protein}
-                  onChange={(e) => {
-                    setTargetMacros({ ...targetMacros, protein: parseInt(e.target.value) || 0 })
-                  }}
-                  min="0"
-                  max="500"
-                />
-              </div>
-              <div className={styles.settingItem}>
-                <label>Target Carbs (g)</label>
-                <input
-                  type="number"
-                  value={targetMacros.carbs}
-                  onChange={(e) => {
-                    setTargetMacros({ ...targetMacros, carbs: parseInt(e.target.value) || 0 })
-                  }}
-                  min="0"
-                  max="500"
-                />
-              </div>
-              <div className={styles.settingItem}>
-                <label>Target Fat (g)</label>
-                <input
-                  type="number"
-                  value={targetMacros.fat}
-                  onChange={(e) => {
-                    setTargetMacros({ ...targetMacros, fat: parseInt(e.target.value) || 0 })
-                  }}
-                  min="0"
-                  max="500"
-                />
-              </div>
-              <button
-                className={styles.saveBtn}
-                onClick={saveData}
-              >
-                Save Goals
-              </button>
-            </div>
-            <div className={styles.settingsSection}>
-              <h3>Favorites</h3>
-              {favorites.length === 0 ? (
-                <p className={styles.emptyHint}>No favorites yet. Star a meal to save it!</p>
-              ) : (
-                <div className={styles.favoritesList}>
-                  {favorites.map((fav, idx) => (
-                    <div key={idx} className={styles.favoriteItem}>
-                      <div>
-                        <div className={styles.favoriteName}>
-                          {fav.foods?.[0] || fav.description || 'Favorite Meal'}
-                        </div>
-                        <div className={styles.favoriteMacros}>
-                          {fav.calories} cal • P: {Math.round(fav.macros?.protein || 0)}g
-                        </div>
+              <div className={styles.historyTableBody}>
+                {Object.entries(historyData)
+                  .sort((a, b) => b[0].localeCompare(a[0]))
+                  .map(([date, data]) => (
+                    <div key={date} className={styles.historyTableRow} onClick={() => {
+                      setSelectedDate(date)
+                      setActiveTab('Today')
+                    }}>
+                      <div className={styles.historyTableCol}>
+                        {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </div>
-                      <div className={styles.favoriteActions}>
-                        <button
-                          className={styles.addFavoriteBtn}
-                          onClick={() => addFavorite(fav)}
-                        >
-                          Add
-                        </button>
-                        <button
-                          className={styles.removeFavoriteBtn}
-                          onClick={() => {
-                            setFavorites(favorites.filter((_, i) => i !== idx))
-                            saveData()
-                          }}
-                        >
-                          X
-                        </button>
-                      </div>
+                      <div className={styles.historyTableCol}>{data.calories || 0}</div>
+                      <div className={styles.historyTableCol}>{Math.round(data.macros?.protein || 0)}g</div>
+                      <div className={styles.historyTableCol}>{Math.round(data.macros?.carbs || 0)}g</div>
+                      <div className={styles.historyTableCol}>{Math.round(data.macros?.fat || 0)}g</div>
                     </div>
                   ))}
-                </div>
-              )}
+                {Object.keys(historyData).length === 0 && (
+                  <div className={styles.historyTableEmpty}>No history yet</div>
+                )}
+              </div>
             </div>
+          </div>
+        )}
 
-            <div className={styles.settingsSection}>
-              <div className={styles.sectionHeader}>
-                <h3>Weekly Meal Plan</h3>
-                <button
-                  className={styles.newGoalBtn}
-                  onClick={() => {
-                    if (weeklyMealPlan) {
-                      setShowMealPlanEditor(true)
-                    } else {
-                      createWeeklyMealPlan()
-                    }
-                  }}
-                >
-                  {weeklyMealPlan ? 'Edit Plan' : 'Create Plan'}
-                </button>
+        {activeTab === 'Plan' && (
+          <div className={styles.planContent}>
+            <div className={styles.mealPlanSection}>
+              <div className={styles.mealPlanHeader}>
+                <div>
+                  <h3>Weekly Meal Plan</h3>
+                  <p className={styles.mealPlanDescription}>
+                    Create a structured meal plan for the week and apply it to any day
+                  </p>
+                </div>
+                <div className={styles.mealPlanActions}>
+                  {weeklyMealPlan && (
+                    <button
+                      className={styles.deletePlanBtn}
+                      onClick={async () => {
+                        if (confirm('Are you sure you want to delete this meal plan?')) {
+                          if (user) {
+                            try {
+                              const { saveWeeklyMealPlanToSupabase } = await import('../lib/nutritionDb')
+                              await saveWeeklyMealPlanToSupabase(user.id, null)
+                              setWeeklyMealPlan(null)
+                            } catch (error) {
+                              logError('Error deleting meal plan', error)
+                              alert('Failed to delete meal plan')
+                            }
+                          }
+                        }
+                      }}
+                    >
+                      Delete Plan
+                    </button>
+                  )}
+                  <button
+                    className={styles.mealPlanBtn}
+                    onClick={() => {
+                      if (weeklyMealPlan) {
+                        setShowMealPlanEditor(true)
+                      } else {
+                        createWeeklyMealPlan()
+                      }
+                    }}
+                  >
+                    {weeklyMealPlan ? 'Edit Plan' : 'Create Plan'}
+                  </button>
+                </div>
               </div>
               {weeklyMealPlan ? (
                 <div className={styles.mealPlanPreview}>
@@ -1368,6 +1187,66 @@ export default function Nutrition() {
           </div>
         )}
 
+        {activeTab === 'Goals' && (
+          <div className={styles.goalsContent}>
+            <h2 className={styles.sectionTitle}>Nutrition Goals</h2>
+            
+            {/* Date Filter */}
+            <div className={styles.goalsDateFilter}>
+              <label>Date Range:</label>
+              <div className={styles.dateRangeInputs}>
+                <input
+                  type="date"
+                  value={goalsStartDate || getTodayEST()}
+                  onChange={(e) => setGoalsStartDate(e.target.value)}
+                  className={styles.dateInput}
+                />
+                <span>to</span>
+                <input
+                  type="date"
+                  value={goalsEndDate || getTodayEST()}
+                  onChange={(e) => setGoalsEndDate(e.target.value)}
+                  className={styles.dateInput}
+                />
+              </div>
+            </div>
+
+            {/* Goals Progress */}
+            {nutritionGoals.length === 0 ? (
+              <p className={styles.emptyHint}>No nutrition goals set. Create one on the Goals page.</p>
+            ) : (
+              <div className={styles.goalsList}>
+                {nutritionGoals.map(goal => {
+                  // Calculate progress for date range
+                  const goalProgress = calculateGoalProgress(goal, goalsStartDate || getTodayEST(), goalsEndDate || getTodayEST())
+                  const progress = goal.target_value > 0 
+                    ? Math.min(100, (goalProgress.current / goal.target_value) * 100) 
+                    : 0
+                  return (
+                    <div key={goal.id} className={styles.goalCard}>
+                      <div className={styles.goalHeader}>
+                        <span className={styles.goalName}>
+                          {goal.custom_name || goal.type}
+                        </span>
+                        <span className={styles.goalProgress}>{Math.round(progress)}%</span>
+                      </div>
+                      <div className={styles.goalBar}>
+                        <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
+                      </div>
+                      <div className={styles.goalValues}>
+                        {goalProgress.current} / {goal.target_value} {goal.unit}
+                      </div>
+                      <div className={styles.goalDateRange}>
+                        {new Date(goalsStartDate || getTodayEST()).toLocaleDateString()} - {new Date(goalsEndDate || getTodayEST()).toLocaleDateString()}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Weekly Meal Plan Editor Modal */}
         {showMealPlanEditor && weeklyMealPlan && (
           <div className={styles.overlay} onClick={() => setShowMealPlanEditor(false)}>
@@ -1385,97 +1264,121 @@ export default function Nutrition() {
                         const meal = dayMeals[mealType] || { name: '', calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, time: mealType === 'breakfast' ? '08:00' : mealType === 'lunch' ? '12:00' : '18:00' }
                         return (
                           <div key={mealType} className={styles.mealPlanMealInput}>
-                            <label>{mealType.charAt(0).toUpperCase() + mealType.slice(1)}</label>
+                            <label className={styles.mealPlanMealLabel}>
+                              {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
+                            </label>
                             <div className={styles.mealPlanMealFields}>
-                              <input
-                                type="text"
-                                placeholder="Meal name"
-                                value={meal.name || ''}
-                                onChange={(e) => {
-                                  setWeeklyMealPlan(prev => ({
-                                    ...prev,
-                                    [day]: {
-                                      ...prev[day],
-                                      [mealType]: { ...meal, name: e.target.value }
-                                    }
-                                  }))
-                                }}
-                                className={styles.mealPlanInput}
-                              />
-                              <input
-                                type="time"
-                                value={meal.time || (mealType === 'breakfast' ? '08:00' : mealType === 'lunch' ? '12:00' : '18:00')}
-                                onChange={(e) => {
-                                  setWeeklyMealPlan(prev => ({
-                                    ...prev,
-                                    [day]: {
-                                      ...prev[day],
-                                      [mealType]: { ...meal, time: e.target.value }
-                                    }
-                                  }))
-                                }}
-                                className={styles.mealPlanTimeInput}
-                              />
-                              <input
-                                type="number"
-                                placeholder="Calories"
-                                value={meal.calories || ''}
-                                onChange={(e) => {
-                                  setWeeklyMealPlan(prev => ({
-                                    ...prev,
-                                    [day]: {
-                                      ...prev[day],
-                                      [mealType]: { ...meal, calories: parseInt(e.target.value) || 0 }
-                                    }
-                                  }))
-                                }}
-                                className={styles.mealPlanInput}
-                              />
-                              <input
-                                type="number"
-                                placeholder="Protein (g)"
-                                value={meal.macros?.protein || ''}
-                                onChange={(e) => {
-                                  setWeeklyMealPlan(prev => ({
-                                    ...prev,
-                                    [day]: {
-                                      ...prev[day],
-                                      [mealType]: { ...meal, macros: { ...meal.macros, protein: parseInt(e.target.value) || 0 } }
-                                    }
-                                  }))
-                                }}
-                                className={styles.mealPlanInput}
-                              />
-                              <input
-                                type="number"
-                                placeholder="Carbs (g)"
-                                value={meal.macros?.carbs || ''}
-                                onChange={(e) => {
-                                  setWeeklyMealPlan(prev => ({
-                                    ...prev,
-                                    [day]: {
-                                      ...prev[day],
-                                      [mealType]: { ...meal, macros: { ...meal.macros, carbs: parseInt(e.target.value) || 0 } }
-                                    }
-                                  }))
-                                }}
-                                className={styles.mealPlanInput}
-                              />
-                              <input
-                                type="number"
-                                placeholder="Fat (g)"
-                                value={meal.macros?.fat || ''}
-                                onChange={(e) => {
-                                  setWeeklyMealPlan(prev => ({
-                                    ...prev,
-                                    [day]: {
-                                      ...prev[day],
-                                      [mealType]: { ...meal, macros: { ...meal.macros, fat: parseInt(e.target.value) || 0 } }
-                                    }
-                                  }))
-                                }}
-                                className={styles.mealPlanInput}
-                              />
+                              <div className={styles.mealPlanFieldGroup}>
+                                <label className={styles.mealPlanFieldLabel}>Meal Name</label>
+                                <input
+                                  type="text"
+                                  placeholder="e.g., Grilled Chicken & Rice"
+                                  value={meal.name || ''}
+                                  onChange={(e) => {
+                                    setWeeklyMealPlan(prev => ({
+                                      ...prev,
+                                      [day]: {
+                                        ...prev[day],
+                                        [mealType]: { ...meal, name: e.target.value }
+                                      }
+                                    }))
+                                  }}
+                                  className={styles.mealPlanInput}
+                                />
+                              </div>
+                              <div className={styles.mealPlanFieldGroup}>
+                                <label className={styles.mealPlanFieldLabel}>Time</label>
+                                <input
+                                  type="time"
+                                  value={meal.time || (mealType === 'breakfast' ? '08:00' : mealType === 'lunch' ? '12:00' : '18:00')}
+                                  onChange={(e) => {
+                                    setWeeklyMealPlan(prev => ({
+                                      ...prev,
+                                      [day]: {
+                                        ...prev[day],
+                                        [mealType]: { ...meal, time: e.target.value }
+                                      }
+                                    }))
+                                  }}
+                                  className={styles.mealPlanTimeInput}
+                                />
+                              </div>
+                              <div className={styles.mealPlanFieldGroup}>
+                                <label className={styles.mealPlanFieldLabel}>Calories</label>
+                                <input
+                                  type="number"
+                                  placeholder="0"
+                                  value={meal.calories || ''}
+                                  onChange={(e) => {
+                                    setWeeklyMealPlan(prev => ({
+                                      ...prev,
+                                      [day]: {
+                                        ...prev[day],
+                                        [mealType]: { ...meal, calories: parseInt(e.target.value) || 0 }
+                                      }
+                                    }))
+                                  }}
+                                  className={styles.mealPlanInput}
+                                  min="0"
+                                />
+                              </div>
+                              <div className={styles.mealPlanFieldGroup}>
+                                <label className={styles.mealPlanFieldLabel}>Protein (g)</label>
+                                <input
+                                  type="number"
+                                  placeholder="0"
+                                  value={meal.macros?.protein || ''}
+                                  onChange={(e) => {
+                                    setWeeklyMealPlan(prev => ({
+                                      ...prev,
+                                      [day]: {
+                                        ...prev[day],
+                                        [mealType]: { ...meal, macros: { ...meal.macros, protein: parseInt(e.target.value) || 0 } } 
+                                      }
+                                    }))
+                                  }}
+                                  className={styles.mealPlanInput}
+                                  min="0"
+                                />
+                              </div>
+                              <div className={styles.mealPlanFieldGroup}>
+                                <label className={styles.mealPlanFieldLabel}>Carbs (g)</label>
+                                <input
+                                  type="number"
+                                  placeholder="0"
+                                  value={meal.macros?.carbs || ''}
+                                  onChange={(e) => {
+                                    setWeeklyMealPlan(prev => ({
+                                      ...prev,
+                                      [day]: {
+                                        ...prev[day],
+                                        [mealType]: { ...meal, macros: { ...meal.macros, carbs: parseInt(e.target.value) || 0 } }
+                                      }
+                                    }))
+                                  }}
+                                  className={styles.mealPlanInput}
+                                  min="0"
+                                />
+                              </div>
+                              <div className={styles.mealPlanFieldGroup}>
+                                <label className={styles.mealPlanFieldLabel}>Fat (g)</label>
+                                <input
+                                  type="number"
+                                  placeholder="0"
+                                  value={meal.macros?.fat || ''}
+                                  onChange={(e) => {
+                                    setWeeklyMealPlan(prev => ({
+                                      ...prev,
+                                      [day]: {
+                                        ...prev[day],
+                                        [mealType]: { ...meal, macros: { ...meal.macros, fat: parseInt(e.target.value) || 0 } }
+                                      }
+                                    }))
+                                  }}
+                                  className={styles.mealPlanInput}
+                                  min="0"
+                                />
+                              </div>
                             </div>
                           </div>
                         )

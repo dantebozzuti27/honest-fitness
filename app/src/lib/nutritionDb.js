@@ -24,7 +24,11 @@ export async function saveMealToSupabase(userId, date, meal) {
   
   let meals = []
   let totalCalories = meal.calories || 0
-  let totalMacros = { protein: meal.protein || 0, carbs: meal.carbs || 0, fat: meal.fat || 0 }
+  let totalMacros = { 
+    protein: meal.macros?.protein || meal.protein || 0, 
+    carbs: meal.macros?.carbs || meal.carbs || 0, 
+    fat: meal.macros?.fat || meal.fat || 0 
+  }
   
   if (existing && existing.meals) {
     try {
@@ -44,14 +48,24 @@ export async function saveMealToSupabase(userId, date, meal) {
         id: Date.now().toString(),
         timestamp: new Date().toISOString()
       }
+  
+  // Ensure meal has proper structure
+  if (!mealToAdd.macros && (mealToAdd.protein || mealToAdd.carbs || mealToAdd.fat)) {
+    mealToAdd.macros = {
+      protein: mealToAdd.protein || 0,
+      carbs: mealToAdd.carbs || 0,
+      fat: mealToAdd.fat || 0
+    }
+  }
+  
   meals.push(mealToAdd)
   
   // Recalculate totals
   totalCalories = meals.reduce((sum, m) => sum + (m.calories || 0), 0)
   totalMacros = meals.reduce((macros, m) => ({
-    protein: macros.protein + (m.protein || 0),
-    carbs: macros.carbs + (m.carbs || 0),
-    fat: macros.fat + (m.fat || 0)
+    protein: macros.protein + (m.macros?.protein || m.protein || 0),
+    carbs: macros.carbs + (m.macros?.carbs || m.carbs || 0),
+    fat: macros.fat + (m.macros?.fat || m.fat || 0)
   }), { protein: 0, carbs: 0, fat: 0 })
   
   // Save to database
@@ -222,9 +236,9 @@ export async function deleteMealFromSupabase(userId, date, mealId) {
   // Recalculate totals
   const totalCalories = meals.reduce((sum, m) => sum + (m.calories || 0), 0)
   const totalMacros = meals.reduce((macros, m) => ({
-    protein: macros.protein + (m.protein || 0),
-    carbs: macros.carbs + (m.carbs || 0),
-    fat: macros.fat + (m.fat || 0)
+    protein: macros.protein + (m.macros?.protein || m.protein || 0),
+    carbs: macros.carbs + (m.macros?.carbs || m.carbs || 0),
+    fat: macros.fat + (m.macros?.fat || m.fat || 0)
   }), { protein: 0, carbs: 0, fat: 0 })
   
   // Save updated data

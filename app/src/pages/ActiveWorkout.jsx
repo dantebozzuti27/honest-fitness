@@ -144,16 +144,11 @@ export default function ActiveWorkout() {
     }
     load()
     
-    // Initialize workout timer with persistence
-    const savedStartTime = localStorage.getItem('workoutStartTime')
-    if (savedStartTime) {
-      workoutStartTimeRef.current = parseInt(savedStartTime)
-      const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current) / 1000)
-      setWorkoutTime(elapsed)
-    } else {
-      workoutStartTimeRef.current = Date.now()
-      localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
-    }
+    // Initialize workout timer - always start at 0 for new workout
+    localStorage.removeItem('workoutStartTime')
+    workoutStartTimeRef.current = Date.now()
+    localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
+    setWorkoutTime(0)
     
     // Restore rest timer if it was running
     const savedRestStart = localStorage.getItem('restStartTime')

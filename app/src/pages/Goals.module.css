@@ -95,7 +95,7 @@
   font-size: 14px;
   font-weight: 600;
   background: var(--accent);
-  color: white;
+  color: var(--text-primary);
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -214,7 +214,7 @@
   font-size: 16px;
   font-weight: 600;
   background: var(--accent);
-  color: white;
+  color: var(--text-primary);
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -349,7 +349,7 @@
 
 .saveBtn {
   background: var(--accent);
-  color: white;
+  color: var(--text-primary);
 }
 
 .loading {

@@ -1,41 +1,59 @@
 .container {
   min-height: 100vh;
-  padding: 16px;
-  padding-top: calc(env(safe-area-inset-top, 16px) + 16px);
-  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-primary);
   color: var(--text-primary);
+  padding: 0;
 }
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.backBtn,
-.resetBtn {
-  padding: 8px 16px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.backBtn:hover,
-.resetBtn:hover {
-  background: var(--bg-tertiary);
+  padding: 20px;
+  padding-top: calc(env(safe-area-inset-top, 20px) + 20px);
+  padding-bottom: 20px;
 }
 
 h1 {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 700;
   margin: 0;
+  color: var(--text-primary);
+}
+
+.plusBtn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.plusBtn:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-lg);
+}
+
+.plusBtn:active {
+  transform: scale(0.95);
+}
+
+.plusIcon {
+  display: block;
+  line-height: 1;
 }
 
 /* Tabs */
@@ -74,6 +92,116 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  padding: 0 20px 20px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 20px) + 20px);
+}
+
+.logMealBtn {
+  width: 100%;
+  padding: 18px 24px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-md);
+}
+
+.logMealBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.logMealBtn:active {
+  transform: translateY(0);
+}
+
+.optionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.optionItem {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-align: left;
+  color: var(--text-primary);
+  width: 100%;
+}
+
+.optionItem:hover {
+  background: var(--bg-secondary);
+}
+
+.optionItem:active {
+  transform: scale(0.98);
+}
+
+.optionIcon {
+  font-size: 24px;
+  line-height: 1;
+  width: 28px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.optionContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.optionTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.optionSubtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.mealsSection {
+  margin-top: 24px;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+}
+
+.mealTypeGroup {
+  margin-bottom: 24px;
+}
+
+.mealTypeTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.mealsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 /* Date Selector */

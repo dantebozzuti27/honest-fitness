@@ -4,10 +4,10 @@ import { useAuth } from '../context/AuthContext'
 import { getWorkoutsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/supabaseDb'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getReadinessScore } from '../lib/readiness'
-import { getAllConnectedAccounts, getFitbitDaily } from '../lib/wearables'
+import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, mergeWearableDataToMetrics } from '../lib/wearables'
 import { getTodayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
-import LineChart from '../components/LineChart'
+// All charts are now BarChart only
 import BarChart from '../components/BarChart'
 import styles from './Health.module.css'
 
@@ -24,6 +24,8 @@ export default function Health() {
   const [selectedPeriod, setSelectedPeriod] = useState('week') // week, month, 90days
   const [editingMetric, setEditingMetric] = useState(null)
   const [healthGoals, setHealthGoals] = useState([])
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState(null)
 
   useEffect(() => {
     if (user) {
@@ -117,6 +119,43 @@ export default function Health() {
       // Silently fail - data will load on retry
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleSyncFitbit = async () => {
+    if (!user) return
+    
+    setSyncing(true)
+    setSyncError(null)
+    
+    try {
+      const today = getTodayEST()
+      const result = await syncFitbitData(user.id, today)
+      
+      // Also sync yesterday to ensure we have recent data
+      try {
+        const { getYesterdayEST } = await import('../utils/dateUtils')
+        const yesterday = getYesterdayEST()
+        await syncFitbitData(user.id, yesterday)
+      } catch (e) {
+        // Yesterday sync is optional, continue
+      }
+      
+      // Merge into daily_metrics
+      await mergeWearableDataToMetrics(user.id, today)
+      
+      // Reload data to show updated Fitbit data
+      await loadAllData()
+      
+      // Show success message briefly
+      setTimeout(() => {
+        setSyncError(null)
+      }, 3000)
+    } catch (error) {
+      console.error('Fitbit sync error:', error)
+      setSyncError(error.message || 'Failed to sync Fitbit data. Please try again or reconnect your account.')
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -341,6 +380,35 @@ export default function Health() {
           </div>
         )}
 
+        {/* Sync Button - Show if Fitbit is connected */}
+        {wearables.some(w => w.provider === 'fitbit') && (
+          <div className={styles.fitbitCard}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ margin: 0 }}>Sync Fitbit Data</h3>
+              <button
+                className={styles.actionBtn}
+                onClick={handleSyncFitbit}
+                disabled={syncing}
+                style={{ minWidth: '120px' }}
+              >
+                {syncing ? 'Syncing...' : 'Sync Now'}
+              </button>
+            </div>
+            {syncError && (
+              <div style={{ 
+                padding: '12px', 
+                marginTop: '12px', 
+                backgroundColor: 'var(--bg-tertiary)', 
+                borderRadius: '8px',
+                color: 'var(--error)',
+                fontSize: '14px'
+              }}>
+                {syncError}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Manual Logging Section */}
         <div className={styles.metricsCard}>
           <h3>Manual Logging</h3>
@@ -366,19 +434,43 @@ export default function Health() {
           </div>
         </div>
 
-        {/* Goals Section */}
-        <div className={styles.metricsCard}>
-          <div className={styles.sectionHeader}>
-            <h3>Goals</h3>
-            <button
-              className={styles.linkBtn}
-              onClick={() => navigate('/goals')}
-            >
-              View All →
-            </button>
+        {/* Goals Section - Show actual goals */}
+        {healthGoals.length > 0 && (
+          <div className={styles.metricsCard}>
+            <div className={styles.sectionHeader}>
+              <h3>Health Goals</h3>
+              <button
+                className={styles.linkBtn}
+                onClick={() => navigate('/goals')}
+              >
+                View All →
+              </button>
+            </div>
+            <div className={styles.goalsList}>
+              {healthGoals.slice(0, 3).map(goal => {
+                const progress = goal.target_value > 0 
+                  ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
+                  : 0
+                return (
+                  <div key={goal.id} className={styles.goalCard}>
+                    <div className={styles.goalHeader}>
+                      <span className={styles.goalName}>
+                        {goal.custom_name || goal.type}
+                      </span>
+                      <span className={styles.goalProgress}>{Math.round(progress)}%</span>
+                    </div>
+                    <div className={styles.goalBar}>
+                      <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
+                    </div>
+                    <div className={styles.goalValues}>
+                      {goal.current_value} / {goal.target_value} {goal.unit}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-          <p className={styles.sectionNote}>Syncs to Goals page</p>
-        </div>
+        )}
 
         {/* Metrics History */}
         <div className={styles.metricsCard}>
@@ -416,45 +508,6 @@ export default function Health() {
           )}
         </div>
 
-        {/* Goals Section */}
-        <div className={styles.actionsCard}>
-          <div className={styles.sectionHeader}>
-            <h3>Goals</h3>
-            <button
-              className={styles.linkBtn}
-              onClick={() => navigate('/goals')}
-            >
-              View All →
-            </button>
-          </div>
-          {healthGoals.length === 0 ? (
-            <p className={styles.sectionNote}>No health goals set. Create one on the Goals page.</p>
-          ) : (
-            <div className={styles.goalsList}>
-              {healthGoals.slice(0, 3).map(goal => {
-                const progress = goal.target_value > 0 
-                  ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
-                  : 0
-                return (
-                  <div key={goal.id} className={styles.goalCard}>
-                    <div className={styles.goalHeader}>
-                      <span className={styles.goalName}>
-                        {goal.custom_name || goal.type}
-                      </span>
-                      <span className={styles.goalProgress}>{Math.round(progress)}%</span>
-                    </div>
-                    <div className={styles.goalBar}>
-                      <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
-                    </div>
-                    <div className={styles.goalValues}>
-                      {goal.current_value} / {goal.target_value} {goal.unit}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
 
         {/* Quick Actions */}
         <div className={styles.actionsCard}>

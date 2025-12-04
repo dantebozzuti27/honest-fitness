@@ -117,65 +117,84 @@ export default function Fitness() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
         <h1 className={styles.title}>Fitness</h1>
       </header>
 
       <div className={styles.content}>
-        {/* Start Workout Section */}
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Start Workout</h2>
-          <div className={styles.actionButtons}>
-            <button
-              className={styles.primaryBtn}
-              onClick={() => startWorkout(null)}
-            >
-              Start Workout
-            </button>
-          </div>
-        </section>
+        {/* Start Workout Button */}
+        <button
+          className={styles.startWorkoutBtn}
+          onClick={() => startWorkout(null)}
+        >
+          Start Workout
+        </button>
 
-        {/* Goals Section */}
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>Goals</h2>
-            <button
-              className={styles.linkBtn}
-              onClick={() => navigate('/goals')}
-            >
-              View All →
-            </button>
-          </div>
-          {fitnessGoals.length === 0 ? (
-            <p className={styles.sectionNote}>No fitness goals set. Create one on the Goals page.</p>
-          ) : (
-            <div className={styles.goalsList}>
-              {fitnessGoals.slice(0, 3).map(goal => {
-                const progress = goal.target_value > 0 
-                  ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
-                  : 0
-                return (
-                  <div key={goal.id} className={styles.goalCard}>
-                    <div className={styles.goalHeader}>
-                      <span className={styles.goalName}>
-                        {goal.custom_name || goal.type}
+        {/* Options List */}
+        <div className={styles.optionsList}>
+          <button
+            className={styles.optionItem}
+            onClick={() => {
+              // Show templates
+              const templateSection = document.querySelector(`.${styles.templateSection}`)
+              if (templateSection) {
+                templateSection.scrollIntoView({ behavior: 'smooth' })
+              }
+            }}
+          >
+            <span className={styles.optionIcon}>📋</span>
+            <span className={styles.optionText}>View templates</span>
+          </button>
+          
+          <button
+            className={styles.optionItem}
+            onClick={() => navigate('/goals')}
+          >
+            <span className={styles.optionIcon}>🎯</span>
+            <span className={styles.optionText}>Goals</span>
+          </button>
+          
+          <button
+            className={styles.optionItem}
+            onClick={() => setShowHistory(!showHistory)}
+          >
+            <span className={styles.optionIcon}>📊</span>
+            <span className={styles.optionText}>Workout history</span>
+          </button>
+        </div>
+
+        {/* Workout History */}
+        {showHistory && (
+          <div className={styles.historySection}>
+            <h3 className={styles.historyTitle}>Workout History</h3>
+            <div className={styles.historyList}>
+              {workoutHistory.length === 0 ? (
+                <p className={styles.emptyText}>No workouts yet</p>
+              ) : (
+                workoutHistory.map(workout => (
+                  <div key={workout.id} className={styles.historyItem}>
+                    <div className={styles.historyDate}>
+                      {new Date(workout.date + 'T12:00:00').toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </div>
+                    <div className={styles.historyDetails}>
+                      <span className={styles.historyDuration}>
+                        {Math.floor((workout.duration || 0) / 60)}:{String((workout.duration || 0) % 60).padStart(2, '0')}
                       </span>
-                      <span className={styles.goalProgress}>{Math.round(progress)}%</span>
-                    </div>
-                    <div className={styles.goalBar}>
-                      <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
-                    </div>
-                    <div className={styles.goalValues}>
-                      {goal.current_value} / {goal.target_value} {goal.unit}
+                      {workout.workout_exercises?.length > 0 && (
+                        <span className={styles.historyExercises}>
+                          {workout.workout_exercises.length} exercises
+                        </span>
+                      )}
                     </div>
                   </div>
-                )
-              })}
+                ))
+              )}
             </div>
-          )}
-        </section>
+          </div>
+        )}
 
         {/* Today's Plan */}
         {todaysPlan && (
@@ -275,47 +294,6 @@ export default function Fitness() {
           </div>
         </section>
 
-        {/* Workout History */}
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>Workout History</h2>
-            <button
-              className={styles.linkBtn}
-              onClick={() => setShowHistory(!showHistory)}
-            >
-              {showHistory ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          {showHistory && (
-            <div className={styles.historyList}>
-              {workoutHistory.length === 0 ? (
-                <p className={styles.emptyText}>No workouts yet</p>
-              ) : (
-                workoutHistory.map(workout => (
-                  <div key={workout.id} className={styles.historyItem}>
-                    <div className={styles.historyDate}>
-                      {new Date(workout.date + 'T12:00:00').toLocaleDateString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
-                    </div>
-                    <div className={styles.historyDetails}>
-                      <span className={styles.historyDuration}>
-                        {Math.floor((workout.duration || 0) / 60)}:{String((workout.duration || 0) % 60).padStart(2, '0')}
-                      </span>
-                      {workout.workout_exercises?.length > 0 && (
-                        <span className={styles.historyExercises}>
-                          {workout.workout_exercises.length} exercises
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </section>
 
         {/* Template Editor Modal */}
         {showTemplateEditor && (

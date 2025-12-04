@@ -343,12 +343,24 @@ export default function ActiveWorkout() {
     })
   }
 
-  const handleDragStart = (id) => {
+  const handleDragStart = (e, id) => {
     setDraggedId(id)
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/html', id.toString())
+    }
+    // Add visual feedback
+    const card = e.target.closest('[class*="card"]') || e.target
+    if (card) {
+      card.style.opacity = '0.5'
+    }
   }
 
   const handleDragOver = (e, targetId) => {
     e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    
     if (draggedId === null || draggedId === targetId) return
     
     setExercises(prev => {
@@ -363,7 +375,23 @@ export default function ActiveWorkout() {
     })
   }
 
-  const handleDragEnd = () => {
+  const handleDragEnd = (e) => {
+    // Reset opacity
+    const card = e.target.closest('[class*="card"]') || e.target
+    if (card) {
+      card.style.opacity = '1'
+    }
+    setDraggedId(null)
+  }
+
+  const handleDragEnter = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = (e, targetId) => {
+    e.preventDefault()
+    e.stopPropagation()
     setDraggedId(null)
   }
 
@@ -463,9 +491,11 @@ export default function ActiveWorkout() {
             onStartRest={startRest}
             onComplete={() => completeExercise(exercise.id)}
             isDragging={draggedId === exercise.id}
-            onDragStart={() => handleDragStart(exercise.id)}
+            onDragStart={(e) => handleDragStart(e, exercise.id)}
             onDragOver={(e) => handleDragOver(e, exercise.id)}
+            onDragEnter={handleDragEnter}
             onDragEnd={handleDragEnd}
+            onDrop={(e) => handleDrop(e, exercise.id)}
           />
         ))}
         

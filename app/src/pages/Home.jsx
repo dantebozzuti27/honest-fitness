@@ -100,16 +100,28 @@ export default function Home() {
     navigate(path)
   }
 
+  const navIcons = {
+    fitness: '🏋️',
+    nutrition: '🍎',
+    health: '❤️',
+    calendar: '📅',
+    analytics: '📊',
+    goals: '🎯',
+    profile: '👤'
+  }
+
   return (
     <div className={styles.container}>
-      {/* Quick Action Button */}
-      <button 
-        className={styles.quickActionBtn}
-        onClick={() => setShowQuickMenu(!showQuickMenu)}
-        aria-label="Quick actions"
-      >
-        <span className={styles.plusIcon}>+</span>
-      </button>
+      <div className={styles.header}>
+        <h1 className={styles.title}>Home</h1>
+        <button 
+          className={styles.quickActionBtn}
+          onClick={() => setShowQuickMenu(!showQuickMenu)}
+          aria-label="Quick actions"
+        >
+          <span className={styles.plusIcon}>+</span>
+        </button>
+      </div>
 
       {/* Quick Action Menu */}
       {showQuickMenu && (
@@ -133,45 +145,16 @@ export default function Home() {
       )}
 
       <div className={styles.content}>
-        {/* Fitbit Steps at Top */}
-        {fitbitSteps && (
-          <div className={styles.stepsCard}>
-            <div className={styles.stepsHeader}>
-              <span className={styles.stepsLabel}>Today's Steps</span>
-              {fitbitSteps.date && fitbitSteps.date !== getTodayEST() && (
-                <span className={styles.stepsDate}>{fitbitSteps.date}</span>
-              )}
-            </div>
-            <div className={styles.stepsValue}>
-              {fitbitSteps.steps.toLocaleString()}
-            </div>
-            {!fitbitSteps.date || fitbitSteps.date === getTodayEST() ? (
-              <div className={styles.stepsSubtext}>Keep moving!</div>
-            ) : (
-              <div className={styles.stepsSubtext}>Last recorded</div>
-            )}
-          </div>
-        )}
-
-        {/* Streak Card */}
-        {streak > 0 && (
-          <div className={styles.streakCard}>
-            <div className={styles.streakRow}>
-              <span className={styles.streakNumber}>{streak}</span>
-            </div>
-            <span className={styles.streakLabel}>day streak</span>
-          </div>
-        )}
-
-        {/* Navigation Grid */}
-        <div className={styles.navGrid}>
+        {/* Navigation Menu - Right Side */}
+        <div className={styles.navMenu}>
           {navItems.map(item => (
             <button
               key={item.id}
               className={styles.navItem}
               onClick={() => navigate(item.path)}
             >
-              <div className={styles.navLabel}>{item.label}</div>
+              <span className={styles.navIcon}>{navIcons[item.id]}</span>
+              <span className={styles.navLabel}>{item.label}</span>
             </button>
           ))}
         </div>

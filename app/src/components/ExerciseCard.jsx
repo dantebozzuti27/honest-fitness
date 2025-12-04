@@ -16,7 +16,9 @@ export default function ExerciseCard({
   isDragging,
   onDragStart,
   onDragOver,
-  onDragEnd
+  onDragEnter,
+  onDragEnd,
+  onDrop
 }) {
   const [activeSet, setActiveSet] = useState(0)
 
@@ -35,10 +37,33 @@ export default function ExerciseCard({
     <div 
       className={`${styles.card} ${exercise.expanded ? styles.expanded : ''} ${exercise.completed ? styles.completed : ''} ${isDragging ? styles.dragging : ''}`}
       draggable
-      onDragStart={onDragStart}
+      onDragStart={(e) => {
+        if (onDragStart) {
+          onDragStart(e, exercise.id)
+        }
+      }}
       onDragOver={onDragOver}
-      onDragEnd={onDragEnd}
+      onDragEnter={onDragEnter}
+      onDragEnd={(e) => {
+        if (onDragEnd) {
+          onDragEnd(e)
+        }
+      }}
+      onDrop={onDrop}
     >
+      <div 
+        className={styles.dragHandle}
+        onMouseDown={(e) => {
+          // Make the card draggable when clicking the handle
+          e.stopPropagation()
+        }}
+        onTouchStart={(e) => {
+          // For touch, allow dragging from handle
+          e.stopPropagation()
+        }}
+      >
+        ⋮⋮
+      </div>
       <button className={styles.header} onClick={onToggle}>
         <span className={styles.name}>{exercise.name}</span>
         <span className={styles.summary}>

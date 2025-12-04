@@ -87,6 +87,10 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     if (!expiresAt || expiresAt <= new Date(now.getTime() + 10 * 60 * 1000)) {
       // Refresh token
       try {
+        if (!account.refresh_token) {
+          throw new Error('No refresh token available. Please reconnect your Fitbit account.')
+        }
+        
         const tokenResponse = await fetch('https://api.fitbit.com/oauth2/token', {
           method: 'POST',
           headers: {
@@ -101,32 +105,41 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
           })
         })
         
-        if (tokenResponse.ok) {
-          const tokenData = await tokenResponse.json()
-          accessToken = tokenData.access_token
-          
-          // Update tokens in database
-          const newExpiresAt = new Date()
-          newExpiresAt.setSeconds(newExpiresAt.getSeconds() + (tokenData.expires_in || 28800))
-          
-          await supabase
-            .from('connected_accounts')
-            .update({
-              access_token: tokenData.access_token,
-              refresh_token: tokenData.refresh_token,
-              expires_at: newExpiresAt.toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('user_id', userId)
-            .eq('provider', 'fitbit')
+        if (!tokenResponse.ok) {
+          const errorData = await tokenResponse.json().catch(() => ({}))
+          throw new Error(`Token refresh failed: ${errorData.error_description || errorData.error || 'Unknown error'}. Please reconnect your Fitbit account.`)
+        }
+        
+        const tokenData = await tokenResponse.json()
+        accessToken = tokenData.access_token
+        
+        // Update tokens in database
+        const newExpiresAt = new Date()
+        newExpiresAt.setSeconds(newExpiresAt.getSeconds() + (tokenData.expires_in || 28800))
+        
+        const { error: updateError } = await supabase
+          .from('connected_accounts')
+          .update({
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+            expires_at: newExpiresAt.toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userId)
+          .eq('provider', 'fitbit')
+        
+        if (updateError) {
+          throw new Error(`Failed to update tokens: ${updateError.message}`)
         }
       } catch (refreshError) {
-        // Continue with existing token
+        // If refresh fails, throw error instead of continuing with expired token
+        throw new Error(refreshError.message || 'Token refresh failed. Please reconnect your Fitbit account.')
       }
     }
     
     // Fetch data from Fitbit API directly
     const fitbitData = {}
+    const errors = []
     
     // Fetch activity data
     try {
@@ -137,7 +150,13 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         }
       )
       
-      if (activityResponse.ok) {
+      if (!activityResponse.ok) {
+        const errorText = await activityResponse.text()
+        if (activityResponse.status === 401 || activityResponse.status === 403) {
+          throw new Error(`Fitbit authorization failed: ${activityResponse.status}. Please reconnect your account.`)
+        }
+        errors.push(`Activity data: ${activityResponse.status} ${errorText}`)
+      } else {
         const activityJson = await activityResponse.json()
         const summary = activityJson.summary || {}
         fitbitData.steps = summary.steps || null
@@ -147,7 +166,10 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         fitbitData.floors = summary.floors || null
       }
     } catch (e) {
-      // Continue
+      if (e.message?.includes('authorization failed')) {
+        throw e
+      }
+      errors.push(`Activity: ${e.message}`)
     }
     
     // Fetch sleep data
@@ -159,7 +181,13 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         }
       )
       
-      if (sleepResponse.ok) {
+      if (!sleepResponse.ok) {
+        const errorText = await sleepResponse.text()
+        if (sleepResponse.status === 401 || sleepResponse.status === 403) {
+          throw new Error(`Fitbit authorization failed: ${sleepResponse.status}. Please reconnect your account.`)
+        }
+        errors.push(`Sleep data: ${sleepResponse.status} ${errorText}`)
+      } else {
         const sleepJson = await sleepResponse.json()
         if (sleepJson.sleep?.[0]) {
           const sleep = sleepJson.sleep[0]
@@ -168,7 +196,10 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         }
       }
     } catch (e) {
-      // Continue
+      if (e.message?.includes('authorization failed')) {
+        throw e
+      }
+      errors.push(`Sleep: ${e.message}`)
     }
     
     // Fetch HRV data
@@ -180,7 +211,12 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         }
       )
       
-      if (hrvResponse.ok) {
+      if (!hrvResponse.ok) {
+        // HRV might not be available for all devices, so we don't throw on error
+        if (hrvResponse.status !== 404) {
+          errors.push(`HRV: ${hrvResponse.status}`)
+        }
+      } else {
         const hrvJson = await hrvResponse.json()
         if (hrvJson.hrv?.length > 0) {
           const hrvValues = hrvJson.hrv
@@ -192,7 +228,8 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         }
       }
     } catch (e) {
-      // Continue
+      // HRV is optional, continue
+      errors.push(`HRV: ${e.message}`)
     }
     
     // Fetch heart rate data
@@ -204,14 +241,33 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         }
       )
       
-      if (hrResponse.ok) {
+      if (!hrResponse.ok) {
+        const errorText = await hrResponse.text()
+        if (hrResponse.status === 401 || hrResponse.status === 403) {
+          throw new Error(`Fitbit authorization failed: ${hrResponse.status}. Please reconnect your account.`)
+        }
+        errors.push(`Heart rate: ${hrResponse.status} ${errorText}`)
+      } else {
         const hrJson = await hrResponse.json()
         if (hrJson['activities-heart']?.[0]?.value) {
           fitbitData.resting_heart_rate = hrJson['activities-heart'][0].value.restingHeartRate || null
         }
       }
     } catch (e) {
-      // Continue
+      if (e.message?.includes('authorization failed')) {
+        throw e
+      }
+      errors.push(`Heart rate: ${e.message}`)
+    }
+    
+    // If we got authorization errors, throw
+    if (errors.some(e => e.includes('401') || e.includes('403'))) {
+      throw new Error('Fitbit authorization expired. Please reconnect your account.')
+    }
+    
+    // If we have no data and errors, throw
+    if (Object.keys(fitbitData).length === 0 && errors.length > 0) {
+      throw new Error(`Failed to fetch Fitbit data: ${errors.join('; ')}`)
     }
     
     // Save to fitbit_daily table
@@ -240,10 +296,25 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     res.json({
       success: true,
       data: fitbitData,
-      syncedAt: new Date().toISOString()
+      syncedAt: new Date().toISOString(),
+      warnings: errors.length > 0 ? errors : undefined
     })
   } catch (error) {
-    next(error)
+    // Log the error for debugging
+    const { logError } = await import('../utils/logger.js')
+    logError('Fitbit sync error', { 
+      userId, 
+      date, 
+      error: error.message,
+      stack: error.stack 
+    })
+    
+    // Return user-friendly error message
+    const statusCode = error.message?.includes('authorization') ? 401 : 500
+    res.status(statusCode).json({ 
+      error: error.message || 'Failed to sync Fitbit data',
+      success: false
+    })
   }
 })
 

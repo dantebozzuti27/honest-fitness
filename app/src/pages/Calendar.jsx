@@ -316,7 +316,8 @@ export default function Calendar() {
                       Log Meal
                     </button>
                     <button className={styles.scheduleBtn} onClick={() => {
-                      navigate('/goals')
+                      // Create a meal plan goal
+                      navigate('/goals', { state: { createMealPlan: true, date: selectedDate } })
                       closeModal()
                     }}>
                       Create Meal Plan
@@ -346,8 +347,21 @@ export default function Calendar() {
                   <p>No workout recorded</p>
                 )}
                 {isFutureDate(selectedDate) && (
+                  <div className={styles.scheduleActions}>
+                    <button className={styles.scheduleAction} onClick={() => setShowScheduler('workout')}>
+                      {scheduledInfo ? 'Change Schedule' : 'Schedule Workout'}
+                    </button>
+                    <button className={styles.scheduleAction} onClick={() => setShowScheduler('meal')}>
+                      Schedule Meal
+                    </button>
+                    <button className={styles.scheduleAction} onClick={() => setShowScheduler('goal')}>
+                      Schedule Goal
+                    </button>
+                  </div>
+                )}
+                {!isFutureDate(selectedDate) && (
                   <button className={styles.scheduleAction} onClick={() => setShowScheduler('workout')}>
-                    {scheduledInfo ? 'Change Schedule' : 'Schedule'}
+                    Schedule
                   </button>
                 )}
               </div>

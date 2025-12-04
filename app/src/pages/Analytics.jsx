@@ -21,7 +21,7 @@ import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutr
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
 import BodyHeatmap from '../components/BodyHeatmap'
-import LineChart from '../components/LineChart'
+// All charts are now BarChart only
 import BarChart from '../components/BarChart'
 import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
@@ -45,11 +45,8 @@ export default function Analytics() {
   const [dateFilter, setDateFilter] = useState(1) // This Month default
   const [metricType, setMetricType] = useState(0) // Sessions default
   const [historyChartType, setHistoryChartType] = useState('frequency') // 'frequency' or 'duration'
-  const [historyChartView, setHistoryChartView] = useState('bar') // 'line' or 'bar'
   const [metricsChartType, setMetricsChartType] = useState('weight') // 'weight', 'sleep', 'steps'
-  const [metricsChartView, setMetricsChartView] = useState('line') // 'line' or 'bar'
   const [trendsChartType, setTrendsChartType] = useState('frequency') // 'frequency', 'volume', 'exercises'
-  const [trendsChartView, setTrendsChartView] = useState('bar') // 'line' or 'bar'
   const [data, setData] = useState({
     bodyParts: {},
     bodyPartReps: {},
@@ -794,55 +791,32 @@ export default function Analytics() {
             </div>
             
             <div className={styles.chartSection}>
-              <div className={styles.chartViewToggle}>
-                <button
-                  className={`${styles.chartViewBtn} ${historyChartView === 'line' ? styles.activeChartView : ''}`}
-                  onClick={() => setHistoryChartView('line')}
-                >
-                  Line
-                </button>
-                <button
-                  className={`${styles.chartViewBtn} ${historyChartView === 'bar' ? styles.activeChartView : ''}`}
-                  onClick={() => setHistoryChartView('bar')}
-                >
-                  Bar
-                </button>
-              </div>
               {historyChartType === 'frequency' && (
                 <>
                   <h4 className={styles.chartTitle}>Workouts Per Week</h4>
-                  {historyChartView === 'bar' ? (
-                    <BarChart data={weeklyWorkoutData} height={150} />
-                  ) : (
-                    <LineChart 
-                      data={Object.values(weeklyWorkoutData)} 
-                      labels={Object.keys(weeklyWorkoutData).map(k => {
-                        const d = new Date(k + 'T12:00:00')
-                        return `${d.getMonth() + 1}/${d.getDate()}`
-                      })}
-                      height={150}
-                      color="var(--text-primary)"
-                    />
-                  )}
+                  <BarChart 
+                    data={weeklyWorkoutData} 
+                    labels={Object.keys(weeklyWorkoutData).map(k => {
+                      const d = new Date(k + 'T12:00:00')
+                      return `${d.getMonth() + 1}/${d.getDate()}`
+                    })}
+                    height={150}
+                    color="#ff2d2d"
+                    xAxisLabel="Week"
+                    yAxisLabel="Workouts"
+                  />
                 </>
               )}
               {historyChartType === 'duration' && durationData.length > 0 && (
                 <>
                   <h4 className={styles.chartTitle}>Workout Duration (Last 14 Days)</h4>
-                  {historyChartView === 'line' ? (
-                    <LineChart 
-                      data={durationData} 
-                      labels={durationLabels}
-                      height={150}
-                      color="var(--text-primary)"
-                    />
-                  ) : (
-                    <BarChart 
-                      data={Object.fromEntries(durationData.map((d, i) => [durationLabels[i], d]))} 
-                      height={150} 
-                      color="var(--text-primary)"
-                    />
-                  )}
+                  <BarChart 
+                    data={Object.fromEntries(durationData.map((d, i) => [durationLabels[i], d]))} 
+                    height={150} 
+                    color="#ff2d2d"
+                    xAxisLabel="Date"
+                    yAxisLabel="Duration (min)"
+                  />
                 </>
               )}
             </div>
@@ -966,113 +940,64 @@ export default function Analytics() {
             </div>
             
             <div className={styles.chartSection}>
-              <div className={styles.chartViewToggle}>
-                <button
-                  className={`${styles.chartViewBtn} ${metricsChartView === 'line' ? styles.activeChartView : ''}`}
-                  onClick={() => setMetricsChartView('line')}
-                >
-                  Line
-                </button>
-                <button
-                  className={`${styles.chartViewBtn} ${metricsChartView === 'bar' ? styles.activeChartView : ''}`}
-                  onClick={() => setMetricsChartView('bar')}
-                >
-                  Bar
-                </button>
-              </div>
               {metricsChartType === 'weight' && weightData.length > 0 && (
                 <>
                   <h4 className={styles.chartTitle}>Weight (lbs)</h4>
-                  {metricsChartView === 'line' ? (
-                    <LineChart 
-                      data={weightData} 
-                      labels={weightLabels}
-                      height={150}
-                      color="var(--text-primary)"
-                    />
-                  ) : (
-                    <BarChart 
-                      data={Object.fromEntries(weightData.map((d, i) => [weightLabels[i], d]))} 
-                      height={150} 
-                      color="var(--text-primary)"
-                    />
-                  )}
+                  <BarChart 
+                    data={Object.fromEntries(weightData.map((d, i) => [weightLabels[i], d]))} 
+                    height={150} 
+                    color="#ff2d2d"
+                    xAxisLabel="Date"
+                    yAxisLabel="Weight (lbs)"
+                  />
                 </>
               )}
               {metricsChartType === 'sleep' && sleepData.length > 0 && (
                 <>
                   <h4 className={styles.chartTitle}>Sleep Score</h4>
-                  {metricsChartView === 'line' ? (
-                    <LineChart 
-                      data={sleepData} 
-                      labels={sleepLabels}
-                      height={150}
-                      color="var(--text-primary)"
-                    />
-                  ) : (
-                    <BarChart 
-                      data={Object.fromEntries(sleepData.map((d, i) => [sleepLabels[i], d]))} 
-                      height={150} 
-                      color="var(--text-primary)"
-                    />
-                  )}
+                  <BarChart 
+                    data={Object.fromEntries(sleepData.map((d, i) => [sleepLabels[i], d]))} 
+                    height={150} 
+                    color="#ff2d2d"
+                    xAxisLabel="Date"
+                    yAxisLabel="Score"
+                  />
                 </>
               )}
               {metricsChartType === 'steps' && stepsData.length > 0 && (
                 <>
                   <h4 className={styles.chartTitle}>Steps</h4>
-                  {metricsChartView === 'line' ? (
-                    <LineChart 
-                      data={stepsData} 
-                      labels={stepsLabels}
-                      height={150}
-                      color="var(--text-primary)"
-                    />
-                  ) : (
-                    <BarChart 
-                      data={Object.fromEntries(stepsData.map((d, i) => [stepsLabels[i], d]))} 
-                      height={150} 
-                      color="var(--text-primary)"
-                    />
-                  )}
+                  <BarChart 
+                    data={Object.fromEntries(stepsData.map((d, i) => [stepsLabels[i], d]))} 
+                    height={150} 
+                    color="#ff2d2d"
+                    xAxisLabel="Date"
+                    yAxisLabel="Steps"
+                  />
                 </>
               )}
               {metricsChartType === 'hrv' && hrvData.length > 0 && (
                 <>
                   <h4 className={styles.chartTitle}>HRV (ms)</h4>
-                  {metricsChartView === 'line' ? (
-                    <LineChart 
-                      data={hrvData} 
-                      labels={hrvLabels}
-                      height={150}
-                      color="var(--text-primary)"
-                    />
-                  ) : (
-                    <BarChart 
-                      data={Object.fromEntries(hrvData.map((d, i) => [hrvLabels[i], d]))} 
-                      height={150} 
-                      color="var(--text-primary)"
-                    />
-                  )}
+                  <BarChart 
+                    data={Object.fromEntries(hrvData.map((d, i) => [hrvLabels[i], d]))} 
+                    height={150} 
+                    color="#ff2d2d"
+                    xAxisLabel="Date"
+                    yAxisLabel="HRV (ms)"
+                  />
                 </>
               )}
               {metricsChartType === 'calories' && caloriesData.length > 0 && (
                 <>
                   <h4 className={styles.chartTitle}>Calories</h4>
-                  {metricsChartView === 'line' ? (
-                    <LineChart 
-                      data={caloriesData} 
-                      labels={caloriesLabels}
-                      height={150}
-                      color="var(--text-primary)"
-                    />
-                  ) : (
-                    <BarChart 
-                      data={Object.fromEntries(caloriesData.map((d, i) => [caloriesLabels[i], d]))} 
-                      height={150} 
-                      color="var(--text-primary)"
-                    />
-                  )}
+                  <BarChart 
+                    data={Object.fromEntries(caloriesData.map((d, i) => [caloriesLabels[i], d]))} 
+                    height={150} 
+                    color="#ff2d2d"
+                    xAxisLabel="Date"
+                    yAxisLabel="Calories"
+                  />
                 </>
               )}
             </div>
@@ -1232,69 +1157,49 @@ export default function Analytics() {
         </div>
         
         <div className={styles.chartSection}>
-          <div className={styles.chartViewToggle}>
-            <button
-              className={`${styles.chartViewBtn} ${trendsChartView === 'line' ? styles.activeChartView : ''}`}
-              onClick={() => setTrendsChartView('line')}
-            >
-              Line
-            </button>
-            <button
-              className={`${styles.chartViewBtn} ${trendsChartView === 'bar' ? styles.activeChartView : ''}`}
-              onClick={() => setTrendsChartView('bar')}
-            >
-              Bar
-            </button>
-          </div>
           {trendsChartType === 'frequency' && Object.keys(frequencyChartData).length > 0 && (
             <>
               <h4 className={styles.chartTitle}>Workout Frequency (Last 30 Days)</h4>
-              {trendsChartView === 'bar' ? (
-                <BarChart data={frequencyChartData} height={150} color="#ff2d2d" />
-              ) : (
-                <LineChart 
-                  data={Object.values(frequencyChartData)} 
-                  labels={Object.keys(frequencyChartData).map(k => {
-                    const d = new Date(k + 'T12:00:00')
-                    return `${d.getMonth() + 1}/${d.getDate()}`
-                  })}
-                  height={150}
-                  color="#ff2d2d"
-                />
-              )}
+              <BarChart 
+                data={frequencyChartData} 
+                labels={Object.keys(frequencyChartData).map(k => {
+                  const d = new Date(k + 'T12:00:00')
+                  return `${d.getMonth() + 1}/${d.getDate()}`
+                })}
+                height={150} 
+                color="#ff2d2d"
+                xAxisLabel="Date"
+                yAxisLabel="Workouts"
+              />
             </>
           )}
           {trendsChartType === 'volume' && Object.keys(volumeChartData).length > 0 && (
             <>
               <h4 className={styles.chartTitle}>Training Volume (Sets Per Week)</h4>
-              {trendsChartView === 'bar' ? (
-                <BarChart data={volumeChartData} height={150} color="#9C27B0" />
-              ) : (
-                <LineChart 
-                  data={Object.values(volumeChartData)} 
-                  labels={Object.keys(volumeChartData).map(k => {
-                    const d = new Date(k + 'T12:00:00')
-                    return `${d.getMonth() + 1}/${d.getDate()}`
-                  })}
-                  height={150}
-                  color="#9C27B0"
-                />
-              )}
+              <BarChart 
+                data={volumeChartData} 
+                labels={Object.keys(volumeChartData).map(k => {
+                  const d = new Date(k + 'T12:00:00')
+                  return `${d.getMonth() + 1}/${d.getDate()}`
+                })}
+                height={150} 
+                color="#ff2d2d"
+                xAxisLabel="Week"
+                yAxisLabel="Sets"
+              />
             </>
           )}
           {trendsChartType === 'exercises' && Object.keys(topExercisesChartData).length > 0 && (
             <>
               <h4 className={styles.chartTitle}>Top Exercises</h4>
-              {trendsChartView === 'bar' ? (
-                <BarChart data={topExercisesChartData} height={150} color="#FF9800" />
-              ) : (
-                <LineChart 
-                  data={Object.values(topExercisesChartData)} 
-                  labels={Object.keys(topExercisesChartData)}
-                  height={150}
-                  color="#FF9800"
-                />
-              )}
+              <BarChart 
+                data={topExercisesChartData} 
+                labels={Object.keys(topExercisesChartData)}
+                height={150} 
+                color="#ff2d2d"
+                xAxisLabel="Exercise"
+                yAxisLabel="Count"
+              />
             </>
           )}
         </div>

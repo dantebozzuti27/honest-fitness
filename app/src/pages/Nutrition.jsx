@@ -7,7 +7,7 @@ import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import BarChart from '../components/BarChart'
-import LineChart from '../components/LineChart'
+// All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
 const TABS = ['Today', 'History', 'Analytics', 'Settings']
@@ -52,6 +52,9 @@ export default function Nutrition() {
   const [dieticianAnalyzing, setDieticianAnalyzing] = useState(false)
   const [dieticianResult, setDieticianResult] = useState(null)
   const [nutritionGoals, setNutritionGoals] = useState([])
+  const [weeklyMealPlan, setWeeklyMealPlan] = useState(null)
+  const [showMealPlanEditor, setShowMealPlanEditor] = useState(false)
+  const [editingMealPlanDay, setEditingMealPlanDay] = useState(null)
   const fastingTimerRef = useRef(null)
 
   useEffect(() => {
@@ -59,6 +62,7 @@ export default function Nutrition() {
     loadSettings()
     loadDateDataFromSupabase(selectedDate)
     loadNutritionGoals()
+    loadWeeklyMealPlan()
     // Restore manual entry from localStorage
     const saved = localStorage.getItem(`nutrition_manual_entry_${user.id}`)
     if (saved) {
@@ -73,6 +77,13 @@ export default function Nutrition() {
     }
   }, [user, selectedDate])
 
+  // Save meal input to localStorage when it changes
+  useEffect(() => {
+    if (user && (manualEntry.calories || manualEntry.name || manualEntry.protein || manualEntry.carbs || manualEntry.fat)) {
+      localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(manualEntry))
+    }
+  }, [manualEntry, user])
+
   const loadNutritionGoals = async () => {
     if (!user) return
     try {
@@ -81,6 +92,70 @@ export default function Nutrition() {
     } catch (error) {
       // Silently fail
     }
+  }
+
+  const loadWeeklyMealPlan = async () => {
+    if (!user) return
+    try {
+      const { getWeeklyMealPlanFromSupabase } = await import('../lib/nutritionDb')
+      const plan = await getWeeklyMealPlanFromSupabase(user.id)
+      setWeeklyMealPlan(plan)
+    } catch (error) {
+      logError('Error loading weekly meal plan', error)
+    }
+  }
+
+  const createWeeklyMealPlan = () => {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    const newPlan = {}
+    days.forEach(day => {
+      newPlan[day] = {
+        breakfast: null,
+        lunch: null,
+        dinner: null,
+        snacks: []
+      }
+    })
+    setWeeklyMealPlan(newPlan)
+    setShowMealPlanEditor(true)
+  }
+
+  const saveWeeklyMealPlan = async () => {
+    if (!user || !weeklyMealPlan) return
+    try {
+      const { saveWeeklyMealPlanToSupabase } = await import('../lib/nutritionDb')
+      await saveWeeklyMealPlanToSupabase(user.id, weeklyMealPlan)
+      setShowMealPlanEditor(false)
+    } catch (error) {
+      logError('Error saving weekly meal plan', error)
+      alert('Failed to save meal plan. Please try again.')
+    }
+  }
+
+  const applyMealPlanToDay = (day) => {
+    if (!weeklyMealPlan || !weeklyMealPlan[day]) return
+    
+    const dayPlan = weeklyMealPlan[day]
+    const mealsToAdd = []
+    
+    if (dayPlan.breakfast) {
+      mealsToAdd.push({ ...dayPlan.breakfast, mealType: 'Breakfast' })
+    }
+    if (dayPlan.lunch) {
+      mealsToAdd.push({ ...dayPlan.lunch, mealType: 'Lunch' })
+    }
+    if (dayPlan.dinner) {
+      mealsToAdd.push({ ...dayPlan.dinner, mealType: 'Dinner' })
+    }
+    if (dayPlan.snacks && dayPlan.snacks.length > 0) {
+      dayPlan.snacks.forEach(snack => {
+        mealsToAdd.push({ ...snack, mealType: 'Snacks' })
+      })
+    }
+    
+    mealsToAdd.forEach(meal => {
+      addMeal(meal)
+    })
   }
 
   const loadSettings = async () => {
@@ -466,13 +541,14 @@ export default function Nutrition() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
         <h1>Nutrition</h1>
         {activeTab === 'Today' && (
-          <button className={styles.resetBtn} onClick={resetDay}>
-            Reset
+          <button 
+            className={styles.plusBtn}
+            onClick={() => setShowQuickAdd(true)}
+            aria-label="Add meal"
+          >
+            <span className={styles.plusIcon}>+</span>
           </button>
         )}
       </div>
@@ -491,7 +567,86 @@ export default function Nutrition() {
 
       <div className={styles.content}>
         {activeTab === 'Today' && (
-          <>
+          <div>
+            {/* Log Meal Button */}
+            <button
+              className={styles.logMealBtn}
+              onClick={() => setShowQuickAdd(true)}
+            >
+              Log meal
+            </button>
+
+            {/* Options List */}
+            <div className={styles.optionsList}>
+              <button
+                className={styles.optionItem}
+                onClick={() => {
+                  // Scroll to daily intake section
+                  const intakeSection = document.querySelector(`.${styles.summaryCard}`)
+                  if (intakeSection) {
+                    intakeSection.scrollIntoView({ behavior: 'smooth' })
+                  }
+                }}
+              >
+                <span className={styles.optionIcon}>🍴</span>
+                <div className={styles.optionContent}>
+                  <span className={styles.optionTitle}>Daily intake</span>
+                  <span className={styles.optionSubtitle}>calories, protein, carbs, fats</span>
+                </div>
+              </button>
+              
+              <button
+                className={styles.optionItem}
+                onClick={() => {
+                  // Scroll to goals section
+                  const goalsSection = document.querySelector(`.${styles.goalsLink}`)
+                  if (goalsSection) {
+                    goalsSection.scrollIntoView({ behavior: 'smooth' })
+                  }
+                }}
+              >
+                <span className={styles.optionIcon}>🎯</span>
+                <div className={styles.optionContent}>
+                  <span className={styles.optionTitle}>Daily goals</span>
+                  <span className={styles.optionSubtitle}>calories, protein, carbs, fat</span>
+                </div>
+              </button>
+              
+              <button
+                className={styles.optionItem}
+                onClick={() => {
+                  // Scroll to meals section
+                  const mealsSection = document.querySelector(`.${styles.mealsSection}`)
+                  if (mealsSection) {
+                    mealsSection.scrollIntoView({ behavior: 'smooth' })
+                  }
+                }}
+              >
+                <span className={styles.optionIcon}>📅</span>
+                <div className={styles.optionContent}>
+                  <span className={styles.optionTitle}>Daily meals</span>
+                </div>
+              </button>
+              
+              <button
+                className={styles.optionItem}
+                onClick={() => {
+                  if (canUseDietician) {
+                    handleDieticianAnalysis()
+                  } else {
+                    alert('You need at least 7 days of full meals (3+ meals per day) to use the Dietician feature.')
+                  }
+                }}
+              >
+                <span className={styles.optionIcon}>👤</span>
+                <div className={styles.optionContent}>
+                  <span className={styles.optionTitle}>Dietician</span>
+                  <span className={styles.optionSubtitle}>LLM analyzes diet if it has 7 days or more of full meals</span>
+                </div>
+              </button>
+            </div>
+
+            {/* Daily Intake Section */}
             <div className={styles.dateSelector}>
               <button onClick={() => {
                 const prev = new Date(selectedDate)
@@ -630,26 +785,31 @@ export default function Nutrition() {
               )}
             </div>
 
-            <div className={styles.actions}>
-              <button
-                className={styles.primaryBtn}
-                onClick={() => setShowManualEntry(!showManualEntry)}
-              >
-                ➕ Log Meal
-              </button>
-              <button
-                className={styles.secondaryBtn}
-                onClick={() => setShowQuickAdd(!showQuickAdd)}
-              >
-                Quick Add
-              </button>
-              {!fastingEnabled && (
-                <button
-                  className={styles.secondaryBtn}
-                  onClick={startFasting}
-                >
-                  Start Fast
-                </button>
+            {/* Daily Meals Section */}
+            <div className={`${styles.mealsSection} ${styles.goalsLink}`}>
+              <h3 className={styles.sectionTitle}>Daily Meals</h3>
+              {MEAL_TYPES.map(type => {
+                const typeMeals = mealsByType[type] || []
+                if (typeMeals.length === 0) return null
+                return (
+                  <div key={type} className={styles.mealTypeGroup}>
+                    <h4 className={styles.mealTypeTitle}>{type}</h4>
+                    <div className={styles.mealsList}>
+                      {typeMeals.map(meal => (
+                        <MealCard
+                          key={meal.id}
+                          meal={meal}
+                          onRemove={removeMeal}
+                          onToggleFavorite={toggleFavorite}
+                          isFavorite={favorites.some(f => f.id === meal.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+              {meals.length === 0 && (
+                <p className={styles.emptyHint}>No meals logged yet. Tap "Log meal" to get started!</p>
               )}
             </div>
 
@@ -886,7 +1046,7 @@ export default function Nutrition() {
                 <p className={styles.emptyHint}>Click "Log Meal" to get started!</p>
               </div>
             )}
-          </>
+          </div>
         )}
 
         {activeTab === 'History' && (
@@ -930,14 +1090,15 @@ export default function Nutrition() {
             <h2>Nutrition Analytics</h2>
             <div className={styles.chartCard}>
               <h3>Weekly Calories</h3>
-              <LineChart
-                data={weeklyData.calories}
-                labels={weeklyData.dates.map(d => {
+              <BarChart
+                data={Object.fromEntries(weeklyData.dates.map((d, i) => {
                   const date = new Date(d)
-                  return `${date.getMonth() + 1}/${date.getDate()}`
-                })}
+                  return [`${date.getMonth() + 1}/${date.getDate()}`, weeklyData.calories[i] || 0]
+                }))}
                 height={150}
                 color="#ff2d2d"
+                xAxisLabel="Date"
+                yAxisLabel="Calories"
               />
             </div>
             <div className={styles.chartCard}>
@@ -965,10 +1126,12 @@ export default function Nutrition() {
               <BarChart
                 data={Object.fromEntries(weeklyData.dates.map((d, i) => {
                   const date = new Date(d)
-                  return [`${date.getMonth() + 1}/${date.getDate()}`, weeklyData.proteins[i]]
+                  return [`${date.getMonth() + 1}/${date.getDate()}`, weeklyData.proteins[i] || 0]
                 }))}
                 height={150}
-                color="#4CAF50"
+                color="#ff2d2d"
+                xAxisLabel="Date"
+                yAxisLabel="Protein (g)"
               />
             </div>
           </div>
@@ -1073,12 +1236,133 @@ export default function Nutrition() {
                 </div>
               )}
             </div>
+
+            <div className={styles.settingsSection}>
+              <div className={styles.sectionHeader}>
+                <h3>Weekly Meal Plan</h3>
+                <button
+                  className={styles.newGoalBtn}
+                  onClick={() => {
+                    if (weeklyMealPlan) {
+                      setShowMealPlanEditor(true)
+                    } else {
+                      createWeeklyMealPlan()
+                    }
+                  }}
+                >
+                  {weeklyMealPlan ? 'Edit Plan' : 'Create Plan'}
+                </button>
+              </div>
+              {weeklyMealPlan ? (
+                <div className={styles.mealPlanPreview}>
+                  {Object.entries(weeklyMealPlan).map(([day, meals]) => (
+                    <div key={day} className={styles.mealPlanDay}>
+                      <div className={styles.mealPlanDayHeader}>
+                        <strong>{day}</strong>
+                        <button
+                          className={styles.applyDayBtn}
+                          onClick={() => applyMealPlanToDay(day)}
+                        >
+                          Apply to Today
+                        </button>
+                      </div>
+                      <div className={styles.mealPlanMeals}>
+                        {meals.breakfast && (
+                          <span className={styles.mealPlanMealTag}>B: {meals.breakfast.foods?.[0] || meals.breakfast.description || 'Meal'}</span>
+                        )}
+                        {meals.lunch && (
+                          <span className={styles.mealPlanMealTag}>L: {meals.lunch.foods?.[0] || meals.lunch.description || 'Meal'}</span>
+                        )}
+                        {meals.dinner && (
+                          <span className={styles.mealPlanMealTag}>D: {meals.dinner.foods?.[0] || meals.dinner.description || 'Meal'}</span>
+                        )}
+                        {meals.snacks && meals.snacks.length > 0 && (
+                          <span className={styles.mealPlanMealTag}>S: {meals.snacks.length} snack(s)</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className={styles.emptyHint}>Create a weekly meal plan to quickly apply meals to any day</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Weekly Meal Plan Editor Modal */}
+        {showMealPlanEditor && weeklyMealPlan && (
+          <div className={styles.overlay} onClick={() => setShowMealPlanEditor(false)}>
+            <div className={styles.modal} onClick={e => e.stopPropagation()}>
+              <div className={styles.modalHeader}>
+                <h2>Weekly Meal Plan</h2>
+                <button onClick={() => setShowMealPlanEditor(false)}>✕</button>
+              </div>
+              <div className={styles.modalContent}>
+                {Object.entries(weeklyMealPlan).map(([day, meals]) => (
+                  <div key={day} className={styles.mealPlanDayEditor}>
+                    <h4>{day}</h4>
+                    <div className={styles.mealPlanMealInputs}>
+                      <div className={styles.mealPlanMealInput}>
+                        <label>Breakfast</label>
+                        <button
+                          className={styles.selectMealBtn}
+                          onClick={() => {
+                            setEditingMealPlanDay({ day, mealType: 'breakfast' })
+                            setShowMealPlanEditor(false)
+                            setShowQuickAdd(true)
+                          }}
+                        >
+                          {meals.breakfast ? (meals.breakfast.foods?.[0] || meals.breakfast.description || 'Meal') : 'Select Meal'}
+                        </button>
+                      </div>
+                      <div className={styles.mealPlanMealInput}>
+                        <label>Lunch</label>
+                        <button
+                          className={styles.selectMealBtn}
+                          onClick={() => {
+                            setEditingMealPlanDay({ day, mealType: 'lunch' })
+                            setShowMealPlanEditor(false)
+                            setShowQuickAdd(true)
+                          }}
+                        >
+                          {meals.lunch ? (meals.lunch.foods?.[0] || meals.lunch.description || 'Meal') : 'Select Meal'}
+                        </button>
+                      </div>
+                      <div className={styles.mealPlanMealInput}>
+                        <label>Dinner</label>
+                        <button
+                          className={styles.selectMealBtn}
+                          onClick={() => {
+                            setEditingMealPlanDay({ day, mealType: 'dinner' })
+                            setShowMealPlanEditor(false)
+                            setShowQuickAdd(true)
+                          }}
+                        >
+                          {meals.dinner ? (meals.dinner.foods?.[0] || meals.dinner.description || 'Meal') : 'Select Meal'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div className={styles.modalActions}>
+                  <button className={styles.cancelBtn} onClick={() => setShowMealPlanEditor(false)}>
+                    Cancel
+                  </button>
+                  <button className={styles.saveBtn} onClick={saveWeeklyMealPlan}>
+                    Save Plan
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
     </div>
   )
 }
+
+
 
 function MealCard({ meal, onRemove, onToggleFavorite, isFavorite }) {
   return (

@@ -3,12 +3,41 @@
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   overflow: hidden;
-  cursor: grab;
   transition: opacity 0.15s, transform 0.15s;
+  position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .card:active {
   cursor: grabbing;
+}
+
+.dragHandle {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  padding: 8px 4px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+  color: var(--accent);
+}
+
+.card.dragging .dragHandle {
+  color: var(--accent);
 }
 
 .card.expanded {
@@ -34,9 +63,10 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 12px;
+  padding: 14px 12px 14px 40px;
   text-align: left;
   min-height: 56px;
+  position: relative;
 }
 
 .name {

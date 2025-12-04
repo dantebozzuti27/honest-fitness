@@ -295,3 +295,50 @@ export async function getNutritionSettingsFromSupabase(userId) {
   }
 }
 
+/**
+ * Save weekly meal plan to database
+ */
+export async function saveWeeklyMealPlanToSupabase(userId, mealPlan) {
+  const { data, error } = await supabase
+    .from('user_preferences')
+    .upsert({
+      user_id: userId,
+      weekly_meal_plan: JSON.stringify(mealPlan),
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id' })
+    .select()
+    .single()
+  
+  if (error) throw error
+  return data
+}
+
+/**
+ * Get weekly meal plan from database
+ */
+export async function getWeeklyMealPlanFromSupabase(userId) {
+  const { data, error } = await supabase
+    .from('user_preferences')
+    .select('weekly_meal_plan')
+    .eq('user_id', userId)
+    .single()
+  
+  if (error && error.code !== 'PGRST116') {
+    logError('Error getting weekly meal plan', error)
+    return null
+  }
+  
+  if (!data || !data.weekly_meal_plan) {
+    return null
+  }
+  
+  try {
+    return typeof data.weekly_meal_plan === 'string' 
+      ? JSON.parse(data.weekly_meal_plan) 
+      : data.weekly_meal_plan
+  } catch (e) {
+    console.error('Error parsing weekly meal plan:', e)
+    return null
+  }
+}
+

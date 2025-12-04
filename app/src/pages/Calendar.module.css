@@ -271,6 +271,13 @@
   margin-bottom: 16px;
 }
 
+.scheduleActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .scheduleAction {
   margin-top: 16px;
   padding: 12px 24px;

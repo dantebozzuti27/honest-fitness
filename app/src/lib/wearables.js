@@ -267,10 +267,26 @@ export async function syncFitbitData(userId, date = null) {
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.message || errorData.error || 'Failed to sync Fitbit data')
+      const errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: Failed to sync Fitbit data`
+      
+      // Check for specific error types
+      if (response.status === 401 || errorMessage.includes('authorization') || errorMessage.includes('reconnect')) {
+        throw new Error('Fitbit authorization expired. Please reconnect your account from the Wearables page.')
+      }
+      
+      if (response.status === 404 && errorMessage.includes('not connected')) {
+        throw new Error('Fitbit account not found. Please connect your Fitbit account first.')
+      }
+      
+      throw new Error(errorMessage)
     }
     
     const result = await response.json()
+    
+    // Check if sync was successful
+    if (!result.success) {
+      throw new Error(result.error || 'Sync failed')
+    }
     
     // Also save directly to fitbit_daily table
     if (result.data) {
@@ -282,16 +298,17 @@ export async function syncFitbitData(userId, date = null) {
     return {
       synced: true,
       date: targetDate,
-      data: result.data || result
+      data: result.data || result,
+      warnings: result.warnings
     }
     
   } catch (error) {
-    // If 401, token might be invalid
-    if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
-      throw new Error('Fitbit authorization expired. Please reconnect your account.')
+    // Re-throw with better message
+    if (error.message?.includes('authorization') || error.message?.includes('reconnect')) {
+      throw error // Already has good message
     }
     
-    throw new Error(`Failed to sync Fitbit data: ${error.message}`)
+    throw new Error(`Failed to sync Fitbit data: ${error.message || 'Unknown error'}`)
   }
 }
 

@@ -3,22 +3,34 @@
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  padding: var(--space-md);
-  padding-top: calc(env(safe-area-inset-top, 20px) + var(--space-md));
-  padding-bottom: calc(env(safe-area-inset-bottom, 20px) + var(--space-md));
   background: var(--bg-primary);
   position: relative;
+  padding: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  padding-top: calc(env(safe-area-inset-top, 20px) + 20px);
+  padding-bottom: 20px;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
 }
 
 .content {
-  width: 100%;
-  max-width: 540px;
+  flex: 1;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-  animation: fadeIn var(--transition-base) ease-out;
+  flex-direction: row;
+  padding: 0 20px 20px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 20px) + 20px);
+  gap: 20px;
 }
 
 /* Steps Card - Hero Display */
@@ -125,64 +137,48 @@
   font-weight: 400;
 }
 
-/* Navigation Grid */
-.navGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-md);
+/* Navigation Menu - Right Side */
+.navMenu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-left: auto;
+  width: 200px;
 }
 
 .navItem {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-sm);
-  padding: var(--space-lg) var(--space-md);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  gap: 12px;
+  padding: 14px 16px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition-base);
-  box-shadow: var(--shadow-sm);
-  min-height: 100px;
-  position: relative;
-  overflow: hidden;
-}
-
-.navItem::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
-  opacity: 0;
-  transition: opacity var(--transition-base);
+  text-align: left;
+  color: var(--text-primary);
 }
 
 .navItem:hover {
-  background: var(--bg-elevated);
-  border-color: var(--border-light);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.navItem:hover::before {
-  opacity: 1;
+  background: var(--bg-secondary);
 }
 
 .navItem:active {
-  transform: translateY(0);
+  transform: scale(0.98);
+}
+
+.navIcon {
+  font-size: 24px;
+  line-height: 1;
+  width: 28px;
+  text-align: center;
 }
 
 .navLabel {
-  font-size: var(--text-sm);
+  font-size: 16px;
   font-weight: 500;
   color: var(--text-primary);
-  text-align: center;
-  letter-spacing: -0.01em;
 }
 
 .loading {
@@ -194,11 +190,8 @@
 
 /* Quick Action Button */
 .quickActionBtn {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 20px) + var(--space-md));
-  right: var(--space-md);
-  width: 60px;
-  height: 60px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background: var(--accent);
   color: var(--bg-primary);
@@ -207,21 +200,21 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow-xl);
-  z-index: 100;
+  box-shadow: var(--shadow-md);
   transition: all var(--transition-base);
-  font-size: 36px;
+  font-size: 28px;
   font-weight: 300;
   line-height: 1;
+  position: relative;
 }
 
 .quickActionBtn:hover {
-  transform: scale(1.08) rotate(90deg);
-  box-shadow: 0 8px 32px rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
+  box-shadow: var(--shadow-lg);
 }
 
 .quickActionBtn:active {
-  transform: scale(0.95) rotate(90deg);
+  transform: scale(0.95);
 }
 
 .plusIcon {
@@ -243,20 +236,32 @@
 }
 
 .quickMenu {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 20px) + 88px);
-  right: var(--space-md);
+  position: absolute;
+  top: 68px;
+  right: 20px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
-  padding: var(--space-sm);
-  min-width: 200px;
+  padding: 8px;
+  min-width: 180px;
   box-shadow: var(--shadow-xl);
   z-index: 100;
   animation: slideDown var(--transition-base) ease-out;
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: 4px;
+}
+
+.quickMenu::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  right: 20px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 8px solid var(--bg-elevated);
 }
 
 @keyframes slideDown {

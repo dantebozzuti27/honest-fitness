@@ -5,6 +5,8 @@
   padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
   background: var(--bg-primary);
   color: var(--text-primary);
+  position: relative;
+  overflow: visible;
 }
 
 .header {
@@ -106,8 +108,7 @@ h1,
   margin-bottom: 16px;
 }
 
-.readinessHeader h2,
-h2 {
+.readinessHeader h2 {
   font-size: 20px;
   font-weight: 600;
   margin: 0;
@@ -116,106 +117,75 @@ h2 {
 
 .readinessZone {
   padding: 4px 12px;
+  background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.readinessCard.readinessgreen .readinessZone {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
-}
-
-.readinessCard.readinessyellow .readinessZone {
-  background: rgba(204, 204, 204, 0.1);
-  color: #cccccc;
-}
-
-.readinessCard.readinessred .readinessZone {
-  background: rgba(136, 136, 136, 0.1);
-  color: #888888;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
 }
 
 .readinessScore {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin: 24px 0;
 }
 
 .readinessNumber {
-  font-size: 56px;
+  font-size: 64px;
   font-weight: 700;
-  font-family: var(--font-mono);
   line-height: 1;
   color: var(--text-primary);
-}
-
-.readinessCard.readinessgreen .readinessNumber {
-  color: #ffffff;
-}
-
-.readinessCard.readinessyellow .readinessNumber {
-  color: #cccccc;
-}
-
-.readinessCard.readinessred .readinessNumber {
-  color: #888888;
+  letter-spacing: -0.03em;
 }
 
 .readinessLabel {
-  font-size: 20px;
+  font-size: 24px;
+  font-weight: 500;
   color: var(--text-secondary);
 }
 
 .readinessComponents {
-  display: flex;
-  gap: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 24px;
 }
 
 .component {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 4px;
-  flex: 1;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
 }
 
 .componentLabel {
   font-size: 11px;
-  color: var(--text-secondary);
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
 }
 
 .componentValue {
   font-size: 18px;
-  font-weight: 600;
-  font-family: var(--font-mono);
+  font-weight: 700;
   color: var(--text-primary);
 }
 
-/* Sources Card */
-.sourcesCard {
+/* Metrics Card */
+.metricsCard {
   padding: 20px;
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
-}
-
-.sourcesCard h3,
-.insightsCard h3,
-.fitbitCard h3,
-.metricsTrendsCard h3,
-.actionsCard h3,
-h3 {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-primary);
 }
 
 .sectionHeader {
@@ -223,12 +193,13 @@ h3 {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
-  gap: 12px;
 }
 
 .sectionHeader h3 {
+  font-size: 20px;
+  font-weight: 600;
   margin: 0;
-  flex: 1;
+  color: var(--text-primary);
 }
 
 .sectionNote {
@@ -237,162 +208,70 @@ h3 {
   margin-top: 8px;
 }
 
-.sourcesList {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.linkBtn {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-.sourceItem {
+.linkBtn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+
+.metricsList {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metricItem {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 12px;
   padding: 12px;
   background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
   border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.2s;
+  width: 100%;
+  text-align: left;
 }
 
-.sourceItem.connected {
-  border-color: #ffffff;
-  background: rgba(34, 197, 94, 0.05);
+.metricItem:hover {
+  background: var(--bg-elevated);
 }
 
-.sourceItem.disconnected {
-  opacity: 0.6;
-}
-
-
-.sourceInfo {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-.sourceName {
+.metricDate {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.sourceStatus {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-/* Stats Grid */
-.statsGrid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.statCard {
-  padding: 20px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  text-align: center;
-}
-
-
-.statValue {
-  font-size: 28px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--accent);
-  margin-bottom: 4px;
-}
-
-.statLabel {
-  font-size: 12px;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-/* Insights Card */
-.insightsCard {
-  padding: 20px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border);
-}
-
-
-.insightsList {
+.metricValues {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.insightItem {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-/* Fitbit Card */
-.fitbitCard {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  margin-bottom: 24px;
-}
-
-
-.fitbitStatsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 16px;
-}
-
-.fitbitStatItem {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-}
-
-.fitbitStatLabel {
   font-size: 12px;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-weight: 600;
 }
 
-.fitbitStatValue {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-/* Metrics Trends */
-.metricsTrendsCard {
+.emptyText {
+  text-align: center;
   padding: 20px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 
-
-.metricsChartContainer {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
+/* Charts */
 .metricChart {
+  margin-top: 16px;
   padding: 16px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
@@ -495,3 +374,154 @@ h3 {
   color: var(--text-secondary);
 }
 
+/* Modal Styles */
+.overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background: rgba(0, 0, 0, 0.85) !important;
+  z-index: 9999 !important;
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  margin: 0 !important;
+}
+
+.modal {
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: 85vh !important;
+  overflow-y: auto !important;
+  box-shadow: var(--shadow-xl) !important;
+  -webkit-overflow-scrolling: touch !important;
+  z-index: 10000 !important;
+  position: relative !important;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+  min-height: 72px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  z-index: 1;
+}
+
+.modalHeader h2 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.modalHeader button {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-primary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.editForm {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.formGroup label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.formGroup input,
+.formGroup select,
+.formGroup textarea {
+  padding: 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 17px;
+  min-height: 52px;
+  font-family: inherit;
+}
+
+.formGroup input:focus,
+.formGroup select:focus,
+.formGroup textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.formActions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.saveBtn {
+  flex: 1;
+  padding: 16px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 56px;
+}
+
+.saveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cancelBtn {
+  flex: 1;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 56px;
+}
+
+.cancelBtn:hover {
+  background: var(--bg-elevated);
+}

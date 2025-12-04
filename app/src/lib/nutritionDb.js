@@ -333,27 +333,39 @@ export async function saveNutritionSettingsToSupabase(userId, settings) {
  * Get nutrition settings from database
  */
 export async function getNutritionSettingsFromSupabase(userId) {
-  const { data, error } = await supabase
-    .from('user_preferences')
-    .select('nutrition_settings')
-    .eq('user_id', userId)
-    .single()
-  
-  if (error && error.code !== 'PGRST116') {
-    console.error('Error getting nutrition settings:', error)
-    return null
-  }
-  
-  if (!data || !data.nutrition_settings) {
-    return null
-  }
-  
   try {
-    return typeof data.nutrition_settings === 'string' 
-      ? JSON.parse(data.nutrition_settings) 
-      : data.nutrition_settings
+    const { data, error } = await supabase
+      .from('user_preferences')
+      .select('nutrition_settings')
+      .eq('user_id', userId)
+      .maybeSingle()
+    
+    if (error) {
+      // If column doesn't exist, return null instead of throwing
+      if (error.code === '42703' || error.message?.includes('does not exist')) {
+        console.warn('nutrition_settings column does not exist yet. Run migration.')
+        return null
+      }
+      if (error.code !== 'PGRST116') {
+        console.error('Error getting nutrition settings:', error)
+        return null
+      }
+    }
+    
+    if (!data || !data.nutrition_settings) {
+      return null
+    }
+    
+    try {
+      return typeof data.nutrition_settings === 'string' 
+        ? JSON.parse(data.nutrition_settings) 
+        : data.nutrition_settings
+    } catch (e) {
+      console.error('Error parsing nutrition settings:', e)
+      return null
+    }
   } catch (e) {
-    console.error('Error parsing nutrition settings:', e)
+    console.error('Error getting nutrition settings:', e)
     return null
   }
 }
@@ -380,27 +392,39 @@ export async function saveWeeklyMealPlanToSupabase(userId, mealPlan) {
  * Get weekly meal plan from database
  */
 export async function getWeeklyMealPlanFromSupabase(userId) {
-  const { data, error } = await supabase
-    .from('user_preferences')
-    .select('weekly_meal_plan')
-    .eq('user_id', userId)
-    .single()
-  
-  if (error && error.code !== 'PGRST116') {
-    logError('Error getting weekly meal plan', error)
-    return null
-  }
-  
-  if (!data || !data.weekly_meal_plan) {
-    return null
-  }
-  
   try {
-    return typeof data.weekly_meal_plan === 'string' 
-      ? JSON.parse(data.weekly_meal_plan) 
-      : data.weekly_meal_plan
+    const { data, error } = await supabase
+      .from('user_preferences')
+      .select('weekly_meal_plan')
+      .eq('user_id', userId)
+      .maybeSingle()
+    
+    if (error) {
+      // If column doesn't exist, return null instead of throwing
+      if (error.code === '42703' || error.message?.includes('does not exist')) {
+        console.warn('weekly_meal_plan column does not exist yet. Run migration.')
+        return null
+      }
+      if (error.code !== 'PGRST116') {
+        logError('Error getting weekly meal plan', error)
+        return null
+      }
+    }
+    
+    if (!data || !data.weekly_meal_plan) {
+      return null
+    }
+    
+    try {
+      return typeof data.weekly_meal_plan === 'string' 
+        ? JSON.parse(data.weekly_meal_plan) 
+        : data.weekly_meal_plan
+    } catch (e) {
+      console.error('Error parsing weekly meal plan:', e)
+      return null
+    }
   } catch (e) {
-    console.error('Error parsing weekly meal plan:', e)
+    logError('Error getting weekly meal plan', e)
     return null
   }
 }

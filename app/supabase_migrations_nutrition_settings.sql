@@ -1,4 +1,4 @@
--- Add nutrition_settings column to user_preferences table
+-- Add nutrition_settings and weekly_meal_plan columns to user_preferences table
 -- Run this in your Supabase SQL editor
 
 -- Create user_preferences table if it doesn't exist
@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   goals JSONB,
   preferences JSONB,
   nutrition_settings JSONB,
+  weekly_meal_plan JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id)
@@ -24,6 +25,17 @@ BEGIN
     WHERE table_name = 'user_preferences' AND column_name = 'nutrition_settings'
   ) THEN
     ALTER TABLE user_preferences ADD COLUMN nutrition_settings JSONB;
+  END IF;
+END $$;
+
+-- Add weekly_meal_plan column if it doesn't exist
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'user_preferences' AND column_name = 'weekly_meal_plan'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN weekly_meal_plan JSONB;
   END IF;
 END $$;
 

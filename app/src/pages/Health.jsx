@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getWorkoutsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/supabaseDb'
@@ -419,11 +420,12 @@ export default function Health() {
             <button
               className={styles.actionBtn}
               onClick={() => {
+                console.log('Log Health Metrics button clicked')
                 const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
                 const newMetric = {
                   date: yesterday,
                   steps: null,
-                  sleep_hours: null,
+                  sleep_time: null,
                   sleep_score: null,
                   hrv: null,
                   calories: null,
@@ -431,8 +433,10 @@ export default function Health() {
                   resting_heart_rate: null,
                   body_temp: null
                 }
+                console.log('Opening log modal with metric:', newMetric)
                 setEditingMetric(newMetric)
                 setShowLogModal(true)
+                console.log('showLogModal set to true, editingMetric set')
               }}
             >
               Log Health Metrics
@@ -545,12 +549,15 @@ export default function Health() {
       </div>
 
       {/* Log/Edit Metric Modal */}
-      {(editingMetric || showLogModal) && (
-        <div className={styles.overlay} onClick={() => {
-          setEditingMetric(null)
-          setShowLogModal(false)
-        }}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+      {(editingMetric || showLogModal) && createPortal(
+        <>
+          {console.log('Rendering Health Metrics Modal - editingMetric:', editingMetric, 'showLogModal:', showLogModal)}
+          <div className={styles.overlay} onClick={() => {
+            console.log('Health modal overlay clicked, closing')
+            setEditingMetric(null)
+            setShowLogModal(false)
+          }}>
+            <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>{editingMetric?.date ? `Log Health Metrics - ${new Date(editingMetric.date + 'T12:00:00').toLocaleDateString()}` : 'Log Health Metrics'}</h2>
               <button onClick={() => {
@@ -563,8 +570,11 @@ export default function Health() {
                 <label>Date *</label>
                 <input
                   type="date"
-                  value={editingMetric?.date || getTodayEST()}
-                  onChange={(e) => setEditingMetric({ ...(editingMetric || {}), date: e.target.value })}
+                  value={(editingMetric && editingMetric.date) || (showLogModal ? getTodayEST() : getTodayEST())}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, date: e.target.value })
+                  }}
                   max={getTodayEST()}
                 />
               </div>
@@ -573,8 +583,11 @@ export default function Health() {
                 <input
                   type="number"
                   step="0.1"
-                  value={editingMetric?.weight || ''}
-                  onChange={(e) => setEditingMetric({ ...(editingMetric || {}), weight: parseFloat(e.target.value) || null })}
+                  value={(editingMetric && editingMetric.weight) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, weight: parseFloat(e.target.value) || null })
+                  }}
                   placeholder="Enter weight"
                 />
               </div>
@@ -582,8 +595,11 @@ export default function Health() {
                 <label>Steps</label>
                 <input
                   type="number"
-                  value={editingMetric?.steps || ''}
-                  onChange={(e) => setEditingMetric({ ...(editingMetric || {}), steps: parseInt(e.target.value) || null })}
+                  value={(editingMetric && editingMetric.steps) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, steps: parseInt(e.target.value) || null })
+                  }}
                   placeholder="Enter steps"
                 />
               </div>
@@ -591,8 +607,11 @@ export default function Health() {
                 <label>HRV (ms)</label>
                 <input
                   type="number"
-                  value={editingMetric?.hrv || ''}
-                  onChange={(e) => setEditingMetric({ ...(editingMetric || {}), hrv: parseInt(e.target.value) || null })}
+                  value={(editingMetric && editingMetric.hrv) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, hrv: parseInt(e.target.value) || null })
+                  }}
                   placeholder="Enter HRV"
                 />
               </div>
@@ -600,8 +619,11 @@ export default function Health() {
                 <label>Calories</label>
                 <input
                   type="number"
-                  value={editingMetric?.calories || ''}
-                  onChange={(e) => setEditingMetric({ ...(editingMetric || {}), calories: parseInt(e.target.value) || null })}
+                  value={(editingMetric && editingMetric.calories) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, calories: parseInt(e.target.value) || null })
+                  }}
                   placeholder="Enter calories"
                 />
               </div>
@@ -609,8 +631,11 @@ export default function Health() {
                 <label>Sleep Time</label>
                 <input
                   type="text"
-                  value={editingMetric?.sleep_time || ''}
-                  onChange={(e) => setEditingMetric({ ...(editingMetric || {}), sleep_time: e.target.value })}
+                  value={(editingMetric && editingMetric.sleep_time) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, sleep_time: e.target.value })
+                  }}
                   placeholder="e.g., 7h 30m"
                 />
               </div>
@@ -620,8 +645,11 @@ export default function Health() {
                   type="number"
                   min="0"
                   max="100"
-                  value={editingMetric?.sleep_score || ''}
-                  onChange={(e) => setEditingMetric({ ...(editingMetric || {}), sleep_score: parseInt(e.target.value) || null })}
+                  value={(editingMetric && editingMetric.sleep_score) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, sleep_score: parseInt(e.target.value) || null })
+                  }}
                   placeholder="0-100"
                 />
               </div>
@@ -629,8 +657,11 @@ export default function Health() {
                 <label>Resting Heart Rate (bpm)</label>
                 <input
                   type="number"
-                  value={editingMetric?.resting_heart_rate || ''}
-                  onChange={(e) => setEditingMetric({ ...(editingMetric || {}), resting_heart_rate: parseInt(e.target.value) || null })}
+                  value={(editingMetric && editingMetric.resting_heart_rate) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, resting_heart_rate: parseInt(e.target.value) || null })
+                  }}
                   placeholder="Enter resting heart rate"
                 />
               </div>
@@ -639,8 +670,11 @@ export default function Health() {
                 <input
                   type="number"
                   step="0.1"
-                  value={editingMetric?.body_temp || ''}
-                  onChange={(e) => setEditingMetric({ ...(editingMetric || {}), body_temp: parseFloat(e.target.value) || null })}
+                  value={(editingMetric && editingMetric.body_temp) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, body_temp: parseFloat(e.target.value) || null })
+                  }}
                   placeholder="Enter body temperature"
                 />
               </div>
@@ -648,44 +682,43 @@ export default function Health() {
                 <button 
                   className={styles.saveBtn} 
                   onClick={async () => {
-                    if (!user || !editingMetric) return
+                    if (!user) return
+                    const metricToSave = editingMetric || { date: getTodayEST() }
+                    if (!metricToSave.date) {
+                      showToast('Please select a date', 'error')
+                      return
+                    }
                     
-                      // Validate date
-                      if (!editingMetric.date) {
-                        showToast('Please select a date', 'error')
-                        return
-                      }
-                      
                       // Validate inputs
                       const errors = []
                       const { validateWeight, validateSteps, validateHRV, validateCalories, validateSleepScore, validateRestingHeartRate, validateBodyTemperature } = await import('../utils/validation')
                       
-                      if (editingMetric.weight !== null && editingMetric.weight !== undefined && editingMetric.weight !== '') {
-                        const weightValidation = validateWeight(editingMetric.weight)
+                      if (metricToSave.weight !== null && metricToSave.weight !== undefined && metricToSave.weight !== '') {
+                        const weightValidation = validateWeight(metricToSave.weight)
                         if (!weightValidation.valid) errors.push(`Weight: ${weightValidation.error}`)
                       }
-                      if (editingMetric.steps !== null && editingMetric.steps !== undefined && editingMetric.steps !== '') {
-                        const stepsValidation = validateSteps(editingMetric.steps)
+                      if (metricToSave.steps !== null && metricToSave.steps !== undefined && metricToSave.steps !== '') {
+                        const stepsValidation = validateSteps(metricToSave.steps)
                         if (!stepsValidation.valid) errors.push(`Steps: ${stepsValidation.error}`)
                       }
-                      if (editingMetric.hrv !== null && editingMetric.hrv !== undefined && editingMetric.hrv !== '') {
-                        const hrvValidation = validateHRV(editingMetric.hrv)
+                      if (metricToSave.hrv !== null && metricToSave.hrv !== undefined && metricToSave.hrv !== '') {
+                        const hrvValidation = validateHRV(metricToSave.hrv)
                         if (!hrvValidation.valid) errors.push(`HRV: ${hrvValidation.error}`)
                       }
-                      if (editingMetric.calories !== null && editingMetric.calories !== undefined && editingMetric.calories !== '') {
-                        const caloriesValidation = validateCalories(editingMetric.calories)
+                      if (metricToSave.calories !== null && metricToSave.calories !== undefined && metricToSave.calories !== '') {
+                        const caloriesValidation = validateCalories(metricToSave.calories)
                         if (!caloriesValidation.valid) errors.push(`Calories: ${caloriesValidation.error}`)
                       }
-                      if (editingMetric.sleep_score !== null && editingMetric.sleep_score !== undefined && editingMetric.sleep_score !== '') {
-                        const sleepValidation = validateSleepScore(editingMetric.sleep_score)
+                      if (metricToSave.sleep_score !== null && metricToSave.sleep_score !== undefined && metricToSave.sleep_score !== '') {
+                        const sleepValidation = validateSleepScore(metricToSave.sleep_score)
                         if (!sleepValidation.valid) errors.push(`Sleep Score: ${sleepValidation.error}`)
                       }
-                      if (editingMetric.resting_heart_rate !== null && editingMetric.resting_heart_rate !== undefined && editingMetric.resting_heart_rate !== '') {
-                        const restingHeartRateValidation = validateRestingHeartRate(editingMetric.resting_heart_rate)
+                      if (metricToSave.resting_heart_rate !== null && metricToSave.resting_heart_rate !== undefined && metricToSave.resting_heart_rate !== '') {
+                        const restingHeartRateValidation = validateRestingHeartRate(metricToSave.resting_heart_rate)
                         if (!restingHeartRateValidation.valid) errors.push(`Resting Heart Rate: ${restingHeartRateValidation.error}`)
                       }
-                      if (editingMetric.body_temp !== null && editingMetric.body_temp !== undefined && editingMetric.body_temp !== '') {
-                        const bodyTemperatureValidation = validateBodyTemperature(editingMetric.body_temp)
+                      if (metricToSave.body_temp !== null && metricToSave.body_temp !== undefined && metricToSave.body_temp !== '') {
+                        const bodyTemperatureValidation = validateBodyTemperature(metricToSave.body_temp)
                         if (!bodyTemperatureValidation.valid) errors.push(`Body Temperature: ${bodyTemperatureValidation.error}`)
                       }
                       
@@ -695,23 +728,26 @@ export default function Health() {
                       }
                       
                       try {
-                        await saveMetricsToSupabase(user.id, editingMetric.date, {
-                          weight: editingMetric.weight,
-                          steps: editingMetric.steps,
-                          hrv: editingMetric.hrv,
-                          caloriesBurned: editingMetric.calories,
-                          sleepTime: editingMetric.sleep_time,
-                          sleepScore: editingMetric.sleep_score,
-                          restingHeartRate: editingMetric.resting_heart_rate,
-                          bodyTemp: editingMetric.body_temp
+                        console.log('Saving health metrics:', metricToSave)
+                        const result = await saveMetricsToSupabase(user.id, metricToSave.date, {
+                          weight: metricToSave.weight,
+                          steps: metricToSave.steps,
+                          hrv: metricToSave.hrv,
+                          caloriesBurned: metricToSave.calories,
+                          sleepTime: metricToSave.sleep_time,
+                          sleepScore: metricToSave.sleep_score,
+                          restingHeartRate: metricToSave.resting_heart_rate,
+                          bodyTemp: metricToSave.body_temp
                         })
+                        console.log('Health metrics save result:', result)
                         await loadAllData()
                         setEditingMetric(null)
                         setShowLogModal(false)
                         showToast('Health metrics saved successfully!', 'success')
                       } catch (e) {
                         console.error('Error saving metrics:', e)
-                        showToast('Failed to save metrics. Please try again.', 'error')
+                        console.error('Error details:', e.message, e.stack)
+                        showToast(`Failed to save metrics: ${e.message || 'Unknown error'}. Please check console.`, 'error')
                       }
                   }}
                 >
@@ -730,6 +766,8 @@ export default function Health() {
             </div>
           </div>
         </div>
+        </>,
+        document.body
       )}
 
       {/* Toast Notification */}

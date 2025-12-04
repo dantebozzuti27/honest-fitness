@@ -1,6 +1,7 @@
 // Nutrition page - based on GhostMode but without CalAI
 // Includes Dietician LLM feature and Goals sync
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
@@ -192,6 +193,7 @@ export default function Nutrition() {
           setFastingStartTime(new Date(settings.fastingStartTime))
         }
       } else {
+        // Settings not found, use defaults
         const saved = localStorage.getItem(`ghostMode_${user.id}`)
         if (saved) {
           const data = JSON.parse(saved)
@@ -308,7 +310,10 @@ export default function Nutrition() {
   }
 
   const addMeal = async (meal) => {
-    if (!user) return
+    if (!user) {
+      console.error('addMeal: No user found')
+      throw new Error('User not authenticated')
+    }
     try {
       const newMeal = {
         ...meal,
@@ -317,13 +322,18 @@ export default function Nutrition() {
         timestamp: new Date().toISOString()
       }
       
+      console.log('addMeal: Saving meal:', newMeal)
+      
       // Save to database first
       const { saveMealToSupabase } = await import('../lib/nutritionDb')
-      await saveMealToSupabase(user.id, selectedDate, newMeal)
+      const result = await saveMealToSupabase(user.id, selectedDate, newMeal)
+      console.log('addMeal: Save result:', result)
       
       // Reload data from database to ensure consistency
       await loadDateDataFromSupabase(selectedDate)
+      console.log('addMeal: Data reloaded successfully')
     } catch (error) {
+      console.error('addMeal: Error saving meal to database', error)
       logError('Error saving meal to database', error)
       throw error
     }
@@ -648,7 +658,11 @@ export default function Nutrition() {
             {/* Log Meal Button */}
             <button
               className={styles.logMealBtn}
-              onClick={() => setShowManualEntry(true)}
+              onClick={() => {
+                console.log('Log meal button clicked, setting showManualEntry to true')
+                setShowManualEntry(true)
+                console.log('showManualEntry state should now be true')
+              }}
             >
               Log meal
             </button>
@@ -861,141 +875,6 @@ export default function Nutrition() {
               )}
             </div>
 
-            {/* Log Meal Modal */}
-            {showManualEntry && (
-              <>
-                <div className={styles.overlay} onClick={() => {
-                  setShowManualEntry(false)
-                  setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
-                }} />
-                <div className={styles.modal} onClick={e => e.stopPropagation()}>
-                  <div className={styles.modalHeader}>
-                    <h2>Log Meal</h2>
-                    <button onClick={() => {
-                      setShowManualEntry(false)
-                      setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
-                    }}>X</button>
-                  </div>
-                  <div className={styles.modalContent}>
-                    <div className={styles.manualEntryForm}>
-                  <div className={styles.formRow}>
-                    <label>Food Name (optional)</label>
-                    <input
-                      type="text"
-                      className={styles.formInput}
-                      placeholder="e.g., Grilled Chicken"
-                      value={manualEntry.name}
-                      onChange={(e) => {
-                        const updated = { ...manualEntry, name: e.target.value }
-                        setManualEntry(updated)
-                        if (user) {
-                          localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
-                        }
-                      }}
-                    />
-                  </div>
-                  <div className={styles.formRow}>
-                    <label>Calories *</label>
-                    <input
-                      type="number"
-                      className={styles.formInput}
-                      placeholder="0"
-                      value={manualEntry.calories}
-                      onChange={(e) => {
-                        const updated = { ...manualEntry, calories: e.target.value }
-                        setManualEntry(updated)
-                        if (user) {
-                          localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
-                        }
-                      }}
-                      min="0"
-                    />
-                  </div>
-                  <div className={styles.macroInputs}>
-                    <div className={styles.macroInput}>
-                      <label>Protein (g)</label>
-                      <input
-                        type="number"
-                        className={styles.formInput}
-                        placeholder="0"
-                        value={manualEntry.protein}
-                        onChange={(e) => {
-                          const updated = { ...manualEntry, protein: e.target.value }
-                          setManualEntry(updated)
-                          if (user) {
-                            localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
-                          }
-                        }}
-                        min="0"
-                        step="0.1"
-                      />
-                    </div>
-                    <div className={styles.macroInput}>
-                      <label>Carbs (g)</label>
-                      <input
-                        type="number"
-                        className={styles.formInput}
-                        placeholder="0"
-                        value={manualEntry.carbs}
-                        onChange={(e) => {
-                          const updated = { ...manualEntry, carbs: e.target.value }
-                          setManualEntry(updated)
-                          if (user) {
-                            localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
-                          }
-                        }}
-                        min="0"
-                        step="0.1"
-                      />
-                    </div>
-                    <div className={styles.macroInput}>
-                      <label>Fat (g)</label>
-                      <input
-                        type="number"
-                        className={styles.formInput}
-                        placeholder="0"
-                        value={manualEntry.fat}
-                        onChange={(e) => {
-                          const updated = { ...manualEntry, fat: e.target.value }
-                          setManualEntry(updated)
-                          if (user) {
-                            localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
-                          }
-                        }}
-                        min="0"
-                        step="0.1"
-                      />
-                    </div>
-                  </div>
-                    </div>
-                  <div className={styles.modalActions}>
-                    <button
-                      className={styles.cancelBtn}
-                      onClick={() => {
-                        setShowManualEntry(false)
-                        setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      className={styles.submitBtn}
-                      onClick={async () => {
-                        await handleManualEntry()
-                        // Reload data after saving
-                        if (user) {
-                          await loadDateDataFromSupabase(selectedDate)
-                        }
-                      }}
-                      disabled={!manualEntry.calories || manualEntry.calories <= 0}
-                    >
-                      Save
-                    </button>
-                  </div>
-                  </div>
-                </div>
-              </>
-            )}
 
             <div className={styles.mealTypeSelector}>
               {MEAL_TYPES.map(type => (
@@ -1412,6 +1291,146 @@ export default function Nutrition() {
           </div>
           </div>
         )}
+
+      {/* Log Meal Modal */}
+      {showManualEntry && createPortal(
+        <>
+          {console.log('Rendering Log Meal Modal - showManualEntry is true')}
+          <div className={styles.overlay} onClick={() => {
+            console.log('Overlay clicked, closing modal')
+            setShowManualEntry(false)
+            setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
+          }} />
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Log Meal</h2>
+              <button onClick={() => {
+                setShowManualEntry(false)
+                setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
+              }}>X</button>
+            </div>
+            <div className={styles.modalContent}>
+              <div className={styles.manualEntryForm}>
+                <div className={styles.formRow}>
+                  <label>Food Name (optional)</label>
+                  <input
+                    type="text"
+                    className={styles.formInput}
+                    placeholder="e.g., Grilled Chicken"
+                    value={manualEntry.name}
+                    onChange={(e) => {
+                      const updated = { ...manualEntry, name: e.target.value }
+                      setManualEntry(updated)
+                      if (user) {
+                        localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                      }
+                    }}
+                  />
+                </div>
+                <div className={styles.formRow}>
+                  <label>Calories *</label>
+                  <input
+                    type="number"
+                    className={styles.formInput}
+                    placeholder="0"
+                    value={manualEntry.calories}
+                    onChange={(e) => {
+                      const updated = { ...manualEntry, calories: e.target.value }
+                      setManualEntry(updated)
+                      if (user) {
+                        localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                      }
+                    }}
+                    min="0"
+                  />
+                </div>
+                <div className={styles.macroInputs}>
+                  <div className={styles.macroInput}>
+                    <label>Protein (g)</label>
+                    <input
+                      type="number"
+                      className={styles.formInput}
+                      placeholder="0"
+                      value={manualEntry.protein}
+                      onChange={(e) => {
+                        const updated = { ...manualEntry, protein: e.target.value }
+                        setManualEntry(updated)
+                        if (user) {
+                          localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                        }
+                      }}
+                      min="0"
+                      step="0.1"
+                    />
+                  </div>
+                  <div className={styles.macroInput}>
+                    <label>Carbs (g)</label>
+                    <input
+                      type="number"
+                      className={styles.formInput}
+                      placeholder="0"
+                      value={manualEntry.carbs}
+                      onChange={(e) => {
+                        const updated = { ...manualEntry, carbs: e.target.value }
+                        setManualEntry(updated)
+                        if (user) {
+                          localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                        }
+                      }}
+                      min="0"
+                      step="0.1"
+                    />
+                  </div>
+                  <div className={styles.macroInput}>
+                    <label>Fat (g)</label>
+                    <input
+                      type="number"
+                      className={styles.formInput}
+                      placeholder="0"
+                      value={manualEntry.fat}
+                      onChange={(e) => {
+                        const updated = { ...manualEntry, fat: e.target.value }
+                        setManualEntry(updated)
+                        if (user) {
+                          localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                        }
+                      }}
+                      min="0"
+                      step="0.1"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className={styles.modalActions}>
+                <button
+                  className={styles.cancelBtn}
+                  onClick={() => {
+                    setShowManualEntry(false)
+                    setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className={styles.submitBtn}
+                  onClick={async () => {
+                    try {
+                      await handleManualEntry()
+                    } catch (error) {
+                      console.error('Error in submit button:', error)
+                      showToast('Failed to log meal. Please check console for details.', 'error')
+                    }
+                  }}
+                  disabled={!manualEntry.calories || manualEntry.calories <= 0}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
 
       {/* Toast Notification */}
       {toast && (

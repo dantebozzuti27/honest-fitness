@@ -202,23 +202,34 @@ export async function deleteWorkoutFromSupabase(workoutId) {
 // ============ DAILY METRICS ============
 
 export async function saveMetricsToSupabase(userId, date, metrics) {
+  console.log('saveMetricsToSupabase called with:', { userId, date, metrics })
+  
+  const metricsToSave = {
+    user_id: userId,
+    date: date,
+    sleep_score: metrics.sleepScore !== null && metrics.sleepScore !== undefined && metrics.sleepScore !== '' ? Number(metrics.sleepScore) : null,
+    sleep_time: metrics.sleepTime !== null && metrics.sleepTime !== undefined && metrics.sleepTime !== '' ? Number(metrics.sleepTime) : null,
+    hrv: metrics.hrv !== null && metrics.hrv !== undefined && metrics.hrv !== '' ? Number(metrics.hrv) : null,
+    steps: metrics.steps !== null && metrics.steps !== undefined && metrics.steps !== '' ? Number(metrics.steps) : null,
+    calories: metrics.caloriesBurned !== null && metrics.caloriesBurned !== undefined && metrics.caloriesBurned !== '' ? Number(metrics.caloriesBurned) : null,
+    weight: metrics.weight !== null && metrics.weight !== undefined && metrics.weight !== '' ? Number(metrics.weight) : null,
+    resting_heart_rate: metrics.restingHeartRate !== null && metrics.restingHeartRate !== undefined && metrics.restingHeartRate !== '' ? Number(metrics.restingHeartRate) : null,
+    body_temp: metrics.bodyTemp !== null && metrics.bodyTemp !== undefined && metrics.bodyTemp !== '' ? Number(metrics.bodyTemp) : null
+  }
+  
+  console.log('saveMetricsToSupabase: Prepared data:', metricsToSave)
+  
   const { data, error } = await supabase
     .from('daily_metrics')
-    .upsert({
-      user_id: userId,
-      date: date,
-      sleep_score: metrics.sleepScore || null,
-      sleep_time: metrics.sleepTime || null,
-      hrv: metrics.hrv || null,
-      steps: metrics.steps || null,
-      calories: metrics.caloriesBurned || null,
-      weight: metrics.weight || null,
-      resting_heart_rate: metrics.restingHeartRate || null,
-      body_temp: metrics.bodyTemp || null
-    }, { onConflict: 'user_id,date' })
+    .upsert(metricsToSave, { onConflict: 'user_id,date' })
     .select()
 
-  if (error) throw error
+  if (error) {
+    console.error('saveMetricsToSupabase: Error from Supabase:', error)
+    throw error
+  }
+  
+  console.log('saveMetricsToSupabase: Success, returned data:', data)
   return data
 }
 

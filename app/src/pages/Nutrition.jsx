@@ -1257,9 +1257,10 @@ export default function Nutrition() {
             )}
           </div>
         )}
+      </div>
 
-        {/* Weekly Meal Plan Editor Modal */}
-        {showMealPlanEditor && weeklyMealPlan && (
+      {/* Weekly Meal Plan Editor Modal */}
+      {showMealPlanEditor && weeklyMealPlan && (
           <div className={styles.overlay} onClick={() => setShowMealPlanEditor(false)}>
             <div className={styles.modal} onClick={e => e.stopPropagation()}>
               <div className={styles.modalHeader}>
@@ -1409,7 +1410,6 @@ export default function Nutrition() {
             </div>
           </div>
         )}
-      </div>
 
       {/* Toast Notification */}
       {toast && (

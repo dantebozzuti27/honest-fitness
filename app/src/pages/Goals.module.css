@@ -112,6 +112,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  color: var(--text-primary);
 }
 
 .goalHeader {
@@ -126,6 +127,14 @@
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
+}
+
+.goalCategory {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-top: 4px;
+  display: block;
 }
 
 .goalActions {

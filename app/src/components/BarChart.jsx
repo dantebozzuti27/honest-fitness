@@ -44,7 +44,7 @@ export default function BarChart({ data, labels, height = 200, color = 'var(--te
                   x={x + barWidth * 0.4}
                   y={y - 2}
                   textAnchor="middle"
-                  fontSize="2.5"
+                  fontSize="1.5"
                   fill="var(--text-primary)"
                   className={styles.value}
                 >

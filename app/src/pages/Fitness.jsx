@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getAllTemplates, saveTemplate, deleteTemplate } from '../db'
 import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase } from '../lib/supabaseDb'
+import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import ExercisePicker from '../components/ExercisePicker'
@@ -19,6 +20,7 @@ export default function Fitness() {
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [workoutHistory, setWorkoutHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
+  const [fitnessGoals, setFitnessGoals] = useState([])
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -54,6 +56,10 @@ export default function Fitness() {
           const workouts = await getWorkoutsFromSupabase(user.id)
           setWorkoutHistory(workouts.slice(0, 10)) // Show last 10 workouts
           
+          // Load fitness goals
+          const goals = await getActiveGoalsFromSupabase(user.id, 'fitness')
+          setFitnessGoals(goals)
+          
           const prefs = await getUserPreferences(user.id)
           if (prefs && prefs.available_days?.length > 0) {
             const plan = generateWorkoutPlan({
@@ -82,22 +88,7 @@ export default function Fitness() {
     navigate('/workout/active', { state: { templateId } })
   }
 
-  const startOutdoorRun = () => {
-    // Create a simple outdoor run workout
-    const outdoorRunWorkout = {
-      name: 'Outdoor Run',
-      exercises: [{
-        name: 'Outdoor Run',
-        bodyPart: 'Cardio',
-        sets: [{
-          time: 0, // Will track time during workout
-          distance: 0,
-          calories: 0
-        }]
-      }]
-    }
-    navigate('/workout/active', { state: { outdoorRun: true, aiWorkout: outdoorRunWorkout } })
-  }
+  // Removed startOutdoorRun - not needed for now
 
   const startRandomWorkout = async () => {
     try {
@@ -143,12 +134,6 @@ export default function Fitness() {
             >
               Start Workout
             </button>
-            <button
-              className={styles.secondaryBtn}
-              onClick={startOutdoorRun}
-            >
-              Start Outdoor Run
-            </button>
           </div>
         </section>
 
@@ -163,7 +148,33 @@ export default function Fitness() {
               View All →
             </button>
           </div>
-          <p className={styles.sectionNote}>Syncs to Goals page</p>
+          {fitnessGoals.length === 0 ? (
+            <p className={styles.sectionNote}>No fitness goals set. Create one on the Goals page.</p>
+          ) : (
+            <div className={styles.goalsList}>
+              {fitnessGoals.slice(0, 3).map(goal => {
+                const progress = goal.target_value > 0 
+                  ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
+                  : 0
+                return (
+                  <div key={goal.id} className={styles.goalCard}>
+                    <div className={styles.goalHeader}>
+                      <span className={styles.goalName}>
+                        {goal.custom_name || goal.type}
+                      </span>
+                      <span className={styles.goalProgress}>{Math.round(progress)}%</span>
+                    </div>
+                    <div className={styles.goalBar}>
+                      <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
+                    </div>
+                    <div className={styles.goalValues}>
+                      {goal.current_value} / {goal.target_value} {goal.unit}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </section>
 
         {/* Today's Plan */}

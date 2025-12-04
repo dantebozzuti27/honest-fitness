@@ -309,8 +309,17 @@ export default function Calendar() {
                 )}
                 {showScheduler === 'meal' && (
                   <div className={styles.scheduleOptions}>
-                    <button className={styles.scheduleBtn} onClick={() => navigate('/nutrition')}>
+                    <button className={styles.scheduleBtn} onClick={() => {
+                      navigate('/nutrition')
+                      closeModal()
+                    }}>
                       Log Meal
+                    </button>
+                    <button className={styles.scheduleBtn} onClick={() => {
+                      navigate('/goals')
+                      closeModal()
+                    }}>
+                      Create Meal Plan
                     </button>
                     <p className={styles.scheduleNote}>Meals sync to Nutrition and Goals pages</p>
                   </div>

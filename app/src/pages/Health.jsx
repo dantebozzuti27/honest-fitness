@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getWorkoutsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/supabaseDb'
+import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily } from '../lib/wearables'
 import { getTodayEST } from '../utils/dateUtils'
@@ -22,6 +23,7 @@ export default function Health() {
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState('week') // week, month, 90days
   const [editingMetric, setEditingMetric] = useState(null)
+  const [healthGoals, setHealthGoals] = useState([])
 
   useEffect(() => {
     if (user) {
@@ -46,6 +48,10 @@ export default function Health() {
       // Load wearables
       const connected = await getAllConnectedAccounts(user.id)
       setWearables(connected || [])
+      
+      // Load health goals
+      const goals = await getActiveGoalsFromSupabase(user.id, 'health')
+      setHealthGoals(goals)
       
       // Load Fitbit data (try today, then yesterday, then most recent)
       const fitbitAccount = connected?.find(a => a.provider === 'fitbit')
@@ -337,8 +343,8 @@ export default function Health() {
 
         {/* Manual Logging Section */}
         <div className={styles.metricsCard}>
-          <h3>Manually Log Metrics</h3>
-          <p className={styles.sectionNote}>Log metrics for previous day</p>
+          <h3>Manual Logging</h3>
+          <p className={styles.sectionNote}>Log metrics for any date (previous day recommended)</p>
           <div className={styles.manualLoggingGrid}>
             <button
               className={styles.actionBtn}
@@ -355,7 +361,7 @@ export default function Health() {
                 })
               }}
             >
-              Log Previous Day Metrics
+              Log Previous Day
             </button>
           </div>
         </div>
@@ -421,7 +427,33 @@ export default function Health() {
               View All →
             </button>
           </div>
-          <p className={styles.sectionNote}>Syncs to Goals page</p>
+          {healthGoals.length === 0 ? (
+            <p className={styles.sectionNote}>No health goals set. Create one on the Goals page.</p>
+          ) : (
+            <div className={styles.goalsList}>
+              {healthGoals.slice(0, 3).map(goal => {
+                const progress = goal.target_value > 0 
+                  ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
+                  : 0
+                return (
+                  <div key={goal.id} className={styles.goalCard}>
+                    <div className={styles.goalHeader}>
+                      <span className={styles.goalName}>
+                        {goal.custom_name || goal.type}
+                      </span>
+                      <span className={styles.goalProgress}>{Math.round(progress)}%</span>
+                    </div>
+                    <div className={styles.goalBar}>
+                      <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
+                    </div>
+                    <div className={styles.goalValues}>
+                      {goal.current_value} / {goal.target_value} {goal.unit}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Quick Actions */}

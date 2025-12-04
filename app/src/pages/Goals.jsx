@@ -11,7 +11,7 @@ import {
 import { getTodayEST } from '../utils/dateUtils'
 import styles from './Goals.module.css'
 
-const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition', 'custom']
+const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
 const FITNESS_GOAL_TYPES = [
   { type: 'workouts_per_week', label: 'Workouts per Week', unit: 'workouts' },
   { type: 'total_volume', label: 'Total Volume', unit: 'lbs' },
@@ -35,7 +35,8 @@ export default function Goals() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [activeCategory, setActiveCategory] = useState('fitness')
-  const [goals, setGoals] = useState({ fitness: [], health: [], nutrition: [], custom: [] })
+  const [goals, setGoals] = useState({ fitness: [], health: [], nutrition: [] })
+  const [allGoals, setAllGoals] = useState([])
   const [pastGoals, setPastGoals] = useState([])
   const [showNewGoal, setShowNewGoal] = useState(false)
   const [showAnalyze, setShowAnalyze] = useState(false)
@@ -69,13 +70,14 @@ export default function Goals() {
       ])
 
       // Group by category
-      const grouped = { fitness: [], health: [], nutrition: [], custom: [] }
+      const grouped = { fitness: [], health: [], nutrition: [] }
       activeGoals.forEach(goal => {
         if (grouped[goal.category]) {
           grouped[goal.category].push(goal)
         }
       })
       setGoals(grouped)
+      setAllGoals(activeGoals)
       setPastGoals(allGoals)
     } catch (error) {
       console.error('Error loading goals', error)
@@ -99,7 +101,7 @@ export default function Goals() {
 
   const handleCreateGoal = async () => {
     if (!user) return
-    if (!newGoal.type && newGoal.category !== 'custom') {
+    if (!newGoal.type) {
       alert('Please select a goal type')
       return
     }
@@ -220,6 +222,80 @@ export default function Goals() {
       </header>
 
       <div className={styles.content}>
+        {/* My Goals Section - Show All Goals First */}
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>My Goals</h2>
+            <button
+              className={styles.newGoalBtn}
+              onClick={() => {
+                setNewGoal({ ...newGoal, category: 'fitness' })
+                setShowNewGoal(true)
+              }}
+            >
+              + New Goal
+            </button>
+          </div>
+
+          <div className={styles.goalsList}>
+            {allGoals.length === 0 ? (
+              <p className={styles.emptyText}>No goals yet. Create your first goal!</p>
+            ) : (
+              allGoals.map(goal => {
+                const progress = goal.target_value > 0 
+                  ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
+                  : 0
+                return (
+                  <div key={goal.id} className={styles.goalCard}>
+                    <div className={styles.goalHeader}>
+                      <div>
+                        <h3 className={styles.goalName}>
+                          {goal.custom_name || getGoalTypes(goal.category).find(t => t.type === goal.type)?.label || goal.type}
+                        </h3>
+                        <span className={styles.goalCategory}>{goal.category.charAt(0).toUpperCase() + goal.category.slice(1)}</span>
+                      </div>
+                      <div className={styles.goalActions}>
+                        <button
+                          className={styles.archiveBtn}
+                          onClick={() => handleArchiveGoal(goal.id)}
+                        >
+                          Archive
+                        </button>
+                        <button
+                          className={styles.deleteBtn}
+                          onClick={() => handleDeleteGoal(goal.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    <div className={styles.goalProgress}>
+                      <div className={styles.progressBar}>
+                        <div
+                          className={styles.progressFill}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <div className={styles.progressText}>
+                        {goal.current_value} / {goal.target_value} {goal.unit} ({Math.round(progress)}%)
+                      </div>
+                    </div>
+                    {goal.description && (
+                      <p className={styles.goalDescription}>{goal.description}</p>
+                    )}
+                    <div className={styles.goalDates}>
+                      <span>Start: {new Date(goal.start_date).toLocaleDateString()}</span>
+                      {goal.end_date && (
+                        <span>End: {new Date(goal.end_date).toLocaleDateString()}</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </section>
+
         {/* Category Tabs */}
         <div className={styles.categoryTabs}>
           {GOAL_CATEGORIES.map(cat => (
@@ -233,19 +309,10 @@ export default function Goals() {
           ))}
         </div>
 
-        {/* My Goals Section */}
+        {/* Category Goals Section */}
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>My Goals - {activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)}</h2>
-            <button
-              className={styles.newGoalBtn}
-              onClick={() => {
-                setNewGoal({ ...newGoal, category: activeCategory })
-                setShowNewGoal(true)
-              }}
-            >
-              + New Goal
-            </button>
+            <h2 className={styles.sectionTitle}>{activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Goals</h2>
           </div>
 
           <div className={styles.goalsList}>
@@ -348,37 +415,39 @@ export default function Goals() {
               <button onClick={() => setShowNewGoal(false)}>✕</button>
             </div>
             <div className={styles.modalContent}>
-              {newGoal.category === 'custom' ? (
-                <div className={styles.formGroup}>
-                  <label>Goal Name</label>
-                  <input
-                    type="text"
-                    value={newGoal.customName}
-                    onChange={(e) => setNewGoal({ ...newGoal, customName: e.target.value })}
-                    placeholder="Enter custom goal name"
-                  />
-                </div>
-              ) : (
-                <div className={styles.formGroup}>
-                  <label>Goal Type</label>
-                  <select
-                    value={newGoal.type}
-                    onChange={(e) => {
-                      const selected = getGoalTypes(newGoal.category).find(t => t.type === e.target.value)
-                      setNewGoal({
-                        ...newGoal,
-                        type: e.target.value,
-                        unit: selected?.unit || ''
-                      })
-                    }}
-                  >
-                    <option value="">Select goal type</option>
-                    {getGoalTypes(newGoal.category).map(gt => (
-                      <option key={gt.type} value={gt.type}>{gt.label}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div className={styles.formGroup}>
+                <label>Category</label>
+                <select
+                  value={newGoal.category}
+                  onChange={(e) => {
+                    setNewGoal({ ...newGoal, category: e.target.value, type: '', unit: '' })
+                  }}
+                >
+                  <option value="fitness">Fitness</option>
+                  <option value="health">Health</option>
+                  <option value="nutrition">Nutrition</option>
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label>Goal Type</label>
+                <select
+                  value={newGoal.type}
+                  onChange={(e) => {
+                    const selected = getGoalTypes(newGoal.category).find(t => t.type === e.target.value)
+                    setNewGoal({
+                      ...newGoal,
+                      type: e.target.value,
+                      unit: selected?.unit || ''
+                    })
+                  }}
+                  disabled={!newGoal.category}
+                >
+                  <option value="">Select goal type</option>
+                  {getGoalTypes(newGoal.category).map(gt => (
+                    <option key={gt.type} value={gt.type}>{gt.label}</option>
+                  ))}
+                </select>
+              </div>
               <div className={styles.formGroup}>
                 <label>Target Value</label>
                 <input

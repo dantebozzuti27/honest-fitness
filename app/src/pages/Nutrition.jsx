@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import BarChart from '../components/BarChart'
@@ -50,13 +51,37 @@ export default function Nutrition() {
   const [showDietician, setShowDietician] = useState(false)
   const [dieticianAnalyzing, setDieticianAnalyzing] = useState(false)
   const [dieticianResult, setDieticianResult] = useState(null)
+  const [nutritionGoals, setNutritionGoals] = useState([])
   const fastingTimerRef = useRef(null)
 
   useEffect(() => {
     if (!user) return
     loadSettings()
     loadDateDataFromSupabase(selectedDate)
+    loadNutritionGoals()
+    // Restore manual entry from localStorage
+    const saved = localStorage.getItem(`nutrition_manual_entry_${user.id}`)
+    if (saved) {
+      try {
+        const entry = JSON.parse(saved)
+        if (entry.calories || entry.name || entry.protein || entry.carbs || entry.fat) {
+          setManualEntry(entry)
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
   }, [user, selectedDate])
+
+  const loadNutritionGoals = async () => {
+    if (!user) return
+    try {
+      const goals = await getActiveGoalsFromSupabase(user.id, 'nutrition')
+      setNutritionGoals(goals)
+    } catch (error) {
+      // Silently fail
+    }
+  }
 
   const loadSettings = async () => {
     if (!user) return
@@ -248,8 +273,14 @@ export default function Nutrition() {
       description: manualEntry.name || 'Manual entry',
       type: 'manual'
     })
-    setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
+    // Clear form after successful save
+    const clearedEntry = { name: '', calories: '', protein: '', carbs: '', fat: '' }
+    setManualEntry(clearedEntry)
     setShowManualEntry(false)
+    // Save to localStorage to persist if user navigates away
+    if (user) {
+      localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(clearedEntry))
+    }
   }
 
   const removeMeal = async (mealId) => {
@@ -622,15 +653,44 @@ export default function Nutrition() {
               )}
             </div>
 
-            {/* Goals Link */}
+            {/* Goals Section */}
             <div className={styles.goalsLink}>
-              <button
-                className={styles.goalsBtn}
-                onClick={() => navigate('/goals')}
-              >
-                View Goals →
-              </button>
-              <p className={styles.goalsNote}>Syncs to Goals page</p>
+              <div className={styles.goalsHeader}>
+                <h3>Goals</h3>
+                <button
+                  className={styles.goalsBtn}
+                  onClick={() => navigate('/goals')}
+                >
+                  View All →
+                </button>
+              </div>
+              {nutritionGoals.length === 0 ? (
+                <p className={styles.goalsNote}>No nutrition goals set. Create one on the Goals page.</p>
+              ) : (
+                <div className={styles.goalsList}>
+                  {nutritionGoals.slice(0, 3).map(goal => {
+                    const progress = goal.target_value > 0 
+                      ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
+                      : 0
+                    return (
+                      <div key={goal.id} className={styles.goalCard}>
+                        <div className={styles.goalHeader}>
+                          <span className={styles.goalName}>
+                            {goal.custom_name || goal.type}
+                          </span>
+                          <span className={styles.goalProgress}>{Math.round(progress)}%</span>
+                        </div>
+                        <div className={styles.goalBar}>
+                          <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
+                        </div>
+                        <div className={styles.goalValues}>
+                          {goal.current_value} / {goal.target_value} {goal.unit}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Dietician LLM */}
@@ -667,7 +727,13 @@ export default function Nutrition() {
                       className={styles.formInput}
                       placeholder="e.g., Grilled Chicken"
                       value={manualEntry.name}
-                      onChange={(e) => setManualEntry({ ...manualEntry, name: e.target.value })}
+                      onChange={(e) => {
+                        const updated = { ...manualEntry, name: e.target.value }
+                        setManualEntry(updated)
+                        if (user) {
+                          localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                        }
+                      }}
                     />
                   </div>
                   <div className={styles.formRow}>
@@ -677,7 +743,13 @@ export default function Nutrition() {
                       className={styles.formInput}
                       placeholder="0"
                       value={manualEntry.calories}
-                      onChange={(e) => setManualEntry({ ...manualEntry, calories: e.target.value })}
+                      onChange={(e) => {
+                        const updated = { ...manualEntry, calories: e.target.value }
+                        setManualEntry(updated)
+                        if (user) {
+                          localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                        }
+                      }}
                       min="0"
                     />
                   </div>
@@ -689,7 +761,13 @@ export default function Nutrition() {
                         className={styles.formInput}
                         placeholder="0"
                         value={manualEntry.protein}
-                        onChange={(e) => setManualEntry({ ...manualEntry, protein: e.target.value })}
+                        onChange={(e) => {
+                          const updated = { ...manualEntry, protein: e.target.value }
+                          setManualEntry(updated)
+                          if (user) {
+                            localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                          }
+                        }}
                         min="0"
                         step="0.1"
                       />
@@ -701,7 +779,13 @@ export default function Nutrition() {
                         className={styles.formInput}
                         placeholder="0"
                         value={manualEntry.carbs}
-                        onChange={(e) => setManualEntry({ ...manualEntry, carbs: e.target.value })}
+                        onChange={(e) => {
+                          const updated = { ...manualEntry, carbs: e.target.value }
+                          setManualEntry(updated)
+                          if (user) {
+                            localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                          }
+                        }}
                         min="0"
                         step="0.1"
                       />
@@ -713,7 +797,13 @@ export default function Nutrition() {
                         className={styles.formInput}
                         placeholder="0"
                         value={manualEntry.fat}
-                        onChange={(e) => setManualEntry({ ...manualEntry, fat: e.target.value })}
+                        onChange={(e) => {
+                          const updated = { ...manualEntry, fat: e.target.value }
+                          setManualEntry(updated)
+                          if (user) {
+                            localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(updated))
+                          }
+                        }}
                         min="0"
                         step="0.1"
                       />
@@ -897,7 +987,6 @@ export default function Nutrition() {
                   value={targetCalories}
                   onChange={(e) => {
                     setTargetCalories(parseInt(e.target.value) || 2000)
-                    saveData()
                   }}
                   min="1000"
                   max="5000"
@@ -910,7 +999,6 @@ export default function Nutrition() {
                   value={targetMacros.protein}
                   onChange={(e) => {
                     setTargetMacros({ ...targetMacros, protein: parseInt(e.target.value) || 0 })
-                    saveData()
                   }}
                   min="0"
                   max="500"
@@ -923,7 +1011,6 @@ export default function Nutrition() {
                   value={targetMacros.carbs}
                   onChange={(e) => {
                     setTargetMacros({ ...targetMacros, carbs: parseInt(e.target.value) || 0 })
-                    saveData()
                   }}
                   min="0"
                   max="500"
@@ -936,12 +1023,17 @@ export default function Nutrition() {
                   value={targetMacros.fat}
                   onChange={(e) => {
                     setTargetMacros({ ...targetMacros, fat: parseInt(e.target.value) || 0 })
-                    saveData()
                   }}
                   min="0"
                   max="500"
                 />
               </div>
+              <button
+                className={styles.saveBtn}
+                onClick={saveData}
+              >
+                Save Goals
+              </button>
             </div>
             <div className={styles.settingsSection}>
               <h3>Favorites</h3>

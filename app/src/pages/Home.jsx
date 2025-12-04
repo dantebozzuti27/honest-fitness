@@ -100,15 +100,7 @@ export default function Home() {
     navigate(path)
   }
 
-  const navIcons = {
-    fitness: '🏋️',
-    nutrition: '🍎',
-    health: '❤️',
-    calendar: '📅',
-    analytics: '📊',
-    goals: '🎯',
-    profile: '👤'
-  }
+  // Icons removed - using text labels only
 
   return (
     <div className={styles.container}>
@@ -153,7 +145,6 @@ export default function Home() {
               className={styles.navItem}
               onClick={() => navigate(item.path)}
             >
-              <span className={styles.navIcon}>{navIcons[item.id]}</span>
               <span className={styles.navLabel}>{item.label}</span>
             </button>
           ))}

@@ -110,9 +110,9 @@ export default function Nutrition() {
     const newPlan = {}
     days.forEach(day => {
       newPlan[day] = {
-        breakfast: null,
-        lunch: null,
-        dinner: null,
+        breakfast: { name: '', calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, time: '08:00' },
+        lunch: { name: '', calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, time: '12:00' },
+        dinner: { name: '', calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, time: '18:00' },
         snacks: []
       }
     })
@@ -138,14 +138,29 @@ export default function Nutrition() {
     const dayPlan = weeklyMealPlan[day]
     const mealsToAdd = []
     
-    if (dayPlan.breakfast) {
-      mealsToAdd.push({ ...dayPlan.breakfast, mealType: 'Breakfast' })
+    if (dayPlan.breakfast && dayPlan.breakfast.name) {
+      mealsToAdd.push({ 
+        ...dayPlan.breakfast, 
+        mealType: 'Breakfast',
+        foods: [dayPlan.breakfast.name],
+        description: dayPlan.breakfast.name
+      })
     }
-    if (dayPlan.lunch) {
-      mealsToAdd.push({ ...dayPlan.lunch, mealType: 'Lunch' })
+    if (dayPlan.lunch && dayPlan.lunch.name) {
+      mealsToAdd.push({ 
+        ...dayPlan.lunch, 
+        mealType: 'Lunch',
+        foods: [dayPlan.lunch.name],
+        description: dayPlan.lunch.name
+      })
     }
-    if (dayPlan.dinner) {
-      mealsToAdd.push({ ...dayPlan.dinner, mealType: 'Dinner' })
+    if (dayPlan.dinner && dayPlan.dinner.name) {
+      mealsToAdd.push({ 
+        ...dayPlan.dinner, 
+        mealType: 'Dinner',
+        foods: [dayPlan.dinner.name],
+        description: dayPlan.dinner.name
+      })
     }
     if (dayPlan.snacks && dayPlan.snacks.length > 0) {
       dayPlan.snacks.forEach(snack => {
@@ -305,11 +320,31 @@ export default function Nutrition() {
     setMeals(updatedMeals)
     setCurrentCalories(updatedCalories)
     setCurrentMacros(updatedMacros)
+    
+    // Update history data immediately
+    const updatedHistory = {
+      ...historyData,
+      [selectedDate]: {
+        meals: updatedMeals,
+        calories: updatedCalories,
+        macros: updatedMacros,
+        water: waterIntake
+      }
+    }
+    setHistoryData(updatedHistory)
+    
     try {
       const { saveMealToSupabase } = await import('../lib/nutritionDb')
       await saveMealToSupabase(user.id, selectedDate, newMeal)
     } catch (error) {
       logError('Error saving meal to database', error)
+      // Fallback to localStorage
+      if (user) {
+        const saved = localStorage.getItem(`ghostMode_${user.id}`)
+        const data = saved ? JSON.parse(saved) : {}
+        data.historyData = updatedHistory
+        localStorage.setItem(`ghostMode_${user.id}`, JSON.stringify(data))
+      }
     }
   }
 
@@ -363,7 +398,7 @@ export default function Nutrition() {
     const meal = meals.find(m => m.id === mealId)
     if (meal) {
       const updatedMeals = meals.filter(m => m.id !== mealId)
-      const updatedCalories = Math.max(0, currentCalories - meal.calories)
+      const updatedCalories = Math.max(0, currentCalories - (meal.calories || 0))
       const updatedMacros = {
         protein: Math.max(0, currentMacros.protein - (meal.macros?.protein || 0)),
         carbs: Math.max(0, currentMacros.carbs - (meal.macros?.carbs || 0)),
@@ -372,11 +407,29 @@ export default function Nutrition() {
       setMeals(updatedMeals)
       setCurrentCalories(updatedCalories)
       setCurrentMacros(updatedMacros)
+      
+      // Update history data immediately
+      const updatedHistory = {
+        ...historyData,
+        [selectedDate]: {
+          meals: updatedMeals,
+          calories: updatedCalories,
+          macros: updatedMacros,
+          water: waterIntake
+        }
+      }
+      setHistoryData(updatedHistory)
+      
       try {
         const { deleteMealFromSupabase } = await import('../lib/nutritionDb')
         await deleteMealFromSupabase(user.id, selectedDate, mealId)
       } catch (error) {
         logError('Error deleting meal from database', error)
+        // Fallback to localStorage
+        const saved = localStorage.getItem(`ghostMode_${user.id}`)
+        const data = saved ? JSON.parse(saved) : {}
+        data.historyData = updatedHistory
+        localStorage.setItem(`ghostMode_${user.id}`, JSON.stringify(data))
       }
     }
   }
@@ -541,6 +594,9 @@ export default function Nutrition() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
+        <button className={styles.backBtn} onClick={() => navigate('/')}>
+          Back
+        </button>
         <h1>Nutrition</h1>
         {activeTab === 'Today' && (
           <button 
@@ -588,7 +644,6 @@ export default function Nutrition() {
                   }
                 }}
               >
-                <span className={styles.optionIcon}>🍴</span>
                 <div className={styles.optionContent}>
                   <span className={styles.optionTitle}>Daily intake</span>
                   <span className={styles.optionSubtitle}>calories, protein, carbs, fats</span>
@@ -605,7 +660,6 @@ export default function Nutrition() {
                   }
                 }}
               >
-                <span className={styles.optionIcon}>🎯</span>
                 <div className={styles.optionContent}>
                   <span className={styles.optionTitle}>Daily goals</span>
                   <span className={styles.optionSubtitle}>calories, protein, carbs, fat</span>
@@ -622,7 +676,6 @@ export default function Nutrition() {
                   }
                 }}
               >
-                <span className={styles.optionIcon}>📅</span>
                 <div className={styles.optionContent}>
                   <span className={styles.optionTitle}>Daily meals</span>
                 </div>
@@ -638,7 +691,6 @@ export default function Nutrition() {
                   }
                 }}
               >
-                <span className={styles.optionIcon}>👤</span>
                 <div className={styles.optionContent}>
                   <span className={styles.optionTitle}>Dietician</span>
                   <span className={styles.optionSubtitle}>LLM analyzes diet if it has 7 days or more of full meals</span>
@@ -653,7 +705,7 @@ export default function Nutrition() {
                 prev.setDate(prev.getDate() - 1)
                 setSelectedDate(prev.toISOString().split('T')[0])
               }}>
-                ←
+                Prev
               </button>
               <input
                 type="date"
@@ -668,7 +720,7 @@ export default function Nutrition() {
                   setSelectedDate(next.toISOString().split('T')[0])
                 }
               }} disabled={selectedDate >= getTodayEST()}>
-                →
+                Next
               </button>
             </div>
 
@@ -821,7 +873,7 @@ export default function Nutrition() {
                   className={styles.goalsBtn}
                   onClick={() => navigate('/goals')}
                 >
-                  View All →
+                  View All
                 </button>
               </div>
               {nutritionGoals.length === 0 ? (
@@ -1228,7 +1280,7 @@ export default function Nutrition() {
                             saveData()
                           }}
                         >
-                          ×
+                          X
                         </button>
                       </div>
                     </div>
@@ -1267,17 +1319,43 @@ export default function Nutrition() {
                         </button>
                       </div>
                       <div className={styles.mealPlanMeals}>
-                        {meals.breakfast && (
-                          <span className={styles.mealPlanMealTag}>B: {meals.breakfast.foods?.[0] || meals.breakfast.description || 'Meal'}</span>
+                        {meals.breakfast && meals.breakfast.name && (
+                          <div className={styles.mealPlanMealTag}>
+                            <span className={styles.mealPlanMealTime}>{meals.breakfast.time || '08:00'}</span>
+                            <span className={styles.mealPlanMealName}>{meals.breakfast.name}</span>
+                            {meals.breakfast.calories > 0 && (
+                              <span className={styles.mealPlanMealMacros}>
+                                {meals.breakfast.calories} cal | P: {meals.breakfast.macros?.protein || 0}g C: {meals.breakfast.macros?.carbs || 0}g F: {meals.breakfast.macros?.fat || 0}g
+                              </span>
+                            )}
+                          </div>
                         )}
-                        {meals.lunch && (
-                          <span className={styles.mealPlanMealTag}>L: {meals.lunch.foods?.[0] || meals.lunch.description || 'Meal'}</span>
+                        {meals.lunch && meals.lunch.name && (
+                          <div className={styles.mealPlanMealTag}>
+                            <span className={styles.mealPlanMealTime}>{meals.lunch.time || '12:00'}</span>
+                            <span className={styles.mealPlanMealName}>{meals.lunch.name}</span>
+                            {meals.lunch.calories > 0 && (
+                              <span className={styles.mealPlanMealMacros}>
+                                {meals.lunch.calories} cal | P: {meals.lunch.macros?.protein || 0}g C: {meals.lunch.macros?.carbs || 0}g F: {meals.lunch.macros?.fat || 0}g
+                              </span>
+                            )}
+                          </div>
                         )}
-                        {meals.dinner && (
-                          <span className={styles.mealPlanMealTag}>D: {meals.dinner.foods?.[0] || meals.dinner.description || 'Meal'}</span>
+                        {meals.dinner && meals.dinner.name && (
+                          <div className={styles.mealPlanMealTag}>
+                            <span className={styles.mealPlanMealTime}>{meals.dinner.time || '18:00'}</span>
+                            <span className={styles.mealPlanMealName}>{meals.dinner.name}</span>
+                            {meals.dinner.calories > 0 && (
+                              <span className={styles.mealPlanMealMacros}>
+                                {meals.dinner.calories} cal | P: {meals.dinner.macros?.protein || 0}g C: {meals.dinner.macros?.carbs || 0}g F: {meals.dinner.macros?.fat || 0}g
+                              </span>
+                            )}
+                          </div>
                         )}
                         {meals.snacks && meals.snacks.length > 0 && (
-                          <span className={styles.mealPlanMealTag}>S: {meals.snacks.length} snack(s)</span>
+                          <div className={styles.mealPlanMealTag}>
+                            <span className={styles.mealPlanMealName}>Snacks: {meals.snacks.length} item(s)</span>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1295,56 +1373,116 @@ export default function Nutrition() {
           <div className={styles.overlay} onClick={() => setShowMealPlanEditor(false)}>
             <div className={styles.modal} onClick={e => e.stopPropagation()}>
               <div className={styles.modalHeader}>
-                <h2>Weekly Meal Plan</h2>
-                <button onClick={() => setShowMealPlanEditor(false)}>✕</button>
+                <h2>Structured Meal Plan</h2>
+                <button onClick={() => setShowMealPlanEditor(false)}>X</button>
               </div>
               <div className={styles.modalContent}>
-                {Object.entries(weeklyMealPlan).map(([day, meals]) => (
-                  <div key={day} className={styles.mealPlanDayEditor}>
-                    <h4>{day}</h4>
-                    <div className={styles.mealPlanMealInputs}>
-                      <div className={styles.mealPlanMealInput}>
-                        <label>Breakfast</label>
-                        <button
-                          className={styles.selectMealBtn}
-                          onClick={() => {
-                            setEditingMealPlanDay({ day, mealType: 'breakfast' })
-                            setShowMealPlanEditor(false)
-                            setShowQuickAdd(true)
-                          }}
-                        >
-                          {meals.breakfast ? (meals.breakfast.foods?.[0] || meals.breakfast.description || 'Meal') : 'Select Meal'}
-                        </button>
-                      </div>
-                      <div className={styles.mealPlanMealInput}>
-                        <label>Lunch</label>
-                        <button
-                          className={styles.selectMealBtn}
-                          onClick={() => {
-                            setEditingMealPlanDay({ day, mealType: 'lunch' })
-                            setShowMealPlanEditor(false)
-                            setShowQuickAdd(true)
-                          }}
-                        >
-                          {meals.lunch ? (meals.lunch.foods?.[0] || meals.lunch.description || 'Meal') : 'Select Meal'}
-                        </button>
-                      </div>
-                      <div className={styles.mealPlanMealInput}>
-                        <label>Dinner</label>
-                        <button
-                          className={styles.selectMealBtn}
-                          onClick={() => {
-                            setEditingMealPlanDay({ day, mealType: 'dinner' })
-                            setShowMealPlanEditor(false)
-                            setShowQuickAdd(true)
-                          }}
-                        >
-                          {meals.dinner ? (meals.dinner.foods?.[0] || meals.dinner.description || 'Meal') : 'Select Meal'}
-                        </button>
-                      </div>
+                <div className={styles.mealPlanEditor}>
+                  {Object.entries(weeklyMealPlan).map(([day, dayMeals]) => (
+                    <div key={day} className={styles.mealPlanDayEditor}>
+                      <h4>{day}</h4>
+                      {['breakfast', 'lunch', 'dinner'].map(mealType => {
+                        const meal = dayMeals[mealType] || { name: '', calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, time: mealType === 'breakfast' ? '08:00' : mealType === 'lunch' ? '12:00' : '18:00' }
+                        return (
+                          <div key={mealType} className={styles.mealPlanMealInput}>
+                            <label>{mealType.charAt(0).toUpperCase() + mealType.slice(1)}</label>
+                            <div className={styles.mealPlanMealFields}>
+                              <input
+                                type="text"
+                                placeholder="Meal name"
+                                value={meal.name || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, name: e.target.value }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                              />
+                              <input
+                                type="time"
+                                value={meal.time || (mealType === 'breakfast' ? '08:00' : mealType === 'lunch' ? '12:00' : '18:00')}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, time: e.target.value }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanTimeInput}
+                              />
+                              <input
+                                type="number"
+                                placeholder="Calories"
+                                value={meal.calories || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, calories: parseInt(e.target.value) || 0 }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                              />
+                              <input
+                                type="number"
+                                placeholder="Protein (g)"
+                                value={meal.macros?.protein || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, macros: { ...meal.macros, protein: parseInt(e.target.value) || 0 } }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                              />
+                              <input
+                                type="number"
+                                placeholder="Carbs (g)"
+                                value={meal.macros?.carbs || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, macros: { ...meal.macros, carbs: parseInt(e.target.value) || 0 } }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                              />
+                              <input
+                                type="number"
+                                placeholder="Fat (g)"
+                                value={meal.macros?.fat || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, macros: { ...meal.macros, fat: parseInt(e.target.value) || 0 } }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
                 <div className={styles.modalActions}>
                   <button className={styles.cancelBtn} onClick={() => setShowMealPlanEditor(false)}>
                     Cancel
@@ -1378,13 +1516,13 @@ function MealCard({ meal, onRemove, onToggleFavorite, isFavorite }) {
             onClick={() => onToggleFavorite(meal)}
             title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
           >
-            {isFavorite ? '★' : '☆'}
+            {isFavorite ? '*' : '+'}
           </button>
           <button
             className={styles.removeBtn}
             onClick={() => onRemove(meal.id)}
           >
-            ×
+            X
           </button>
         </div>
       </div>

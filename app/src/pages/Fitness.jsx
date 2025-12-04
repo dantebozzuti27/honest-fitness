@@ -141,7 +141,6 @@ export default function Fitness() {
               }
             }}
           >
-            <span className={styles.optionIcon}>📋</span>
             <span className={styles.optionText}>View templates</span>
           </button>
           
@@ -149,7 +148,6 @@ export default function Fitness() {
             className={styles.optionItem}
             onClick={() => navigate('/goals')}
           >
-            <span className={styles.optionIcon}>🎯</span>
             <span className={styles.optionText}>Goals</span>
           </button>
           
@@ -157,7 +155,6 @@ export default function Fitness() {
             className={styles.optionItem}
             onClick={() => setShowHistory(!showHistory)}
           >
-            <span className={styles.optionIcon}>📊</span>
             <span className={styles.optionText}>Workout history</span>
           </button>
         </div>

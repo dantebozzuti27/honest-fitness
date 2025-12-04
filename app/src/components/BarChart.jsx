@@ -80,7 +80,7 @@ export default function BarChart({
                 x={padding.left - 5}
                 y={y + 1}
                 textAnchor="end"
-                fontSize="2"
+                fontSize="1.5"
                 fill="#ffffff"
                 className={styles.axisLabel}
               >
@@ -111,7 +111,7 @@ export default function BarChart({
                   x={x + barWidth / 2}
                   y={y - 1}
                   textAnchor="middle"
-                  fontSize="1.5"
+                  fontSize="1"
                   fill="#ffffff"
                   className={styles.value}
                 >

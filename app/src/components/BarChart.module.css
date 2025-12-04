@@ -57,7 +57,7 @@
   justify-content: space-between;
   margin-top: 8px;
   padding: 0 50px 0 50px;
-  font-size: 10px;
+  font-size: 8px;
   color: #ffffff;
   flex-wrap: wrap;
   gap: 2px;
@@ -65,7 +65,7 @@
 }
 
 .xAxisLabel {
-  font-size: 10px;
+  font-size: 8px;
   text-align: center;
   flex: 1;
   min-width: 0;
@@ -88,7 +88,7 @@
   left: 8px;
   top: 50%;
   transform: translateY(-50%) rotate(-90deg);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
   color: #ffffff;
   white-space: nowrap;
@@ -101,8 +101,8 @@
 }
 
 .value {
-  font-weight: 600;
-  font-size: 0.75rem;
+  font-weight: 500;
+  font-size: 0.6rem;
 }
 
 @media (max-width: 480px) {

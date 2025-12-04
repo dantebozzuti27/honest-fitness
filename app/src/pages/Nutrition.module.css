@@ -15,6 +15,24 @@
   padding: 20px;
   padding-top: calc(env(safe-area-inset-top, 20px) + 20px);
   padding-bottom: 20px;
+  gap: 12px;
+}
+
+.backBtn {
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.backBtn:hover {
+  background: var(--bg-tertiary);
 }
 
 h1 {
@@ -1213,4 +1231,230 @@ h1 {
 .goalValues {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* Meal Plan Editor */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-xl);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modalHeader h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.modalHeader button {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modalContent {
+  padding: 20px;
+}
+
+.mealPlanEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.mealPlanDayEditor {
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.mealPlanDayEditor h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+}
+
+.mealPlanMealInput {
+  margin-bottom: 16px;
+}
+
+.mealPlanMealInput label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.mealPlanMealFields {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.mealPlanInput,
+.mealPlanTimeInput {
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.mealPlanTimeInput {
+  grid-column: 2;
+}
+
+.modalActions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.cancelBtn,
+.saveBtn {
+  padding: 12px 24px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.cancelBtn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.cancelBtn:hover {
+  background: var(--bg-elevated);
+}
+
+.saveBtn {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+.saveBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.mealPlanPreview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mealPlanDay {
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.mealPlanDayHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.mealPlanDayHeader strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.applyDayBtn {
+  padding: 6px 12px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.applyDayBtn:hover {
+  opacity: 0.9;
+}
+
+.mealPlanMeals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mealPlanMealTag {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.mealPlanMealTime {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.mealPlanMealName {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.mealPlanMealMacros {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
 }

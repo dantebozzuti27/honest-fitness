@@ -100,3 +100,21 @@ export function validateSteps(value) {
   return { valid: true, value: result.value }
 }
 
+/**
+ * Validate resting heart rate (bpm)
+ */
+export function validateRestingHeartRate(value) {
+  const result = validateNumber(value, 30, 200)
+  if (!result.valid) return result
+  return { valid: true, value: result.value }
+}
+
+/**
+ * Validate body temperature (°F)
+ */
+export function validateBodyTemperature(value) {
+  const result = validateNumber(value, 90, 110)
+  if (!result.valid) return result
+  return { valid: true, value: result.value }
+}
+

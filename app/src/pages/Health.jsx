@@ -658,7 +658,7 @@ export default function Health() {
                       
                       // Validate inputs
                       const errors = []
-                      const { validateWeight, validateSteps, validateHRV, validateCalories, validateSleepScore } = await import('../utils/validation')
+                      const { validateWeight, validateSteps, validateHRV, validateCalories, validateSleepScore, validateRestingHeartRate, validateBodyTemperature } = await import('../utils/validation')
                       
                       if (editingMetric.weight !== null && editingMetric.weight !== undefined && editingMetric.weight !== '') {
                         const weightValidation = validateWeight(editingMetric.weight)
@@ -679,6 +679,14 @@ export default function Health() {
                       if (editingMetric.sleep_score !== null && editingMetric.sleep_score !== undefined && editingMetric.sleep_score !== '') {
                         const sleepValidation = validateSleepScore(editingMetric.sleep_score)
                         if (!sleepValidation.valid) errors.push(`Sleep Score: ${sleepValidation.error}`)
+                      }
+                      if (editingMetric.resting_heart_rate !== null && editingMetric.resting_heart_rate !== undefined && editingMetric.resting_heart_rate !== '') {
+                        const restingHeartRateValidation = validateRestingHeartRate(editingMetric.resting_heart_rate)
+                        if (!restingHeartRateValidation.valid) errors.push(`Resting Heart Rate: ${restingHeartRateValidation.error}`)
+                      }
+                      if (editingMetric.body_temp !== null && editingMetric.body_temp !== undefined && editingMetric.body_temp !== '') {
+                        const bodyTemperatureValidation = validateBodyTemperature(editingMetric.body_temp)
+                        if (!bodyTemperatureValidation.valid) errors.push(`Body Temperature: ${bodyTemperatureValidation.error}`)
                       }
                       
                       if (errors.length > 0) {

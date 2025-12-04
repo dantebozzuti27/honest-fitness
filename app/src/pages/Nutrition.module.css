@@ -621,27 +621,29 @@ h1 {
 .manualEntryForm {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .formRow {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .formRow label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
 }
 
 .formInput {
-  padding: 16px 20px;
+  padding: 12px 16px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
+  min-height: 48px;
   font-size: 17px;
   font-family: inherit;
   min-height: 52px;
@@ -655,13 +657,13 @@ h1 {
 .macroInputs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 8px;
 }
 
 .macroInput {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .macroInput label {
@@ -1466,25 +1468,28 @@ h1 {
   border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
   width: 100% !important;
   max-width: 100% !important;
-  max-height: 85vh !important;
-  overflow-y: auto !important;
+  max-height: 70vh !important;
+  overflow: hidden !important;
   box-shadow: var(--shadow-xl) !important;
   -webkit-overflow-scrolling: touch !important;
   z-index: 10000 !important;
   position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 .modalHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px;
+  padding: 20px;
   border-bottom: 1px solid var(--border);
-  min-height: 72px;
+  min-height: 64px;
   position: sticky;
   top: 0;
   background: var(--bg-secondary);
   z-index: 1;
+  flex-shrink: 0;
 }
 
 .modalHeader h2 {
@@ -1514,17 +1519,22 @@ h1 {
 }
 
 .modalContent {
-  padding: 24px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  min-height: 0;
 }
 
 .mealPlanEditor {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-height: 60vh;
+  gap: 12px;
   overflow-y: auto;
   padding-right: 8px;
   -webkit-overflow-scrolling: touch;
+  flex: 1;
+  min-height: 0;
 }
 
 .mealPlanDayEditor {
@@ -1536,18 +1546,18 @@ h1 {
 }
 
 .mealPlanDayEditor h4 {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
-  margin: 0 0 20px 0;
+  margin: 0 0 12px 0;
   letter-spacing: -0.01em;
-  padding-bottom: 12px;
+  padding-bottom: 8px;
   border-bottom: 2px solid var(--border);
 }
 
 .mealPlanMealInput {
-  margin-bottom: 24px;
-  padding: 16px;
+  margin-bottom: 12px;
+  padding: 12px;
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
@@ -1585,13 +1595,13 @@ h1 {
 
 .mealPlanInput,
 .mealPlanTimeInput {
-  padding: 16px 20px;
+  padding: 12px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 17px;
-  min-height: 52px;
+  min-height: 48px;
   width: 100%;
 }
 

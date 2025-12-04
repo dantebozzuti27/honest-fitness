@@ -91,18 +91,61 @@ export async function saveMealToSupabase(userId, date, meal) {
   
   // Save to database - JSONB columns can accept objects directly
   // But we'll stringify to ensure compatibility
-  const { data, error } = await supabase
-    .from('daily_metrics')
-    .upsert({
+  const upsertData = {
       user_id: userId,
       date: date,
       calories: totalCalories,
       meals: meals, // JSONB accepts objects/arrays directly
-      macros: totalMacros, // JSONB accepts objects directly
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id,date' })
-    .select()
-    .single()
+      macros: totalMacros // JSONB accepts objects directly
+    }
+  
+  // Only include updated_at if the column exists (to avoid schema errors)
+  // The migration will add this column, but we handle gracefully if it doesn't exist yet
+  try {
+    const { data, error } = await supabase
+      .from('daily_metrics')
+      .upsert({
+        ...upsertData,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,date' })
+      .select()
+      .single()
+    
+    if (error) {
+      // If updated_at column doesn't exist, try without it
+      if (error.code === 'PGRST204' && error.message?.includes('updated_at')) {
+        const { data: retryData, error: retryError } = await supabase
+          .from('daily_metrics')
+          .upsert(upsertData, { onConflict: 'user_id,date' })
+          .select()
+          .single()
+        
+        if (retryError) {
+          console.error('Error saving meal to Supabase:', retryError)
+          throw retryError
+        }
+        return retryData
+      }
+      console.error('Error saving meal to Supabase:', error)
+      throw error
+    }
+    
+    return data
+  } catch (err) {
+    // Fallback: try without updated_at
+    const { data, error } = await supabase
+      .from('daily_metrics')
+      .upsert(upsertData, { onConflict: 'user_id,date' })
+      .select()
+      .single()
+    
+    if (error) {
+      console.error('Error saving meal to Supabase:', error)
+      throw error
+    }
+    
+    return data
+  }
   
   if (error) {
     console.error('Error saving meal to Supabase:', error)
@@ -241,19 +284,47 @@ export async function getNutritionRangeFromSupabase(userId, startDate, endDate) 
  * Update water intake
  */
 export async function updateWaterIntake(userId, date, water) {
-  const { data, error } = await supabase
-    .from('daily_metrics')
-    .upsert({
-      user_id: userId,
-      date: date,
-      water: water,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id,date' })
-    .select()
-    .single()
+  const upsertData = {
+    user_id: userId,
+    date: date,
+    water: water
+  }
   
-  if (error) throw error
-  return data
+  try {
+    const { data, error } = await supabase
+      .from('daily_metrics')
+      .upsert({
+        ...upsertData,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,date' })
+      .select()
+      .single()
+    
+    if (error && error.code === 'PGRST204' && error.message?.includes('updated_at')) {
+      // Fallback without updated_at
+      const { data: retryData, error: retryError } = await supabase
+        .from('daily_metrics')
+        .upsert(upsertData, { onConflict: 'user_id,date' })
+        .select()
+        .single()
+      
+      if (retryError) throw retryError
+      return retryData
+    }
+    
+    if (error) throw error
+    return data
+  } catch (err) {
+    // Fallback: try without updated_at
+    const { data, error } = await supabase
+      .from('daily_metrics')
+      .upsert(upsertData, { onConflict: 'user_id,date' })
+      .select()
+      .single()
+    
+    if (error) throw error
+    return data
+  }
 }
 
 /**
@@ -291,18 +362,41 @@ export async function deleteMealFromSupabase(userId, date, mealId) {
   }), { protein: 0, carbs: 0, fat: 0 })
   
   // Save updated data
-  const { error } = await supabase
-    .from('daily_metrics')
-    .upsert({
-      user_id: userId,
-      date: date,
-      calories: totalCalories,
-      meals: JSON.stringify(meals),
-      macros: JSON.stringify(totalMacros),
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id,date' })
+  const upsertData = {
+    user_id: userId,
+    date: date,
+    calories: totalCalories,
+    meals: meals, // JSONB accepts objects/arrays directly
+    macros: totalMacros // JSONB accepts objects directly
+  }
   
-  if (error) throw error
+  try {
+    const { error } = await supabase
+      .from('daily_metrics')
+      .upsert({
+        ...upsertData,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,date' })
+    
+    if (error && error.code === 'PGRST204' && error.message?.includes('updated_at')) {
+      // Fallback without updated_at
+      const { error: retryError } = await supabase
+        .from('daily_metrics')
+        .upsert(upsertData, { onConflict: 'user_id,date' })
+      
+      if (retryError) throw retryError
+      return
+    }
+    
+    if (error) throw error
+  } catch (err) {
+    // Fallback: try without updated_at
+    const { error } = await supabase
+      .from('daily_metrics')
+      .upsert(upsertData, { onConflict: 'user_id,date' })
+    
+    if (error) throw error
+  }
 }
 
 /**

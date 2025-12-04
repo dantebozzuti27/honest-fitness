@@ -397,25 +397,28 @@ h1,
   border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
   width: 100% !important;
   max-width: 100% !important;
-  max-height: 85vh !important;
-  overflow-y: auto !important;
+  max-height: 70vh !important;
+  overflow: hidden !important;
   box-shadow: var(--shadow-xl) !important;
   -webkit-overflow-scrolling: touch !important;
   z-index: 10000 !important;
   position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 .modalHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px;
+  padding: 20px;
   border-bottom: 1px solid var(--border);
-  min-height: 72px;
+  min-height: 64px;
   position: sticky;
   top: 0;
   background: var(--bg-secondary);
   z-index: 1;
+  flex-shrink: 0;
 }
 
 .modalHeader h2 {
@@ -445,16 +448,21 @@ h1,
 }
 
 .editForm {
-  padding: 24px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .formGroup {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .formGroup label {
@@ -466,13 +474,13 @@ h1,
 .formGroup input,
 .formGroup select,
 .formGroup textarea {
-  padding: 14px;
+  padding: 12px 16px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 17px;
-  min-height: 52px;
+  min-height: 48px;
   font-family: inherit;
 }
 
@@ -486,9 +494,15 @@ h1,
 .formActions {
   display: flex;
   gap: 12px;
-  margin-top: 8px;
-  padding-top: 20px;
+  margin-top: 0;
+  padding: 16px 20px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-secondary);
+  z-index: 1;
+  flex-shrink: 0;
 }
 
 .saveBtn {

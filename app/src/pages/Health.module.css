@@ -218,6 +218,25 @@ h3 {
   color: var(--text-primary);
 }
 
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.sectionHeader h3 {
+  margin: 0;
+  flex: 1;
+}
+
+.sectionNote {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
 .sourcesList {
   display: flex;
   flex-direction: column;

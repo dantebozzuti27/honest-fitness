@@ -20,23 +20,28 @@ export async function saveMealToSupabase(userId, date, meal) {
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
-    .single()
+    .maybeSingle()
   
   let meals = []
-  let totalCalories = meal.calories || 0
-  let totalMacros = { 
-    protein: meal.macros?.protein || meal.protein || 0, 
-    carbs: meal.macros?.carbs || meal.carbs || 0, 
-    fat: meal.macros?.fat || meal.fat || 0 
-  }
+  let totalCalories = 0
+  let totalMacros = { protein: 0, carbs: 0, fat: 0 }
   
   if (existing && existing.meals) {
     try {
       meals = typeof existing.meals === 'string' ? JSON.parse(existing.meals) : existing.meals
-      totalCalories = existing.calories || 0
-      totalMacros = existing.macros ? (typeof existing.macros === 'string' ? JSON.parse(existing.macros) : existing.macros) : { protein: 0, carbs: 0, fat: 0 }
+      if (!Array.isArray(meals)) meals = []
+      totalCalories = Number(existing.calories) || 0
+      if (existing.macros) {
+        totalMacros = typeof existing.macros === 'string' ? JSON.parse(existing.macros) : existing.macros
+        if (!totalMacros || typeof totalMacros !== 'object') {
+          totalMacros = { protein: 0, carbs: 0, fat: 0 }
+        }
+      }
     } catch (e) {
+      console.error('Error parsing existing meals:', e)
       meals = []
+      totalCalories = 0
+      totalMacros = { protein: 0, carbs: 0, fat: 0 }
     }
   }
   
@@ -52,37 +57,61 @@ export async function saveMealToSupabase(userId, date, meal) {
   // Ensure meal has proper structure
   if (!mealToAdd.macros && (mealToAdd.protein || mealToAdd.carbs || mealToAdd.fat)) {
     mealToAdd.macros = {
-      protein: mealToAdd.protein || 0,
-      carbs: mealToAdd.carbs || 0,
-      fat: mealToAdd.fat || 0
+      protein: Number(mealToAdd.protein) || 0,
+      carbs: Number(mealToAdd.carbs) || 0,
+      fat: Number(mealToAdd.fat) || 0
     }
+  } else if (!mealToAdd.macros) {
+    mealToAdd.macros = { protein: 0, carbs: 0, fat: 0 }
   }
   
-  meals.push(mealToAdd)
+  // Ensure calories is a number
+  mealToAdd.calories = Number(mealToAdd.calories) || 0
+  
+  // Check if meal with this ID already exists
+  const existingMealIndex = meals.findIndex(m => m.id === mealToAdd.id)
+  if (existingMealIndex >= 0) {
+    // Update existing meal
+    meals[existingMealIndex] = mealToAdd
+  } else {
+    // Add new meal
+    meals.push(mealToAdd)
+  }
   
   // Recalculate totals
-  totalCalories = meals.reduce((sum, m) => sum + (m.calories || 0), 0)
-  totalMacros = meals.reduce((macros, m) => ({
-    protein: macros.protein + (m.macros?.protein || m.protein || 0),
-    carbs: macros.carbs + (m.macros?.carbs || m.carbs || 0),
-    fat: macros.fat + (m.macros?.fat || m.fat || 0)
-  }), { protein: 0, carbs: 0, fat: 0 })
+  totalCalories = meals.reduce((sum, m) => sum + (Number(m.calories) || 0), 0)
+  totalMacros = meals.reduce((macros, m) => {
+    const mMacros = m.macros || {}
+    return {
+      protein: macros.protein + (Number(mMacros.protein) || Number(m.protein) || 0),
+      carbs: macros.carbs + (Number(mMacros.carbs) || Number(m.carbs) || 0),
+      fat: macros.fat + (Number(mMacros.fat) || Number(m.fat) || 0)
+    }
+  }, { protein: 0, carbs: 0, fat: 0 })
   
-  // Save to database
+  // Save to database - JSONB columns can accept objects directly
+  // But we'll stringify to ensure compatibility
   const { data, error } = await supabase
     .from('daily_metrics')
     .upsert({
       user_id: userId,
       date: date,
       calories: totalCalories,
-      meals: JSON.stringify(meals),
-      macros: JSON.stringify(totalMacros),
+      meals: meals, // JSONB accepts objects/arrays directly
+      macros: totalMacros, // JSONB accepts objects directly
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id,date' })
     .select()
     .single()
   
-  if (error) throw error
+  if (error) {
+    console.error('Error saving meal to Supabase:', error)
+    console.error('Meal data:', mealToAdd)
+    console.error('Meals array:', meals)
+    throw error
+  }
+  
+  console.log('Meal saved successfully:', data)
   return data
 }
 
@@ -95,9 +124,10 @@ export async function getMealsFromSupabase(userId, date) {
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
-    .single()
+    .maybeSingle()
   
   if (error && error.code !== 'PGRST116') {
+    console.error('Error getting meals:', error)
     logError('Error getting meals', error)
     // Return empty data instead of throwing
     return { meals: [], calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, water: 0 }
@@ -110,13 +140,22 @@ export async function getMealsFromSupabase(userId, date) {
   let meals = []
   if (data.meals) {
     try {
-      meals = typeof data.meals === 'string' ? JSON.parse(data.meals) : data.meals
+      // Handle both JSONB (object/array) and JSON string formats
+      if (typeof data.meals === 'string') {
+        meals = JSON.parse(data.meals)
+      } else if (Array.isArray(data.meals)) {
+        meals = data.meals
+      } else {
+        // If it's an object but not an array, try to extract array
+        meals = []
+      }
       // Ensure meals is an array
       if (!Array.isArray(meals)) {
+        console.warn('Meals is not an array:', meals, 'Type:', typeof meals)
         meals = []
       }
     } catch (e) {
-      console.error('Error parsing meals:', e)
+      console.error('Error parsing meals:', e, 'Raw data:', data.meals)
       meals = []
     }
   }
@@ -124,21 +163,31 @@ export async function getMealsFromSupabase(userId, date) {
   let macros = { protein: 0, carbs: 0, fat: 0 }
   if (data.macros) {
     try {
-      macros = typeof data.macros === 'string' ? JSON.parse(data.macros) : data.macros
+      // Handle both JSONB (object) and JSON string formats
+      if (typeof data.macros === 'string') {
+        macros = JSON.parse(data.macros)
+      } else if (typeof data.macros === 'object' && !Array.isArray(data.macros)) {
+        macros = data.macros
+      } else {
+        macros = { protein: 0, carbs: 0, fat: 0 }
+      }
       // Ensure macros is an object
-      if (!macros || typeof macros !== 'object') {
+      if (!macros || typeof macros !== 'object' || Array.isArray(macros)) {
+        console.warn('Macros is not an object:', macros, 'Type:', typeof macros)
         macros = { protein: 0, carbs: 0, fat: 0 }
       }
     } catch (e) {
-      console.error('Error parsing macros:', e)
+      console.error('Error parsing macros:', e, 'Raw data:', data.macros)
       macros = { protein: 0, carbs: 0, fat: 0 }
     }
   }
   
+  console.log('Loaded meals for', date, ':', meals.length, 'meals')
+  
   return {
-    meals,
+    meals: meals || [],
     calories: Number(data.calories) || 0,
-    macros,
+    macros: macros || { protein: 0, carbs: 0, fat: 0 },
     water: Number(data.water) || 0
   }
 }

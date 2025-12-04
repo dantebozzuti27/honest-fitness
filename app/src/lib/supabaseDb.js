@@ -212,7 +212,9 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
       hrv: metrics.hrv || null,
       steps: metrics.steps || null,
       calories: metrics.caloriesBurned || null,
-      weight: metrics.weight || null
+      weight: metrics.weight || null,
+      resting_heart_rate: metrics.restingHeartRate || null,
+      body_temp: metrics.bodyTemp || null
     }, { onConflict: 'user_id,date' })
     .select()
 

@@ -1,0 +1,6 @@
+1. the nutrition page needs to be torn up and rebuilt
+4 sections
+- today (log meal, calories and macros vs goal, todays meals logged)
+- history, table with the date, calories, and macros
+- plan, view meal plan, edit meal plan, create meal plan, delete meal plan
+- goals- show progress vs nutrition goals, allow date filters

@@ -7,6 +7,8 @@ import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import BarChart from '../components/BarChart'
+import Toast from '../components/Toast'
+import { useToast } from '../hooks/useToast'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
@@ -26,6 +28,7 @@ const COMMON_FOODS = [
 export default function Nutrition() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [activeTab, setActiveTab] = useState('Today')
   const [targetCalories, setTargetCalories] = useState(2000)
   const [targetMacros, setTargetMacros] = useState({ protein: 150, carbs: 200, fat: 67 })
@@ -306,47 +309,23 @@ export default function Nutrition() {
 
   const addMeal = async (meal) => {
     if (!user) return
-    const newMeal = {
-      ...meal,
-      id: Date.now().toString(),
-      mealType: meal.mealType || selectedMealType,
-      timestamp: new Date().toISOString()
-    }
-    const updatedMeals = [...meals, newMeal]
-    const updatedCalories = currentCalories + (meal.calories || 0)
-    const updatedMacros = {
-      protein: currentMacros.protein + (meal.macros?.protein || 0),
-      carbs: currentMacros.carbs + (meal.macros?.carbs || 0),
-      fat: currentMacros.fat + (meal.macros?.fat || 0)
-    }
-    setMeals(updatedMeals)
-    setCurrentCalories(updatedCalories)
-    setCurrentMacros(updatedMacros)
-    
-    // Update history data immediately
-    const updatedHistory = {
-      ...historyData,
-      [selectedDate]: {
-        meals: updatedMeals,
-        calories: updatedCalories,
-        macros: updatedMacros,
-        water: waterIntake
-      }
-    }
-    setHistoryData(updatedHistory)
-    
     try {
+      const newMeal = {
+        ...meal,
+        id: Date.now().toString(),
+        mealType: meal.mealType || selectedMealType,
+        timestamp: new Date().toISOString()
+      }
+      
+      // Save to database first
       const { saveMealToSupabase } = await import('../lib/nutritionDb')
       await saveMealToSupabase(user.id, selectedDate, newMeal)
+      
+      // Reload data from database to ensure consistency
+      await loadDateDataFromSupabase(selectedDate)
     } catch (error) {
       logError('Error saving meal to database', error)
-      // Fallback to localStorage
-      if (user) {
-        const saved = localStorage.getItem(`ghostMode_${user.id}`)
-        const data = saved ? JSON.parse(saved) : {}
-        data.historyData = updatedHistory
-        localStorage.setItem(`ghostMode_${user.id}`, JSON.stringify(data))
-      }
+      throw error
     }
   }
 
@@ -361,37 +340,50 @@ export default function Nutrition() {
   }
 
   const handleManualEntry = async () => {
-    const { validateCalories, validateMacro } = await import('../utils/validation')
-    const caloriesValidation = validateCalories(manualEntry.calories)
-    if (!caloriesValidation.valid) {
-      alert(caloriesValidation.error)
+    if (!manualEntry.calories || manualEntry.calories <= 0) {
+      showToast('Please enter calories', 'error')
       return
     }
-    const proteinValidation = validateMacro(manualEntry.protein || 0)
-    const carbsValidation = validateMacro(manualEntry.carbs || 0)
-    const fatValidation = validateMacro(manualEntry.fat || 0)
-    if (!proteinValidation.valid || !carbsValidation.valid || !fatValidation.valid) {
-      alert('Please enter valid macro values (0-1000g)')
-      return
-    }
-    addMeal({
-      calories: caloriesValidation.value,
-      macros: {
-        protein: proteinValidation.value,
-        carbs: carbsValidation.value,
-        fat: fatValidation.value
-      },
-      foods: manualEntry.name ? [manualEntry.name] : [],
-      description: manualEntry.name || 'Manual entry',
-      type: 'manual'
-    })
-    // Clear form after successful save
-    const clearedEntry = { name: '', calories: '', protein: '', carbs: '', fat: '' }
-    setManualEntry(clearedEntry)
-    setShowManualEntry(false)
-    // Save to localStorage to persist if user navigates away
-    if (user) {
-      localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(clearedEntry))
+    
+    try {
+      const { validateCalories, validateMacro } = await import('../utils/validation')
+      const caloriesValidation = validateCalories(manualEntry.calories)
+      if (!caloriesValidation.valid) {
+        showToast(caloriesValidation.error, 'error')
+        return
+      }
+      const proteinValidation = validateMacro(manualEntry.protein || 0)
+      const carbsValidation = validateMacro(manualEntry.carbs || 0)
+      const fatValidation = validateMacro(manualEntry.fat || 0)
+      if (!proteinValidation.valid || !carbsValidation.valid || !fatValidation.valid) {
+        showToast('Please enter valid macro values (0-1000g)', 'error')
+        return
+      }
+      
+      await addMeal({
+        calories: caloriesValidation.value,
+        macros: {
+          protein: proteinValidation.value,
+          carbs: carbsValidation.value,
+          fat: fatValidation.value
+        },
+        foods: manualEntry.name ? [manualEntry.name] : [],
+        description: manualEntry.name || 'Manual entry',
+        type: 'manual'
+      })
+      
+      // Clear form after successful save
+      const clearedEntry = { name: '', calories: '', protein: '', carbs: '', fat: '' }
+      setManualEntry(clearedEntry)
+      setShowManualEntry(false)
+      // Save to localStorage to persist if user navigates away
+      if (user) {
+        localStorage.setItem(`nutrition_manual_entry_${user.id}`, JSON.stringify(clearedEntry))
+      }
+      showToast('Meal logged successfully!', 'success')
+    } catch (error) {
+      // Error already handled in addMeal
+      showToast('Failed to log meal. Please try again.', 'error')
     }
   }
 
@@ -630,7 +622,7 @@ export default function Nutrition() {
         {activeTab === 'Today' && (
           <button 
             className={styles.plusBtn}
-            onClick={() => setShowQuickAdd(true)}
+            onClick={() => setShowManualEntry(true)}
             aria-label="Add meal"
           >
             <span className={styles.plusIcon}>+</span>
@@ -656,7 +648,7 @@ export default function Nutrition() {
             {/* Log Meal Button */}
             <button
               className={styles.logMealBtn}
-              onClick={() => setShowQuickAdd(true)}
+              onClick={() => setShowManualEntry(true)}
             >
               Log meal
             </button>
@@ -869,10 +861,23 @@ export default function Nutrition() {
               )}
             </div>
 
+            {/* Log Meal Modal */}
             {showManualEntry && (
-              <div className={styles.manualEntryCard}>
-                <h3>Add Meal Manually</h3>
-                <div className={styles.manualEntryForm}>
+              <>
+                <div className={styles.overlay} onClick={() => {
+                  setShowManualEntry(false)
+                  setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
+                }} />
+                <div className={styles.modal} onClick={e => e.stopPropagation()}>
+                  <div className={styles.modalHeader}>
+                    <h2>Log Meal</h2>
+                    <button onClick={() => {
+                      setShowManualEntry(false)
+                      setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
+                    }}>X</button>
+                  </div>
+                  <div className={styles.modalContent}>
+                    <div className={styles.manualEntryForm}>
                   <div className={styles.formRow}>
                     <label>Food Name (optional)</label>
                     <input
@@ -962,7 +967,7 @@ export default function Nutrition() {
                       />
                     </div>
                   </div>
-                  <div className={styles.manualEntryActions}>
+                  <div className={styles.modalActions}>
                     <button
                       className={styles.cancelBtn}
                       onClick={() => {
@@ -974,14 +979,20 @@ export default function Nutrition() {
                     </button>
                     <button
                       className={styles.submitBtn}
-                      onClick={handleManualEntry}
+                      onClick={async () => {
+                        await handleManualEntry()
+                        // Reload data after saving
+                        if (user) {
+                          await loadDateDataFromSupabase(selectedDate)
+                        }
+                      }}
                       disabled={!manualEntry.calories || manualEntry.calories <= 0}
                     >
-                      Add Meal
+                      Save
                     </button>
                   </div>
                 </div>
-              </div>
+              </>
             )}
 
             <div className={styles.mealTypeSelector}>
@@ -1399,6 +1410,16 @@ export default function Nutrition() {
           </div>
         )}
       </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          duration={toast.duration}
+          onClose={hideToast}
+        />
+      )}
     </div>
   )
 }

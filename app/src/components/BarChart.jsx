@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useRef, useEffect } from 'react'
 import styles from './BarChart.module.css'
 
 export default function BarChart({ 
@@ -8,17 +8,98 @@ export default function BarChart({
   color = '#ff2d2d', 
   showValues = true,
   xAxisLabel = '',
-  yAxisLabel = ''
+  yAxisLabel = '',
+  dates = null, // Array of dates corresponding to each bar
+  onBarClick = null, // Callback when a bar is clicked
+  dateData = null // Full date data object for detail view
 }) {
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState(0)
+  const [selectedBar, setSelectedBar] = useState(null)
+  const [showDetail, setShowDetail] = useState(false)
+  const containerRef = useRef(null)
+  const touchStartRef = useRef(null)
+  const lastPinchDistanceRef = useRef(null)
   const chartData = useMemo(() => {
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
     
     const values = Object.values(data).map(v => Number(v) || 0)
     const keys = labels || Object.keys(data)
     const max = Math.max(...values, 1)
+    const dateKeys = dates || keys // Use dates if provided, otherwise use keys
     
-    return { values, keys, max }
-  }, [data, labels])
+    return { values, keys, max, dateKeys }
+  }, [data, labels, dates])
+
+  // Pinch/zoom handlers
+  const getDistance = (touch1, touch2) => {
+    const dx = touch2.clientX - touch1.clientX
+    const dy = touch2.clientY - touch1.clientY
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  const handleTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      touchStartRef.current = {
+        touches: [e.touches[0], e.touches[1]],
+        zoom,
+        pan
+      }
+      lastPinchDistanceRef.current = getDistance(e.touches[0], e.touches[1])
+    } else if (e.touches.length === 1) {
+      touchStartRef.current = {
+        touches: [e.touches[0]],
+        zoom,
+        pan,
+        startX: e.touches[0].clientX
+      }
+    }
+  }
+
+  const handleTouchMove = (e) => {
+    if (!touchStartRef.current) return
+    
+    if (e.touches.length === 2 && touchStartRef.current.touches?.length === 2) {
+      // Pinch zoom
+      const currentDistance = getDistance(e.touches[0], e.touches[1])
+      const initialDistance = lastPinchDistanceRef.current
+      
+      if (initialDistance > 0) {
+        const scale = currentDistance / initialDistance
+        const newZoom = Math.max(0.5, Math.min(5, touchStartRef.current.zoom * scale))
+        setZoom(newZoom)
+        lastPinchDistanceRef.current = currentDistance
+      }
+    } else if (e.touches.length === 1 && touchStartRef.current.startX !== undefined) {
+      // Pan
+      const deltaX = e.touches[0].clientX - touchStartRef.current.startX
+      const maxPan = (zoom - 1) * 100
+      const newPan = Math.max(-maxPan, Math.min(maxPan, touchStartRef.current.pan + deltaX / 10))
+      setPan(newPan)
+    }
+  }
+
+  const handleTouchEnd = () => {
+    touchStartRef.current = null
+    lastPinchDistanceRef.current = null
+  }
+
+  // Reset zoom/pan
+  const handleDoubleClick = () => {
+    setZoom(1)
+    setPan(0)
+  }
+
+  // Bar click handler
+  const handleBarClick = (index, value, key, date) => {
+    if (onBarClick) {
+      onBarClick({ index, value, key, date, fullData: dateData?.[date] || dateData?.[key] })
+    } else {
+      // Default behavior: show detail modal
+      setSelectedBar({ index, value, key, date, fullData: dateData?.[date] || dateData?.[key] })
+      setShowDetail(true)
+    }
+  }
   
   if (!chartData || chartData.values.length === 0) {
     return <div className={styles.emptyChart}>No data available</div>
@@ -38,11 +119,29 @@ export default function BarChart({
   })
   
   return (
-    <div className={styles.chartContainer}>
-      {yAxisLabel && (
-        <div className={styles.yAxisLabel}>{yAxisLabel}</div>
-      )}
-      <svg viewBox="0 0 100 100" className={styles.chart} preserveAspectRatio="xMidYMid meet">
+    <>
+      <div 
+        className={styles.chartContainer}
+        ref={containerRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onDoubleClick={handleDoubleClick}
+        style={{
+          transform: `scale(${zoom}) translateX(${pan}px)`,
+          transformOrigin: 'center center',
+          transition: touchStartRef.current ? 'none' : 'transform 0.2s ease-out'
+        }}
+      >
+        {zoom !== 1 && (
+          <div className={styles.zoomIndicator}>
+            {Math.round(zoom * 100)}% • Double tap to reset
+          </div>
+        )}
+        {yAxisLabel && (
+          <div className={styles.yAxisLabel}>{yAxisLabel}</div>
+        )}
+        <svg viewBox="0 0 100 100" className={styles.chart} preserveAspectRatio="xMidYMid meet">
         {/* Y-axis line */}
         <line
           x1={padding.left}
@@ -95,6 +194,8 @@ export default function BarChart({
           const barHeight = chartData.max > 0 ? (value / chartData.max) * chartHeight : 0
           const x = padding.left + i * barSpacing + (barSpacing - barWidth) / 2
           const y = padding.top + chartHeight - barHeight
+          const date = chartData.dateKeys[i]
+          const key = chartData.keys[i]
           
           return (
             <g key={i}>
@@ -105,6 +206,8 @@ export default function BarChart({
                 height={Math.max(0.5, barHeight)}
                 fill={color}
                 className={styles.bar}
+                onClick={() => handleBarClick(i, value, key, date)}
+                style={{ cursor: onBarClick || dateData ? 'pointer' : 'default' }}
               />
               {showValues && value > 0 && barHeight > 3 && (
                 <text
@@ -114,6 +217,7 @@ export default function BarChart({
                   fontSize="1"
                   fill="#ffffff"
                   className={styles.value}
+                  pointerEvents="none"
                 >
                   {value > 1000 ? `${(value / 1000).toFixed(1)}k` : Math.round(value)}
                 </text>
@@ -135,7 +239,43 @@ export default function BarChart({
       {xAxisLabel && (
         <div className={styles.xAxisLabelText}>{xAxisLabel}</div>
       )}
-    </div>
+      </div>
+
+      {/* Detail Modal */}
+      {showDetail && selectedBar && (
+        <>
+          <div className={styles.modalOverlay} onClick={() => setShowDetail(false)} />
+          <div className={styles.detailModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Day Details</h3>
+              <button className={styles.closeBtn} onClick={() => setShowDetail(false)}>×</button>
+            </div>
+            <div className={styles.modalContent}>
+              <div className={styles.detailRow}>
+                <span className={styles.detailLabel}>Date:</span>
+                <span className={styles.detailValue}>{selectedBar.date || selectedBar.key}</span>
+              </div>
+              <div className={styles.detailRow}>
+                <span className={styles.detailLabel}>Value:</span>
+                <span className={styles.detailValue}>
+                  {selectedBar.value > 1000 
+                    ? `${(selectedBar.value / 1000).toFixed(1)}k` 
+                    : Math.round(selectedBar.value)}
+                </span>
+              </div>
+              {selectedBar.fullData && (
+                <div className={styles.detailData}>
+                  <h4>Full Data:</h4>
+                  <pre className={styles.dataPreview}>
+                    {JSON.stringify(selectedBar.fullData, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </>
   )
 }
 

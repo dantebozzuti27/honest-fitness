@@ -761,11 +761,14 @@ export default function Analytics() {
     const sortedWorkouts = [...data.workouts].sort((a, b) => new Date(a.date) - new Date(b.date))
     
     // Duration over time
-    const durationData = sortedWorkouts.slice(-14).map(w => w.duration || 0)
-    const durationLabels = sortedWorkouts.slice(-14).map(w => {
+    const last14Workouts = sortedWorkouts.slice(-14)
+    const durationData = last14Workouts.map(w => w.duration || 0)
+    const durationLabels = last14Workouts.map(w => {
       const d = new Date(w.date + 'T12:00:00')
       return `${d.getMonth() + 1}/${d.getDate()}`
     })
+    const durationDates = last14Workouts.map(w => w.date)
+    const durationDateData = Object.fromEntries(last14Workouts.map(w => [w.date, w]))
     
     return (
       <div className={styles.historyContainer}>
@@ -800,6 +803,8 @@ export default function Analytics() {
                       const d = new Date(k + 'T12:00:00')
                       return `${d.getMonth() + 1}/${d.getDate()}`
                     })}
+                    dates={Object.keys(weeklyWorkoutData)}
+                    dateData={weeklyWorkoutData}
                     height={150}
                     color="#ff2d2d"
                     xAxisLabel="Week"
@@ -812,6 +817,8 @@ export default function Analytics() {
                   <h4 className={styles.chartTitle}>Workout Duration (Last 14 Days)</h4>
                   <BarChart 
                     data={Object.fromEntries(durationData.map((d, i) => [durationLabels[i], d]))} 
+                    dates={durationDates}
+                    dateData={durationDateData}
                     height={150} 
                     color="#ff2d2d"
                     xAxisLabel="Date"
@@ -858,35 +865,50 @@ export default function Analytics() {
     const recentMetrics = data.metrics.slice(-30).reverse()
     
     // Prepare chart data
-    const weightData = recentMetrics.filter(m => m.weight).map(m => m.weight)
-    const weightLabels = recentMetrics.filter(m => m.weight).map(m => {
+    const weightMetrics = recentMetrics.filter(m => m.weight)
+    const weightData = weightMetrics.map(m => m.weight)
+    const weightLabels = weightMetrics.map(m => {
       const d = new Date(m.date + 'T12:00:00')
       return `${d.getMonth() + 1}/${d.getDate()}`
     })
+    const weightDates = weightMetrics.map(m => m.date)
+    const weightDateData = Object.fromEntries(weightMetrics.map(m => [m.date, m]))
     
-    const sleepData = recentMetrics.filter(m => m.sleep_score).map(m => m.sleep_score)
-    const sleepLabels = recentMetrics.filter(m => m.sleep_score).map(m => {
+    const sleepMetrics = recentMetrics.filter(m => m.sleep_score)
+    const sleepData = sleepMetrics.map(m => m.sleep_score)
+    const sleepLabels = sleepMetrics.map(m => {
       const d = new Date(m.date + 'T12:00:00')
       return `${d.getMonth() + 1}/${d.getDate()}`
     })
+    const sleepDates = sleepMetrics.map(m => m.date)
+    const sleepDateData = Object.fromEntries(sleepMetrics.map(m => [m.date, m]))
     
-    const stepsData = recentMetrics.filter(m => m.steps).map(m => m.steps)
-    const stepsLabels = recentMetrics.filter(m => m.steps).map(m => {
+    const stepsMetrics = recentMetrics.filter(m => m.steps)
+    const stepsData = stepsMetrics.map(m => m.steps)
+    const stepsLabels = stepsMetrics.map(m => {
       const d = new Date(m.date + 'T12:00:00')
       return `${d.getMonth() + 1}/${d.getDate()}`
     })
+    const stepsDates = stepsMetrics.map(m => m.date)
+    const stepsDateData = Object.fromEntries(stepsMetrics.map(m => [m.date, m]))
     
-    const hrvData = recentMetrics.filter(m => m.hrv).map(m => m.hrv)
-    const hrvLabels = recentMetrics.filter(m => m.hrv).map(m => {
+    const hrvMetrics = recentMetrics.filter(m => m.hrv)
+    const hrvData = hrvMetrics.map(m => m.hrv)
+    const hrvLabels = hrvMetrics.map(m => {
       const d = new Date(m.date + 'T12:00:00')
       return `${d.getMonth() + 1}/${d.getDate()}`
     })
+    const hrvDates = hrvMetrics.map(m => m.date)
+    const hrvDateData = Object.fromEntries(hrvMetrics.map(m => [m.date, m]))
     
-    const caloriesData = recentMetrics.filter(m => m.calories).map(m => m.calories)
-    const caloriesLabels = recentMetrics.filter(m => m.calories).map(m => {
+    const caloriesMetrics = recentMetrics.filter(m => m.calories)
+    const caloriesData = caloriesMetrics.map(m => m.calories)
+    const caloriesLabels = caloriesMetrics.map(m => {
       const d = new Date(m.date + 'T12:00:00')
       return `${d.getMonth() + 1}/${d.getDate()}`
     })
+    const caloriesDates = caloriesMetrics.map(m => m.date)
+    const caloriesDateData = Object.fromEntries(caloriesMetrics.map(m => [m.date, m]))
     
     return (
       <div className={styles.metricsContainer}>
@@ -945,6 +967,8 @@ export default function Analytics() {
                   <h4 className={styles.chartTitle}>Weight (lbs)</h4>
                   <BarChart 
                     data={Object.fromEntries(weightData.map((d, i) => [weightLabels[i], d]))} 
+                    dates={weightDates}
+                    dateData={weightDateData}
                     height={150} 
                     color="#ff2d2d"
                     xAxisLabel="Date"
@@ -957,6 +981,8 @@ export default function Analytics() {
                   <h4 className={styles.chartTitle}>Sleep Score</h4>
                   <BarChart 
                     data={Object.fromEntries(sleepData.map((d, i) => [sleepLabels[i], d]))} 
+                    dates={sleepDates}
+                    dateData={sleepDateData}
                     height={150} 
                     color="#ff2d2d"
                     xAxisLabel="Date"
@@ -969,6 +995,8 @@ export default function Analytics() {
                   <h4 className={styles.chartTitle}>Steps</h4>
                   <BarChart 
                     data={Object.fromEntries(stepsData.map((d, i) => [stepsLabels[i], d]))} 
+                    dates={stepsDates}
+                    dateData={stepsDateData}
                     height={150} 
                     color="#ff2d2d"
                     xAxisLabel="Date"
@@ -981,6 +1009,8 @@ export default function Analytics() {
                   <h4 className={styles.chartTitle}>HRV (ms)</h4>
                   <BarChart 
                     data={Object.fromEntries(hrvData.map((d, i) => [hrvLabels[i], d]))} 
+                    dates={hrvDates}
+                    dateData={hrvDateData}
                     height={150} 
                     color="#ff2d2d"
                     xAxisLabel="Date"
@@ -992,7 +1022,9 @@ export default function Analytics() {
                 <>
                   <h4 className={styles.chartTitle}>Calories</h4>
                   <BarChart 
-                    data={Object.fromEntries(caloriesData.map((d, i) => [caloriesLabels[i], d]))} 
+                    data={Object.fromEntries(caloriesData.map((d, i) => [caloriesLabels[i], d]))}
+                    dates={caloriesDates}
+                    dateData={caloriesDateData} 
                     height={150} 
                     color="#ff2d2d"
                     xAxisLabel="Date"
@@ -1166,6 +1198,8 @@ export default function Analytics() {
                   const d = new Date(k + 'T12:00:00')
                   return `${d.getMonth() + 1}/${d.getDate()}`
                 })}
+                dates={Object.keys(frequencyChartData)}
+                dateData={frequencyChartData}
                 height={150} 
                 color="#ff2d2d"
                 xAxisLabel="Date"
@@ -1182,6 +1216,8 @@ export default function Analytics() {
                   const d = new Date(k + 'T12:00:00')
                   return `${d.getMonth() + 1}/${d.getDate()}`
                 })}
+                dates={Object.keys(volumeChartData)}
+                dateData={volumeChartData}
                 height={150} 
                 color="#ff2d2d"
                 xAxisLabel="Week"

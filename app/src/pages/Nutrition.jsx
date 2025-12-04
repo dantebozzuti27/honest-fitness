@@ -1408,7 +1408,6 @@ export default function Nutrition() {
               </div>
             </div>
           </div>
-          </div>
         )}
 
       {/* Toast Notification */}

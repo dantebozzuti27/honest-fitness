@@ -1261,153 +1261,153 @@ export default function Nutrition() {
 
       {/* Weekly Meal Plan Editor Modal */}
       {showMealPlanEditor && weeklyMealPlan && (
-          <div className={styles.overlay} onClick={() => setShowMealPlanEditor(false)}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()}>
-              <div className={styles.modalHeader}>
-                <h2>Structured Meal Plan</h2>
-                <button onClick={() => setShowMealPlanEditor(false)}>X</button>
-              </div>
-              <div className={styles.modalContent}>
-                <div className={styles.mealPlanEditor}>
-                  {Object.entries(weeklyMealPlan).map(([day, dayMeals]) => (
-                    <div key={day} className={styles.mealPlanDayEditor}>
-                      <h4>{day}</h4>
-                      {['breakfast', 'lunch', 'dinner'].map(mealType => {
-                        const meal = dayMeals[mealType] || { name: '', calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, time: mealType === 'breakfast' ? '08:00' : mealType === 'lunch' ? '12:00' : '18:00' }
-                        return (
-                          <div key={mealType} className={styles.mealPlanMealInput}>
-                            <label className={styles.mealPlanMealLabel}>
-                              {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
-                            </label>
-                            <div className={styles.mealPlanMealFields}>
-                              <div className={styles.mealPlanFieldGroup}>
-                                <label className={styles.mealPlanFieldLabel}>Meal Name</label>
-                                <input
-                                  type="text"
-                                  placeholder="e.g., Grilled Chicken & Rice"
-                                  value={meal.name || ''}
-                                  onChange={(e) => {
-                                    setWeeklyMealPlan(prev => ({
-                                      ...prev,
-                                      [day]: {
-                                        ...prev[day],
-                                        [mealType]: { ...meal, name: e.target.value }
-                                      }
-                                    }))
-                                  }}
-                                  className={styles.mealPlanInput}
-                                />
-                              </div>
-                              <div className={styles.mealPlanFieldGroup}>
-                                <label className={styles.mealPlanFieldLabel}>Time</label>
-                                <input
-                                  type="time"
-                                  value={meal.time || (mealType === 'breakfast' ? '08:00' : mealType === 'lunch' ? '12:00' : '18:00')}
-                                  onChange={(e) => {
-                                    setWeeklyMealPlan(prev => ({
-                                      ...prev,
-                                      [day]: {
-                                        ...prev[day],
-                                        [mealType]: { ...meal, time: e.target.value }
-                                      }
-                                    }))
-                                  }}
-                                  className={styles.mealPlanTimeInput}
-                                />
-                              </div>
-                              <div className={styles.mealPlanFieldGroup}>
-                                <label className={styles.mealPlanFieldLabel}>Calories</label>
-                                <input
-                                  type="number"
-                                  placeholder="0"
-                                  value={meal.calories || ''}
-                                  onChange={(e) => {
-                                    setWeeklyMealPlan(prev => ({
-                                      ...prev,
-                                      [day]: {
-                                        ...prev[day],
-                                        [mealType]: { ...meal, calories: parseInt(e.target.value) || 0 }
-                                      }
-                                    }))
-                                  }}
-                                  className={styles.mealPlanInput}
-                                  min="0"
-                                />
-                              </div>
-                              <div className={styles.mealPlanFieldGroup}>
-                                <label className={styles.mealPlanFieldLabel}>Protein (g)</label>
-                                <input
-                                  type="number"
-                                  placeholder="0"
-                                  value={meal.macros?.protein || ''}
-                                  onChange={(e) => {
-                                    setWeeklyMealPlan(prev => ({
-                                      ...prev,
-                                      [day]: {
-                                        ...prev[day],
-                                        [mealType]: { ...meal, macros: { ...meal.macros, protein: parseInt(e.target.value) || 0 } } 
-                                      }
-                                    }))
-                                  }}
-                                  className={styles.mealPlanInput}
-                                  min="0"
-                                />
-                              </div>
-                              <div className={styles.mealPlanFieldGroup}>
-                                <label className={styles.mealPlanFieldLabel}>Carbs (g)</label>
-                                <input
-                                  type="number"
-                                  placeholder="0"
-                                  value={meal.macros?.carbs || ''}
-                                  onChange={(e) => {
-                                    setWeeklyMealPlan(prev => ({
-                                      ...prev,
-                                      [day]: {
-                                        ...prev[day],
-                                        [mealType]: { ...meal, macros: { ...meal.macros, carbs: parseInt(e.target.value) || 0 } }
-                                      }
-                                    }))
-                                  }}
-                                  className={styles.mealPlanInput}
-                                  min="0"
-                                />
-                              </div>
-                              <div className={styles.mealPlanFieldGroup}>
-                                <label className={styles.mealPlanFieldLabel}>Fat (g)</label>
-                                <input
-                                  type="number"
-                                  placeholder="0"
-                                  value={meal.macros?.fat || ''}
-                                  onChange={(e) => {
-                                    setWeeklyMealPlan(prev => ({
-                                      ...prev,
-                                      [day]: {
-                                        ...prev[day],
-                                        [mealType]: { ...meal, macros: { ...meal.macros, fat: parseInt(e.target.value) || 0 } }
-                                      }
-                                    }))
-                                  }}
-                                  className={styles.mealPlanInput}
-                                  min="0"
-                                />
-                              </div>
+        <div className={styles.overlay} onClick={() => setShowMealPlanEditor(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Structured Meal Plan</h2>
+              <button onClick={() => setShowMealPlanEditor(false)}>X</button>
+            </div>
+            <div className={styles.modalContent}>
+              <div className={styles.mealPlanEditor}>
+                {Object.entries(weeklyMealPlan).map(([day, dayMeals]) => (
+                  <div key={day} className={styles.mealPlanDayEditor}>
+                    <h4>{day}</h4>
+                    {['breakfast', 'lunch', 'dinner'].map(mealType => {
+                      const meal = dayMeals[mealType] || { name: '', calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, time: mealType === 'breakfast' ? '08:00' : mealType === 'lunch' ? '12:00' : '18:00' }
+                      return (
+                        <div key={mealType} className={styles.mealPlanMealInput}>
+                          <label className={styles.mealPlanMealLabel}>
+                            {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
+                          </label>
+                          <div className={styles.mealPlanMealFields}>
+                            <div className={styles.mealPlanFieldGroup}>
+                              <label className={styles.mealPlanFieldLabel}>Meal Name</label>
+                              <input
+                                type="text"
+                                placeholder="e.g., Grilled Chicken & Rice"
+                                value={meal.name || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, name: e.target.value }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                              />
+                            </div>
+                            <div className={styles.mealPlanFieldGroup}>
+                              <label className={styles.mealPlanFieldLabel}>Time</label>
+                              <input
+                                type="time"
+                                value={meal.time || (mealType === 'breakfast' ? '08:00' : mealType === 'lunch' ? '12:00' : '18:00')}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, time: e.target.value }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanTimeInput}
+                              />
+                            </div>
+                            <div className={styles.mealPlanFieldGroup}>
+                              <label className={styles.mealPlanFieldLabel}>Calories</label>
+                              <input
+                                type="number"
+                                placeholder="0"
+                                value={meal.calories || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, calories: parseInt(e.target.value) || 0 }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                                min="0"
+                              />
+                            </div>
+                            <div className={styles.mealPlanFieldGroup}>
+                              <label className={styles.mealPlanFieldLabel}>Protein (g)</label>
+                              <input
+                                type="number"
+                                placeholder="0"
+                                value={meal.macros?.protein || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, macros: { ...meal.macros, protein: parseInt(e.target.value) || 0 } } 
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                                min="0"
+                              />
+                            </div>
+                            <div className={styles.mealPlanFieldGroup}>
+                              <label className={styles.mealPlanFieldLabel}>Carbs (g)</label>
+                              <input
+                                type="number"
+                                placeholder="0"
+                                value={meal.macros?.carbs || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, macros: { ...meal.macros, carbs: parseInt(e.target.value) || 0 } }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                                min="0"
+                              />
+                            </div>
+                            <div className={styles.mealPlanFieldGroup}>
+                              <label className={styles.mealPlanFieldLabel}>Fat (g)</label>
+                              <input
+                                type="number"
+                                placeholder="0"
+                                value={meal.macros?.fat || ''}
+                                onChange={(e) => {
+                                  setWeeklyMealPlan(prev => ({
+                                    ...prev,
+                                    [day]: {
+                                      ...prev[day],
+                                      [mealType]: { ...meal, macros: { ...meal.macros, fat: parseInt(e.target.value) || 0 } }
+                                    }
+                                  }))
+                                }}
+                                className={styles.mealPlanInput}
+                                min="0"
+                              />
                             </div>
                           </div>
-                        )
-                      })}
-                    </div>
-                  ))}
-                </div>
-                <div className={styles.modalActions}>
-                  <button className={styles.cancelBtn} onClick={() => setShowMealPlanEditor(false)}>
-                    Cancel
-                  </button>
-                  <button className={styles.saveBtn} onClick={saveWeeklyMealPlan}>
-                    Save Plan
-                  </button>
-                </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+              <div className={styles.modalActions}>
+                <button className={styles.cancelBtn} onClick={() => setShowMealPlanEditor(false)}>
+                  Cancel
+                </button>
+                <button className={styles.saveBtn} onClick={saveWeeklyMealPlan}>
+                  Save Plan
+                </button>
               </div>
             </div>
+          </div>
           </div>
         )}
 

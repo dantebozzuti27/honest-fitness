@@ -967,6 +967,7 @@ export default function Nutrition() {
                       />
                     </div>
                   </div>
+                    </div>
                   <div className={styles.modalActions}>
                     <button
                       className={styles.cancelBtn}
@@ -990,6 +991,7 @@ export default function Nutrition() {
                     >
                       Save
                     </button>
+                  </div>
                   </div>
                 </div>
               </>
@@ -1407,6 +1409,7 @@ export default function Nutrition() {
                 </button>
               </div>
             </div>
+          </div>
           </div>
         )}
 

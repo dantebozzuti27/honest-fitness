@@ -204,7 +204,8 @@ export async function deleteWorkoutFromSupabase(workoutId) {
 export async function saveMetricsToSupabase(userId, date, metrics) {
   console.log('saveMetricsToSupabase called with:', { userId, date, metrics })
   
-  const metricsToSave = {
+  // Base metrics that should always exist
+  const baseMetrics = {
     user_id: userId,
     date: date,
     sleep_score: metrics.sleepScore !== null && metrics.sleepScore !== undefined && metrics.sleepScore !== '' ? Number(metrics.sleepScore) : null,
@@ -212,25 +213,74 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
     hrv: metrics.hrv !== null && metrics.hrv !== undefined && metrics.hrv !== '' ? Number(metrics.hrv) : null,
     steps: metrics.steps !== null && metrics.steps !== undefined && metrics.steps !== '' ? Number(metrics.steps) : null,
     calories: metrics.caloriesBurned !== null && metrics.caloriesBurned !== undefined && metrics.caloriesBurned !== '' ? Number(metrics.caloriesBurned) : null,
-    weight: metrics.weight !== null && metrics.weight !== undefined && metrics.weight !== '' ? Number(metrics.weight) : null,
-    resting_heart_rate: metrics.restingHeartRate !== null && metrics.restingHeartRate !== undefined && metrics.restingHeartRate !== '' ? Number(metrics.restingHeartRate) : null,
-    body_temp: metrics.bodyTemp !== null && metrics.bodyTemp !== undefined && metrics.bodyTemp !== '' ? Number(metrics.bodyTemp) : null
+    weight: metrics.weight !== null && metrics.weight !== undefined && metrics.weight !== '' ? Number(metrics.weight) : null
   }
+  
+  // Optional metrics that may not exist in schema yet
+  const optionalMetrics = {}
+  if (metrics.restingHeartRate !== null && metrics.restingHeartRate !== undefined && metrics.restingHeartRate !== '') {
+    optionalMetrics.resting_heart_rate = Number(metrics.restingHeartRate)
+  }
+  if (metrics.bodyTemp !== null && metrics.bodyTemp !== undefined && metrics.bodyTemp !== '') {
+    optionalMetrics.body_temp = Number(metrics.bodyTemp)
+  }
+  
+  const metricsToSave = { ...baseMetrics, ...optionalMetrics }
   
   console.log('saveMetricsToSupabase: Prepared data:', metricsToSave)
   
-  const { data, error } = await supabase
-    .from('daily_metrics')
-    .upsert(metricsToSave, { onConflict: 'user_id,date' })
-    .select()
+  try {
+    // Try with all metrics first
+    const { data, error } = await supabase
+      .from('daily_metrics')
+      .upsert(metricsToSave, { onConflict: 'user_id,date' })
+      .select()
 
-  if (error) {
-    console.error('saveMetricsToSupabase: Error from Supabase:', error)
-    throw error
+    if (error) {
+      // If error is about missing columns, try without optional metrics
+      if (error.code === 'PGRST204' && (
+        error.message?.includes('resting_heart_rate') || 
+        error.message?.includes('body_temp')
+      )) {
+        console.warn('Optional columns missing, retrying with base metrics only')
+        const { data: retryData, error: retryError } = await supabase
+          .from('daily_metrics')
+          .upsert(baseMetrics, { onConflict: 'user_id,date' })
+          .select()
+        
+        if (retryError) {
+          console.error('saveMetricsToSupabase: Error from Supabase (retry):', retryError)
+          throw retryError
+        }
+        
+        console.log('saveMetricsToSupabase: Success (without optional columns), returned data:', retryData)
+        return retryData
+      }
+      
+      console.error('saveMetricsToSupabase: Error from Supabase:', error)
+      throw error
+    }
+    
+    console.log('saveMetricsToSupabase: Success, returned data:', data)
+    return data
+  } catch (err) {
+    // Final fallback: try with base metrics only
+    if (err.code === 'PGRST204') {
+      console.warn('Columns missing, using base metrics only')
+      const { data, error } = await supabase
+        .from('daily_metrics')
+        .upsert(baseMetrics, { onConflict: 'user_id,date' })
+        .select()
+      
+      if (error) {
+        console.error('saveMetricsToSupabase: Error from Supabase (fallback):', error)
+        throw error
+      }
+      
+      return data
+    }
+    throw err
   }
-  
-  console.log('saveMetricsToSupabase: Success, returned data:', data)
-  return data
 }
 
 export async function getMetricsFromSupabase(userId, startDate, endDate) {

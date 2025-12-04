@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS honest_readiness (
   UNIQUE(user_id, date)
 );
 
--- Add body_temp to daily_metrics if it doesn't exist
+-- Add body_temp and resting_heart_rate to daily_metrics if they don't exist
 DO $$ 
 BEGIN
   IF NOT EXISTS (
@@ -97,6 +97,13 @@ BEGIN
     WHERE table_name = 'daily_metrics' AND column_name = 'body_temp'
   ) THEN
     ALTER TABLE daily_metrics ADD COLUMN body_temp NUMERIC;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'daily_metrics' AND column_name = 'resting_heart_rate'
+  ) THEN
+    ALTER TABLE daily_metrics ADD COLUMN resting_heart_rate NUMERIC;
   END IF;
 END $$;
 

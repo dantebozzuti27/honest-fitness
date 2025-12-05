@@ -41,10 +41,19 @@ export default async function handler(req, res) {
       .select('*')
       .eq('user_id', userId)
       .eq('provider', 'fitbit')
-      .single()
+      .maybeSingle()
 
-    if (accountError || !account) {
-      console.error('Fitbit account not found:', accountError)
+    if (accountError) {
+      console.error('Error fetching Fitbit account:', accountError)
+      return res.status(500).json({ 
+        message: 'Database error',
+        error: accountError.message,
+        success: false
+      })
+    }
+
+    if (!account) {
+      console.error('Fitbit account not found for user:', userId)
       return res.status(404).json({ 
         message: 'Fitbit account not connected',
         error: 'Fitbit account not connected',
@@ -60,7 +69,15 @@ export default async function handler(req, res) {
 
     // Check if Fitbit credentials are configured
     if (!process.env.FITBIT_CLIENT_ID || !process.env.FITBIT_CLIENT_SECRET) {
-      throw new Error('Fitbit integration not configured. Please set FITBIT_CLIENT_ID and FITBIT_CLIENT_SECRET environment variables.')
+      console.error('Missing Fitbit credentials:', {
+        hasClientId: !!process.env.FITBIT_CLIENT_ID,
+        hasSecret: !!process.env.FITBIT_CLIENT_SECRET
+      })
+      return res.status(500).json({
+        error: 'Fitbit integration not configured',
+        message: 'Server configuration error. Please contact support.',
+        success: false
+      })
     }
     
     if (!expiresAt || expiresAt <= new Date(now.getTime() + 10 * 60 * 1000)) {

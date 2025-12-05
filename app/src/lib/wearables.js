@@ -188,9 +188,9 @@ export async function getMostRecentFitbitData(userId) {
     .eq('user_id', userId)
     .order('date', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle()
   
-  if (error && error.code !== 'PGRST116') {
+  if (error) {
     console.error('Error getting most recent Fitbit data:', error)
     return null
   }

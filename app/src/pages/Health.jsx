@@ -14,10 +14,13 @@ import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import styles from './Health.module.css'
 
+const TABS = ['Today', 'History', 'Log', 'Goals']
+
 export default function Health() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const [activeTab, setActiveTab] = useState('Today')
   const [readiness, setReadiness] = useState(null)
   const [workouts, setWorkouts] = useState([])
   const [wearables, setWearables] = useState([])
@@ -288,23 +291,49 @@ export default function Health() {
     <div className={styles.container}>
       <div className={styles.header}>
         <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
+          Back
         </button>
-        <h1 className={styles.title}>Health Overview</h1>
-        <div className={styles.periodSelector}>
-          <select
-            className={styles.periodSelect}
-            value={selectedPeriod}
-            onChange={(e) => setSelectedPeriod(e.target.value)}
+        <h1>Health</h1>
+        {activeTab === 'Today' && (
+          <button 
+            className={styles.plusBtn}
+            onClick={() => {
+              const newMetric = {
+                date: getTodayEST(),
+                steps: null,
+                sleep_time: null,
+                sleep_score: null,
+                hrv: null,
+                calories: null,
+                weight: null,
+                resting_heart_rate: null,
+                body_temp: null
+              }
+              setEditingMetric(newMetric)
+              setShowLogModal(true)
+            }}
+            aria-label="Log health metrics"
           >
-            <option value="week">Last 7 Days</option>
-            <option value="month">Last 30 Days</option>
-            <option value="90days">Last 90 Days</option>
-          </select>
-        </div>
+            <span className={styles.plusIcon}>+</span>
+          </button>
+        )}
+      </div>
+
+      <div className={styles.tabs}>
+        {TABS.map(tab => (
+          <button
+            key={tab}
+            className={`${styles.tab} ${activeTab === tab ? styles.activeTab : ''}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
 
       <div className={styles.content}>
+        {activeTab === 'Today' && (
+          <div>
         {/* Readiness Score Card - Top Priority */}
         {readiness && (
           <div className={`${styles.readinessCard} ${styles[`readiness${readiness.zone}`]}`}>
@@ -450,157 +479,190 @@ export default function Health() {
           </div>
         )}
 
-        {/* Manual Logging Section */}
-        <div className={styles.metricsCard}>
-          <div className={styles.sectionHeader}>
-            <h3>Manual Logging</h3>
-            <button
-              className={styles.actionBtn}
-              onClick={() => {
-                console.log('Log Health Metrics button clicked')
-                const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
-                const newMetric = {
-                  date: yesterday,
-                  steps: null,
-                  sleep_time: null,
-                  sleep_score: null,
-                  hrv: null,
-                  calories: null,
-                  weight: null,
-                  resting_heart_rate: null,
-                  body_temp: null
-                }
-                console.log('Opening log modal with metric:', newMetric)
-                setEditingMetric(newMetric)
-                setShowLogModal(true)
-                console.log('showLogModal set to true, editingMetric set')
-              }}
-            >
-              Log Health Metrics
-            </button>
-          </div>
-          <p className={styles.sectionNote}>Log all health metrics for any date</p>
-        </div>
 
-        {/* Goals Section - Show actual goals */}
-        {healthGoals.length > 0 && (
-          <div className={styles.metricsCard}>
-            <div className={styles.sectionHeader}>
-              <h3>Health Goals</h3>
-              <button
-                className={styles.linkBtn}
-                onClick={() => navigate('/goals')}
-              >
-                View All →
-              </button>
-            </div>
-            <div className={styles.goalsList}>
-              {healthGoals.slice(0, 3).map(goal => {
-                const progress = goal.target_value > 0 
-                  ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
-                  : 0
-                return (
-                  <div key={goal.id} className={styles.goalCard}>
-                    <div className={styles.goalHeader}>
-                      <span className={styles.goalName}>
-                        {goal.custom_name || goal.type}
-                      </span>
-                      <span className={styles.goalProgress}>{Math.round(progress)}%</span>
-                    </div>
-                    <div className={styles.goalBar}>
-                      <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
-                    </div>
-                    <div className={styles.goalValues}>
-                      {goal.current_value} / {goal.target_value} {goal.unit}
-                    </div>
-                  </div>
-                )
-              })}
+
+            {/* Quick Actions */}
+            <div className={styles.actionsCard}>
+              <h3>Quick Actions</h3>
+              <div className={styles.actionsGrid}>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => navigate('/fitness')}
+                >
+                  Log Workout
+                </button>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => navigate('/nutrition')}
+                >
+                  Log Meal
+                </button>
+                {!healthMetrics.hasWearables && (
+                  <button
+                    className={styles.actionBtn}
+                    onClick={() => navigate('/wearables')}
+                  >
+                    Connect Fitbit
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Metrics History */}
-        <div className={styles.metricsCard}>
-          <h3>Health Metrics History</h3>
-          {metrics.length === 0 ? (
-            <p className={styles.emptyText}>No metrics recorded yet</p>
-          ) : (
-            <div className={styles.historyTable}>
-              <div className={styles.historyTableHeader}>
-                <div className={styles.historyTableCol}>Date</div>
-                <div className={styles.historyTableCol}>Weight</div>
-                <div className={styles.historyTableCol}>Steps</div>
-                <div className={styles.historyTableCol}>HRV</div>
-                <div className={styles.historyTableCol}>Calories</div>
-                <div className={styles.historyTableCol}>Sleep</div>
+        {activeTab === 'History' && (
+          <div>
+            <div className={styles.metricsCard}>
+              <div className={styles.sectionHeader}>
+                <h3>Health Metrics History</h3>
+                <select
+                  className={styles.periodSelect}
+                  value={selectedPeriod}
+                  onChange={(e) => setSelectedPeriod(e.target.value)}
+                >
+                  <option value="week">Last 7 Days</option>
+                  <option value="month">Last 30 Days</option>
+                  <option value="90days">Last 90 Days</option>
+                </select>
               </div>
-              <div className={styles.historyTableBody}>
-                {metrics
-                  .slice(-14)
-                  .reverse()
-                  .map(metric => (
-                    <div
-                      key={metric.date}
-                      className={styles.historyTableRow}
-                      onClick={() => setEditingMetric({ ...metric })}
-                    >
-                      <div className={styles.historyTableCol}>
-                        {new Date(metric.date + 'T12:00:00').toLocaleDateString('en-US', { 
-                          month: 'short', 
-                          day: 'numeric',
-                          year: metric.date !== getTodayEST() ? 'numeric' : undefined
-                        })}
-                      </div>
-                      <div className={styles.historyTableCol}>
-                        {metric.weight ? `${metric.weight} lbs` : '-'}
-                      </div>
-                      <div className={styles.historyTableCol}>
-                        {metric.steps ? metric.steps.toLocaleString() : '-'}
-                      </div>
-                      <div className={styles.historyTableCol}>
-                        {metric.hrv ? `${metric.hrv} ms` : '-'}
-                      </div>
-                      <div className={styles.historyTableCol}>
-                        {metric.calories_burned || metric.calories ? (metric.calories_burned || metric.calories).toLocaleString() : '-'}
-                      </div>
-                      <div className={styles.historyTableCol}>
-                        {metric.sleep_score ? metric.sleep_score : '-'}
-                      </div>
-                    </div>
-                  ))}
-              </div>
+              {metrics.length === 0 ? (
+                <p className={styles.emptyText}>No metrics recorded yet</p>
+              ) : (
+                <div className={styles.historyTable}>
+                  <div className={styles.historyTableHeader}>
+                    <div className={styles.historyTableCol}>Date</div>
+                    <div className={styles.historyTableCol}>Weight</div>
+                    <div className={styles.historyTableCol}>Steps</div>
+                    <div className={styles.historyTableCol}>HRV</div>
+                    <div className={styles.historyTableCol}>Calories</div>
+                    <div className={styles.historyTableCol}>Sleep</div>
+                  </div>
+                  <div className={styles.historyTableBody}>
+                    {metrics
+                      .slice(-14)
+                      .reverse()
+                      .map(metric => (
+                        <div
+                          key={metric.date}
+                          className={styles.historyTableRow}
+                          onClick={() => {
+                            setEditingMetric({ ...metric })
+                            setShowLogModal(true)
+                          }}
+                        >
+                          <div className={styles.historyTableCol}>
+                            {new Date(metric.date + 'T12:00:00').toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric',
+                              year: metric.date !== getTodayEST() ? 'numeric' : undefined
+                            })}
+                          </div>
+                          <div className={styles.historyTableCol}>
+                            {metric.weight ? `${metric.weight} lbs` : '-'}
+                          </div>
+                          <div className={styles.historyTableCol}>
+                            {metric.steps ? metric.steps.toLocaleString() : '-'}
+                          </div>
+                          <div className={styles.historyTableCol}>
+                            {metric.hrv ? `${metric.hrv} ms` : '-'}
+                          </div>
+                          <div className={styles.historyTableCol}>
+                            {metric.calories_burned || metric.calories ? (metric.calories_burned || metric.calories).toLocaleString() : '-'}
+                          </div>
+                          <div className={styles.historyTableCol}>
+                            {metric.sleep_score ? metric.sleep_score : '-'}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
+        {activeTab === 'Log' && (
+          <div>
+            <div className={styles.metricsCard}>
+              <div className={styles.sectionHeader}>
+                <h3>Manual Logging</h3>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => {
+                    const newMetric = {
+                      date: getTodayEST(),
+                      steps: null,
+                      sleep_time: null,
+                      sleep_score: null,
+                      hrv: null,
+                      calories: null,
+                      weight: null,
+                      resting_heart_rate: null,
+                      body_temp: null
+                    }
+                    setEditingMetric(newMetric)
+                    setShowLogModal(true)
+                  }}
+                >
+                  Log Health Metrics
+                </button>
+              </div>
+              <p className={styles.sectionNote}>Log all health metrics for any date</p>
+            </div>
+          </div>
+        )}
 
-        {/* Quick Actions */}
-        <div className={styles.actionsCard}>
-          <h3>Quick Actions</h3>
-          <div className={styles.actionsGrid}>
-            <button
-              className={styles.actionBtn}
-              onClick={() => navigate('/fitness')}
-            >
-              Log Workout
-            </button>
-            <button
-              className={styles.actionBtn}
-              onClick={() => navigate('/nutrition')}
-            >
-              Log Meal
-            </button>
-            {!healthMetrics.hasWearables && (
-              <button
-                className={styles.actionBtn}
-                onClick={() => navigate('/wearables')}
-              >
-                Connect Fitbit
-              </button>
+        {activeTab === 'Goals' && (
+          <div>
+            {healthGoals.length > 0 ? (
+              <div className={styles.metricsCard}>
+                <div className={styles.sectionHeader}>
+                  <h3>Health Goals</h3>
+                  <button
+                    className={styles.linkBtn}
+                    onClick={() => navigate('/goals')}
+                  >
+                    View All →
+                  </button>
+                </div>
+                <div className={styles.goalsList}>
+                  {healthGoals.map(goal => {
+                    const progress = goal.target_value > 0 
+                      ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
+                      : 0
+                    return (
+                      <div key={goal.id} className={styles.goalCard}>
+                        <div className={styles.goalHeader}>
+                          <span className={styles.goalName}>
+                            {goal.custom_name || goal.type}
+                          </span>
+                          <span className={styles.goalProgress}>{Math.round(progress)}%</span>
+                        </div>
+                        <div className={styles.goalBar}>
+                          <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
+                        </div>
+                        <div className={styles.goalValues}>
+                          {goal.current_value} / {goal.target_value} {goal.unit}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className={styles.metricsCard}>
+                <p className={styles.emptyText}>No health goals set yet</p>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => navigate('/goals')}
+                  style={{ marginTop: '12px' }}
+                >
+                  Create Goal
+                </button>
+              </div>
             )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* Log/Edit Metric Modal */}

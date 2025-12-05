@@ -137,7 +137,6 @@ export async function saveFitbitDaily(userId, date, data) {
       date: date,
       hrv: data.hrv || null,
       resting_heart_rate: data.resting_heart_rate || null,
-      average_heart_rate: data.average_heart_rate || null,
       body_temp: data.body_temp || null,
       sleep_duration: data.sleep_duration || null,
       sleep_efficiency: data.sleep_efficiency || null,

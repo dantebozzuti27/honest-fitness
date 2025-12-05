@@ -16,6 +16,16 @@ export default async function handler(req, res) {
 
   try {
     console.log('Fitbit sync request:', { userId, date })
+    
+    // Validate input
+    if (!userId || !date) {
+      return res.status(400).json({ 
+        message: 'Missing userId or date',
+        error: 'Missing required parameters',
+        success: false
+      })
+    }
+    
     // Get Fitbit account from Supabase
     const { createClient } = await import('@supabase/supabase-js')
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -83,6 +93,10 @@ export default async function handler(req, res) {
     if (!expiresAt || expiresAt <= new Date(now.getTime() + 10 * 60 * 1000)) {
       // Refresh token proactively
       try {
+        if (!account.refresh_token) {
+          throw new Error('No refresh token available. Please reconnect your Fitbit account.')
+        }
+
         const tokenResponse = await fetch('https://api.fitbit.com/oauth2/token', {
           method: 'POST',
           headers: {
@@ -93,8 +107,7 @@ export default async function handler(req, res) {
           },
           body: new URLSearchParams({
             grant_type: 'refresh_token',
-            refresh_token: account.refresh_token,
-            client_id: process.env.FITBIT_CLIENT_ID
+            refresh_token: account.refresh_token
           })
         })
 
@@ -122,14 +135,29 @@ export default async function handler(req, res) {
             console.error('Error updating refreshed token:', updateError)
           }
         } else {
-          // If refresh fails, try to use existing token but log warning
-          const errorData = await tokenResponse.json().catch(() => ({}))
-          console.warn('Token refresh failed, using existing token:', errorData)
+          // If refresh fails, throw error - don't continue with expired token
+          const errorText = await tokenResponse.text().catch(() => '')
+          let errorData = {}
+          try {
+            errorData = JSON.parse(errorText)
+          } catch (e) {
+            errorData = { error: errorText || 'Unknown error' }
+          }
+          console.error('Token refresh failed:', {
+            status: tokenResponse.status,
+            statusText: tokenResponse.statusText,
+            error: errorData
+          })
+          throw new Error(`Token refresh failed: ${errorData.error_description || errorData.error || 'Please reconnect your Fitbit account.'}`)
         }
       } catch (refreshError) {
         console.error('Error during token refresh:', refreshError)
-        // Continue with existing token
+        throw new Error(refreshError.message || 'Token refresh failed. Please reconnect your Fitbit account.')
       }
+    }
+    
+    if (!accessToken) {
+      throw new Error('No access token available. Please reconnect your Fitbit account.')
     }
 
     // Fetch Fitbit data
@@ -278,61 +306,60 @@ export default async function handler(req, res) {
       console.log('Body composition data not available:', e.message)
     }
     
-    // Fetch heart rate zones if available
-    try {
-      const hrZonesResponse = await fetch(
-        `https://api.fitbit.com/1/user/-/activities/heart/date/${date}/1d/1min.json`,
-        {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`
-          }
-        }
-      )
-      
-      if (hrZonesResponse.ok) {
-        const hrZonesJson = await hrZonesResponse.json()
-        if (hrZonesJson['activities-heart-intraday']?.dataset) {
-          const dataset = hrZonesJson['activities-heart-intraday'].dataset
-          if (dataset.length > 0) {
-            // Calculate average heart rate for the day
-            const avgHR = dataset.reduce((sum, entry) => sum + (entry.value || 0), 0) / dataset.length
-            fitbitData.average_heart_rate = Math.round(avgHR) || null
-          }
-        }
-      }
-    } catch (e) {
-      // Heart rate zones are optional
-      console.log('Heart rate zones data not available:', e.message)
-    }
 
     // Save to fitbit_daily table - ensure all stats are saved
-    const { error: saveError } = await supabase
+    // First try with all fields
+    let saveData = {
+      user_id: userId,
+      date: date,
+      hrv: fitbitData.hrv || null,
+      resting_heart_rate: fitbitData.resting_heart_rate || null,
+      sleep_duration: fitbitData.sleep_duration || null,
+      sleep_efficiency: fitbitData.sleep_efficiency || null,
+      steps: fitbitData.steps || null,
+      calories: fitbitData.calories || null,
+      active_calories: fitbitData.active_calories || null,
+      distance: fitbitData.distance || null,
+      floors: fitbitData.floors || null,
+      updated_at: new Date().toISOString()
+    }
+    
+    // Add optional fields that may not exist in schema
+    const optionalFields = {
+      average_heart_rate: fitbitData.average_heart_rate,
+      marginal_calories: fitbitData.marginal_calories,
+      sedentary_minutes: fitbitData.sedentary_minutes,
+      lightly_active_minutes: fitbitData.lightly_active_minutes,
+      fairly_active_minutes: fitbitData.fairly_active_minutes,
+      very_active_minutes: fitbitData.very_active_minutes,
+      weight: fitbitData.weight,
+      bmi: fitbitData.bmi,
+      fat: fitbitData.fat
+    }
+    
+    // Try saving with all fields first
+    let { error: saveError } = await supabase
       .from('fitbit_daily')
       .upsert({
-        user_id: userId,
-        date: date,
-        hrv: fitbitData.hrv || null,
-        resting_heart_rate: fitbitData.resting_heart_rate || null,
-        average_heart_rate: fitbitData.average_heart_rate || null,
-        sleep_duration: fitbitData.sleep_duration || null,
-        sleep_efficiency: fitbitData.sleep_efficiency || null,
-        steps: fitbitData.steps || null,
-        calories: fitbitData.calories || null,
-        active_calories: fitbitData.active_calories || null,
-        marginal_calories: fitbitData.marginal_calories || null,
-        distance: fitbitData.distance || null,
-        floors: fitbitData.floors || null,
-        sedentary_minutes: fitbitData.sedentary_minutes || null,
-        lightly_active_minutes: fitbitData.lightly_active_minutes || null,
-        fairly_active_minutes: fitbitData.fairly_active_minutes || null,
-        very_active_minutes: fitbitData.very_active_minutes || null,
-        weight: fitbitData.weight || null,
-        bmi: fitbitData.bmi || null,
-        fat: fitbitData.fat || null,
-        updated_at: new Date().toISOString()
+        ...saveData,
+        ...optionalFields
       }, { onConflict: 'user_id,date' })
 
-    if (saveError) {
+    // If error is about missing columns, retry without optional fields
+    if (saveError && saveError.code === 'PGRST204') {
+      console.warn('Some columns missing in fitbit_daily table, saving without optional fields:', saveError.message)
+      const { error: retryError } = await supabase
+        .from('fitbit_daily')
+        .upsert(saveData, { onConflict: 'user_id,date' })
+      
+      if (retryError) {
+        console.error('Error saving Fitbit data (retry):', retryError)
+        return res.status(500).json({ 
+          message: 'Failed to save data',
+          error: retryError 
+        })
+      }
+    } else if (saveError) {
       console.error('Error saving Fitbit data:', saveError)
       return res.status(500).json({ 
         message: 'Failed to save data',

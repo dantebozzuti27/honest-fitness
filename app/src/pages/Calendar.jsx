@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
 import BottomNav from '../components/BottomNav'
 import ProfileButton from '../components/ProfileButton'
+import SideMenu from '../components/SideMenu'
 import styles from './Calendar.module.css'
 
 export default function Calendar() {
@@ -170,9 +171,7 @@ export default function Calendar() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <SideMenu />
         <h1 className={styles.title}>Calendar</h1>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <div className={styles.streak}>

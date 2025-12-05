@@ -15,6 +15,7 @@ import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import BottomNav from '../components/BottomNav'
 import ProfileButton from '../components/ProfileButton'
+import SideMenu from '../components/SideMenu'
 import styles from './Goals.module.css'
 
 const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
@@ -298,9 +299,7 @@ export default function Goals() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <SideMenu />
         <h1 className={styles.title}>Goals</h1>
         <ProfileButton />
       </header>

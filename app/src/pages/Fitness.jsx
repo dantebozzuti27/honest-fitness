@@ -14,6 +14,7 @@ import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import BottomNav from '../components/BottomNav'
 import ProfileButton from '../components/ProfileButton'
+import SideMenu from '../components/SideMenu'
 import styles from './Fitness.module.css'
 
 const TABS = ['Workout', 'Templates', 'History', 'Goals']
@@ -170,9 +171,7 @@ export default function Fitness() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          Back
-        </button>
+        <SideMenu />
         <h1>Fitness</h1>
         <ProfileButton />
       </div>

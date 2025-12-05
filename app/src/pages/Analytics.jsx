@@ -27,6 +27,7 @@ import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
 import BottomNav from '../components/BottomNav'
 import ProfileButton from '../components/ProfileButton'
+import SideMenu from '../components/SideMenu'
 import styles from './Analytics.module.css'
 
 const TABS = ['Overview', 'Scan', 'History', 'Metrics', 'Trends']
@@ -1257,9 +1258,7 @@ export default function Analytics() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <SideMenu />
         <h1 className={styles.title}>Analytics</h1>
         <ProfileButton />
       </header>

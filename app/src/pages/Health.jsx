@@ -17,6 +17,7 @@ import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
 import BottomNav from '../components/BottomNav'
 import ProfileButton from '../components/ProfileButton'
+import SideMenu from '../components/SideMenu'
 import styles from './Health.module.css'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
@@ -396,9 +397,7 @@ export default function Health() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          Back
-        </button>
+        <SideMenu />
         <h1>Health</h1>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {activeTab === 'Today' && (

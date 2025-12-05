@@ -211,7 +211,7 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
     sleep_score: metrics.sleepScore !== null && metrics.sleepScore !== undefined && metrics.sleepScore !== '' ? Number(metrics.sleepScore) : null,
     sleep_time: metrics.sleepTime !== null && metrics.sleepTime !== undefined && metrics.sleepTime !== '' ? Number(metrics.sleepTime) : null,
     hrv: metrics.hrv !== null && metrics.hrv !== undefined && metrics.hrv !== '' ? Number(metrics.hrv) : null,
-    steps: metrics.steps !== null && metrics.steps !== undefined && metrics.steps !== '' ? Number(metrics.steps) : null,
+    steps: metrics.steps !== null && metrics.steps !== undefined && metrics.steps !== '' ? Math.round(Number(metrics.steps)) : null,
     weight: metrics.weight !== null && metrics.weight !== undefined && metrics.weight !== '' ? Number(metrics.weight) : null
   }
   

@@ -325,16 +325,13 @@ export default async function handler(req, res) {
     }
     
     // Add optional fields that may not exist in schema
+    // Note: weight, bmi, and fat are not included as they may not exist in all schemas
     const optionalFields = {
-      average_heart_rate: fitbitData.average_heart_rate,
       marginal_calories: fitbitData.marginal_calories,
       sedentary_minutes: fitbitData.sedentary_minutes,
       lightly_active_minutes: fitbitData.lightly_active_minutes,
       fairly_active_minutes: fitbitData.fairly_active_minutes,
-      very_active_minutes: fitbitData.very_active_minutes,
-      weight: fitbitData.weight,
-      bmi: fitbitData.bmi,
-      fat: fitbitData.fat
+      very_active_minutes: fitbitData.very_active_minutes
     }
     
     // Try saving with all fields first

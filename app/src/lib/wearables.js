@@ -150,15 +150,15 @@ export async function saveFitbitDaily(userId, date, data) {
       lightly_active_minutes: data.lightly_active_minutes || null,
       fairly_active_minutes: data.fairly_active_minutes || null,
       very_active_minutes: data.very_active_minutes || null,
-      weight: data.weight || null,
-      bmi: data.bmi || null,
-      fat: data.fat || null,
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id,date' })
     .select()
-    .single()
+    .maybeSingle()
   
-  if (error) throw error
+  if (error) {
+    console.error('Error saving Fitbit daily data:', error)
+    throw error
+  }
   return result
 }
 

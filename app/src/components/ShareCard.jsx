@@ -30,8 +30,42 @@ export default function ShareCard({ type, data }) {
 
   const renderWorkoutCard = () => {
     const { workout } = data
-    const totalSets = workout?.exercises?.reduce((sum, ex) => sum + (ex.sets?.length || 0), 0) || 0
-    const totalExercises = workout?.exercises?.length || 0
+    
+    // Calculate REAL stats from actual data
+    let totalSets = 0
+    let totalReps = 0
+    let totalVolume = 0
+    let maxWeight = 0
+    const validExercises = []
+    
+    if (workout?.exercises) {
+      workout.exercises.forEach(ex => {
+        const validSets = (ex.sets || []).filter(s => s.weight || s.reps || s.time)
+        if (validSets.length > 0) {
+          validExercises.push(ex)
+          totalSets += validSets.length
+          
+          validSets.forEach(set => {
+            const weight = Number(set.weight) || 0
+            const reps = Number(set.reps) || 0
+            
+            if (reps > 0) {
+              totalReps += reps
+              const volume = weight * reps
+              totalVolume += volume
+            }
+            
+            if (weight > maxWeight) {
+              maxWeight = weight
+            }
+          })
+        }
+      })
+    }
+    
+    const totalExercises = validExercises.length
+    const isLongWorkout = totalExercises > 6
+    const avgWeight = totalSets > 0 && totalReps > 0 ? Math.round(totalVolume / totalReps) : 0
     
     return (
       <div className={styles.card} ref={cardRef}>
@@ -45,59 +79,83 @@ export default function ShareCard({ type, data }) {
             <div className={styles.statLabel}>Duration</div>
           </div>
           <div className={styles.statsGrid}>
-            <div className={styles.statItem}>
-              <div className={styles.statValueSmall}>{totalExercises}</div>
-              <div className={styles.statLabelSmall}>Exercises</div>
-            </div>
-            <div className={styles.statItem}>
-              <div className={styles.statValueSmall}>{totalSets}</div>
-              <div className={styles.statLabelSmall}>Sets</div>
-            </div>
-            {workout?.perceivedEffort && (
+            {totalExercises > 0 && (
+              <div className={styles.statItem}>
+                <div className={styles.statValueSmall}>{totalExercises}</div>
+                <div className={styles.statLabelSmall}>Exercises</div>
+              </div>
+            )}
+            {totalSets > 0 && (
+              <div className={styles.statItem}>
+                <div className={styles.statValueSmall}>{totalSets}</div>
+                <div className={styles.statLabelSmall}>Sets</div>
+              </div>
+            )}
+            {totalReps > 0 && (
+              <div className={styles.statItem}>
+                <div className={styles.statValueSmall}>{totalReps}</div>
+                <div className={styles.statLabelSmall}>Reps</div>
+              </div>
+            )}
+            {totalVolume > 0 && (
+              <div className={styles.statItem}>
+                <div className={styles.statValueSmall}>
+                  {totalVolume >= 1000 ? `${Math.round(totalVolume / 1000)}k` : totalVolume}
+                </div>
+                <div className={styles.statLabelSmall}>Volume</div>
+              </div>
+            )}
+            {maxWeight > 0 && (
+              <div className={styles.statItem}>
+                <div className={styles.statValueSmall}>{maxWeight}</div>
+                <div className={styles.statLabelSmall}>Max</div>
+              </div>
+            )}
+            {workout?.perceivedEffort && workout.perceivedEffort > 0 && (
               <div className={styles.statItem}>
                 <div className={styles.statValueSmall}>{workout.perceivedEffort}/10</div>
                 <div className={styles.statLabelSmall}>RPE</div>
               </div>
             )}
           </div>
-          {workout?.exercises && workout.exercises.length > 0 && (
+          {validExercises.length > 0 && (
             <div className={styles.exercisesList}>
-              {workout.exercises.slice(0, 4).map((ex, idx) => {
-                const sets = ex.sets || []
-                const setsInfo = sets.map(set => {
+              {validExercises.map((ex, idx) => {
+                const validSets = (ex.sets || []).filter(s => s.weight || s.reps || s.time)
+                const setsInfo = validSets.map((set, setIdx) => {
                   const parts = []
                   if (set.weight) parts.push(`${set.weight}lbs`)
-                  if (set.reps) parts.push(`${set.reps} reps`)
+                  if (set.reps) parts.push(`${set.reps}`)
                   if (set.time) {
                     const mins = Math.floor(set.time / 60)
                     const secs = set.time % 60
                     parts.push(`${mins}:${String(secs).padStart(2, '0')}`)
                   }
-                  return parts.join(' × ')
+                  return parts.length > 0 ? parts.join('×') : null
                 }).filter(Boolean)
+                
+                // Show more sets for shorter workouts, fewer for longer ones
+                const maxSetsToShow = isLongWorkout ? 3 : 5
                 
                 return (
                   <div key={idx} className={styles.exerciseItem}>
                     <div className={styles.exerciseHeader}>
                       <span className={styles.exerciseName}>{ex.name}</span>
-                      <span className={styles.exerciseSetCount}>{sets.length} sets</span>
+                      <span className={styles.exerciseSetCount}>{validSets.length}s</span>
                     </div>
                     {setsInfo.length > 0 && (
                       <div className={styles.exerciseSets}>
-                        {setsInfo.slice(0, 3).map((info, i) => (
+                        {setsInfo.slice(0, maxSetsToShow).map((info, i) => (
                           <span key={i} className={styles.setInfo}>{info}</span>
                         ))}
-                        {setsInfo.length > 3 && (
-                          <span className={styles.moreSets}>+{setsInfo.length - 3} more</span>
+                        {setsInfo.length > maxSetsToShow && (
+                          <span className={styles.moreSets}>+{setsInfo.length - maxSetsToShow}</span>
                         )}
                       </div>
                     )}
                   </div>
                 )
               })}
-              {workout.exercises.length > 4 && (
-                <div className={styles.moreExercises}>+{workout.exercises.length - 4} more exercises</div>
-              )}
             </div>
           )}
           <div className={styles.cardDate}>{formatDate(workout?.date)}</div>
@@ -108,7 +166,29 @@ export default function ShareCard({ type, data }) {
 
   const renderNutritionCard = () => {
     const { nutrition } = data
-    const { calories, protein, carbs, fat } = nutrition || {}
+    
+    // Calculate REAL stats from actual meals
+    let totalCalories = 0
+    let totalProtein = 0
+    let totalCarbs = 0
+    let totalFat = 0
+    
+    if (nutrition?.meals && Array.isArray(nutrition.meals)) {
+      nutrition.meals.forEach(meal => {
+        totalCalories += Number(meal.calories) || 0
+        if (meal.macros) {
+          totalProtein += Number(meal.macros.protein) || 0
+          totalCarbs += Number(meal.macros.carbs) || 0
+          totalFat += Number(meal.macros.fat) || 0
+        }
+      })
+    }
+    
+    // Use calculated values or fallback to direct values
+    const calories = totalCalories || Number(nutrition?.calories) || 0
+    const protein = totalProtein || Number(nutrition?.protein) || 0
+    const carbs = totalCarbs || Number(nutrition?.carbs) || 0
+    const fat = totalFat || Number(nutrition?.fat) || 0
     
     return (
       <div className={styles.card} ref={cardRef}>
@@ -118,22 +198,28 @@ export default function ShareCard({ type, data }) {
         </div>
         <div className={styles.cardContent}>
           <div className={styles.mainStat}>
-            <div className={styles.statValue}>{calories?.toLocaleString() || 0}</div>
+            <div className={styles.statValue}>{calories > 0 ? calories.toLocaleString() : '—'}</div>
             <div className={styles.statLabel}>Calories</div>
           </div>
           <div className={styles.macrosGrid}>
-            <div className={styles.macroItem}>
-              <div className={styles.macroValue}>{protein?.toFixed(0) || 0}g</div>
-              <div className={styles.macroLabel}>Protein</div>
-            </div>
-            <div className={styles.macroItem}>
-              <div className={styles.macroValue}>{carbs?.toFixed(0) || 0}g</div>
-              <div className={styles.macroLabel}>Carbs</div>
-            </div>
-            <div className={styles.macroItem}>
-              <div className={styles.macroValue}>{fat?.toFixed(0) || 0}g</div>
-              <div className={styles.macroLabel}>Fat</div>
-            </div>
+            {protein > 0 && (
+              <div className={styles.macroItem}>
+                <div className={styles.macroValue}>{Math.round(protein)}g</div>
+                <div className={styles.macroLabel}>Protein</div>
+              </div>
+            )}
+            {carbs > 0 && (
+              <div className={styles.macroItem}>
+                <div className={styles.macroValue}>{Math.round(carbs)}g</div>
+                <div className={styles.macroLabel}>Carbs</div>
+              </div>
+            )}
+            {fat > 0 && (
+              <div className={styles.macroItem}>
+                <div className={styles.macroValue}>{Math.round(fat)}g</div>
+                <div className={styles.macroLabel}>Fat</div>
+              </div>
+            )}
           </div>
           {nutrition?.meals && nutrition.meals.length > 0 && (
             <div className={styles.mealsList}>

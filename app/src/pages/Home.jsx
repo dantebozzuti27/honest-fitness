@@ -232,10 +232,18 @@ export default function Home() {
         return dateB - dateA
       })
       const sortedLogs = logs.slice(0, 20)
+      console.log('Total logs found:', logs.length)
+      console.log('Sorted logs:', sortedLogs)
+      console.log('Setting recentLogs state with', sortedLogs.length, 'items')
       setRecentLogs(sortedLogs)
-      console.log('Loaded logs:', sortedLogs.length, sortedLogs)
+      
+      // Force a re-render check
+      setTimeout(() => {
+        console.log('State check - recentLogs should have', sortedLogs.length, 'items')
+      }, 100)
     } catch (e) {
       console.error('Error loading recent logs:', e)
+      console.error('Error stack:', e.stack)
       setRecentLogs([])
     }
   }

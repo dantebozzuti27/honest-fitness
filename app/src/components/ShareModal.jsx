@@ -56,25 +56,34 @@ export default function ShareModal({ type, data, onClose }) {
   }
 
   const handleCopyImage = async () => {
-    if (!imageDataUrl) {
-      // Regenerate if needed
-      const imageUrl = await generateShareImage(cardRef.current)
-      if (imageUrl) {
-        const copied = await copyImageToClipboard(imageUrl)
-        if (copied) {
-          alert('Image copied to clipboard!')
+    try {
+      const imageToCopy = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current) : null)
+      if (!imageToCopy) {
+        alert('Unable to generate image')
+        return
+      }
+      
+      const copied = await copyImageToClipboard(imageToCopy)
+      if (copied) {
+        alert('Image copied! You can paste it in Messages, Instagram, or any app.')
+      } else {
+        // Fallback: use native share which works better on iOS
+        const response = await fetch(imageToCopy)
+        const blob = await response.blob()
+        const file = new File([blob], 'echelon-share.png', { type: 'image/png' })
+        
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'Echelon Share'
+          })
         } else {
-          downloadImage(imageUrl, `echelon-${type}-${new Date().toISOString().split('T')[0]}.png`)
+          downloadImage(imageToCopy, `echelon-${type}-${new Date().toISOString().split('T')[0]}.png`)
         }
       }
-      return
-    }
-    
-    const copied = await copyImageToClipboard(imageDataUrl)
-    if (copied) {
-      alert('Image copied to clipboard!')
-    } else {
-      downloadImage(imageDataUrl, `echelon-${type}-${new Date().toISOString().split('T')[0]}.png`)
+    } catch (error) {
+      console.error('Error copying image:', error)
+      alert('Unable to copy image. Try using the Share button instead.')
     }
   }
 
@@ -222,21 +231,63 @@ export default function ShareModal({ type, data, onClose }) {
             </button>
             <button 
               className={styles.socialBtn}
-              onClick={handleDownload}
-              title="Download for Instagram Stories (download image, then upload to Instagram)"
+              onClick={async () => {
+                // For Instagram, use native share with image
+                const imageToShare = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current) : null)
+                if (imageToShare && navigator.share) {
+                  try {
+                    const response = await fetch(imageToShare)
+                    const blob = await response.blob()
+                    const file = new File([blob], 'echelon-share.png', { type: 'image/png' })
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                      await navigator.share({
+                        files: [file],
+                        title: 'Echelon Share'
+                      })
+                      return
+                    }
+                  } catch (e) {
+                    console.error('Instagram share error:', e)
+                  }
+                }
+                // Fallback to download
+                handleDownload()
+              }}
+              title="Share to Instagram (opens share sheet)"
             >
               <span className={styles.socialIcon}>IG</span>
             </button>
             <button 
               className={styles.socialBtn}
-              onClick={() => openShareUrl(shareUrls.whatsapp)}
-              title="Share on WhatsApp"
+              onClick={async () => {
+                // For iMessage, use native share with image if available
+                const imageToShare = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current) : null)
+                if (imageToShare && navigator.share) {
+                  try {
+                    const response = await fetch(imageToShare)
+                    const blob = await response.blob()
+                    const file = new File([blob], 'echelon-share.png', { type: 'image/png' })
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                      await navigator.share({
+                        files: [file],
+                        title: 'Echelon Share'
+                      })
+                      return
+                    }
+                  } catch (e) {
+                    console.error('iMessage share error:', e)
+                  }
+                }
+                // Fallback to SMS link
+                openShareUrl(shareUrls.imessage)
+              }}
+              title="Share via iMessage"
             >
-              <span className={styles.socialIcon}>WA</span>
+              <span className={styles.socialIcon}>💬</span>
             </button>
           </div>
           <p className={styles.instagramNote}>
-            For Instagram Stories: Download the image, then upload it to your Instagram Stories
+            Tap Copy Image to paste in any app, or use Share to open the native share sheet
           </p>
         </div>
       </div>

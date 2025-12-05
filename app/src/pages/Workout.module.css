@@ -74,7 +74,7 @@ h1 {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-md);
-  padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
 }
 
 .section {

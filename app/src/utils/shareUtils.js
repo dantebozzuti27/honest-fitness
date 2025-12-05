@@ -72,18 +72,40 @@ export async function shareNative(title, text, url, imageUrl = null) {
 }
 
 /**
- * Copy image to clipboard
+ * Copy image to clipboard (works on Apple devices)
  */
 export async function copyImageToClipboard(dataUrl) {
   try {
+    // Convert data URL to blob
     const response = await fetch(dataUrl)
     const blob = await response.blob()
-    await navigator.clipboard.write([
-      new ClipboardItem({ 'image/png': blob })
-    ])
+    
+    // Create ClipboardItem with proper MIME type
+    const clipboardItem = new ClipboardItem({
+      'image/png': blob
+    })
+    
+    await navigator.clipboard.write([clipboardItem])
     return true
   } catch (error) {
-    // Silently fail - clipboard access may not be available
+    console.error('Clipboard copy error:', error)
+    // Fallback: try using native share API
+    try {
+      if (navigator.share) {
+        const response = await fetch(dataUrl)
+        const blob = await response.blob()
+        const file = new File([blob], 'echelon-share.png', { type: 'image/png' })
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'Echelon Share'
+          })
+          return true
+        }
+      }
+    } catch (shareError) {
+      console.error('Share fallback error:', shareError)
+    }
     return false
   }
 }
@@ -114,10 +136,8 @@ export function getShareUrls(type, data) {
     facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
     linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
     reddit: `https://reddit.com/submit?url=${encodedUrl}&title=${encodedText}`,
-    whatsapp: `https://wa.me/?text=${encodedText}%20${encodedUrl}`,
+    imessage: `sms:?body=${encodedText}%20${encodedUrl}`,
     telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`
-    // Note: Instagram doesn't support direct URL sharing
-    // Users should download the image and upload to Instagram Stories manually
   }
 }
 

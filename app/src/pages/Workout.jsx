@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getAllTemplates, saveMetrics, saveTemplate, deleteTemplate } from '../db'
 import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase } from '../lib/supabaseDb'
@@ -257,12 +258,12 @@ export default function Workout() {
 
   return (
     <div className={styles.container}>
-      <header className={styles.header}>
+      <div className={styles.header}>
         <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
+          Back
         </button>
-        <h1 className={styles.title}>New Workout</h1>
-      </header>
+        <h1>New Workout</h1>
+      </div>
 
       <div className={styles.content}>
         <section className={styles.section}>
@@ -423,7 +424,7 @@ export default function Workout() {
         </section>
 
         {/* Template Editor Modal */}
-        {showTemplateEditor && (
+        {showTemplateEditor && createPortal(
           <TemplateEditor
             templates={templates}
             onClose={() => {
@@ -450,7 +451,8 @@ export default function Workout() {
               setEditingTemplate(template)
             }}
             editingTemplate={editingTemplate}
-          />
+          />,
+          document.body
         )}
       </div>
     </div>

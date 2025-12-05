@@ -106,11 +106,7 @@ export default function Home() {
     <div className={styles.container}>
       <div className={styles.header}>
         <div className={styles.logoContainer}>
-          <img 
-            src="/logo.jpeg" 
-            alt="Echelon" 
-            className={styles.logo}
-          />
+          <h1 className={styles.logo}>Echelon</h1>
         </div>
         <button 
           className={styles.quickActionBtn}

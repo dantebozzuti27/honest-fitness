@@ -37,13 +37,20 @@
 }
 
 .logo {
-  height: 56px;
-  width: auto;
-  max-width: 240px;
-  object-fit: contain;
-  display: block;
-  filter: brightness(0) invert(1);
-  -webkit-filter: brightness(0) invert(1);
+  font-size: 56px;
+  font-weight: 900;
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: var(--text-primary); /* Fallback for browsers that don't support background-clip */
+  text-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  line-height: 1;
+  display: inline-block;
 }
 
 .content {

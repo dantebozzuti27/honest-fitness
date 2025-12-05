@@ -197,8 +197,11 @@ export default function Home() {
 
       // Sort by date (newest first) and limit to 20
       logs.sort((a, b) => new Date(b.date + 'T' + (b.data?.time || '12:00')) - new Date(a.date + 'T' + (a.data?.time || '12:00')))
-      setRecentLogs(logs.slice(0, 20))
+      const sortedLogs = logs.slice(0, 20)
+      setRecentLogs(sortedLogs)
+      console.log('Loaded logs:', sortedLogs.length, sortedLogs)
     } catch (e) {
+      console.error('Error loading recent logs:', e)
       // Silently fail
     }
   }
@@ -240,7 +243,7 @@ export default function Home() {
       <div className={styles.header}>
         <SideMenu />
         <div className={styles.logoContainer}>
-          <h1 className={styles.logo}>Echelon</h1>
+          <h1 className={styles.logo}>ECHELON</h1>
         </div>
         <HomeButton />
       </div>

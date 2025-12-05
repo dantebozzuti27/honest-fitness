@@ -76,9 +76,9 @@ export default function Home() {
             }
           }).catch(() => {})
 
-          // Load recent logs for feed
+          // Load recent logs for feed - await this so feed loads
           if (mounted) {
-            loadRecentLogs(user.id).catch(() => {})
+            await loadRecentLogs(user.id)
           }
         } catch (e) {
           // Silently fail - data will load on retry

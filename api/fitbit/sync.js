@@ -178,8 +178,8 @@ export default async function handler(req, res) {
         const sleepJson = await sleepResponse.json()
         if (sleepJson.sleep && sleepJson.sleep.length > 0) {
           const sleep = sleepJson.sleep[0]
-          fitbitData.sleep_duration = sleep.minutesAsleep || null
-          fitbitData.sleep_efficiency = sleep.efficiency || null
+          fitbitData.sleep_duration = sleep.minutesAsleep != null ? Number(sleep.minutesAsleep) : null
+          fitbitData.sleep_efficiency = sleep.efficiency != null ? Number(sleep.efficiency) : null
         }
       }
     } catch (e) {
@@ -201,7 +201,7 @@ export default async function handler(req, res) {
         const hrJson = await hrResponse.json()
         if (hrJson['activities-heart'] && hrJson['activities-heart'].length > 0) {
           const heartData = hrJson['activities-heart'][0].value
-          fitbitData.resting_heart_rate = heartData?.restingHeartRate || null
+          fitbitData.resting_heart_rate = heartData?.restingHeartRate != null ? Number(heartData.restingHeartRate) : null
         }
       } else if (hrResponse.status === 401 || hrResponse.status === 403) {
         const errorText = await hrResponse.text().catch(() => '')
@@ -254,10 +254,10 @@ export default async function handler(req, res) {
         const activityJson = await activityResponse.json()
         const summary = activityJson.summary || {}
         fitbitData.steps = summary.steps != null ? Math.round(Number(summary.steps)) : null
-        fitbitData.calories = summary.caloriesOut || null
-        fitbitData.active_calories = summary.activityCalories || null
-        fitbitData.distance = summary.distances && summary.distances.length > 0 
-          ? summary.distances[0].distance || null 
+        fitbitData.calories = summary.caloriesOut != null ? Number(summary.caloriesOut) : null
+        fitbitData.active_calories = summary.activityCalories != null ? Number(summary.activityCalories) : null
+        fitbitData.distance = summary.distances && summary.distances.length > 0 && summary.distances[0].distance != null
+          ? Number(summary.distances[0].distance) 
           : null
       } else if (activityResponse.status === 401 || activityResponse.status === 403) {
         const errorText = await activityResponse.text().catch(() => '')
@@ -274,6 +274,7 @@ export default async function handler(req, res) {
     }
     
     // Save to fitbit_daily table - only sync metrics we're actually using
+    // Ensure steps is an integer (not a decimal string)
     const saveData = {
       user_id: userId,
       date: date,

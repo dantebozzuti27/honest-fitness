@@ -187,7 +187,12 @@ export default function Health() {
       showToast('Fitbit data synced successfully!', 'success')
     } catch (error) {
       console.error('Fitbit sync error:', error)
+      // Don't show error toast for sync errors - they're expected if account isn't connected
+      // Only show if it's a critical error
       const errorMsg = error.message || 'Failed to sync Fitbit data. Please try again or reconnect your account.'
+      if (!errorMsg.includes('not connected') && !errorMsg.includes('not found')) {
+        showToast(errorMsg, 'error')
+      }
       setSyncError(errorMsg)
       showToast(errorMsg, 'error')
     } finally {

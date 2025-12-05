@@ -266,7 +266,14 @@ export async function syncFitbitData(userId, date = null) {
     })
     
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      let errorData = {}
+      try {
+        errorData = await response.json()
+      } catch (e) {
+        // If response isn't JSON, use status text
+        errorData = { error: response.statusText || 'Unknown error' }
+      }
+      
       const errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: Failed to sync Fitbit data`
       
       // Check for specific error types
@@ -276,6 +283,11 @@ export async function syncFitbitData(userId, date = null) {
       
       if (response.status === 404 && errorMessage.includes('not connected')) {
         throw new Error('Fitbit account not found. Please connect your Fitbit account first.')
+      }
+      
+      // For 500 errors, provide more helpful message
+      if (response.status === 500) {
+        throw new Error('Fitbit sync service error. Please try again later or reconnect your account.')
       }
       
       throw new Error(errorMessage)

@@ -66,18 +66,18 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
   --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
   
-  /* Font Sizes - Apple's refined scale (reduced for better fit) */
-  --text-xs: 11px;
-  --text-sm: 13px;
-  --text-base: 15px;
-  --text-md: 17px;
-  --text-lg: 19px;
-  --text-xl: 24px;
-  --text-2xl: 28px;
-  --text-3xl: 36px;
-  --text-4xl: 48px;
-  --text-5xl: 64px;
-  --text-6xl: 80px;
+  /* Font Sizes - Responsive scale using clamp() */
+  --text-xs: clamp(10px, 2.5vw, 11px);
+  --text-sm: clamp(12px, 3vw, 13px);
+  --text-base: clamp(14px, 3.5vw, 15px);
+  --text-md: clamp(16px, 4vw, 17px);
+  --text-lg: clamp(17px, 4.5vw, 19px);
+  --text-xl: clamp(20px, 5vw, 24px);
+  --text-2xl: clamp(24px, 6vw, 28px);
+  --text-3xl: clamp(28px, 7vw, 36px);
+  --text-4xl: clamp(36px, 9vw, 48px);
+  --text-5xl: clamp(48px, 12vw, 64px);
+  --text-6xl: clamp(56px, 15vw, 80px);
   
   /* Shadows - Apple's depth system */
   --shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -123,12 +123,12 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
 }
 
-h1 { font-size: var(--text-3xl); }
-h2 { font-size: var(--text-2xl); }
-h3 { font-size: var(--text-xl); }
-h4 { font-size: var(--text-lg); }
-h5 { font-size: var(--text-md); }
-h6 { font-size: var(--text-base); }
+h1 { font-size: clamp(28px, 7vw, 36px); }
+h2 { font-size: clamp(24px, 6vw, 28px); }
+h3 { font-size: clamp(20px, 5vw, 24px); }
+h4 { font-size: clamp(17px, 4.5vw, 19px); }
+h5 { font-size: clamp(16px, 4vw, 17px); }
+h6 { font-size: clamp(14px, 3.5vw, 15px); }
 
 #root {
   min-height: 100vh;
@@ -158,16 +158,17 @@ input, select, textarea {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border-radius: var(--radius-md);
-  padding: 16px 20px;
-  font-size: 17px;
+  padding: clamp(12px, 3vw, 16px) clamp(16px, 4vw, 20px);
+  font-size: clamp(16px, 4vw, 17px);
   transition: all var(--transition-fast);
   /* Prevent iOS zoom on focus */
-  font-size: max(17px, 1em);
+  font-size: max(clamp(16px, 4vw, 17px), 1em);
   touch-action: manipulation;
   width: 100%;
-  min-height: 52px;
+  min-height: clamp(44px, 10vw, 52px);
   -webkit-appearance: none;
   appearance: none;
+  box-sizing: border-box;
 }
 
 input:focus, select:focus, textarea:focus {
@@ -177,11 +178,11 @@ input:focus, select:focus, textarea:focus {
 
 input[type="number"] {
   font-family: var(--font-mono);
-  font-size: 22px;
+  font-size: clamp(18px, 5vw, 22px);
   text-align: center;
   -moz-appearance: textfield;
   appearance: textfield;
-  min-height: 56px;
+  min-height: clamp(48px, 12vw, 56px);
 }
 
 input[type="number"]::-webkit-inner-spin-button,
@@ -218,6 +219,36 @@ input[type="reset"] {
 /* Prevent pull-to-refresh on iOS */
 html {
   overscroll-behavior: none;
+}
+
+/* Responsive utilities - ensure all containers handle overflow */
+* {
+  box-sizing: border-box;
+}
+
+/* Ensure images and media are responsive */
+img, video, iframe {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Responsive tables */
+table {
+  width: 100%;
+  table-layout: auto;
+}
+
+/* Ensure text doesn't overflow containers */
+p, span, div, h1, h2, h3, h4, h5, h6 {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Responsive containers */
+.container, [class*="container"] {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 /* Smooth scrolling */

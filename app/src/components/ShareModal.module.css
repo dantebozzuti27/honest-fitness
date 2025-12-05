@@ -108,6 +108,11 @@
   cursor: not-allowed;
 }
 
+.shareBtn.sharedToFeed {
+  background: var(--success);
+  color: var(--bg-primary);
+}
+
 .shareIcon {
   font-size: 18px;
 }

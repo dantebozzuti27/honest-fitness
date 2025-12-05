@@ -7,6 +7,7 @@ import styles from './ShareModal.module.css'
 export default function ShareModal({ type, data, onClose }) {
   const [sharing, setSharing] = useState(false)
   const [imageDataUrl, setImageDataUrl] = useState(null)
+  const [sharedToFeed, setSharedToFeed] = useState(false)
   const cardRef = useRef(null)
 
   useEffect(() => {
@@ -90,6 +91,66 @@ export default function ShareModal({ type, data, onClose }) {
     }
   }
 
+  const handleShareToFeed = () => {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      let title = ''
+      let subtitle = ''
+      
+      if (type === 'workout') {
+        const workout = data.workout
+        const duration = workout.duration || 0
+        const minutes = Math.floor(duration / 60)
+        const seconds = duration % 60
+        title = workout.templateName || 'Freestyle Workout'
+        subtitle = `${minutes}:${String(seconds).padStart(2, '0')}`
+      } else if (type === 'nutrition') {
+        const nutrition = data.nutrition
+        title = 'Daily Nutrition'
+        subtitle = `${nutrition.calories || 0} calories`
+      } else if (type === 'health') {
+        const health = data.health
+        title = 'Health Metrics'
+        const parts = []
+        if (health.steps) parts.push(`${health.steps.toLocaleString()} steps`)
+        if (health.hrv) parts.push(`HRV: ${Math.round(health.hrv)}ms`)
+        if (health.sleep_time) {
+          const h = Math.floor(health.sleep_time / 60)
+          const m = Math.round(health.sleep_time % 60)
+          parts.push(`Sleep: ${h}:${m.toString().padStart(2, '0')}`)
+        }
+        subtitle = parts.join(' • ') || 'Health data'
+      }
+
+      const feedItem = {
+        type,
+        date: type === 'workout' ? data.workout?.date : type === 'nutrition' ? data.nutrition?.date : data.health?.date || today,
+        title,
+        subtitle,
+        data: data[type] || data,
+        shared: true,
+        timestamp: new Date().toISOString()
+      }
+
+      // Get existing shared items
+      const existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+      existing.push(feedItem)
+      
+      // Keep only last 50 items
+      const recent = existing.slice(-50)
+      localStorage.setItem('sharedToFeed', JSON.stringify(recent))
+      
+      setSharedToFeed(true)
+      alert('Shared to feed!')
+      
+      // Trigger a custom event to refresh the feed
+      window.dispatchEvent(new CustomEvent('feedUpdated'))
+    } catch (error) {
+      console.error('Error sharing to feed:', error)
+      alert('Failed to share to feed')
+    }
+  }
+
   const shareUrls = getShareUrls(type, data)
 
   return createPortal(
@@ -132,6 +193,15 @@ export default function ShareModal({ type, data, onClose }) {
             onClick={handleDownload}
           >
             Download
+          </button>
+
+          {/* Share to Feed */}
+          <button 
+            className={`${styles.shareBtn} ${sharedToFeed ? styles.sharedToFeed : ''}`}
+            onClick={handleShareToFeed}
+            disabled={sharedToFeed}
+          >
+            {sharedToFeed ? '✓ Shared to Feed' : 'Share to Feed'}
           </button>
 
           {/* Social Platforms */}

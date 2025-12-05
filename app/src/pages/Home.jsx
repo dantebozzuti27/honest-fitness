@@ -117,9 +117,18 @@ export default function Home() {
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     
+    // Listen for feed updates
+    const handleFeedUpdate = () => {
+      if (mounted && user) {
+        loadRecentLogs(user.id)
+      }
+    }
+    window.addEventListener('feedUpdated', handleFeedUpdate)
+    
     return () => {
       mounted = false
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('feedUpdated', handleFeedUpdate)
     }
   }, [user, navigate])
 
@@ -195,14 +204,35 @@ export default function Home() {
         // Silently fail
       }
 
+      // Load shared feed items from localStorage
+      try {
+        const sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+        sharedItems.forEach(item => {
+          logs.push({
+            type: item.type,
+            date: item.date,
+            title: item.title,
+            subtitle: item.subtitle,
+            data: item.data,
+            shared: true
+          })
+        })
+      } catch (e) {
+        console.error('Error loading shared items:', e)
+      }
+
       // Sort by date (newest first) and limit to 20
-      logs.sort((a, b) => new Date(b.date + 'T' + (b.data?.time || '12:00')) - new Date(a.date + 'T' + (a.data?.time || '12:00')))
+      logs.sort((a, b) => {
+        const dateA = new Date(a.date + 'T' + (a.data?.time || '12:00'))
+        const dateB = new Date(b.date + 'T' + (b.data?.time || '12:00'))
+        return dateB - dateA
+      })
       const sortedLogs = logs.slice(0, 20)
       setRecentLogs(sortedLogs)
       console.log('Loaded logs:', sortedLogs.length, sortedLogs)
     } catch (e) {
       console.error('Error loading recent logs:', e)
-      // Silently fail
+      setRecentLogs([])
     }
   }
 
@@ -252,7 +282,11 @@ export default function Home() {
         {/* Recent Activity Feed */}
         <div className={styles.feed}>
           <h2 className={styles.feedTitle}>Recent Activity</h2>
-          {recentLogs.length === 0 ? (
+          {loading ? (
+            <div className={styles.emptyFeed}>
+              <p>Loading...</p>
+            </div>
+          ) : recentLogs.length === 0 ? (
             <div className={styles.emptyFeed}>
               <p>No recent activity</p>
               <p className={styles.emptyFeedSubtext}>Start logging workouts, meals, or health metrics to see them here</p>
@@ -272,6 +306,7 @@ export default function Home() {
                     <div className={styles.feedItemHeader}>
                       <span className={styles.feedItemType}>{getTypeLabel(log.type)}</span>
                       <span className={styles.feedItemDate}>· {formatDate(log.date)}</span>
+                      {log.shared && <span className={styles.feedItemShared}>· Shared</span>}
                     </div>
                     <div className={styles.feedItemTitle}>{log.title}</div>
                     {log.subtitle && (

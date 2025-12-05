@@ -50,10 +50,12 @@ export function logInfo(message, data = null) {
 
 /**
  * Log debug messages (only in development)
+ * Always exported to prevent "is not defined" errors
  */
 export function logDebug(message, data = null) {
   if (isDevelopment && currentLogLevel >= LOG_LEVELS.DEBUG) {
     console.log(`[DEBUG] ${message}`, data || '')
   }
+  // No-op in production to prevent errors
 }
 

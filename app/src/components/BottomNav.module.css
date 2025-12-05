@@ -8,13 +8,13 @@
   justify-content: space-around;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
-  padding: var(--space-xs);
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-xs));
+  padding: var(--space-sm);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-sm));
   z-index: 1000;
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  height: calc(60px + env(safe-area-inset-bottom, 0px));
+  height: calc(72px + env(safe-area-inset-bottom, 0px));
 }
 
 .navButton {
@@ -22,15 +22,15 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: var(--space-xs);
+  gap: 4px;
+  padding: var(--space-xs) var(--space-sm);
   background: transparent;
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-base);
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 50px;
+  min-height: 50px;
   flex: 1;
   border-radius: var(--radius-md);
 }
@@ -45,8 +45,8 @@
 }
 
 .navIcon {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -59,18 +59,18 @@
 }
 
 .navLabel {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: -0.01em;
-  line-height: 1;
+  line-height: 1.2;
 }
 
 .plusButton {
   flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  min-height: 52px;
   border-radius: 50%;
   background: var(--accent);
   color: #000;
@@ -90,7 +90,7 @@
 }
 
 .plusIcon {
-  font-size: 22px;
+  font-size: 28px;
   font-weight: 300;
   line-height: 1;
   display: flex;
@@ -113,7 +113,7 @@
 
 .quickLogMenu {
   position: fixed;
-  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-secondary);

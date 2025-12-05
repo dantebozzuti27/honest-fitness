@@ -53,18 +53,17 @@
 }
 
 h1 {
-  font-size: var(--text-xl);
+  font-size: 24px;
   font-weight: 700;
   margin: 0;
   color: var(--text-primary);
-  letter-spacing: -0.022em;
+  letter-spacing: -0.02em;
   flex: 1;
   text-align: center;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.07143;
 }
 
 .plusBtn {
@@ -161,7 +160,7 @@ h1 {
   flex-direction: column;
   gap: var(--space-md);
   padding: 0 var(--space-lg) var(--space-lg);
-  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   width: 100%;
 }
 

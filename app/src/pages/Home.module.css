@@ -67,7 +67,7 @@
   justify-content: flex-start;
   align-items: stretch;
   padding: var(--space-md);
-  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   gap: var(--space-md);
   width: 100%;
   max-width: 100%;

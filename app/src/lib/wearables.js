@@ -3,6 +3,9 @@ import { getTodayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug } from '../utils/logger'
 
+// Ensure logDebug is always available (fallback for build issues)
+const safeLogDebug = logDebug || (() => {})
+
 /**
  * Wearables OAuth and Data Sync
  * Supports: Oura, Fitbit, Apple Health, Garmin, Whoop
@@ -407,7 +410,7 @@ async function syncFitbitDataDirect(userId, date = null) {
       }
     } catch (hrvError) {
       // HRV endpoint might not be available for all devices
-      logDebug('HRV data not available', hrvError)
+      safeLogDebug('HRV data not available', hrvError)
     }
     
     // Also check sleep data for HRV (some Fitbit devices include HRV in sleep)

@@ -2,18 +2,17 @@
   width: 100%;
   background: #000000;
   border: 1px solid #333333;
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  max-height: 300px;
-  min-height: 280px;
+  border-radius: var(--radius-md);
+  padding: 12px;
   box-shadow: var(--shadow-md);
   position: relative;
-  overflow: visible;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  touch-action: pan-x pan-y pinch-zoom;
+  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .chartContainer::before {
@@ -30,9 +29,21 @@
   opacity: 0.3;
 }
 
+.chartWrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+}
+
 .chart {
   width: 100%;
   height: auto;
+  flex: 1;
+  min-height: 0;
   display: block;
   position: relative;
   z-index: 1;
@@ -59,13 +70,14 @@
 .xAxisLabels {
   display: flex;
   justify-content: space-between;
-  margin-top: 12px;
-  padding: 0 20px 0 20px;
-  font-size: 11px;
+  margin-top: 8px;
+  padding: 0 12px 0 12px;
+  font-size: 10px;
   color: #ffffff;
   flex-wrap: wrap;
-  gap: 4px;
-  min-height: 32px;
+  gap: 2px;
+  min-height: 24px;
+  flex-shrink: 0;
 }
 
 .xAxisLabel {
@@ -82,24 +94,26 @@
 
 .xAxisLabelText {
   text-align: center;
-  margin-top: 12px;
-  font-size: 14px;
+  margin-top: 8px;
+  font-size: 12px;
   font-weight: 600;
   color: #ffffff;
   letter-spacing: -0.01em;
+  flex-shrink: 0;
 }
 
 .yAxisLabel {
   position: absolute;
-  left: 12px;
+  left: 8px;
   top: 50%;
   transform: translateY(-50%) rotate(-90deg);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
   color: #ffffff;
   white-space: nowrap;
-  z-index: 1;
+  z-index: 2;
   letter-spacing: -0.01em;
+  pointer-events: none;
 }
 
 .axisLabel {
@@ -115,16 +129,17 @@
 
 .zoomIndicator {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  background: rgba(0, 0, 0, 0.8);
+  top: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.85);
   color: #ffffff;
-  padding: 6px 12px;
-  border-radius: var(--radius-md);
-  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
   font-weight: 600;
   z-index: 10;
   pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .modalOverlay {
@@ -248,16 +263,28 @@
 
 @media (max-width: 480px) {
   .chartContainer {
-    padding: var(--space-sm);
-    max-height: 200px;
+    padding: 10px;
+    max-height: 220px;
+    min-height: 180px;
   }
   
-  .labels {
-    font-size: 10px;
-    gap: 2px;
+  .xAxisLabels {
+    font-size: 9px;
+    padding: 0 8px;
+    min-height: 20px;
   }
   
-  .label {
-    font-size: 10px;
+  .xAxisLabel {
+    font-size: 9px;
+  }
+  
+  .xAxisLabelText {
+    font-size: 11px;
+    margin-top: 6px;
+  }
+  
+  .yAxisLabel {
+    font-size: 9px;
+    left: 6px;
   }
 }

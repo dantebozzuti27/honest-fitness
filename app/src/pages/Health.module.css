@@ -96,9 +96,9 @@ h1,
 
 /* Readiness Card */
 .readinessCard {
-  padding: 24px;
+  padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-md);
   border: 2px solid var(--border);
   box-shadow: 0 0 30px rgba(255, 255, 255, 0.05);
 }
@@ -126,7 +126,7 @@ h1,
 }
 
 .readinessHeader h2 {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
   margin: 0;
   color: var(--text-primary);
@@ -199,9 +199,9 @@ h1,
 
 /* Metrics Card */
 .metricsCard {
-  padding: 20px;
+  padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
 }
 
@@ -213,7 +213,7 @@ h1,
 }
 
 .sectionHeader h3 {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
   margin: 0;
   color: var(--text-primary);
@@ -281,15 +281,15 @@ h1,
 
 .emptyText {
   text-align: center;
-  padding: 20px;
+  padding: 16px;
   color: var(--text-secondary);
   font-size: 14px;
 }
 
 /* Charts */
 .metricChart {
-  margin-top: 16px;
-  padding: 16px;
+  margin-top: 12px;
+  padding: 12px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
@@ -304,9 +304,9 @@ h1,
 
 /* Actions Card */
 .actionsCard {
-  padding: 20px;
+  padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
 }
 
@@ -562,4 +562,73 @@ h1,
 
 .cancelBtn:hover {
   background: var(--bg-elevated);
+}
+
+/* History Table */
+.historyContent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.historyTable {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  margin-top: 12px;
+}
+
+.historyTableHeader {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.historyTableBody {
+  display: flex;
+  flex-direction: column;
+}
+
+.historyTableRow {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.2s;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.historyTableRow:hover {
+  background: var(--bg-tertiary);
+}
+
+.historyTableRow:last-child {
+  border-bottom: none;
+}
+
+.historyTableCol {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.historyTableEmpty {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
 }

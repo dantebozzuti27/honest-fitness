@@ -177,17 +177,17 @@ h1 {
 .optionItem {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 20px 24px;
+  gap: 12px;
+  padding: 14px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition-base);
   text-align: left;
   color: var(--text-primary);
   width: 100%;
-  min-height: 72px;
+  min-height: 56px;
 }
 
 .optionItem:hover {
@@ -232,14 +232,10 @@ h1 {
 }
 
 .sectionTitle {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 16px 0;
+  margin: 0 0 12px 0;
 }
 
 .mealTypeGroup {
@@ -303,14 +299,14 @@ h1 {
 
 /* Summary Card */
 .summaryCard {
-  padding: 20px;
+  padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   box-shadow: 0 0 30px rgba(255, 255, 255, 0.05);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .calorieRow {
@@ -414,9 +410,9 @@ h1 {
 
 /* Water Section */
 .waterSection {
-  padding: 16px;
+  padding: 12px;
   background: var(--bg-tertiary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
 }
 
 .waterHeader {
@@ -452,10 +448,10 @@ h1 {
 
 /* Fasting Card */
 .fastingCard {
-  padding: 16px;
+  padding: 12px;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
   border: 1px solid var(--accent);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   text-align: center;
 }
 
@@ -790,9 +786,9 @@ h1 {
 
 /* Quick Add */
 .quickAddCard {
-  padding: 16px;
+  padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
 }
 
@@ -837,9 +833,9 @@ h1 {
 
 /* Text Input */
 .textInputCard {
-  padding: 16px;
+  padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
 }
 
@@ -913,9 +909,9 @@ h1 {
 }
 
 .mealCard {
-  padding: 16px;
+  padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -1028,7 +1024,7 @@ h1 {
 }
 
 .emptyState {
-  padding: 40px 20px;
+  padding: 32px 16px;
   text-align: center;
   color: var(--text-secondary);
 }

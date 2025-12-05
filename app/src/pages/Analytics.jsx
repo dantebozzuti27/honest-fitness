@@ -676,35 +676,29 @@ export default function Analytics() {
         )}
         
         {/* Date Filters */}
-        <div className={styles.filterRow}>
-          <span className={styles.filterLabel}>Time Period:</span>
-          <div className={styles.filterButtons}>
-            {DATE_FILTERS.map((f, i) => (
-              <button
-                key={f.label}
-                className={`${styles.filterBtn} ${dateFilter === i ? styles.activeFilter : ''}`}
-                onClick={() => setDateFilter(i)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+        <div className={styles.chartTypeSelector}>
+          {DATE_FILTERS.map((f, i) => (
+            <button
+              key={f.label}
+              className={`${styles.chartTypeBtn} ${dateFilter === i ? styles.activeChartType : ''}`}
+              onClick={() => setDateFilter(i)}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
 
         {/* Metric Type Filters */}
-        <div className={styles.filterRow}>
-          <span className={styles.filterLabel}>Show:</span>
-          <div className={styles.filterButtons}>
-            {METRIC_TYPES.map((m, i) => (
-              <button
-                key={m}
-                className={`${styles.filterBtn} ${metricType === i ? styles.activeFilter : ''}`}
-                onClick={() => setMetricType(i)}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
+        <div className={styles.chartTypeSelector}>
+          {METRIC_TYPES.map((m, i) => (
+            <button
+              key={m}
+              className={`${styles.chartTypeBtn} ${metricType === i ? styles.activeChartType : ''}`}
+              onClick={() => setMetricType(i)}
+            >
+              {m}
+            </button>
+          ))}
         </div>
 
         <h3 className={styles.sectionTitle}>

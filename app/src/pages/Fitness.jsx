@@ -33,6 +33,16 @@ export default function Fitness() {
     weight: ''
   })
 
+  const loadFitnessGoals = async () => {
+    if (!user) return
+    try {
+      const goals = await getActiveGoalsFromSupabase(user.id, 'fitness')
+      setFitnessGoals(goals)
+    } catch (e) {
+      // Silently fail
+    }
+  }
+
   useEffect(() => {
     // Check if AI workout was passed from Planner
     if (location.state?.aiWorkout) {
@@ -60,8 +70,7 @@ export default function Fitness() {
           setWorkoutHistory(workouts.slice(0, 10)) // Show last 10 workouts
           
           // Load fitness goals
-          const goals = await getActiveGoalsFromSupabase(user.id, 'fitness')
-          setFitnessGoals(goals)
+          await loadFitnessGoals()
           
           const prefs = await getUserPreferences(user.id)
           if (prefs && prefs.available_days?.length > 0) {
@@ -86,6 +95,28 @@ export default function Fitness() {
     }
     load()
   }, [user, location.state])
+
+  // Refresh goals when page becomes visible or when navigating back from Goals page
+  useEffect(() => {
+    if (!user) return
+    loadFitnessGoals()
+  }, [user, location.key])
+
+  useEffect(() => {
+    if (!user) return
+    
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadFitnessGoals()
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [user])
 
   const startWorkout = async (templateId) => {
     navigate('/workout/active', { state: { templateId } })
@@ -260,34 +291,45 @@ export default function Fitness() {
         )}
 
         {activeTab === 'History' && (
-          <div>
+          <div className={styles.historyContent}>
             <h2 className={styles.sectionTitle}>Workout History</h2>
-            <div className={styles.historyList}>
-              {workoutHistory.length === 0 ? (
-                <p className={styles.emptyText}>No workouts yet</p>
-              ) : (
-                workoutHistory.map(workout => (
-                  <div key={workout.id} className={styles.historyItem}>
-                    <div className={styles.historyDate}>
-                      {new Date(workout.date + 'T12:00:00').toLocaleDateString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
-                    </div>
-                    <div className={styles.historyDetails}>
-                      <span className={styles.historyDuration}>
-                        {Math.floor((workout.duration || 0) / 60)}:{String((workout.duration || 0) % 60).padStart(2, '0')}
-                      </span>
-                      {workout.workout_exercises?.length > 0 && (
-                        <span className={styles.historyExercises}>
-                          {workout.workout_exercises.length} exercises
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
+            <div className={styles.historyTable}>
+              <div className={styles.historyTableHeader}>
+                <div className={styles.historyTableCol}>Date</div>
+                <div className={styles.historyTableCol}>Duration</div>
+                <div className={styles.historyTableCol}>Exercises</div>
+                <div className={styles.historyTableCol}>Calories</div>
+              </div>
+              <div className={styles.historyTableBody}>
+                {workoutHistory.length === 0 ? (
+                  <div className={styles.historyTableEmpty}>No workouts yet</div>
+                ) : (
+                  workoutHistory
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .map(workout => (
+                      <div key={workout.id} className={styles.historyTableRow}>
+                        <div className={styles.historyTableCol}>
+                          {new Date(workout.date + 'T12:00:00').toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric',
+                            year: 'numeric'
+                          })}
+                        </div>
+                        <div className={styles.historyTableCol}>
+                          {workout.duration 
+                            ? `${Math.floor((workout.duration || 0) / 60)}:${String((workout.duration || 0) % 60).padStart(2, '0')}`
+                            : 'N/A'}
+                        </div>
+                        <div className={styles.historyTableCol}>
+                          {workout.workout_exercises?.length || 0}
+                        </div>
+                        <div className={styles.historyTableCol}>
+                          {workout.calories_burned || workout.calories || 'N/A'}
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
             </div>
           </div>
         )}

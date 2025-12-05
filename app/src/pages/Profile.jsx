@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
-import { deleteAllWorkoutsFromSupabase, cleanupDuplicateWorkouts } from '../lib/supabaseDb'
 import HomeButton from '../components/HomeButton'
 import styles from './Profile.module.css'
 
@@ -13,8 +12,6 @@ export default function Profile() {
   const [exporting, setExporting] = useState(false)
   const [connectedAccounts, setConnectedAccounts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [deletingWorkouts, setDeletingWorkouts] = useState(false)
-  const [cleaningDuplicates, setCleaningDuplicates] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -59,37 +56,7 @@ export default function Profile() {
     setExporting(false)
   }
 
-  const handleDeleteAllWorkouts = async () => {
-    if (!user) return
-    if (!confirm('Are you sure you want to delete ALL workouts? This cannot be undone. This will help remove any dummy/test data.')) return
-    
-    setDeletingWorkouts(true)
-    try {
-      const result = await deleteAllWorkoutsFromSupabase(user.id)
-      alert(`Deleted ${result.deleted} workout(s). Please refresh the app to see the changes.`)
-    } catch (error) {
-      alert('Failed to delete workouts. Please try again.')
-      console.error('Error deleting workouts:', error)
-    } finally {
-      setDeletingWorkouts(false)
-    }
-  }
 
-  const handleCleanupDuplicates = async () => {
-    if (!user) return
-    if (!confirm('This will remove duplicate workouts on the same date, keeping only the most recent. Continue?')) return
-    
-    setCleaningDuplicates(true)
-    try {
-      const result = await cleanupDuplicateWorkouts(user.id)
-      alert(`Cleaned up ${result.deleted} duplicate workout(s). Please refresh the app to see the changes.`)
-    } catch (error) {
-      alert('Failed to clean up duplicates. Please try again.')
-      console.error('Error cleaning duplicates:', error)
-    } finally {
-      setCleaningDuplicates(false)
-    }
-  }
 
   const handleLogout = async () => {
     await signOut()
@@ -121,22 +88,6 @@ export default function Profile() {
             disabled={exporting}
           >
             {exporting ? 'Exporting...' : 'Export All Data'}
-          </button>
-          <button
-            className={styles.actionBtn}
-            onClick={handleCleanupDuplicates}
-            disabled={cleaningDuplicates}
-            style={{ marginTop: '12px' }}
-          >
-            {cleaningDuplicates ? 'Cleaning...' : 'Remove Duplicate Workouts'}
-          </button>
-          <button
-            className={styles.actionBtn}
-            onClick={handleDeleteAllWorkouts}
-            disabled={deletingWorkouts}
-            style={{ marginTop: '12px', background: 'var(--error, #ff3b30)', color: '#fff' }}
-          >
-            {deletingWorkouts ? 'Deleting...' : 'Delete All Workouts (Clean Dummy Data)'}
           </button>
         </div>
 

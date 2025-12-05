@@ -179,14 +179,50 @@ export async function getWorkoutsFromSupabase(userId) {
     return hasValidExercise
   })
   
-  // Deduplicate by date (keep most recent)
+  // Deduplicate by date (keep most recent) and auto-delete duplicates/invalid data
   const deduplicated = []
   const seenDates = new Set()
+  const workoutsToDelete = []
+  
   for (const workout of validWorkouts) {
     if (!seenDates.has(workout.date)) {
       seenDates.add(workout.date)
       deduplicated.push(workout)
+    } else {
+      // Found duplicate - mark for deletion (keep the one we already added)
+      workoutsToDelete.push(workout.id)
     }
+  }
+  
+  // Auto-delete duplicates in background (don't wait for it)
+  if (workoutsToDelete.length > 0) {
+    workoutsToDelete.forEach(workoutId => {
+      deleteWorkoutFromSupabase(workoutId, userId).catch(err => {
+        // Silently fail - cleanup is best effort
+        safeLogDebug('Auto-cleanup: Failed to delete duplicate workout', workoutId)
+      })
+    })
+  }
+  
+  // Also auto-delete invalid workouts in background
+  const invalidWorkouts = (data || []).filter(workout => {
+    if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
+      return true
+    }
+    const hasValidExercise = workout.workout_exercises.some(ex => {
+      if (!ex.workout_sets || ex.workout_sets.length === 0) return false
+      return ex.workout_sets.some(s => s.weight || s.reps || s.time)
+    })
+    return !hasValidExercise
+  })
+  
+  if (invalidWorkouts.length > 0) {
+    invalidWorkouts.forEach(workout => {
+      deleteWorkoutFromSupabase(workout.id, userId).catch(err => {
+        // Silently fail - cleanup is best effort
+        safeLogDebug('Auto-cleanup: Failed to delete invalid workout', workout.id)
+      })
+    })
   }
   
   return deduplicated
@@ -348,7 +384,7 @@ export async function deleteWorkoutFromSupabase(workoutId, userId = null) {
 }
 
 export async function deleteAllWorkoutsFromSupabase(userId) {
-  // Get all workouts for user
+  // Get ALL workouts for user directly from database (no filtering)
   const { data: workouts, error: fetchError } = await supabase
     .from('workouts')
     .select('id')
@@ -364,7 +400,7 @@ export async function deleteAllWorkoutsFromSupabase(userId) {
   let deletedCount = 0
   for (const workout of workouts) {
     try {
-      await deleteWorkoutFromSupabase(workout.id)
+      await deleteWorkoutFromSupabase(workout.id, userId)
       deletedCount++
     } catch (error) {
       // Log error but continue deleting others
@@ -377,18 +413,69 @@ export async function deleteAllWorkoutsFromSupabase(userId) {
 
 // Clean up duplicate workouts and invalid data
 export async function cleanupDuplicateWorkouts(userId) {
-  const workouts = await getWorkoutsFromSupabase(userId)
-  const dateGroups = {}
+  // Get ALL workouts directly from database (no filtering) to see duplicates and dummy data
+  const { data: allWorkouts, error: fetchError } = await supabase
+    .from('workouts')
+    .select(`
+      id,
+      date,
+      created_at,
+      workout_exercises (
+        id,
+        workout_sets (
+          id,
+          weight,
+          reps,
+          time
+        )
+      )
+    `)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+
+  if (fetchError) throw fetchError
+
+  if (!allWorkouts || allWorkouts.length === 0) {
+    return { deleted: 0, invalidDeleted: 0 }
+  }
+
+  let deletedCount = 0
+  let invalidDeleted = 0
   
-  // Group workouts by date
-  workouts.forEach(w => {
+  // First, identify and delete invalid workouts (dummy data - no valid exercises/sets)
+  for (const workout of allWorkouts) {
+    const hasValidExercise = workout.workout_exercises?.some(ex => {
+      if (!ex.workout_sets || ex.workout_sets.length === 0) return false
+      return ex.workout_sets.some(s => s.weight || s.reps || s.time)
+    })
+    
+    if (!hasValidExercise) {
+      try {
+        await deleteWorkoutFromSupabase(workout.id, userId)
+        invalidDeleted++
+        deletedCount++
+      } catch (error) {
+        logError(`Error deleting invalid workout ${workout.id}`, error)
+      }
+    }
+  }
+  
+  // Now handle duplicates - group remaining valid workouts by date
+  const validWorkouts = allWorkouts.filter(w => {
+    const hasValidExercise = w.workout_exercises?.some(ex => {
+      if (!ex.workout_sets || ex.workout_sets.length === 0) return false
+      return ex.workout_sets.some(s => s.weight || s.reps || s.time)
+    })
+    return hasValidExercise
+  })
+  
+  const dateGroups = {}
+  validWorkouts.forEach(w => {
     if (!dateGroups[w.date]) {
       dateGroups[w.date] = []
     }
     dateGroups[w.date].push(w)
   })
-  
-  let deletedCount = 0
   
   // For each date with multiple workouts, keep only the most recent
   for (const [date, dateWorkouts] of Object.entries(dateGroups)) {
@@ -404,7 +491,7 @@ export async function cleanupDuplicateWorkouts(userId) {
       const duplicates = dateWorkouts.slice(1)
       for (const dup of duplicates) {
         try {
-          await deleteWorkoutFromSupabase(dup.id)
+          await deleteWorkoutFromSupabase(dup.id, userId)
           deletedCount++
         } catch (error) {
           logError(`Error deleting duplicate workout ${dup.id}`, error)
@@ -413,7 +500,7 @@ export async function cleanupDuplicateWorkouts(userId) {
     }
   }
   
-  return { deleted: deletedCount }
+  return { deleted: deletedCount, invalidDeleted }
 }
 
 // ============ DAILY METRICS ============

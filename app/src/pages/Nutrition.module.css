@@ -1115,7 +1115,7 @@ h1 {
 
 .historyTableHeader {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr 0.8fr;
   gap: 12px;
   padding: 16px;
   background: var(--bg-tertiary);
@@ -1133,7 +1133,7 @@ h1 {
 
 .historyTableRow {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr 0.8fr;
   gap: 12px;
   padding: 16px;
   border-bottom: 1px solid var(--border);
@@ -1167,6 +1167,28 @@ h1 {
   text-align: center;
   color: var(--text-secondary);
   font-size: 16px;
+}
+
+.deleteBtn {
+  padding: 6px 12px;
+  background: var(--color-red, #ef4444);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.deleteBtn:hover {
+  background: var(--color-red-dark, #dc2626);
+  transform: translateY(-1px);
+}
+
+.deleteBtn:active {
+  transform: translateY(0);
 }
 
 .deletePlanBtn {

@@ -706,6 +706,7 @@ export default function Health() {
                     <div className={styles.historyTableCol}>HRV</div>
                     <div className={styles.historyTableCol}>Calories</div>
                     <div className={styles.historyTableCol}>Sleep</div>
+                    <div className={styles.historyTableCol}>Actions</div>
                   </div>
                   <div className={styles.historyTableBody}>
                     {metrics
@@ -755,6 +756,31 @@ export default function Health() {
                                 Tap to log
                               </div>
                             )}
+                            <div className={styles.historyTableCol}>
+                              <button
+                                className={styles.deleteBtn}
+                                onClick={async (e) => {
+                                  e.stopPropagation()
+                                  if (confirm(`Delete all health metrics for ${metric.date}?`)) {
+                                    try {
+                                      const { supabase } = await import('../lib/supabase')
+                                      await supabase
+                                        .from('daily_metrics')
+                                        .delete()
+                                        .eq('user_id', user.id)
+                                        .eq('date', metric.date)
+                                      await loadAllData()
+                                      showToast('Health metrics deleted', 'success')
+                                    } catch (error) {
+                                      logError('Error deleting health metrics', error)
+                                      showToast('Failed to delete health metrics', 'error')
+                                    }
+                                  }
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         )
                       })}

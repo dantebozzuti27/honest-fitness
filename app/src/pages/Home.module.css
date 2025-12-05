@@ -42,20 +42,21 @@
 }
 
 .logo {
-  font-size: 40px;
-  font-weight: 900;
+  font-size: 48px;
+  font-weight: 700;
   margin: 0;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+  letter-spacing: -0.02em;
+  text-transform: none;
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   color: var(--text-primary); /* Fallback for browsers that don't support background-clip */
-  text-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
-  font-family: 'Grind', var(--font-display);
-  line-height: 1;
+  text-shadow: 0 0 40px rgba(255, 255, 255, 0.15);
+  font-family: var(--font-display);
+  line-height: 1.07143;
   display: inline-block;
+  font-feature-settings: "kern" 1;
 }
 
 .content {
@@ -64,28 +65,29 @@
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
-  padding: 0 16px 16px;
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
-  gap: 12px;
+  padding: 0 var(--space-lg) var(--space-lg);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-lg));
+  gap: var(--space-lg);
   width: 100%;
   max-width: 100%;
   overflow-y: auto;
 }
 
-/* Steps Card - Hero Display */
+/* Steps Card - Hero Display - Apple-inspired */
 .stepsCard {
   width: 100%;
-  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-xl);
-  padding: var(--space-xl) var(--space-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-2xl) var(--space-xl);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-md);
-  box-shadow: var(--shadow-lg);
+  gap: var(--space-lg);
+  box-shadow: var(--shadow-xl);
   position: relative;
   overflow: hidden;
+  transition: all var(--transition-base);
 }
 
 .stepsCard::before {
@@ -94,9 +96,15 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  opacity: 0.3;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  opacity: 0.5;
+}
+
+.stepsCard:hover {
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-2xl);
+  transform: translateY(-4px);
 }
 
 .stepsHeader {
@@ -121,13 +129,17 @@
 }
 
 .stepsValue {
-  font-size: var(--text-5xl);
+  font-size: var(--text-6xl);
   font-weight: 700;
   font-family: var(--font-mono);
   color: var(--text-primary);
   line-height: 1;
-  letter-spacing: -0.02em;
-  text-shadow: 0 0 40px rgba(255, 255, 255, 0.15);
+  letter-spacing: -0.04em;
+  text-shadow: 0 0 60px rgba(255, 255, 255, 0.2);
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .stepsSubtext {
@@ -136,23 +148,24 @@
   font-weight: 400;
 }
 
-/* Streak Card */
+/* Streak Card - Apple-inspired */
 .streakCard {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-lg) var(--space-xl);
+  gap: var(--space-md);
+  padding: var(--space-xl) var(--space-2xl);
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-2xl);
   border: 1px solid var(--border);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
   transition: all var(--transition-base);
 }
 
 .streakCard:hover {
   border-color: var(--border-light);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
+  transform: translateY(-2px);
 }
 
 .streakRow {
@@ -188,26 +201,31 @@
 .navItem {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-xl);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   cursor: pointer;
   transition: all var(--transition-base);
   text-align: left;
   color: var(--text-primary);
-  min-height: 48px;
+  min-height: 64px;
   width: 100%;
   justify-content: flex-start;
+  box-shadow: var(--shadow-sm);
 }
 
 .navItem:hover {
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
 }
 
 .navItem:active {
-  transform: scale(0.98);
+  transform: translateY(0);
+  box-shadow: var(--shadow-xs);
 }
 
 .navIcon {
@@ -233,8 +251,8 @@
 
 /* Quick Action Button */
 .quickActionBtn {
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: var(--accent);
   color: #000;
@@ -243,24 +261,25 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
   transition: all var(--transition-base);
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 300;
   line-height: 1;
   position: relative;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 56px;
+  min-height: 56px;
   flex-shrink: 0;
 }
 
 .quickActionBtn:hover {
-  transform: scale(1.05);
-  box-shadow: var(--shadow-lg);
+  transform: scale(1.08);
+  box-shadow: var(--shadow-2xl);
 }
 
 .quickActionBtn:active {
-  transform: scale(0.95);
+  transform: scale(0.96);
+  box-shadow: var(--shadow-lg);
 }
 
 .plusIcon {

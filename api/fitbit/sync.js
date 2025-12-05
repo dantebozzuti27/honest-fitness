@@ -318,13 +318,6 @@ export default async function handler(req, res) {
 
     // Also merge into daily_metrics for use in workout page
     try {
-      // Helper to ensure integer conversion
-      const toInteger = (val) => {
-        if (val === null || val === undefined || val === '') return null
-        const num = typeof val === 'string' ? parseFloat(val) : Number(val)
-        return isNaN(num) ? null : Math.round(num)
-      }
-      
       const merged = {
         hrv: fitbitData.hrv != null ? Number(fitbitData.hrv) : null,
         sleep_time: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
@@ -336,9 +329,6 @@ export default async function handler(req, res) {
       
       // Update daily_metrics - only if we have data
       if (merged.hrv || merged.sleep_time || merged.steps || merged.calories) {
-        // Double-check steps is an integer before saving
-        const stepsValue = merged.steps != null ? Math.round(Number(merged.steps)) : null
-        
         const { error: metricsError } = await supabase
           .from('daily_metrics')
           .upsert({
@@ -347,7 +337,7 @@ export default async function handler(req, res) {
             sleep_score: merged.sleep_score,
             sleep_time: merged.sleep_time,
             hrv: merged.hrv,
-            steps: stepsValue, // Explicitly ensure integer
+            steps: merged.steps, // Already converted to integer via toInteger()
             calories: merged.calories,
             weight: null
           }, { onConflict: 'user_id,date' })

@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { getTodayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
+import { logError, logDebug } from '../utils/logger'
 
 /**
  * Wearables OAuth and Data Sync

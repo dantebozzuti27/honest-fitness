@@ -8,75 +8,87 @@
 }
 
 :root {
-  /* Color System - Premium Black & White */
+  /* Color System - Apple-inspired Premium Black & White */
   --bg-primary: #000000;
   --bg-secondary: #0a0a0a;
   --bg-tertiary: #141414;
   --bg-elevated: #1a1a1a;
   --bg-card: #0f0f0f;
+  --bg-glass: rgba(10, 10, 10, 0.8);
   
   --text-primary: #ffffff;
-  --text-secondary: #b0b0b0;
-  --text-muted: #707070;
-  --text-disabled: #404040;
+  --text-secondary: #a1a1a6;
+  --text-muted: #6e6e73;
+  --text-disabled: #3a3a3c;
   
   --accent: #ffffff;
-  --accent-hover: #f0f0f0;
+  --accent-hover: #f5f5f7;
   --accent-dim: #2a2a2a;
-  --accent-glow: rgba(255, 255, 255, 0.08);
-  --accent-glow-strong: rgba(255, 255, 255, 0.15);
+  --accent-glow: rgba(255, 255, 255, 0.1);
+  --accent-glow-strong: rgba(255, 255, 255, 0.2);
   
-  --border: #1a1a1a;
-  --border-light: #262626;
-  --border-hover: #333333;
+  --border: #1d1d1f;
+  --border-light: #2d2d30;
+  --border-hover: #3a3a3c;
   
-  --success: #ffffff;
-  --warning: #cccccc;
-  --danger: #ff4444;
+  --success: #30d158;
+  --warning: #ff9f0a;
+  --danger: #ff453a;
   
-  /* Spacing System - Optimized for iPhone 17 */
-  --space-xs: 6px;
-  --space-sm: 12px;
-  --space-md: 20px;
-  --space-lg: 28px;
-  --space-xl: 36px;
-  --space-2xl: 52px;
+  /* Spacing System - Apple-inspired generous spacing */
+  --space-xs: 8px;
+  --space-sm: 16px;
+  --space-md: 24px;
+  --space-lg: 32px;
+  --space-xl: 48px;
+  --space-2xl: 64px;
+  --space-3xl: 96px;
   
-  /* Border Radius */
-  --radius-xs: 6px;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
-  --radius-xl: 24px;
+  /* Border Radius - Apple's refined curves */
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-2xl: 36px;
   --radius-full: 9999px;
   
-  /* Typography */
+  /* Typography - Apple's SF Pro inspired */
   --font-mono: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
-  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
   
-  /* Font Sizes - Optimized for iPhone 17 */
+  /* Font Sizes - Apple's refined scale */
   --text-xs: 13px;
   --text-sm: 15px;
   --text-base: 17px;
   --text-md: 19px;
-  --text-lg: 22px;
-  --text-xl: 26px;
+  --text-lg: 21px;
+  --text-xl: 28px;
   --text-2xl: 34px;
-  --text-3xl: 44px;
-  --text-4xl: 60px;
-  --text-5xl: 76px;
+  --text-3xl: 48px;
+  --text-4xl: 64px;
+  --text-5xl: 80px;
+  --text-6xl: 96px;
   
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+  /* Shadows - Apple's depth system */
+  --shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.7);
+  --shadow-xl: 0 16px 64px rgba(0, 0, 0, 0.8);
+  --shadow-2xl: 0 24px 96px rgba(0, 0, 0, 0.9);
   
-  /* Transitions */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Transitions - Apple's smooth animations */
+  --transition-fast: 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --transition-base: 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --transition-slow: 500ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --transition-bounce: 400ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  
+  /* Glassmorphism */
+  --glass-bg: rgba(10, 10, 10, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --backdrop-blur: blur(20px);
 }
 
 html, body {
@@ -89,15 +101,17 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  letter-spacing: -0.01em;
-  line-height: 1.5;
+  letter-spacing: -0.011em;
+  line-height: 1.47059;
+  font-feature-settings: "kern" 1;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
   font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
+  letter-spacing: -0.022em;
+  line-height: 1.07143;
+  font-feature-settings: "kern" 1;
 }
 
 h1 { font-size: var(--text-3xl); }
@@ -201,6 +215,55 @@ html {
 * {
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+}
+
+/* Apple-inspired card styles */
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
+}
+
+.card:hover {
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+/* Glassmorphism effect */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  border: 1px solid var(--glass-border);
+}
+
+/* Apple-style button */
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-lg);
+  font-weight: 600;
+  font-size: var(--text-base);
+  letter-spacing: -0.01em;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-xs);
 }
 
 /* Selection */

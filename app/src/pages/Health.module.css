@@ -719,6 +719,28 @@ h1 {
   font-size: 14px;
 }
 
+.deleteBtn {
+  padding: 6px 12px;
+  background: var(--color-red, #ef4444);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.deleteBtn:hover {
+  background: var(--color-red-dark, #dc2626);
+  transform: translateY(-1px);
+}
+
+.deleteBtn:active {
+  transform: translateY(0);
+}
+
 /* Dashboard Container */
 .shareBtn {
   padding: 14px 20px;

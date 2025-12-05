@@ -811,6 +811,14 @@ export default function Nutrition() {
                   <span>You're over your target by {deficit} calories</span>
                 </div>
               )}
+
+              {/* Share Button */}
+              <button
+                className={styles.shareBtn}
+                onClick={() => setShowShareModal(true)}
+              >
+                Share Daily Summary
+              </button>
             </div>
 
             {/* Daily Meals Section - Compact */}
@@ -976,22 +984,65 @@ export default function Nutrition() {
                 <div className={styles.historyTableCol}>Protein</div>
                 <div className={styles.historyTableCol}>Carbs</div>
                 <div className={styles.historyTableCol}>Fat</div>
+                <div className={styles.historyTableCol}>Actions</div>
               </div>
               <div className={styles.historyTableBody}>
                 {Object.entries(historyData)
                   .sort((a, b) => b[0].localeCompare(a[0]))
                   .map(([date, data]) => (
-                    <div key={date} className={styles.historyTableRow} onClick={() => {
-                      setSelectedDate(date)
-                      setActiveTab('Today')
-                    }}>
-                      <div className={styles.historyTableCol}>
+                    <div key={date} className={styles.historyTableRow}>
+                      <div className={styles.historyTableCol} onClick={() => {
+                        setSelectedDate(date)
+                        setActiveTab('Today')
+                      }}>
                         {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </div>
-                      <div className={styles.historyTableCol}>{data.calories || 0}</div>
-                      <div className={styles.historyTableCol}>{Math.round(data.macros?.protein || 0)}g</div>
-                      <div className={styles.historyTableCol}>{Math.round(data.macros?.carbs || 0)}g</div>
-                      <div className={styles.historyTableCol}>{Math.round(data.macros?.fat || 0)}g</div>
+                      <div className={styles.historyTableCol} onClick={() => {
+                        setSelectedDate(date)
+                        setActiveTab('Today')
+                      }}>{data.calories || 0}</div>
+                      <div className={styles.historyTableCol} onClick={() => {
+                        setSelectedDate(date)
+                        setActiveTab('Today')
+                      }}>{Math.round(data.macros?.protein || 0)}g</div>
+                      <div className={styles.historyTableCol} onClick={() => {
+                        setSelectedDate(date)
+                        setActiveTab('Today')
+                      }}>{Math.round(data.macros?.carbs || 0)}g</div>
+                      <div className={styles.historyTableCol} onClick={() => {
+                        setSelectedDate(date)
+                        setActiveTab('Today')
+                      }}>{Math.round(data.macros?.fat || 0)}g</div>
+                      <div className={styles.historyTableCol}>
+                        <button
+                          className={styles.deleteBtn}
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (confirm(`Delete all nutrition data for ${date}?`)) {
+                              try {
+                                const { deleteMealFromSupabase, getMealsFromSupabase, updateWaterIntake } = await import('../lib/nutritionDb')
+                                // Delete all meals for this date
+                                const dayData = await getMealsFromSupabase(user.id, date)
+                                if (dayData.meals && dayData.meals.length > 0) {
+                                  for (const meal of dayData.meals) {
+                                    await deleteMealFromSupabase(user.id, date, meal.id)
+                                  }
+                                }
+                                // Clear water intake
+                                await updateWaterIntake(user.id, date, 0)
+                                // Reload data
+                                await loadDateDataFromSupabase(selectedDate)
+                                showToast('Nutrition data deleted', 'success')
+                              } catch (error) {
+                                logError('Error deleting nutrition data', error)
+                                showToast('Failed to delete nutrition data', 'error')
+                              }
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 {Object.keys(historyData).length === 0 && (
@@ -1475,7 +1526,9 @@ export default function Nutrition() {
               protein: currentMacros.protein,
               carbs: currentMacros.carbs,
               fat: currentMacros.fat,
-              meals: meals
+              meals: meals,
+              targetCalories: targetCalories,
+              targetMacros: targetMacros
             }
           }}
           onClose={() => setShowShareModal(false)}

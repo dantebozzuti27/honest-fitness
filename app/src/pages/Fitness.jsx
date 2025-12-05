@@ -2,10 +2,14 @@ import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getAllTemplates, saveTemplate, deleteTemplate } from '../db'
-import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase } from '../lib/supabaseDb'
+import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase, deleteWorkoutFromSupabase } from '../lib/supabaseDb'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { logError } from '../utils/logger'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
+import ShareModal from '../components/ShareModal'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import styles from './Fitness.module.css'
@@ -24,6 +28,9 @@ export default function Fitness() {
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [workoutHistory, setWorkoutHistory] = useState([])
   const [fitnessGoals, setFitnessGoals] = useState([])
+  const { toast, showToast, hideToast } = useToast()
+  const [showShareModal, setShowShareModal] = useState(false)
+  const [selectedWorkoutForShare, setSelectedWorkoutForShare] = useState(null)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -67,7 +74,7 @@ export default function Fitness() {
         try {
           // Load workout history
           const workouts = await getWorkoutsFromSupabase(user.id)
-          setWorkoutHistory(workouts.slice(0, 10)) // Show last 10 workouts
+          setWorkoutHistory(workouts) // Show all workouts
           
           // Load fitness goals
           await loadFitnessGoals()
@@ -123,6 +130,16 @@ export default function Fitness() {
   }
 
   // Removed startOutdoorRun - not needed for now
+
+  const loadWorkoutHistory = async () => {
+    if (!user) return
+    try {
+      const workouts = await getWorkoutsFromSupabase(user.id)
+      setWorkoutHistory(workouts)
+    } catch (e) {
+      // Silently fail
+    }
+  }
 
   const startRandomWorkout = async () => {
     try {
@@ -299,6 +316,7 @@ export default function Fitness() {
                 <div className={styles.historyTableCol}>Duration</div>
                 <div className={styles.historyTableCol}>Exercises</div>
                 <div className={styles.historyTableCol}>Calories</div>
+                <div className={styles.historyTableCol}>Actions</div>
               </div>
               <div className={styles.historyTableBody}>
                 {workoutHistory.length === 0 ? (
@@ -325,6 +343,36 @@ export default function Fitness() {
                         </div>
                         <div className={styles.historyTableCol}>
                           {workout.calories_burned || workout.calories || 'N/A'}
+                        </div>
+                        <div className={styles.historyTableCol}>
+                          <button
+                            className={styles.shareBtn}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedWorkoutForShare(workout)
+                              setShowShareModal(true)
+                            }}
+                          >
+                            Share
+                          </button>
+                          <button
+                            className={styles.deleteBtn}
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              if (confirm(`Delete workout from ${workout.date}?`)) {
+                                try {
+                                  await deleteWorkoutFromSupabase(workout.id)
+                                  await loadWorkoutHistory()
+                                  showToast('Workout deleted', 'success')
+                                } catch (error) {
+                                  console.error('Error deleting workout:', error)
+                                  showToast('Failed to delete workout', 'error')
+                                }
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
                         </div>
                       </div>
                     ))
@@ -404,6 +452,52 @@ export default function Fitness() {
           />,
           document.body
         )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          duration={toast.duration}
+          onClose={hideToast}
+        />
+      )}
+
+      {/* Share Modal */}
+      {showShareModal && selectedWorkoutForShare && (() => {
+        // Transform workout data from database format to ShareCard format
+        const exercises = (selectedWorkoutForShare.workout_exercises || []).map(ex => ({
+          name: ex.exercise_name,
+          sets: (ex.workout_sets || []).map(set => ({
+            weight: set.weight,
+            reps: set.reps,
+            time: set.time,
+            speed: set.speed,
+            incline: set.incline
+          }))
+        }))
+        
+        return (
+          <ShareModal
+            type="workout"
+            data={{
+              workout: {
+                date: selectedWorkoutForShare.date,
+                duration: selectedWorkoutForShare.duration || 0,
+                exercises: exercises,
+                templateName: selectedWorkoutForShare.template_name || 'Freestyle Workout',
+                perceivedEffort: selectedWorkoutForShare.perceived_effort,
+                moodAfter: selectedWorkoutForShare.mood_after,
+                notes: selectedWorkoutForShare.notes
+              }
+            }}
+            onClose={() => {
+              setShowShareModal(false)
+              setSelectedWorkoutForShare(null)
+            }}
+          />
+        )
+      })()}
       </div>
     </div>
   )

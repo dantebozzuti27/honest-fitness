@@ -37,11 +37,13 @@
 }
 
 .logo {
-  height: 48px;
+  height: 56px;
   width: auto;
-  max-width: 200px;
+  max-width: 240px;
   object-fit: contain;
+  display: block;
   filter: brightness(0) invert(1);
+  -webkit-filter: brightness(0) invert(1);
 }
 
 .content {

@@ -107,7 +107,7 @@ export default function Home() {
       <div className={styles.header}>
         <div className={styles.logoContainer}>
           <img 
-            src="/logo.jpg" 
+            src="/logo.jpeg" 
             alt="Echelon" 
             className={styles.logo}
           />

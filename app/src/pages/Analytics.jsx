@@ -801,33 +801,49 @@ export default function Analytics() {
               {historyChartType === 'frequency' && (
                 <>
                   <h4 className={styles.chartTitle}>Workouts Per Week</h4>
-                  <BarChart 
-                    data={weeklyWorkoutData} 
-                    labels={Object.keys(weeklyWorkoutData).map(k => {
-                      const d = new Date(k + 'T12:00:00')
-                      return `${d.getMonth() + 1}/${d.getDate()}`
-                    })}
-                    dates={Object.keys(weeklyWorkoutData)}
-                    dateData={weeklyWorkoutData}
-                    height={150}
-                    color="#ff2d2d"
-                    xAxisLabel="Week"
-                    yAxisLabel="Workouts"
-                  />
+                  <div 
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      // Chart click handler - will be handled by BarChart's onBarClick
+                    }}
+                  >
+                    <BarChart 
+                      data={weeklyWorkoutData} 
+                      labels={Object.keys(weeklyWorkoutData).map(k => {
+                        const d = new Date(k + 'T12:00:00')
+                        return `${d.getMonth() + 1}/${d.getDate()}`
+                      })}
+                      dates={Object.keys(weeklyWorkoutData)}
+                      dateData={weeklyWorkoutData}
+                      height={150}
+                      color="#ff2d2d"
+                      xAxisLabel="Week"
+                      yAxisLabel="Workouts"
+                      chartTitle="Workouts Per Week"
+                    />
+                  </div>
                 </>
               )}
               {historyChartType === 'duration' && durationData.length > 0 && (
                 <>
                   <h4 className={styles.chartTitle}>Workout Duration (Last 14 Days)</h4>
-                  <BarChart 
-                    data={Object.fromEntries(durationData.map((d, i) => [durationLabels[i], d]))} 
-                    dates={durationDates}
-                    dateData={durationDateData}
-                    height={150} 
-                    color="#ff2d2d"
-                    xAxisLabel="Date"
-                    yAxisLabel="Duration (min)"
-                  />
+                  <div 
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      // Chart click handler - will be handled by BarChart's onBarClick
+                    }}
+                  >
+                    <BarChart 
+                      data={Object.fromEntries(durationData.map((d, i) => [durationLabels[i], d]))} 
+                      dates={durationDates}
+                      dateData={durationDateData}
+                      height={150} 
+                      color="#ff2d2d"
+                      xAxisLabel="Date"
+                      yAxisLabel="Duration (min)"
+                      chartTitle="Workout Duration"
+                    />
+                  </div>
                 </>
               )}
             </div>

@@ -11,16 +11,20 @@ export default function BarChart({
   yAxisLabel = '',
   dates = null, // Array of dates corresponding to each bar
   onBarClick = null, // Callback when a bar is clicked
-  dateData = null // Full date data object for detail view
+  dateData = null, // Full date data object for detail view
+  chartTitle = '' // Title for sharing
 }) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState(0)
   const [selectedBar, setSelectedBar] = useState(null)
   const [showDetail, setShowDetail] = useState(false)
   const [popupZoom, setPopupZoom] = useState(1)
+  const [dataRangeStart, setDataRangeStart] = useState(0) // For scale-based zoom
+  const [dataRangeEnd, setDataRangeEnd] = useState(null) // For scale-based zoom
   const containerRef = useRef(null)
   const touchStartRef = useRef(null)
   const lastPinchDistanceRef = useRef(null)
+  const chartRef = useRef(null)
   const chartData = useMemo(() => {
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
     
@@ -103,14 +107,31 @@ export default function BarChart({
     }
   }
 
-  // Bar click handler
+  // Bar click handler - opens popup modal
   const handleBarClick = (index, value, key, date) => {
     if (onBarClick) {
       onBarClick({ index, value, key, date, fullData: dateData?.[date] || dateData?.[key] })
     } else {
-      // Default behavior: show detail modal
+      // Default behavior: show detail modal with full chart
       setSelectedBar({ index, value, key, date, fullData: dateData?.[date] || dateData?.[key] })
       setShowDetail(true)
+      setPopupZoom(1) // Reset zoom when opening
+    }
+  }
+
+  // Chart container click - opens full chart popup
+  const handleChartClick = (e) => {
+    if (e.target.closest('.bar') || e.target.closest('rect')) return // Don't trigger on bar clicks
+    if (chartData && chartData.values.length > 0) {
+      setSelectedBar({ 
+        index: 0, 
+        value: chartData.values[0], 
+        key: chartData.keys[0], 
+        date: chartData.dateKeys[0],
+        fullData: dateData?.[chartData.dateKeys[0]] || dateData?.[chartData.keys[0]] || data
+      })
+      setShowDetail(true)
+      setPopupZoom(1)
     }
   }
 
@@ -172,15 +193,35 @@ export default function BarChart({
     return (chartData.max / (yTicks - 1)) * i
   })
   
+  // Calculate visible data range based on zoom
+  const visibleData = useMemo(() => {
+    if (!chartData) return null
+    const totalBars = chartData.values.length
+    const visibleCount = Math.max(1, Math.floor(totalBars / popupZoom))
+    const startIdx = Math.max(0, Math.min(dataRangeStart, totalBars - visibleCount))
+    const endIdx = Math.min(totalBars, startIdx + visibleCount)
+    
+    return {
+      values: chartData.values.slice(startIdx, endIdx),
+      keys: chartData.keys.slice(startIdx, endIdx),
+      dateKeys: chartData.dateKeys.slice(startIdx, endIdx),
+      max: Math.max(...chartData.values.slice(startIdx, endIdx), 1),
+      startIdx,
+      endIdx
+    }
+  }, [chartData, popupZoom, dataRangeStart])
+
   return (
     <>
       <div 
         className={styles.chartContainer}
         ref={containerRef}
         onDoubleClick={handleDoubleClick}
+        onClick={handleChartClick}
         style={{
           height: `${height}px`,
-          minHeight: `${height}px`
+          minHeight: `${height}px`,
+          cursor: 'pointer'
         }}
       >
         <div 
@@ -325,38 +366,98 @@ export default function BarChart({
                 </span>
               </div>
               
-              {/* Zoom Controls */}
+              {/* Zoom Controls - Changes data range */}
               <div className={styles.zoomControls}>
                 <span className={styles.zoomLabel}>Zoom X-Axis:</span>
                 <div className={styles.zoomButtons}>
                   <button 
                     className={styles.zoomBtn}
-                    onClick={() => setPopupZoom(Math.max(0.5, popupZoom - 0.25))}
+                    onClick={() => {
+                      const newZoom = Math.max(0.5, popupZoom - 0.25)
+                      setPopupZoom(newZoom)
+                      // Adjust data range start to show more data
+                      if (chartData && visibleData) {
+                        const newStart = Math.max(0, dataRangeStart - Math.floor(chartData.values.length * 0.1))
+                        setDataRangeStart(newStart)
+                      }
+                    }}
                   >
                     −
                   </button>
                   <span className={styles.zoomValue}>{Math.round(popupZoom * 100)}%</span>
                   <button 
                     className={styles.zoomBtn}
-                    onClick={() => setPopupZoom(Math.min(3, popupZoom + 0.25))}
+                    onClick={() => {
+                      const newZoom = Math.min(3, popupZoom + 0.25)
+                      setPopupZoom(newZoom)
+                      // Adjust data range to show less data (zoom in)
+                      if (chartData && visibleData) {
+                        const centerIdx = Math.floor((visibleData.startIdx + visibleData.endIdx) / 2)
+                        const newStart = Math.max(0, Math.min(centerIdx, chartData.values.length - 1))
+                        setDataRangeStart(newStart)
+                      }
+                    }}
                   >
                     +
                   </button>
                 </div>
               </div>
 
-              {/* Expanded Chart View */}
-              <div className={styles.popupChartContainer} style={{ transform: `scaleX(${popupZoom})` }}>
-                <div className={styles.chartContainer}>
+              {/* Expanded Chart View with Scale-Based Zoom */}
+              <div className={styles.popupChartContainer} ref={chartRef}>
+                <div className={styles.chartContainer} style={{ height: '300px' }}>
                   <div className={styles.chartWrapper}>
-                    <svg viewBox="0 0 100 100" className={styles.chart} preserveAspectRatio="xMidYMid meet">
-                      {/* Chart visualization would go here - simplified for popup */}
-                      <text x="50" y="50" textAnchor="middle" fontSize="4" fill="#ffffff">
-                        Chart View (Zoom: {Math.round(popupZoom * 100)}%)
-                      </text>
-                    </svg>
+                    {chartData && visibleData && (
+                      <svg viewBox="0 0 100 100" className={styles.chart} preserveAspectRatio="xMidYMid meet">
+                        {/* Render visible bars based on zoom */}
+                        {visibleData.values.map((value, i) => {
+                          const barHeight = visibleData.max > 0 ? (value / visibleData.max) * 80 : 0
+                          const x = 10 + (i * (80 / visibleData.values.length))
+                          const y = 90 - barHeight
+                          const barWidth = Math.max(2, 80 / visibleData.values.length * 0.8)
+                          
+                          return (
+                            <rect
+                              key={i}
+                              x={x}
+                              y={y}
+                              width={barWidth}
+                              height={Math.max(0.5, barHeight)}
+                              fill={color}
+                              className={styles.bar}
+                            />
+                          )
+                        })}
+                      </svg>
+                    )}
                   </div>
                 </div>
+              </div>
+
+              {/* Share Button */}
+              <div className={styles.shareControls}>
+                <button
+                  className={styles.shareBtn}
+                  onClick={async () => {
+                    if (chartRef.current) {
+                      try {
+                        const imageUrl = await generateShareImage(chartRef.current)
+                        if (imageUrl) {
+                          await shareNative(
+                            chartTitle || 'Chart',
+                            `Check out this ${chartTitle || 'chart'} from Echelon`,
+                            window.location.origin,
+                            imageUrl
+                          )
+                        }
+                      } catch (error) {
+                        alert('Failed to share chart. Please try again.')
+                      }
+                    }
+                  }}
+                >
+                  Share Chart
+                </button>
               </div>
 
               {selectedBar.fullData && (

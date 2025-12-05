@@ -314,6 +314,45 @@
 }
 
 .popupChartContainer {
+  width: 100%;
+  margin: 16px 0;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.shareControls {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+}
+
+.shareBtn {
+  padding: 12px 24px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.shareBtn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.shareBtn:active {
+  transform: translateY(0);
+}
+
+.popupChartContainer {
   margin: 16px 0;
   padding: 16px;
   background: var(--bg-tertiary);

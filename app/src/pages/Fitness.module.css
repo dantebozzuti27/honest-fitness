@@ -28,7 +28,7 @@
 }
 
 h1 {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
   margin: 0;
   color: var(--text-primary);
@@ -94,15 +94,20 @@ h1 {
   width: 100%;
   margin: 0;
   padding: 0;
+  margin-left: calc(-1 * var(--space-md));
+  margin-right: calc(-1 * var(--space-md));
+  width: calc(100% + 2 * var(--space-md));
 }
 
 .historyTable {
   width: 100%;
   border-collapse: collapse;
   background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
+  border-radius: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: none;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .historyTableHeader {
@@ -286,4 +291,112 @@ h1 {
 .closeModalBtn:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+/* Start Workout Button */
+.startWorkoutBtn {
+  width: 100%;
+  padding: var(--space-md) var(--space-xl);
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-base);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-xl);
+  min-height: 56px;
+  letter-spacing: -0.011em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: var(--space-md);
+}
+
+.startWorkoutBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2xl);
+  background: var(--accent-hover);
+}
+
+.startWorkoutBtn:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-lg);
+}
+
+.startWorkoutIcon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* Template List */
+.templateList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.templateBtn,
+.freestyleBtn,
+.randomBtn {
+  width: 100%;
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  box-shadow: var(--shadow-sm);
+}
+
+.templateBtn:hover,
+.freestyleBtn:hover,
+.randomBtn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.templateBtn:active,
+.freestyleBtn:active,
+.randomBtn:active {
+  transform: translateY(0);
+}
+
+.templateIcon,
+.freestyleIcon,
+.randomIcon {
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.templateInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.templateName {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.templateCount {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
 }

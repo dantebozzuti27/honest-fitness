@@ -321,7 +321,6 @@ export default function Goals() {
         {/* Goals Section - Show Only Active Category Goals */}
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>My Goals</h2>
             <button
               className={styles.newGoalBtn}
               onClick={() => {

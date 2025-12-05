@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
 import { getUserPreferences, saveUserPreferences } from '../lib/supabaseDb'
+import { supabase } from '../lib/supabase'
 import HomeButton from '../components/HomeButton'
 import styles from './Profile.module.css'
 
@@ -38,15 +39,43 @@ export default function Profile() {
     }
   }
 
-  const handleProfilePictureChange = (e) => {
+  const handleProfilePictureChange = async (e) => {
     const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setProfilePicture(reader.result)
-        setProfilePictureUrl(reader.result)
+    if (!file || !user) return
+    
+    try {
+      // Upload to Supabase Storage
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`
+      const filePath = `profile-pictures/${fileName}`
+      
+      // Delete old profile picture if exists
+      const prefs = await getUserPreferences(user.id)
+      if (prefs?.profile_picture) {
+        const oldPath = prefs.profile_picture.replace(/^.*\/profile-pictures\//, 'profile-pictures/')
+        try {
+          await supabase.storage.from('avatars').remove([oldPath])
+        } catch (e) {
+          // Ignore errors deleting old file
+        }
       }
-      reader.readAsDataURL(file)
+      
+      // Upload new file
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true })
+      
+      if (uploadError) throw uploadError
+      
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath)
+      
+      setProfilePictureUrl(publicUrl)
+      setProfilePicture(publicUrl)
+    } catch (error) {
+      alert('Failed to upload profile picture. Please try again.')
     }
   }
 
@@ -58,7 +87,7 @@ export default function Profile() {
       await saveUserPreferences(user.id, {
         ...prefs,
         username: username || null,
-        profilePicture: profilePicture || null
+        profilePicture: profilePicture || profilePictureUrl || null
       })
       alert('Profile updated successfully!')
     } catch (error) {

@@ -212,8 +212,9 @@ export default function Fitness() {
             {/* Start Workout Button */}
             <button
               className={styles.startWorkoutBtn}
-              onClick={() => startWorkout(null)}
+              onClick={() => setShowWorkoutStartModal(true)}
             >
+              <span className={styles.startWorkoutIcon}>⚡</span>
               Start Workout
             </button>
 
@@ -334,8 +335,11 @@ export default function Fitness() {
                     startWorkout(template.id, false)
                   }}
                 >
-                  <span className={styles.templateName}>{template.name}</span>
-                  <span className={styles.templateCount}>{template.exercises.length} exercises</span>
+                  <span className={styles.templateIcon}>📋</span>
+                  <div className={styles.templateInfo}>
+                    <span className={styles.templateName}>{template.name}</span>
+                    <span className={styles.templateCount}>{template.exercises.length} exercises</span>
+                  </div>
                 </button>
               ))}
               
@@ -346,6 +350,7 @@ export default function Fitness() {
                   startWorkout(null, false)
                 }}
               >
+                <span className={styles.freestyleIcon}>✏️</span>
                 Freestyle Workout
               </button>
 
@@ -356,6 +361,7 @@ export default function Fitness() {
                   startRandomWorkout()
                 }}
               >
+                <span className={styles.randomIcon}>🎲</span>
                 Random Workout
               </button>
             </div>

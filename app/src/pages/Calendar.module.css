@@ -451,11 +451,26 @@
   margin-bottom: 2px;
 }
 
+.weeklyPlanFocusContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.weeklyPlanFocusIcon {
+  font-size: 10px;
+  color: var(--accent);
+  display: block;
+  line-height: 1;
+}
+
 .weeklyPlanFocus {
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 600;
   color: var(--accent);
   text-align: center;
+  line-height: 1.2;
 }
 
 .weeklyPlanDay.restDay .weeklyPlanFocus {

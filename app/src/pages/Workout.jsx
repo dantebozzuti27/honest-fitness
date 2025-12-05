@@ -9,7 +9,6 @@ import { toInteger, toNumber } from '../utils/numberUtils'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import BottomNav from '../components/BottomNav'
-import ProfileButton from '../components/ProfileButton'
 import SideMenu from '../components/SideMenu'
 import styles from './Workout.module.css'
 
@@ -265,7 +264,7 @@ export default function Workout() {
       <div className={styles.header}>
         <SideMenu />
         <h1>New Workout</h1>
-        <ProfileButton />
+        <div style={{ width: '44px' }}></div>
       </div>
 
       <div className={styles.content}>

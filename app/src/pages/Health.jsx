@@ -19,7 +19,6 @@ import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
 import BottomNav from '../components/BottomNav'
-import ProfileButton from '../components/ProfileButton'
 import SideMenu from '../components/SideMenu'
 import styles from './Health.module.css'
 
@@ -426,7 +425,6 @@ export default function Health() {
               <span className={styles.plusIcon}>+</span>
             </button>
           )}
-          <ProfileButton />
         </div>
       </div>
 

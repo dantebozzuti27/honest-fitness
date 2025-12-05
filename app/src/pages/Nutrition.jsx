@@ -15,7 +15,6 @@ import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
 import BottomNav from '../components/BottomNav'
-import ProfileButton from '../components/ProfileButton'
 import SideMenu from '../components/SideMenu'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
@@ -675,7 +674,6 @@ export default function Nutrition() {
               <span className={styles.plusIcon}>+</span>
             </button>
           )}
-          <ProfileButton />
         </div>
       </div>
 

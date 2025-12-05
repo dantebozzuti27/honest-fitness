@@ -9,7 +9,6 @@ import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutr
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
 import BottomNav from '../components/BottomNav'
-import ProfileButton from '../components/ProfileButton'
 import SideMenu from '../components/SideMenu'
 import styles from './Home.module.css'
 
@@ -197,7 +196,7 @@ export default function Home() {
         <div className={styles.logoContainer}>
           <h1 className={styles.logo}>Echelon</h1>
         </div>
-        <ProfileButton />
+        <div style={{ width: '44px' }}></div>
       </div>
 
       <div className={styles.content}>

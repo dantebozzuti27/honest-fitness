@@ -20,6 +20,11 @@
   z-index: 10;
 }
 
+.header > *:first-child,
+.header > *:last-child {
+  flex-shrink: 0;
+}
+
 .backBtn {
   padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
@@ -54,18 +59,18 @@
 }
 
 .title {
-  font-size: var(--text-xl);
+  font-size: 24px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
   text-align: center;
   flex: 1;
-  letter-spacing: -0.022em;
+  letter-spacing: -0.02em;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.07143;
+  padding: 0 var(--space-xs);
 }
 
 .content {

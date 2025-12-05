@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
+import { deleteAllWorkoutsFromSupabase } from '../lib/supabaseDb'
 import styles from './Profile.module.css'
 
 export default function Profile() {
@@ -11,6 +12,7 @@ export default function Profile() {
   const [exporting, setExporting] = useState(false)
   const [connectedAccounts, setConnectedAccounts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [deletingWorkouts, setDeletingWorkouts] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -55,6 +57,22 @@ export default function Profile() {
     setExporting(false)
   }
 
+  const handleDeleteAllWorkouts = async () => {
+    if (!user) return
+    if (!confirm('Are you sure you want to delete ALL workouts? This cannot be undone. This will help remove any dummy/test data.')) return
+    
+    setDeletingWorkouts(true)
+    try {
+      const result = await deleteAllWorkoutsFromSupabase(user.id)
+      alert(`Deleted ${result.deleted} workout(s). Please refresh the app to see the changes.`)
+    } catch (error) {
+      alert('Failed to delete workouts. Please try again.')
+      console.error('Error deleting workouts:', error)
+    } finally {
+      setDeletingWorkouts(false)
+    }
+  }
+
   const handleLogout = async () => {
     await signOut()
     navigate('/auth')
@@ -84,6 +102,14 @@ export default function Profile() {
             disabled={exporting}
           >
             {exporting ? 'Exporting...' : 'Export All Data'}
+          </button>
+          <button
+            className={styles.actionBtn}
+            onClick={handleDeleteAllWorkouts}
+            disabled={deletingWorkouts}
+            style={{ marginTop: '12px', background: 'var(--error, #ff3b30)', color: '#fff' }}
+          >
+            {deletingWorkouts ? 'Deleting...' : 'Delete All Workouts (Clean Dummy Data)'}
           </button>
         </div>
 

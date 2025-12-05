@@ -26,7 +26,6 @@ import BarChart from '../components/BarChart'
 import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
 import BottomNav from '../components/BottomNav'
-import ProfileButton from '../components/ProfileButton'
 import SideMenu from '../components/SideMenu'
 import styles from './Analytics.module.css'
 
@@ -1260,7 +1259,7 @@ export default function Analytics() {
       <header className={styles.header}>
         <SideMenu />
         <h1 className={styles.title}>Analytics</h1>
-        <ProfileButton />
+        <div style={{ width: '44px' }}></div>
       </header>
 
       <div className={styles.tabs}>

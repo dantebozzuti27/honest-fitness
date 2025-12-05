@@ -204,6 +204,34 @@ export async function deleteWorkoutFromSupabase(workoutId) {
   if (error) throw error
 }
 
+export async function deleteAllWorkoutsFromSupabase(userId) {
+  // Get all workouts for user
+  const { data: workouts, error: fetchError } = await supabase
+    .from('workouts')
+    .select('id')
+    .eq('user_id', userId)
+
+  if (fetchError) throw fetchError
+
+  if (!workouts || workouts.length === 0) {
+    return { deleted: 0 }
+  }
+
+  // Delete all workouts (cascade should handle related data, but we'll do it explicitly)
+  let deletedCount = 0
+  for (const workout of workouts) {
+    try {
+      await deleteWorkoutFromSupabase(workout.id)
+      deletedCount++
+    } catch (error) {
+      // Log error but continue deleting others
+      console.error(`Error deleting workout ${workout.id}:`, error)
+    }
+  }
+
+  return { deleted: deletedCount }
+}
+
 // ============ DAILY METRICS ============
 
 export async function saveMetricsToSupabase(userId, date, metrics) {

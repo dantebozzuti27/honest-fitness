@@ -22,6 +22,11 @@
   z-index: 10;
 }
 
+.header > *:first-child,
+.header > *:last-child {
+  flex-shrink: 0;
+}
+
 .backBtn {
   padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
@@ -59,6 +64,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding: 0 var(--space-xs);
 }
 
 .streak {

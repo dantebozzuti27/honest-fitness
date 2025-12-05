@@ -14,7 +14,6 @@ import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import BottomNav from '../components/BottomNav'
-import ProfileButton from '../components/ProfileButton'
 import SideMenu from '../components/SideMenu'
 import styles from './Goals.module.css'
 
@@ -301,7 +300,7 @@ export default function Goals() {
       <header className={styles.header}>
         <SideMenu />
         <h1 className={styles.title}>Goals</h1>
-        <ProfileButton />
+        <div style={{ width: '44px' }}></div>
       </header>
 
       <div className={styles.content}>

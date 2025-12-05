@@ -13,7 +13,6 @@ import ShareModal from '../components/ShareModal'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import BottomNav from '../components/BottomNav'
-import ProfileButton from '../components/ProfileButton'
 import SideMenu from '../components/SideMenu'
 import styles from './Fitness.module.css'
 
@@ -173,7 +172,7 @@ export default function Fitness() {
       <div className={styles.header}>
         <SideMenu />
         <h1>Fitness</h1>
-        <ProfileButton />
+        <div style={{ width: '44px' }}></div>
       </div>
 
       <div className={styles.tabs}>

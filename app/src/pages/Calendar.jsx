@@ -5,7 +5,6 @@ import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateSt
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
 import BottomNav from '../components/BottomNav'
-import ProfileButton from '../components/ProfileButton'
 import SideMenu from '../components/SideMenu'
 import styles from './Calendar.module.css'
 
@@ -178,7 +177,6 @@ export default function Calendar() {
             {streak}
             <img src="/streak-icon.png" alt="" className={styles.streakIcon} />
           </div>
-          <ProfileButton />
         </div>
       </header>
 

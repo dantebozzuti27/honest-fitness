@@ -204,15 +204,29 @@ export async function deleteWorkoutFromSupabase(workoutId) {
 export async function saveMetricsToSupabase(userId, date, metrics) {
   console.log('saveMetricsToSupabase called with:', { userId, date, metrics })
   
+  // Helper function to safely convert to number
+  const toNumber = (val) => {
+    if (val === null || val === undefined || val === '') return null
+    const num = Number(val)
+    return isNaN(num) ? null : num
+  }
+  
+  // Helper function to safely convert to integer
+  const toInteger = (val) => {
+    if (val === null || val === undefined || val === '') return null
+    const num = Number(val)
+    return isNaN(num) ? null : Math.round(num)
+  }
+  
   // Base metrics that should always exist
   const baseMetrics = {
     user_id: userId,
     date: date,
-    sleep_score: metrics.sleepScore !== null && metrics.sleepScore !== undefined && metrics.sleepScore !== '' ? Number(metrics.sleepScore) : null,
-    sleep_time: metrics.sleepTime !== null && metrics.sleepTime !== undefined && metrics.sleepTime !== '' ? Number(metrics.sleepTime) : null,
-    hrv: metrics.hrv !== null && metrics.hrv !== undefined && metrics.hrv !== '' ? Number(metrics.hrv) : null,
-    steps: metrics.steps !== null && metrics.steps !== undefined && metrics.steps !== '' ? Math.round(Number(metrics.steps)) : null,
-    weight: metrics.weight !== null && metrics.weight !== undefined && metrics.weight !== '' ? Number(metrics.weight) : null
+    sleep_score: toNumber(metrics.sleepScore),
+    sleep_time: toNumber(metrics.sleepTime),
+    hrv: toNumber(metrics.hrv),
+    steps: toInteger(metrics.steps), // INTEGER column - must be whole number
+    weight: toNumber(metrics.weight) // NUMERIC column - can be decimal
   }
   
   // Optional metrics that may not exist in schema yet

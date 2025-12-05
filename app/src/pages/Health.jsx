@@ -883,10 +883,12 @@ export default function Health() {
                 <label>Steps</label>
                 <input
                   type="number"
+                  step="1"
                   value={(editingMetric && editingMetric.steps) || ''}
                   onChange={(e) => {
                     const currentMetric = editingMetric || {}
-                    setEditingMetric({ ...currentMetric, steps: parseInt(e.target.value) || null })
+                    const val = e.target.value
+                    setEditingMetric({ ...currentMetric, steps: val === '' ? null : Math.round(Number(val)) })
                   }}
                   placeholder="Enter steps"
                 />
@@ -1017,15 +1019,19 @@ export default function Health() {
                       
                       try {
                         console.log('Saving health metrics:', metricToSave)
+                        // Ensure steps is an integer (not a decimal string)
+                        const stepsValue = metricToSave.steps != null && metricToSave.steps !== '' 
+                          ? Math.round(Number(metricToSave.steps)) 
+                          : null
                         const result = await saveMetricsToSupabase(user.id, metricToSave.date, {
-                          weight: metricToSave.weight,
-                          steps: metricToSave.steps,
-                          hrv: metricToSave.hrv,
-                          caloriesBurned: metricToSave.calories,
-                          sleepTime: metricToSave.sleep_time,
-                          sleepScore: metricToSave.sleep_score,
-                          restingHeartRate: metricToSave.resting_heart_rate,
-                          bodyTemp: metricToSave.body_temp
+                          weight: metricToSave.weight != null && metricToSave.weight !== '' ? Number(metricToSave.weight) : null,
+                          steps: stepsValue,
+                          hrv: metricToSave.hrv != null && metricToSave.hrv !== '' ? Number(metricToSave.hrv) : null,
+                          caloriesBurned: metricToSave.calories != null && metricToSave.calories !== '' ? Number(metricToSave.calories) : null,
+                          sleepTime: metricToSave.sleep_time != null && metricToSave.sleep_time !== '' ? Number(metricToSave.sleep_time) : null,
+                          sleepScore: metricToSave.sleep_score != null && metricToSave.sleep_score !== '' ? Number(metricToSave.sleep_score) : null,
+                          restingHeartRate: metricToSave.resting_heart_rate != null && metricToSave.resting_heart_rate !== '' ? Number(metricToSave.resting_heart_rate) : null,
+                          bodyTemp: metricToSave.body_temp != null && metricToSave.body_temp !== '' ? Number(metricToSave.body_temp) : null
                         })
                         console.log('Health metrics save result:', result)
                         await loadAllData()

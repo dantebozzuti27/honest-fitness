@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
 import { deleteAllWorkoutsFromSupabase, cleanupDuplicateWorkouts } from '../lib/supabaseDb'
+import HomeButton from '../components/HomeButton'
 import styles from './Profile.module.css'
 
 export default function Profile() {
@@ -102,6 +103,7 @@ export default function Profile() {
           ← Back
         </button>
         <h1>Profile</h1>
+        <HomeButton />
       </div>
 
       <div className={styles.content}>

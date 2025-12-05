@@ -4,10 +4,13 @@ import styles from './ShareCard.module.css'
 export default function ShareCard({ type, data }) {
   const cardRef = useRef(null)
 
-  const formatDuration = (minutes) => {
-    if (!minutes) return '0m'
-    const hours = Math.floor(minutes / 60)
-    const mins = minutes % 60
+  const formatDuration = (seconds) => {
+    // Duration is stored in SECONDS, not minutes
+    if (!seconds) return '0m'
+    const totalSeconds = Number(seconds)
+    const totalMinutes = Math.floor(totalSeconds / 60)
+    const hours = Math.floor(totalMinutes / 60)
+    const mins = totalMinutes % 60
     if (hours > 0) {
       return `${hours}h ${mins}m`
     }

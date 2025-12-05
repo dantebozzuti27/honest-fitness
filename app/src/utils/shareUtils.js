@@ -54,7 +54,7 @@ export async function shareNative(title, text, url, imageUrl = null) {
     if (error.name !== 'AbortError') {
       // Log only in development
       if (import.meta.env.DEV) {
-        console.error('Error sharing:', error)
+        // Error sharing - silently fail (user cancelled or error)
       }
     }
     return false
@@ -117,7 +117,12 @@ export function getShareUrls(type, data) {
 function generateShareText(type, data) {
   if (type === 'workout') {
     const { workout } = data
-    const duration = workout?.duration ? `${Math.floor(workout.duration / 60)}h ${workout.duration % 60}m` : '0m'
+    // Duration is in SECONDS, convert to minutes for display
+    const totalSeconds = workout?.duration || 0
+    const totalMinutes = Math.floor(totalSeconds / 60)
+    const hours = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
+    const duration = hours > 0 ? `${hours}h ${minutes}m` : `${totalMinutes}m`
     const exercises = workout?.exercises?.length || 0
     return `Just completed a ${duration} workout with ${exercises} exercises! #EchelonFitness`
   }

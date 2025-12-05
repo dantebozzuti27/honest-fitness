@@ -16,6 +16,7 @@ import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
 import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
+import HomeButton from '../components/HomeButton'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
@@ -341,7 +342,7 @@ export default function Nutrition() {
 
   const addMeal = async (meal) => {
     if (!user) {
-      console.error('addMeal: No user found')
+      logError('addMeal: No user found')
       throw new Error('User not authenticated')
     }
     try {
@@ -665,6 +666,7 @@ export default function Nutrition() {
         <SideMenu />
         <h1>Nutrition</h1>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <HomeButton />
           {activeTab === 'Today' && (
             <button 
               className={styles.plusBtn}
@@ -696,9 +698,7 @@ export default function Nutrition() {
             <button
               className={styles.logMealBtn}
               onClick={() => {
-                console.log('Log meal button clicked, setting showManualEntry to true')
                 setShowManualEntry(true)
-                console.log('showManualEntry state should now be true')
               }}
             >
               Log meal

@@ -20,6 +20,7 @@ import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
 import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
+import HomeButton from '../components/HomeButton'
 import styles from './Health.module.css'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
@@ -402,6 +403,7 @@ export default function Health() {
         <SideMenu />
         <h1>Health</h1>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <HomeButton />
           {activeTab === 'Today' && (
             <button 
               className={styles.plusBtn}

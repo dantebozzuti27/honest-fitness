@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
 import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
+import HomeButton from '../components/HomeButton'
 import styles from './Calendar.module.css'
 
 export default function Calendar() {
@@ -158,7 +159,7 @@ export default function Calendar() {
     if (!confirm('Are you sure you want to delete this workout?')) return
     
     try {
-      await deleteWorkoutFromSupabase(selectedWorkout.id)
+      await deleteWorkoutFromSupabase(selectedWorkout.id, user?.id)
       await refreshData()
       closeModal()
     } catch (e) {
@@ -173,6 +174,7 @@ export default function Calendar() {
         <SideMenu />
         <h1 className={styles.title}>Calendar</h1>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <HomeButton />
           <div className={styles.streak}>
             {streak}
             <img src="/streak-icon.png" alt="" className={styles.streakIcon} />

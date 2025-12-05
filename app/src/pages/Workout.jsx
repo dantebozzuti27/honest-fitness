@@ -10,6 +10,7 @@ import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
+import HomeButton from '../components/HomeButton'
 import styles from './Workout.module.css'
 
 export default function Workout() {
@@ -264,7 +265,7 @@ export default function Workout() {
       <div className={styles.header}>
         <SideMenu />
         <h1>New Workout</h1>
-        <div style={{ width: '44px' }}></div>
+        <HomeButton />
       </div>
 
       <div className={styles.content}>

@@ -27,6 +27,7 @@ import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
 import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
+import HomeButton from '../components/HomeButton'
 import styles from './Analytics.module.css'
 
 const TABS = ['Overview', 'Scan', 'History', 'Metrics', 'Trends']
@@ -129,15 +130,18 @@ export default function Analytics() {
         // Load ML insights in background
         loadMLInsights()
 
-        // Calculate reps and sets per body part
+        // Calculate reps and sets per body part (only valid data)
         const bodyPartReps = {}
         const bodyPartSets = {}
         workouts.forEach(w => {
           w.workout_exercises?.forEach(ex => {
+            // ONLY count exercises with valid sets data
+            const validSets = (ex.workout_sets || []).filter(s => s.weight || s.reps || s.time)
+            if (validSets.length === 0) return
+            
             const bp = ex.body_part || 'Other'
-            const sets = ex.workout_sets || []
-            bodyPartSets[bp] = (bodyPartSets[bp] || 0) + sets.length
-            sets.forEach(s => {
+            bodyPartSets[bp] = (bodyPartSets[bp] || 0) + validSets.length
+            validSets.forEach(s => {
               if (s.reps) {
                 bodyPartReps[bp] = (bodyPartReps[bp] || 0) + Number(s.reps)
               }
@@ -226,10 +230,13 @@ export default function Analytics() {
       const bodyPartSets = {}
       workouts.forEach(w => {
         w.workout_exercises?.forEach(ex => {
+          // ONLY count exercises with valid sets data
+          const validSets = (ex.workout_sets || []).filter(s => s.weight || s.reps || s.time)
+          if (validSets.length === 0) return
+          
           const bp = ex.body_part || 'Other'
-          const sets = ex.workout_sets || []
-          bodyPartSets[bp] = (bodyPartSets[bp] || 0) + sets.length
-          sets.forEach(s => {
+          bodyPartSets[bp] = (bodyPartSets[bp] || 0) + validSets.length
+          validSets.forEach(s => {
             if (s.reps) {
               bodyPartReps[bp] = (bodyPartReps[bp] || 0) + Number(s.reps)
             }
@@ -258,9 +265,10 @@ export default function Analytics() {
   }
 
   const handleDeleteWorkout = async (workoutId) => {
+    if (!user) return
     if (!confirm('Are you sure you want to delete this workout?')) return
     try {
-      await deleteWorkoutFromSupabase(workoutId)
+      await deleteWorkoutFromSupabase(workoutId, user.id)
       await refreshData()
       setSelectedWorkout(null)
     } catch (e) {
@@ -1259,7 +1267,7 @@ export default function Analytics() {
       <header className={styles.header}>
         <SideMenu />
         <h1 className={styles.title}>Analytics</h1>
-        <div style={{ width: '44px' }}></div>
+        <HomeButton />
       </header>
 
       <div className={styles.tabs}>

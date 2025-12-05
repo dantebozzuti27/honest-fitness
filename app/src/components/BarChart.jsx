@@ -39,7 +39,6 @@ export default function BarChart({
   }
 
   const handleTouchStart = (e) => {
-    e.preventDefault()
     if (e.touches.length === 2) {
       touchStartRef.current = {
         touches: [e.touches[0], e.touches[1]],
@@ -59,7 +58,6 @@ export default function BarChart({
 
   const handleTouchMove = (e) => {
     if (!touchStartRef.current) return
-    e.preventDefault()
     
     if (e.touches.length === 2 && touchStartRef.current.touches?.length === 2) {
       // Pinch zoom
@@ -96,7 +94,6 @@ export default function BarChart({
 
   // Mouse wheel zoom
   const handleWheel = (e) => {
-    e.preventDefault()
     const delta = e.deltaY > 0 ? 0.9 : 1.1
     const newZoom = Math.max(0.5, Math.min(3, zoom * delta))
     setZoom(newZoom)
@@ -115,6 +112,47 @@ export default function BarChart({
       setShowDetail(true)
     }
   }
+
+  // Attach event listeners with passive: false for proper zoom/pan
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const touchStart = (e) => {
+      if (e.touches.length === 1 || e.touches.length === 2) {
+        e.preventDefault()
+      }
+      handleTouchStart(e)
+    }
+
+    const touchMove = (e) => {
+      if (touchStartRef.current) {
+        e.preventDefault()
+      }
+      handleTouchMove(e)
+    }
+
+    const touchEnd = () => {
+      handleTouchEnd()
+    }
+
+    const wheel = (e) => {
+      e.preventDefault()
+      handleWheel(e)
+    }
+
+    container.addEventListener('touchstart', touchStart, { passive: false })
+    container.addEventListener('touchmove', touchMove, { passive: false })
+    container.addEventListener('touchend', touchEnd, { passive: false })
+    container.addEventListener('wheel', wheel, { passive: false })
+
+    return () => {
+      container.removeEventListener('touchstart', touchStart)
+      container.removeEventListener('touchmove', touchMove)
+      container.removeEventListener('touchend', touchEnd)
+      container.removeEventListener('wheel', wheel)
+    }
+  }, [zoom, pan])
   
   if (!chartData || chartData.values.length === 0) {
     return <div className={styles.emptyChart}>No data available</div>
@@ -138,11 +176,7 @@ export default function BarChart({
       <div 
         className={styles.chartContainer}
         ref={containerRef}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
         onDoubleClick={handleDoubleClick}
-        onWheel={handleWheel}
         style={{
           height: `${height}px`,
           minHeight: `${height}px`
@@ -304,4 +338,3 @@ export default function BarChart({
     </>
   )
 }
-

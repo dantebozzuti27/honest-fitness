@@ -77,9 +77,9 @@
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
-  padding: var(--space-md);
+  padding: 0;
   padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
-  gap: var(--space-md);
+  gap: 0;
   width: 100%;
   max-width: 100%;
   overflow-y: auto;
@@ -89,6 +89,9 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 .feedTitle {
@@ -96,14 +99,18 @@
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.02em;
-  margin: 0 0 16px 0;
-  padding: 0;
+  margin: 0;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .feedList {
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border);
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
 }
 
 .feedItem {
@@ -113,6 +120,9 @@
   transition: background-color 0.2s;
   cursor: pointer;
   gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .feedItem:hover {

@@ -14,6 +14,7 @@ import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
+import HomeButton from '../components/HomeButton'
 import styles from './Fitness.module.css'
 
 const TABS = ['Workout', 'Templates', 'History', 'Goals']
@@ -172,7 +173,7 @@ export default function Fitness() {
       <div className={styles.header}>
         <SideMenu />
         <h1>Fitness</h1>
-        <div style={{ width: '44px' }}></div>
+        <HomeButton />
       </div>
 
       <div className={styles.tabs}>
@@ -362,7 +363,7 @@ export default function Fitness() {
                               e.stopPropagation()
                               if (confirm(`Delete workout from ${workout.date}?`)) {
                                 try {
-                                  await deleteWorkoutFromSupabase(workout.id)
+                                  await deleteWorkoutFromSupabase(workout.id, user.id)
                                   await loadWorkoutHistory()
                                   showToast('Workout deleted', 'success')
                                 } catch (error) {

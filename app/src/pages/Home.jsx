@@ -10,6 +10,7 @@ import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
 import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
+import HomeButton from '../components/HomeButton'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -92,7 +93,8 @@ export default function Home() {
             type: 'workout',
             date: workout.date,
             title: workout.template_name || 'Freestyle Workout',
-            subtitle: `${Math.floor(workout.duration / 60)}m ${workout.duration % 60}s`,
+            // Duration is in seconds, format as MM:SS
+            subtitle: `${Math.floor((workout.duration || 0) / 60)}:${String((workout.duration || 0) % 60).padStart(2, '0')}`,
             data: workout
           })
         })
@@ -196,7 +198,7 @@ export default function Home() {
         <div className={styles.logoContainer}>
           <h1 className={styles.logo}>Echelon</h1>
         </div>
-        <div style={{ width: '44px' }}></div>
+        <HomeButton />
       </div>
 
       <div className={styles.content}>
@@ -213,7 +215,7 @@ export default function Home() {
               {recentLogs.map((log, index) => (
                 <div key={index} className={styles.feedItem}>
                   <div className={styles.feedItemIcon}>
-                    {log.type === 'workout' ? '💪' : log.type === 'meal' ? '🍽️' : '❤️'}
+                    {log.type === 'workout' ? 'W' : log.type === 'meal' ? 'M' : 'H'}
                   </div>
                   <div className={styles.feedItemContent}>
                     <div className={styles.feedItemHeader}>

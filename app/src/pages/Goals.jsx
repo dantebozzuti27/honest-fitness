@@ -15,6 +15,7 @@ import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
+import HomeButton from '../components/HomeButton'
 import styles from './Goals.module.css'
 
 const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
@@ -300,7 +301,7 @@ export default function Goals() {
       <header className={styles.header}>
         <SideMenu />
         <h1 className={styles.title}>Goals</h1>
-        <div style={{ width: '44px' }}></div>
+        <HomeButton />
       </header>
 
       <div className={styles.content}>

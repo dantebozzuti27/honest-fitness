@@ -14,26 +14,30 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px;
-  padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
-  padding-bottom: 24px;
-  gap: 16px;
-  min-height: 80px;
+  padding: 12px 16px;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+  padding-bottom: 12px;
+  gap: 12px;
+  min-height: 56px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
 }
 
 .backBtn {
-  padding: 14px 20px;
+  padding: 10px 16px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
   white-space: nowrap;
-  min-height: 48px;
-  min-width: 80px;
+  min-height: 40px;
+  min-width: 70px;
+  flex-shrink: 0;
 }
 
 .backBtn:hover {
@@ -41,18 +45,22 @@
 }
 
 h1 {
-  font-size: 34px;
+  font-size: 24px;
   font-weight: 700;
   margin: 0;
   color: var(--text-primary);
   letter-spacing: -0.02em;
   flex: 1;
   text-align: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .plusBtn {
-  width: 56px;
-  height: 56px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--accent);
   color: #000;
@@ -63,11 +71,11 @@ h1 {
   cursor: pointer;
   box-shadow: var(--shadow-lg);
   transition: all var(--transition-base);
-  font-size: 32px;
+  font-size: 24px;
   font-weight: 300;
   line-height: 1;
-  min-width: 56px;
-  min-height: 56px;
+  min-width: 44px;
+  min-height: 44px;
   flex-shrink: 0;
 }
 
@@ -89,23 +97,26 @@ h1 {
 .tabs {
   display: flex;
   gap: 4px;
-  margin-bottom: 24px;
+  margin-bottom: 12px;
   border-bottom: 2px solid var(--border);
-  padding: 0 24px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 5;
 }
 
 .tab {
   flex: 1;
-  padding: 16px 12px;
+  padding: 10px 8px;
   background: transparent;
   border: none;
   border-bottom: 3px solid transparent;
   color: var(--text-secondary);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  min-height: 56px;
+  min-height: 44px;
   margin-bottom: -2px;
 }
 
@@ -124,24 +135,26 @@ h1 {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 0 24px 24px;
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  gap: 12px;
+  padding: 0 16px 16px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  overflow-y: auto;
+  flex: 1;
 }
 
 .logMealBtn {
   width: 100%;
-  padding: 22px 28px;
+  padding: 14px 20px;
   background: var(--accent);
   color: #000;
   border: none;
-  border-radius: var(--radius-lg);
-  font-size: 20px;
+  border-radius: var(--radius-md);
+  font-size: 16px;
   font-weight: 700;
   cursor: pointer;
   transition: all var(--transition-base);
   box-shadow: var(--shadow-lg);
-  min-height: 64px;
+  min-height: 48px;
   letter-spacing: -0.01em;
 }
 

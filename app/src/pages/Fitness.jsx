@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getAllTemplates, saveTemplate, deleteTemplate } from '../db'
 import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase } from '../lib/supabaseDb'
@@ -9,17 +10,19 @@ import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import styles from './Fitness.module.css'
 
+const TABS = ['Workout', 'Templates', 'History', 'Goals']
+
 export default function Fitness() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const [activeTab, setActiveTab] = useState('Workout')
   const [templates, setTemplates] = useState([])
   const [todaysPlan, setTodaysPlan] = useState(null)
   const [aiWorkout, setAiWorkout] = useState(null)
   const [showTemplateEditor, setShowTemplateEditor] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [workoutHistory, setWorkoutHistory] = useState([])
-  const [showHistory, setShowHistory] = useState(false)
   const [fitnessGoals, setFitnessGoals] = useState([])
   const [metrics, setMetrics] = useState({
     sleepScore: '',
@@ -120,53 +123,145 @@ export default function Fitness() {
         <button className={styles.backBtn} onClick={() => navigate('/')}>
           Back
         </button>
-        <h1 className={styles.title}>Fitness</h1>
-        <div style={{ width: 80 }} /> {/* Spacer for alignment */}
+        <h1>Fitness</h1>
+      </div>
+
+      <div className={styles.tabs}>
+        {TABS.map(tab => (
+          <button
+            key={tab}
+            className={`${styles.tab} ${activeTab === tab ? styles.activeTab : ''}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
 
       <div className={styles.content}>
-        {/* Start Workout Button */}
-        <button
-          className={styles.startWorkoutBtn}
-          onClick={() => startWorkout(null)}
-        >
-          Start Workout
-        </button>
+        {activeTab === 'Workout' && (
+          <div>
+            {/* Start Workout Button */}
+            <button
+              className={styles.startWorkoutBtn}
+              onClick={() => startWorkout(null)}
+            >
+              Start Workout
+            </button>
 
-        {/* Options List */}
-        <div className={styles.optionsList}>
-          <button
-            className={styles.optionItem}
-            onClick={() => {
-              // Show templates
-              const templateSection = document.querySelector(`.${styles.templateSection}`)
-              if (templateSection) {
-                templateSection.scrollIntoView({ behavior: 'smooth' })
-              }
-            }}
-          >
-            <span className={styles.optionText}>View templates</span>
-          </button>
-          
-          <button
-            className={styles.optionItem}
-            onClick={() => navigate('/goals')}
-          >
-            <span className={styles.optionText}>Goals</span>
-          </button>
-          
-          <button
-            className={styles.optionItem}
-            onClick={() => setShowHistory(!showHistory)}
-          >
-            <span className={styles.optionText}>Workout history</span>
-          </button>
-        </div>
+            {/* Today's Plan */}
+            {todaysPlan && (
+              <section className={styles.section}>
+                <h2 className={styles.sectionTitle}>Today's Plan</h2>
+                <div className={styles.todayPlan}>
+                  <div className={styles.todayPlanHeader}>
+                    <span className={styles.todayPlanFocus}>{todaysPlan.focus}</span>
+                    <span className={styles.todayPlanDay}>{todaysPlan.day}</span>
+                  </div>
+                  <div className={styles.todayPlanExercises}>
+                    {todaysPlan.exercises?.map((ex, i) => (
+                      <span key={i} className={styles.todayPlanExercise}>{ex}</span>
+                    ))}
+                  </div>
+                  <button 
+                    className={styles.startPlanBtn}
+                    onClick={() => startWorkout(`plan-${todaysPlan.focus}`)}
+                  >
+                    Start {todaysPlan.focus} Workout
+                  </button>
+                </div>
+              </section>
+            )}
 
-        {/* Workout History */}
-        {showHistory && (
-          <div className={styles.historySection}>
-            <h3 className={styles.historyTitle}>Workout History</h3>
+            {/* AI Generated Workout */}
+            {aiWorkout && (
+              <section className={styles.section}>
+                <h2 className={styles.sectionTitle}>AI Generated Workout</h2>
+                <div className={styles.aiWorkoutCard}>
+                  <div className={styles.aiWorkoutHeader}>
+                    <span className={styles.aiWorkoutName}>{aiWorkout.name}</span>
+                    <button 
+                      className={styles.clearAiBtn}
+                      onClick={() => {
+                        setAiWorkout(null)
+                        localStorage.removeItem('aiWorkout')
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className={styles.aiWorkoutExercises}>
+                    {aiWorkout.exercises?.map((ex, i) => (
+                      <span key={i} className={styles.aiWorkoutExercise}>
+                        {ex.name}: {ex.sets}x{ex.reps}
+                      </span>
+                    ))}
+                  </div>
+                  <button 
+                    className={styles.startAiBtn}
+                    onClick={() => navigate('/workout/active', { state: { aiWorkout } })}
+                  >
+                    Start AI Workout
+                  </button>
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'Templates' && (
+          <div>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>Templates</h2>
+              <button
+                className={styles.manageBtn}
+                onClick={() => setShowTemplateEditor(true)}
+              >
+                Manage
+              </button>
+            </div>
+            
+            <div className={styles.templateList}>
+              {templates.map(template => (
+                <button
+                  key={template.id}
+                  className={styles.templateBtn}
+                  onClick={() => {
+                    setActiveTab('Workout')
+                    startWorkout(template.id)
+                  }}
+                >
+                  <span className={styles.templateName}>{template.name}</span>
+                  <span className={styles.templateCount}>{template.exercises.length} exercises</span>
+                </button>
+              ))}
+              
+              <button
+                className={styles.freestyleBtn}
+                onClick={() => {
+                  setActiveTab('Workout')
+                  startWorkout(null)
+                }}
+              >
+                Freestyle Workout
+              </button>
+
+              <button
+                className={styles.randomBtn}
+                onClick={() => {
+                  setActiveTab('Workout')
+                  startRandomWorkout()
+                }}
+              >
+                Random Workout
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'History' && (
+          <div>
+            <h2 className={styles.sectionTitle}>Workout History</h2>
             <div className={styles.historyList}>
               {workoutHistory.length === 0 ? (
                 <p className={styles.emptyText}>No workouts yet</p>
@@ -197,107 +292,47 @@ export default function Fitness() {
           </div>
         )}
 
-        {/* Today's Plan */}
-        {todaysPlan && (
-          <section className={styles.section}>
-            <h2 className={styles.sectionTitle}>Today's Plan</h2>
-            <div className={styles.todayPlan}>
-              <div className={styles.todayPlanHeader}>
-                <span className={styles.todayPlanFocus}>{todaysPlan.focus}</span>
-                <span className={styles.todayPlanDay}>{todaysPlan.day}</span>
+        {activeTab === 'Goals' && (
+          <div>
+            <h2 className={styles.sectionTitle}>Fitness Goals</h2>
+            {fitnessGoals.length === 0 ? (
+              <p className={styles.emptyText}>No fitness goals set. Create one on the Goals page.</p>
+            ) : (
+              <div className={styles.goalsList}>
+                {fitnessGoals.map(goal => {
+                  const progress = goal.target_value > 0 
+                    ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
+                    : 0
+                  return (
+                    <div key={goal.id} className={styles.goalCard}>
+                      <div className={styles.goalHeader}>
+                        <span className={styles.goalName}>
+                          {goal.custom_name || goal.type}
+                        </span>
+                        <span className={styles.goalProgress}>{Math.round(progress)}%</span>
+                      </div>
+                      <div className={styles.goalBar}>
+                        <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
+                      </div>
+                      <div className={styles.goalValues}>
+                        {goal.current_value} / {goal.target_value} {goal.unit}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-              <div className={styles.todayPlanExercises}>
-                {todaysPlan.exercises?.map((ex, i) => (
-                  <span key={i} className={styles.todayPlanExercise}>{ex}</span>
-                ))}
-              </div>
-              <button 
-                className={styles.startPlanBtn}
-                onClick={() => startWorkout(`plan-${todaysPlan.focus}`)}
-              >
-                Start {todaysPlan.focus} Workout
-              </button>
-            </div>
-          </section>
-        )}
-
-        {/* AI Generated Workout */}
-        {aiWorkout && (
-          <section className={styles.section}>
-            <h2 className={styles.sectionTitle}>AI Generated Workout</h2>
-            <div className={styles.aiWorkoutCard}>
-              <div className={styles.aiWorkoutHeader}>
-                <span className={styles.aiWorkoutName}>{aiWorkout.name}</span>
-                <button 
-                  className={styles.clearAiBtn}
-                  onClick={() => {
-                    setAiWorkout(null)
-                    localStorage.removeItem('aiWorkout')
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-              <div className={styles.aiWorkoutExercises}>
-                {aiWorkout.exercises?.map((ex, i) => (
-                  <span key={i} className={styles.aiWorkoutExercise}>
-                    {ex.name}: {ex.sets}x{ex.reps}
-                  </span>
-                ))}
-              </div>
-              <button 
-                className={styles.startAiBtn}
-                onClick={() => navigate('/workout/active', { state: { aiWorkout } })}
-              >
-                Start AI Workout
-              </button>
-            </div>
-          </section>
-        )}
-
-        {/* Templates Section */}
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>View Templates</h2>
+            )}
             <button
-              className={styles.manageBtn}
-              onClick={() => setShowTemplateEditor(true)}
+              className={styles.goalsBtn}
+              onClick={() => navigate('/goals')}
             >
-              Manage
+              View All Goals
             </button>
           </div>
-          
-          <div className={styles.templateList}>
-            {templates.map(template => (
-              <button
-                key={template.id}
-                className={styles.templateBtn}
-                onClick={() => startWorkout(template.id)}
-              >
-                <span className={styles.templateName}>{template.name}</span>
-                <span className={styles.templateCount}>{template.exercises.length} exercises</span>
-              </button>
-            ))}
-            
-            <button
-              className={styles.freestyleBtn}
-              onClick={() => startWorkout(null)}
-            >
-              Freestyle Workout
-            </button>
-
-            <button
-              className={styles.randomBtn}
-              onClick={startRandomWorkout}
-            >
-              Random Workout
-            </button>
-          </div>
-        </section>
-
+        )}
 
         {/* Template Editor Modal */}
-        {showTemplateEditor && (
+        {showTemplateEditor && createPortal(
           <TemplateEditor
             templates={templates}
             onClose={() => {
@@ -324,7 +359,8 @@ export default function Fitness() {
               setEditingTemplate(template)
             }}
             editingTemplate={editingTemplate}
-          />
+          />,
+          document.body
         )}
       </div>
     </div>

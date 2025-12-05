@@ -762,22 +762,51 @@ export async function getUserPreferences(userId) {
 }
 
 export async function saveUserPreferences(userId, prefs) {
+  // Build the upsert object, only including fields that exist
+  const upsertData = {
+    user_id: userId,
+    plan_name: prefs.planName || null,
+    fitness_goal: prefs.fitnessGoal,
+    experience_level: prefs.experienceLevel,
+    available_days: prefs.availableDays,
+    session_duration: prefs.sessionDuration,
+    equipment_available: prefs.equipmentAvailable,
+    injuries: prefs.injuries,
+    updated_at: new Date().toISOString()
+  }
+  
+  // Only include username if provided (column may not exist yet)
+  if (prefs.username !== undefined) {
+    upsertData.username = prefs.username || null
+  }
+  
+  // Only include profile_picture if provided (column may not exist yet)
+  if (prefs.profilePicture !== undefined) {
+    upsertData.profile_picture = prefs.profilePicture || null
+  }
+  
   const { data, error } = await supabase
     .from('user_preferences')
-    .upsert({
-      user_id: userId,
-      plan_name: prefs.planName || null,
-      fitness_goal: prefs.fitnessGoal,
-      experience_level: prefs.experienceLevel,
-      available_days: prefs.availableDays,
-      session_duration: prefs.sessionDuration,
-      equipment_available: prefs.equipmentAvailable,
-      injuries: prefs.injuries,
-      username: prefs.username || null,
-      profile_picture: prefs.profilePicture || null,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id' })
+    .upsert(upsertData, { onConflict: 'user_id' })
     .select()
+
+  // If error is about missing columns, try without them
+  if (error && (error.message?.includes('profile_picture') || error.message?.includes('username'))) {
+    // Remove the problematic fields and try again
+    delete upsertData.username
+    delete upsertData.profile_picture
+    
+    const { data: retryData, error: retryError } = await supabase
+      .from('user_preferences')
+      .upsert(upsertData, { onConflict: 'user_id' })
+      .select()
+    
+    if (retryError) throw retryError
+    
+    // Warn user about missing columns
+    console.warn('Profile columns (username/profile_picture) not found. Please run the migration: app/supabase_migrations_user_profile.sql')
+    return retryData
+  }
 
   if (error) throw error
   return data

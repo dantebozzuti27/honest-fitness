@@ -112,12 +112,12 @@ export async function saveMetricsToSupabase(date, metrics, userId) {
     .upsert({
       user_id: userId,
       date,
-      sleep_score: metrics.sleepScore || null,
-      sleep_time: metrics.sleepTime || null,
-      hrv: metrics.hrv || null,
-      steps: metrics.steps || null,
-      calories: metrics.caloriesBurned || null,
-      weight: metrics.weight || null
+      sleep_score: metrics.sleepScore != null && metrics.sleepScore !== '' ? Number(metrics.sleepScore) : null,
+      sleep_time: metrics.sleepTime != null && metrics.sleepTime !== '' ? Number(metrics.sleepTime) : null,
+      hrv: metrics.hrv != null && metrics.hrv !== '' ? Number(metrics.hrv) : null,
+      steps: metrics.steps != null && metrics.steps !== '' ? Math.round(Number(metrics.steps)) : null, // INTEGER - must be whole number
+      calories: metrics.caloriesBurned != null && metrics.caloriesBurned !== '' ? Number(metrics.caloriesBurned) : null,
+      weight: metrics.weight != null && metrics.weight !== '' ? Number(metrics.weight) : null
     }, { onConflict: 'user_id,date' })
     .select()
 

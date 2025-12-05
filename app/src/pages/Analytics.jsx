@@ -314,12 +314,12 @@ export default function Analytics() {
     if (!editingMetric || !user) return
     try {
       await saveMetricsToSupabase(user.id, editingMetric.date, {
-        sleepScore: editingMetric.sleep_score,
-        sleepTime: editingMetric.sleep_time,
-        hrv: editingMetric.hrv,
-        steps: editingMetric.steps,
-        caloriesBurned: editingMetric.calories,
-        weight: editingMetric.weight
+        sleepScore: editingMetric.sleep_score != null ? Number(editingMetric.sleep_score) : null,
+        sleepTime: editingMetric.sleep_time != null ? Number(editingMetric.sleep_time) : null,
+        hrv: editingMetric.hrv != null ? Number(editingMetric.hrv) : null,
+        steps: editingMetric.steps != null ? Math.round(Number(editingMetric.steps)) : null, // INTEGER - must be whole number
+        caloriesBurned: editingMetric.calories != null ? Number(editingMetric.calories) : null,
+        weight: editingMetric.weight != null ? Number(editingMetric.weight) : null
       })
       await refreshData()
       setEditingMetric(null)

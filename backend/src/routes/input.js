@@ -315,11 +315,11 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
       .upsert({
         user_id: userId,
         date: date,
-        steps: fitbitData.steps,
-        calories: fitbitData.calories || fitbitData.active_calories,
-        hrv: fitbitData.hrv,
-        sleep_time: fitbitData.sleep_duration,
-        sleep_score: fitbitData.sleep_efficiency ? Math.round(fitbitData.sleep_efficiency) : null
+        steps: fitbitData.steps != null ? Math.round(Number(fitbitData.steps)) : null, // INTEGER - must be whole number
+        calories: (fitbitData.calories || fitbitData.active_calories) != null ? Number(fitbitData.calories || fitbitData.active_calories) : null,
+        hrv: fitbitData.hrv != null ? Number(fitbitData.hrv) : null,
+        sleep_time: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
+        sleep_score: fitbitData.sleep_efficiency != null ? Math.round(Number(fitbitData.sleep_efficiency)) : null
       }, { onConflict: 'user_id,date' })
     
     if (metricsError) {

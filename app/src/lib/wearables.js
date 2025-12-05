@@ -583,11 +583,11 @@ export async function mergeWearableDataToMetrics(userId, date = null) {
   // Map Fitbit sleep_duration (minutes) to sleep_time
   // Map Fitbit calories to calories
   const merged = {
-    hrv: ouraData?.hrv || fitbitData?.hrv || null,
-    sleep_time: ouraData?.total_sleep || fitbitData?.sleep_duration || null, // Both in minutes
-    sleep_score: ouraData?.sleep_score || (fitbitData?.sleep_efficiency ? Math.round(fitbitData.sleep_efficiency) : null),
-    steps: ouraData?.steps || fitbitData?.steps || null,
-    calories: ouraData?.calories || fitbitData?.calories || fitbitData?.active_calories || null,
+    hrv: ouraData?.hrv != null ? Number(ouraData.hrv) : (fitbitData?.hrv != null ? Number(fitbitData.hrv) : null),
+    sleep_time: ouraData?.total_sleep != null ? Number(ouraData.total_sleep) : (fitbitData?.sleep_duration != null ? Number(fitbitData.sleep_duration) : null), // Both in minutes
+    sleep_score: ouraData?.sleep_score != null ? Number(ouraData.sleep_score) : (fitbitData?.sleep_efficiency != null ? Math.round(Number(fitbitData.sleep_efficiency)) : null),
+    steps: ouraData?.steps != null ? Math.round(Number(ouraData.steps)) : (fitbitData?.steps != null ? Math.round(Number(fitbitData.steps)) : null), // INTEGER - must be whole number
+    calories: ouraData?.calories != null ? Number(ouraData.calories) : ((fitbitData?.calories || fitbitData?.active_calories) != null ? Number(fitbitData.calories || fitbitData.active_calories) : null),
     weight: null // Would come from scale or manual entry
   }
   
@@ -596,11 +596,11 @@ export async function mergeWearableDataToMetrics(userId, date = null) {
     // Update daily_metrics - map to the format expected by saveMetricsToSupabase
     const { saveMetricsToSupabase } = await import('./supabaseDb')
     await saveMetricsToSupabase(userId, targetDate, {
-      sleepScore: merged.sleep_score ? String(merged.sleep_score) : null,
-      sleepTime: merged.sleep_time ? String(merged.sleep_time) : null, // Keep as minutes
-      hrv: merged.hrv ? String(merged.hrv) : null,
-      steps: merged.steps ? String(merged.steps) : null,
-      caloriesBurned: merged.calories ? String(merged.calories) : null,
+      sleepScore: merged.sleep_score != null ? Number(merged.sleep_score) : null,
+      sleepTime: merged.sleep_time != null ? Number(merged.sleep_time) : null, // Keep as minutes
+      hrv: merged.hrv != null ? Number(merged.hrv) : null,
+      steps: merged.steps != null ? Math.round(Number(merged.steps)) : null, // INTEGER - must be whole number
+      caloriesBurned: merged.calories != null ? Number(merged.calories) : null,
       weight: null
     })
   }

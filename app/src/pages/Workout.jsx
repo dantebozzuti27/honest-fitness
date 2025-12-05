@@ -210,7 +210,7 @@ export default function Workout() {
     if (metrics.sleepScore) metricsToSave.sleepScore = Number(metrics.sleepScore)
     if (metrics.sleepTime) metricsToSave.sleepTime = metrics.sleepTime
     if (metrics.hrv) metricsToSave.hrv = Number(metrics.hrv)
-    if (metrics.steps) metricsToSave.steps = Number(metrics.steps)
+    if (metrics.steps) metricsToSave.steps = Math.round(Number(metrics.steps)) // INTEGER - must be whole number
     if (metrics.caloriesBurned) metricsToSave.caloriesBurned = Number(metrics.caloriesBurned)
     if (metrics.weight) metricsToSave.weight = Number(metrics.weight)
     

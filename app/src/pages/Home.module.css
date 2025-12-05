@@ -28,6 +28,22 @@
   flex: 1;
 }
 
+.logoContainer {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+}
+
+.logo {
+  height: 48px;
+  width: auto;
+  max-width: 200px;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+}
+
 .content {
   flex: 1;
   display: flex;

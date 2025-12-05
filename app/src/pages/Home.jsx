@@ -105,7 +105,13 @@ export default function Home() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h1 className={styles.title}>Home</h1>
+        <div className={styles.logoContainer}>
+          <img 
+            src="/logo.jpg" 
+            alt="Echelon" 
+            className={styles.logo}
+          />
+        </div>
         <button 
           className={styles.quickActionBtn}
           onClick={() => setShowQuickMenu(!showQuickMenu)}

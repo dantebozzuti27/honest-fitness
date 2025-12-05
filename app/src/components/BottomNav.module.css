@@ -8,13 +8,14 @@
   justify-content: space-around;
   background: var(--gradient-secondary);
   border-top: 1px solid var(--border);
-  padding: var(--space-sm);
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-sm));
+  padding: var(--space-md);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-md));
   z-index: 999;
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  height: calc(clamp(64px, 16vw, 72px) + env(safe-area-inset-bottom, 0px));
+  height: calc(88px + env(safe-area-inset-bottom, 0px));
+  min-height: 88px;
 }
 
 .navButton {
@@ -22,17 +23,18 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: clamp(2px, 0.5vw, 4px);
-  padding: var(--space-xs) var(--space-sm);
+  gap: 6px;
+  padding: var(--space-sm) var(--space-md);
   background: transparent;
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-base);
-  min-width: clamp(44px, 11vw, 50px);
-  min-height: clamp(44px, 11vw, 50px);
+  min-width: 64px;
+  min-height: 64px;
   flex: 1;
   border-radius: var(--radius-md);
+  touch-action: manipulation;
 }
 
 .navButton:hover {
@@ -45,8 +47,8 @@
 }
 
 .navIcon {
-  width: clamp(20px, 5vw, 24px);
-  height: clamp(20px, 5vw, 24px);
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -59,7 +61,7 @@
 }
 
 .navLabel {
-  font-size: clamp(10px, 2.5vw, 12px);
+  font-size: 13px;
   font-weight: 500;
   letter-spacing: -0.01em;
   line-height: 1.2;
@@ -67,16 +69,17 @@
 
 .plusButton {
   flex: 0 0 auto;
-  width: clamp(48px, 12vw, 52px);
-  height: clamp(48px, 12vw, 52px);
-  min-width: clamp(48px, 12vw, 52px);
-  min-height: clamp(48px, 12vw, 52px);
+  width: 64px;
+  height: 64px;
+  min-width: 64px;
+  min-height: 64px;
   border-radius: 50%;
   background: var(--accent);
   color: #000;
   box-shadow: var(--shadow-lg);
-  margin: 0 var(--space-xs);
+  margin: 0 var(--space-sm);
   padding: 0;
+  touch-action: manipulation;
 }
 
 .plusButton:hover {
@@ -90,7 +93,7 @@
 }
 
 .plusIcon {
-  font-size: clamp(24px, 6vw, 28px);
+  font-size: 32px;
   font-weight: 300;
   line-height: 1;
   display: flex;
@@ -113,7 +116,7 @@
 
 .quickLogMenu {
   position: fixed;
-  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(100px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-secondary);

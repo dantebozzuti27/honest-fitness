@@ -207,24 +207,28 @@ export default function Home() {
       // Load shared feed items from localStorage
       try {
         const sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+        console.log('Shared items from localStorage:', sharedItems)
         sharedItems.forEach(item => {
+          // Use timestamp if available, otherwise use date
+          const itemDate = item.timestamp ? new Date(item.timestamp).toISOString().split('T')[0] : item.date
           logs.push({
             type: item.type,
-            date: item.date,
+            date: itemDate || today,
             title: item.title,
             subtitle: item.subtitle,
             data: item.data,
-            shared: true
+            shared: true,
+            timestamp: item.timestamp || new Date(itemDate + 'T12:00').toISOString()
           })
         })
       } catch (e) {
         console.error('Error loading shared items:', e)
       }
 
-      // Sort by date (newest first) and limit to 20
+      // Sort by timestamp/date (newest first) and limit to 20
       logs.sort((a, b) => {
-        const dateA = new Date(a.date + 'T' + (a.data?.time || '12:00'))
-        const dateB = new Date(b.date + 'T' + (b.data?.time || '12:00'))
+        const dateA = a.timestamp ? new Date(a.timestamp) : new Date(a.date + 'T' + (a.data?.time || '12:00'))
+        const dateB = b.timestamp ? new Date(b.timestamp) : new Date(b.date + 'T' + (b.data?.time || '12:00'))
         return dateB - dateA
       })
       const sortedLogs = logs.slice(0, 20)
@@ -290,11 +294,12 @@ export default function Home() {
             <div className={styles.emptyFeed}>
               <p>No recent activity</p>
               <p className={styles.emptyFeedSubtext}>Start logging workouts, meals, or health metrics to see them here</p>
+              <p className={styles.emptyFeedSubtext} style={{fontSize: '12px', marginTop: '8px'}}>Or share items to your feed using the share button</p>
             </div>
           ) : (
             <div className={styles.feedList}>
               {recentLogs.map((log, index) => (
-                <div key={index} className={styles.feedItem}>
+                <div key={`${log.type}-${log.date}-${index}-${log.shared ? 'shared' : ''}`} className={styles.feedItem}>
                   <div className={styles.feedItemIcon}>
                     {profilePicture ? (
                       <img src={profilePicture} alt="Profile" />

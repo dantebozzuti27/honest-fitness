@@ -62,16 +62,41 @@ export default function ShareCard({ type, data }) {
           </div>
           {workout?.exercises && workout.exercises.length > 0 && (
             <div className={styles.exercisesList}>
-              {workout.exercises.slice(0, 5).map((ex, idx) => (
-                <div key={idx} className={styles.exerciseItem}>
-                  <span className={styles.exerciseName}>{ex.name}</span>
-                  {ex.sets && ex.sets.length > 0 && (
-                    <span className={styles.exerciseSets}>{ex.sets.length} sets</span>
-                  )}
-                </div>
-              ))}
-              {workout.exercises.length > 5 && (
-                <div className={styles.moreExercises}>+{workout.exercises.length - 5} more</div>
+              {workout.exercises.slice(0, 4).map((ex, idx) => {
+                const sets = ex.sets || []
+                const setsInfo = sets.map(set => {
+                  const parts = []
+                  if (set.weight) parts.push(`${set.weight}lbs`)
+                  if (set.reps) parts.push(`${set.reps} reps`)
+                  if (set.time) {
+                    const mins = Math.floor(set.time / 60)
+                    const secs = set.time % 60
+                    parts.push(`${mins}:${String(secs).padStart(2, '0')}`)
+                  }
+                  return parts.join(' × ')
+                }).filter(Boolean)
+                
+                return (
+                  <div key={idx} className={styles.exerciseItem}>
+                    <div className={styles.exerciseHeader}>
+                      <span className={styles.exerciseName}>{ex.name}</span>
+                      <span className={styles.exerciseSetCount}>{sets.length} sets</span>
+                    </div>
+                    {setsInfo.length > 0 && (
+                      <div className={styles.exerciseSets}>
+                        {setsInfo.slice(0, 3).map((info, i) => (
+                          <span key={i} className={styles.setInfo}>{info}</span>
+                        ))}
+                        {setsInfo.length > 3 && (
+                          <span className={styles.moreSets}>+{setsInfo.length - 3} more</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {workout.exercises.length > 4 && (
+                <div className={styles.moreExercises}>+{workout.exercises.length - 4} more exercises</div>
               )}
             </div>
           )}

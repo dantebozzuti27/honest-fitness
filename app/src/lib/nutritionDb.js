@@ -18,8 +18,15 @@ const safeLogDebug = logDebug || (() => {})
 
 export async function saveMealToSupabase(userId, date, meal) {
   // Validate that this is a real meal with data
-  if (!meal.name || (!meal.calories && meal.calories !== 0)) {
+  // Check for name, description, or foods array
+  const mealName = meal.name || meal.description || (meal.foods && meal.foods.length > 0 ? meal.foods[0] : null)
+  if (!mealName || (!meal.calories && meal.calories !== 0)) {
     throw new Error('Cannot save meal without name and calories')
+  }
+  
+  // Ensure meal has a name field for consistency
+  if (!meal.name) {
+    meal.name = mealName
   }
   // Save to a nutrition/meals table
   // For now, we'll use daily_metrics and store meals as JSON
@@ -59,12 +66,17 @@ export async function saveMealToSupabase(userId, date, meal) {
   
   // Add new meal (don't duplicate if already has id)
   const mealToAdd = meal.id 
-    ? meal 
+    ? { ...meal } 
     : {
         ...meal,
         id: Date.now().toString(),
         timestamp: new Date().toISOString()
       }
+  
+  // Ensure meal has a name field (from name, description, or foods[0])
+  if (!mealToAdd.name) {
+    mealToAdd.name = mealToAdd.description || (mealToAdd.foods && mealToAdd.foods.length > 0 ? mealToAdd.foods[0] : 'Meal')
+  }
   
   // Ensure meal has proper structure
   if (!mealToAdd.macros && (mealToAdd.protein || mealToAdd.carbs || mealToAdd.fat)) {

@@ -31,41 +31,24 @@ export default function ShareCard({ type, data }) {
   const renderWorkoutCard = () => {
     const { workout } = data
     
-    // Calculate REAL stats from actual data
-    let totalSets = 0
-    let totalReps = 0
-    let totalVolume = 0
-    let maxWeight = 0
+    // Get valid exercises with actual data
     const validExercises = []
-    
     if (workout?.exercises) {
       workout.exercises.forEach(ex => {
         const validSets = (ex.sets || []).filter(s => s.weight || s.reps || s.time)
         if (validSets.length > 0) {
-          validExercises.push(ex)
-          totalSets += validSets.length
-          
-          validSets.forEach(set => {
-            const weight = Number(set.weight) || 0
-            const reps = Number(set.reps) || 0
-            
-            if (reps > 0) {
-              totalReps += reps
-              const volume = weight * reps
-              totalVolume += volume
-            }
-            
-            if (weight > maxWeight) {
-              maxWeight = weight
-            }
+          validExercises.push({
+            ...ex,
+            sets: validSets
           })
         }
       })
     }
     
     const totalExercises = validExercises.length
-    const isLongWorkout = totalExercises > 6
-    const avgWeight = totalSets > 0 && totalReps > 0 ? Math.round(totalVolume / totalReps) : 0
+    // Adjust display based on workout length - show fewer exercises if very long
+    const maxExercisesToShow = totalExercises > 8 ? 6 : totalExercises > 5 ? 7 : totalExercises
+    const isLongWorkout = totalExercises > 5
     
     return (
       <div className={styles.card} ref={cardRef}>
@@ -78,51 +61,45 @@ export default function ShareCard({ type, data }) {
             <div className={styles.statValue}>{formatDuration(workout?.duration)}</div>
             <div className={styles.statLabel}>Duration</div>
           </div>
-          <div className={styles.statsGrid}>
-            {totalExercises > 0 && (
+          {totalExercises > 0 && (
+            <div className={styles.statsGrid}>
               <div className={styles.statItem}>
                 <div className={styles.statValueSmall}>{totalExercises}</div>
                 <div className={styles.statLabelSmall}>Exercises</div>
               </div>
-            )}
-            {totalSets > 0 && (
-              <div className={styles.statItem}>
-                <div className={styles.statValueSmall}>{totalSets}</div>
-                <div className={styles.statLabelSmall}>Sets</div>
-              </div>
-            )}
-            {totalReps > 0 && (
-              <div className={styles.statItem}>
-                <div className={styles.statValueSmall}>{totalReps}</div>
-                <div className={styles.statLabelSmall}>Reps</div>
-              </div>
-            )}
-            {totalVolume > 0 && (
-              <div className={styles.statItem}>
-                <div className={styles.statValueSmall}>
-                  {totalVolume >= 1000 ? `${Math.round(totalVolume / 1000)}k` : totalVolume}
+              {workout?.perceivedEffort && workout.perceivedEffort > 0 && (
+                <div className={styles.statItem}>
+                  <div className={styles.statValueSmall}>{workout.perceivedEffort}/10</div>
+                  <div className={styles.statLabelSmall}>RPE</div>
                 </div>
-                <div className={styles.statLabelSmall}>Volume</div>
-              </div>
-            )}
-            {maxWeight > 0 && (
-              <div className={styles.statItem}>
-                <div className={styles.statValueSmall}>{maxWeight}</div>
-                <div className={styles.statLabelSmall}>Max</div>
-              </div>
-            )}
-            {workout?.perceivedEffort && workout.perceivedEffort > 0 && (
-              <div className={styles.statItem}>
-                <div className={styles.statValueSmall}>{workout.perceivedEffort}/10</div>
-                <div className={styles.statLabelSmall}>RPE</div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
           {validExercises.length > 0 && (
             <div className={styles.exercisesList}>
-              {validExercises.map((ex, idx) => {
-                const validSets = (ex.sets || []).filter(s => s.weight || s.reps || s.time)
-                const setsInfo = validSets.map((set, setIdx) => {
+              {validExercises.slice(0, maxExercisesToShow).map((ex, idx) => {
+                const sets = ex.sets || []
+                
+                // Calculate exercise-specific stats
+                let exerciseReps = 0
+                let exerciseVolume = 0
+                let exerciseMaxWeight = 0
+                
+                sets.forEach(set => {
+                  const weight = Number(set.weight) || 0
+                  const reps = Number(set.reps) || 0
+                  
+                  if (reps > 0) {
+                    exerciseReps += reps
+                    exerciseVolume += weight * reps
+                  }
+                  
+                  if (weight > exerciseMaxWeight) {
+                    exerciseMaxWeight = weight
+                  }
+                })
+                
+                const setsInfo = sets.map((set, setIdx) => {
                   const parts = []
                   if (set.weight) parts.push(`${set.weight}lbs`)
                   if (set.reps) parts.push(`${set.reps}`)
@@ -134,14 +111,24 @@ export default function ShareCard({ type, data }) {
                   return parts.length > 0 ? parts.join('×') : null
                 }).filter(Boolean)
                 
-                // Show more sets for shorter workouts, fewer for longer ones
-                const maxSetsToShow = isLongWorkout ? 3 : 5
+                // Show all sets but limit display based on workout length
+                const maxSetsToShow = isLongWorkout ? 2 : 4
                 
                 return (
                   <div key={idx} className={styles.exerciseItem}>
                     <div className={styles.exerciseHeader}>
                       <span className={styles.exerciseName}>{ex.name}</span>
-                      <span className={styles.exerciseSetCount}>{validSets.length}s</span>
+                      <div className={styles.exerciseStats}>
+                        {sets.length > 0 && (
+                          <span className={styles.exerciseSetCount}>{sets.length}s</span>
+                        )}
+                        {exerciseReps > 0 && (
+                          <span className={styles.exerciseReps}>{exerciseReps}r</span>
+                        )}
+                        {exerciseMaxWeight > 0 && (
+                          <span className={styles.exerciseMax}>{exerciseMaxWeight}lbs</span>
+                        )}
+                      </div>
                     </div>
                     {setsInfo.length > 0 && (
                       <div className={styles.exerciseSets}>
@@ -156,6 +143,9 @@ export default function ShareCard({ type, data }) {
                   </div>
                 )
               })}
+              {totalExercises > maxExercisesToShow && (
+                <div className={styles.moreExercises}>+{totalExercises - maxExercisesToShow} more</div>
+              )}
             </div>
           )}
           <div className={styles.cardDate}>{formatDate(workout?.date)}</div>

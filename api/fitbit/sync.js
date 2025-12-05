@@ -253,7 +253,7 @@ export default async function handler(req, res) {
       if (activityResponse.ok) {
         const activityJson = await activityResponse.json()
         const summary = activityJson.summary || {}
-        fitbitData.steps = summary.steps || null
+        fitbitData.steps = summary.steps != null ? Math.round(Number(summary.steps)) : null
         fitbitData.calories = summary.caloriesOut || null
         fitbitData.active_calories = summary.activityCalories || null
         fitbitData.distance = summary.distances && summary.distances.length > 0 
@@ -277,14 +277,14 @@ export default async function handler(req, res) {
     const saveData = {
       user_id: userId,
       date: date,
-      hrv: fitbitData.hrv || null,
-      resting_heart_rate: fitbitData.resting_heart_rate || null,
-      sleep_duration: fitbitData.sleep_duration || null,
-      sleep_efficiency: fitbitData.sleep_efficiency || null,
-      steps: fitbitData.steps || null,
-      calories: fitbitData.calories || null,
-      active_calories: fitbitData.active_calories || null,
-      distance: fitbitData.distance || null,
+      hrv: fitbitData.hrv != null ? Number(fitbitData.hrv) : null,
+      resting_heart_rate: fitbitData.resting_heart_rate != null ? Number(fitbitData.resting_heart_rate) : null,
+      sleep_duration: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
+      sleep_efficiency: fitbitData.sleep_efficiency != null ? Number(fitbitData.sleep_efficiency) : null,
+      steps: fitbitData.steps != null ? Math.round(Number(fitbitData.steps)) : null,
+      calories: fitbitData.calories != null ? Number(fitbitData.calories) : null,
+      active_calories: fitbitData.active_calories != null ? Number(fitbitData.active_calories) : null,
+      distance: fitbitData.distance != null ? Number(fitbitData.distance) : null,
       updated_at: new Date().toISOString()
     }
     

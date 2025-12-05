@@ -135,14 +135,14 @@ export async function saveFitbitDaily(userId, date, data) {
     .upsert({
       user_id: userId,
       date: date,
-      hrv: data.hrv || null,
-      resting_heart_rate: data.resting_heart_rate || null,
-      sleep_duration: data.sleep_duration || null,
-      sleep_efficiency: data.sleep_efficiency || null,
-      calories: data.calories || null,
-      steps: data.steps || null,
-      active_calories: data.active_calories || null,
-      distance: data.distance || null,
+      hrv: data.hrv != null ? Number(data.hrv) : null,
+      resting_heart_rate: data.resting_heart_rate != null ? Number(data.resting_heart_rate) : null,
+      sleep_duration: data.sleep_duration != null ? Number(data.sleep_duration) : null,
+      sleep_efficiency: data.sleep_efficiency != null ? Number(data.sleep_efficiency) : null,
+      calories: data.calories != null ? Number(data.calories) : null,
+      steps: data.steps != null ? Math.round(Number(data.steps)) : null,
+      active_calories: data.active_calories != null ? Number(data.active_calories) : null,
+      distance: data.distance != null ? Number(data.distance) : null,
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id,date' })
     .select()
@@ -450,7 +450,7 @@ async function syncFitbitDataDirect(userId, date = null) {
       const activityJson = await activityResponse.json()
       const summary = activityJson.summary || {}
       activityData = {
-        steps: summary.steps || null,
+        steps: summary.steps != null ? Math.round(Number(summary.steps)) : null,
         calories: summary.caloriesOut || null,
         active_calories: summary.activityCalories || null,
         distance: summary.distances && summary.distances.length > 0 

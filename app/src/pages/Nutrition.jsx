@@ -7,6 +7,9 @@ import { useAuth } from '../context/AuthContext'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { logError, logDebug } from '../utils/logger'
+
+// Ensure logDebug is always available (fallback for build issues)
+const safeLogDebug = logDebug || (() => {})
 import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
@@ -350,16 +353,16 @@ export default function Nutrition() {
         timestamp: new Date().toISOString()
       }
       
-      logDebug('addMeal: Saving meal', newMeal)
+      safeLogDebug('addMeal: Saving meal', newMeal)
       
       // Save to database first
       const { saveMealToSupabase } = await import('../lib/nutritionDb')
       const result = await saveMealToSupabase(user.id, selectedDate, newMeal)
-      logDebug('addMeal: Save result', result)
+      safeLogDebug('addMeal: Save result', result)
       
       // Reload data from database to ensure consistency
       await loadDateDataFromSupabase(selectedDate)
-      logDebug('addMeal: Data reloaded successfully')
+      safeLogDebug('addMeal: Data reloaded successfully')
     } catch (error) {
       logError('addMeal: Error saving meal to database', error)
       logError('Error saving meal to database', error)

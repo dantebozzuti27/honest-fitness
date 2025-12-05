@@ -6,6 +6,9 @@
 import { supabase } from './supabase'
 import { logError, logDebug } from '../utils/logger'
 
+// Ensure logDebug is always available (fallback for build issues)
+const safeLogDebug = logDebug || (() => {})
+
 /**
  * Save meal data to database
  */
@@ -154,7 +157,7 @@ export async function saveMealToSupabase(userId, date, meal) {
     throw error
   }
   
-  logDebug('Meal saved successfully', data)
+  safeLogDebug('Meal saved successfully', data)
   return data
 }
 
@@ -225,7 +228,7 @@ export async function getMealsFromSupabase(userId, date) {
     }
   }
   
-  logDebug(`Loaded meals for ${date}: ${meals.length} meals`)
+  safeLogDebug(`Loaded meals for ${date}: ${meals.length} meals`)
   
   return {
     meals: meals || [],

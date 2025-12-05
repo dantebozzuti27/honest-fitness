@@ -346,7 +346,7 @@ export default function Fitness() {
                         <div className={styles.historyTableCol}>
                           {workout.calories_burned || workout.calories || 'N/A'}
                         </div>
-                        <div className={styles.historyTableCol}>
+                        <div className={`${styles.historyTableCol} ${styles.actionsCol}`}>
                           <button
                             className={styles.shareBtn}
                             onClick={(e) => {

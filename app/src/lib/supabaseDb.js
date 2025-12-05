@@ -1,6 +1,10 @@
 import { supabase } from './supabase'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
+import { logError, logDebug } from '../utils/logger'
+
+// Ensure logDebug is always available (fallback for build issues)
+const safeLogDebug = logDebug || (() => {})
 
 // ============ WORKOUTS ============
 
@@ -232,7 +236,7 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
   
   const metricsToSave = { ...baseMetrics, ...optionalMetrics }
   
-  logDebug('saveMetricsToSupabase: Prepared data', metricsToSave)
+  safeLogDebug('saveMetricsToSupabase: Prepared data', metricsToSave)
   
   try {
     // Try with all metrics first
@@ -248,7 +252,7 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
         error.message?.includes('body_temp') ||
         error.message?.includes('calories_burned')
       )) {
-        logDebug('Optional columns missing, retrying with base metrics only')
+        safeLogDebug('Optional columns missing, retrying with base metrics only')
         const { data: retryData, error: retryError } = await supabase
           .from('daily_metrics')
           .upsert(baseMetrics, { onConflict: 'user_id,date' })
@@ -259,7 +263,7 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
           throw retryError
         }
         
-        logDebug('saveMetricsToSupabase: Success (without optional columns)', retryData)
+        safeLogDebug('saveMetricsToSupabase: Success (without optional columns)', retryData)
         return retryData
       }
       
@@ -267,12 +271,12 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
       throw error
     }
     
-    logDebug('saveMetricsToSupabase: Success', data)
+    safeLogDebug('saveMetricsToSupabase: Success', data)
     return data
   } catch (err) {
     // Final fallback: try with base metrics only
     if (err.code === 'PGRST204') {
-      logDebug('Columns missing, using base metrics only')
+      safeLogDebug('Columns missing, using base metrics only')
       const { data, error } = await supabase
         .from('daily_metrics')
         .upsert(baseMetrics, { onConflict: 'user_id,date' })
@@ -348,17 +352,17 @@ export async function getBodyPartStats(userId) {
   const workouts = await getWorkoutsFromSupabase(userId)
   const bodyPartCounts = {}
   
-  logDebug('getBodyPartStats - workouts', workouts.length)
+  safeLogDebug('getBodyPartStats - workouts', workouts.length)
   
   workouts.forEach(w => {
     w.workout_exercises?.forEach(ex => {
       const bp = ex.body_part || 'Other'
-      logDebug('Exercise body part', { exercise: ex.exercise_name, bodyPart: bp })
+      safeLogDebug('Exercise body part', { exercise: ex.exercise_name, bodyPart: bp })
       bodyPartCounts[bp] = (bodyPartCounts[bp] || 0) + 1
     })
   })
   
-  logDebug('Body part counts', bodyPartCounts)
+  safeLogDebug('Body part counts', bodyPartCounts)
   return bodyPartCounts
 }
 

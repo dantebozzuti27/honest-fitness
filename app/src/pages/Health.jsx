@@ -10,6 +10,9 @@ import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, mergeWearableD
 import { supabase } from '../lib/supabase'
 import { getTodayEST } from '../utils/dateUtils'
 import { logError, logDebug } from '../utils/logger'
+
+// Ensure logDebug is always available (fallback for build issues)
+const safeLogDebug = logDebug || (() => {})
 // All charts are now BarChart only
 import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
@@ -1059,7 +1062,7 @@ export default function Health() {
                       }
                       
                       try {
-                        logDebug('Saving health metrics', metricToSave)
+                        safeLogDebug('Saving health metrics', metricToSave)
                         // Use utility functions to ensure proper type conversion
                         const result = await saveMetricsToSupabase(user.id, metricToSave.date, {
                           weight: toNumber(metricToSave.weight),
@@ -1071,7 +1074,7 @@ export default function Health() {
                           restingHeartRate: toNumber(metricToSave.resting_heart_rate),
                           bodyTemp: toNumber(metricToSave.body_temp)
                         })
-                        logDebug('Health metrics save result', result)
+                        safeLogDebug('Health metrics save result', result)
                         await loadAllData()
                         setEditingMetric(null)
                         setShowLogModal(false)

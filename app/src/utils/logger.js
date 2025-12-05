@@ -51,11 +51,18 @@ export function logInfo(message, data = null) {
 /**
  * Log debug messages (only in development)
  * Always exported to prevent "is not defined" errors
+ * This function is always available, even in production (as a no-op)
  */
 export function logDebug(message, data = null) {
-  if (isDevelopment && currentLogLevel >= LOG_LEVELS.DEBUG) {
-    console.log(`[DEBUG] ${message}`, data || '')
+  try {
+    if (isDevelopment && currentLogLevel >= LOG_LEVELS.DEBUG) {
+      console.log(`[DEBUG] ${message}`, data || '')
+    }
+  } catch (e) {
+    // Silently fail if console is not available
   }
-  // No-op in production to prevent errors
 }
+
+// Ensure logDebug is always available (export as const for better tree-shaking compatibility)
+export const logDebugSafe = logDebug
 

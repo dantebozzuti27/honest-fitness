@@ -526,7 +526,7 @@ h3 {
 
 .historyTableHeader {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1.2fr;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr 1.8fr;
   gap: 8px;
   padding: var(--space-sm) var(--space-md);
   background: var(--bg-tertiary);
@@ -545,7 +545,7 @@ h3 {
 
 .historyTableRow {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1.2fr;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr 1.8fr;
   gap: 8px;
   padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--border);
@@ -573,6 +573,74 @@ h3 {
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 0;
+}
+
+.historyTableCol.actionsCol {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: nowrap;
+  white-space: normal;
+  justify-content: flex-start;
+  overflow: visible;
+  min-width: auto;
+}
+
+.shareBtn {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  min-height: 32px;
+  min-width: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shareBtn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.shareBtn:active {
+  transform: translateY(0);
+}
+
+.deleteBtn {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-red, #ef4444);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  min-height: 32px;
+  min-width: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.deleteBtn:hover {
+  background: var(--color-red-dark, #dc2626);
+  transform: translateY(-1px);
+}
+
+.deleteBtn:active {
+  transform: translateY(0);
 }
 
 .historyTableEmpty {

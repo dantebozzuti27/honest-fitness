@@ -9,14 +9,13 @@
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
   padding-top: calc(env(safe-area-inset-top, 0px) + var(--space-sm));
   padding-bottom: var(--space-sm);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   min-height: 52px;
-  gap: var(--space-sm);
   flex-shrink: 0;
   position: relative;
   z-index: 10;
@@ -25,6 +24,23 @@
 .header > *:first-child,
 .header > *:last-child {
   flex-shrink: 0;
+}
+
+.backBtn {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  min-height: 44px;
+  min-width: 80px;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .backBtn {

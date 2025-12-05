@@ -327,29 +327,27 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     })
   } catch (error) {
     // Log the error for debugging
-    try {
-      const { logError } = await import('../utils/logger.js')
-      logError('Fitbit sync error', { 
-        userId, 
-        date, 
-        error: error.message,
-        stack: error.stack 
-      })
-    } catch (logErr) {
-      console.error('Fitbit sync error:', error)
-      console.error('Log error:', logErr)
-    }
+    console.error('Fitbit sync error:', {
+      userId,
+      date,
+      error: error.message,
+      stack: error.stack,
+      name: error.name
+    })
     
     // Return user-friendly error message
     let statusCode = 500
     let errorMessage = 'Failed to sync Fitbit data'
     
-    if (error.message?.includes('authorization') || error.message?.includes('reconnect')) {
+    if (error.message?.includes('authorization') || error.message?.includes('reconnect') || error.message?.includes('401') || error.message?.includes('403')) {
       statusCode = 401
-      errorMessage = 'Fitbit authorization expired. Please reconnect your account.'
-    } else if (error.message?.includes('not connected') || error.message?.includes('404')) {
+      errorMessage = 'Fitbit authorization expired. Please reconnect your account from the Wearables page.'
+    } else if (error.message?.includes('not connected') || error.message?.includes('404') || error.message?.includes('not found')) {
       statusCode = 404
-      errorMessage = 'Fitbit account not connected'
+      errorMessage = 'Fitbit account not connected. Please connect your Fitbit account first.'
+    } else if (error.message?.includes('not configured') || error.message?.includes('environment variables')) {
+      statusCode = 500
+      errorMessage = 'Fitbit integration not configured. Please contact support.'
     } else if (error.message) {
       errorMessage = error.message
     }

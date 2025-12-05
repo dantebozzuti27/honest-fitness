@@ -157,7 +157,6 @@ export default function Health() {
       const allMetrics = await getAllMetricsFromSupabase(user.id)
       
       // If Fitbit is connected, load all Fitbit data and merge/create metrics
-      const fitbitAccount = connected?.find(a => a.provider === 'fitbit')
       if (fitbitAccount) {
         try {
           const { getFitbitDaily } = await import('../lib/wearables')

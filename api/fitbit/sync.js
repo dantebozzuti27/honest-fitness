@@ -259,7 +259,6 @@ export default async function handler(req, res) {
         fitbitData.distance = summary.distances && summary.distances.length > 0 
           ? summary.distances[0].distance || null 
           : null
-        fitbitData.floors = summary.floors || null
       } else if (activityResponse.status === 401 || activityResponse.status === 403) {
         const errorText = await activityResponse.text().catch(() => '')
         throw new Error(`Authorization failed: ${activityResponse.status}. Please reconnect your Fitbit account.`)
@@ -286,7 +285,6 @@ export default async function handler(req, res) {
       calories: fitbitData.calories || null,
       active_calories: fitbitData.active_calories || null,
       distance: fitbitData.distance || null,
-      floors: fitbitData.floors || null,
       updated_at: new Date().toISOString()
     }
     

@@ -561,11 +561,19 @@ export default function Health() {
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Sleep</span>
                     <span className={styles.dashboardStatValue}>
-                      {fitbitData?.sleep_duration != null 
-                        ? `${Math.floor(Number(fitbitData.sleep_duration) / 60)}h ${Math.round(Number(fitbitData.sleep_duration) % 60)}m`
-                        : todayMetric?.sleep_time != null
-                        ? `${Math.floor(Number(todayMetric.sleep_time) / 60)}h ${Math.round(Number(todayMetric.sleep_time) % 60)}m`
-                        : '-'}
+                      {(() => {
+                        const sleepMinutes = fitbitData?.sleep_duration != null 
+                          ? Number(fitbitData.sleep_duration)
+                          : todayMetric?.sleep_time != null
+                          ? Number(todayMetric.sleep_time)
+                          : null
+                        
+                        if (sleepMinutes == null) return '-'
+                        
+                        const hours = Math.floor(sleepMinutes / 60)
+                        const minutes = Math.round(sleepMinutes % 60)
+                        return `${hours}:${minutes.toString().padStart(2, '0')}`
+                      })()}
                     </span>
                   </div>
                   <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
@@ -721,7 +729,13 @@ export default function Health() {
                               {metric.calories_burned || metric.calories ? (metric.calories_burned || metric.calories).toLocaleString() : '-'}
                             </div>
                             <div className={styles.historyTableCol}>
-                              {metric.sleep_score ? metric.sleep_score : '-'}
+                              {(() => {
+                                const sleepMinutes = metric.sleep_time != null ? Number(metric.sleep_time) : null
+                                if (sleepMinutes == null) return '-'
+                                const hours = Math.floor(sleepMinutes / 60)
+                                const minutes = Math.round(sleepMinutes % 60)
+                                return `${hours}:${minutes.toString().padStart(2, '0')}`
+                              })()}
                             </div>
                             {!hasData && (
                               <div className={styles.manualLogHint}>

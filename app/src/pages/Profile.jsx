@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
-import { deleteAllWorkoutsFromSupabase } from '../lib/supabaseDb'
+import { deleteAllWorkoutsFromSupabase, cleanupDuplicateWorkouts } from '../lib/supabaseDb'
 import styles from './Profile.module.css'
 
 export default function Profile() {
@@ -13,6 +13,7 @@ export default function Profile() {
   const [connectedAccounts, setConnectedAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [deletingWorkouts, setDeletingWorkouts] = useState(false)
+  const [cleaningDuplicates, setCleaningDuplicates] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -73,6 +74,22 @@ export default function Profile() {
     }
   }
 
+  const handleCleanupDuplicates = async () => {
+    if (!user) return
+    if (!confirm('This will remove duplicate workouts on the same date, keeping only the most recent. Continue?')) return
+    
+    setCleaningDuplicates(true)
+    try {
+      const result = await cleanupDuplicateWorkouts(user.id)
+      alert(`Cleaned up ${result.deleted} duplicate workout(s). Please refresh the app to see the changes.`)
+    } catch (error) {
+      alert('Failed to clean up duplicates. Please try again.')
+      console.error('Error cleaning duplicates:', error)
+    } finally {
+      setCleaningDuplicates(false)
+    }
+  }
+
   const handleLogout = async () => {
     await signOut()
     navigate('/auth')
@@ -102,6 +119,14 @@ export default function Profile() {
             disabled={exporting}
           >
             {exporting ? 'Exporting...' : 'Export All Data'}
+          </button>
+          <button
+            className={styles.actionBtn}
+            onClick={handleCleanupDuplicates}
+            disabled={cleaningDuplicates}
+            style={{ marginTop: '12px' }}
+          >
+            {cleaningDuplicates ? 'Cleaning...' : 'Remove Duplicate Workouts'}
           </button>
           <button
             className={styles.actionBtn}

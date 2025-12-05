@@ -212,14 +212,19 @@ export default function Home() {
             <div className={styles.feedList}>
               {recentLogs.map((log, index) => (
                 <div key={index} className={styles.feedItem}>
-                  <div className={styles.feedItemHeader}>
-                    <span className={styles.feedItemType}>{getTypeLabel(log.type)}</span>
-                    <span className={styles.feedItemDate}>{formatDate(log.date)}</span>
+                  <div className={styles.feedItemIcon}>
+                    {log.type === 'workout' ? '💪' : log.type === 'meal' ? '🍽️' : '❤️'}
                   </div>
-                  <div className={styles.feedItemTitle}>{log.title}</div>
-                  {log.subtitle && (
-                    <div className={styles.feedItemSubtitle}>{log.subtitle}</div>
-                  )}
+                  <div className={styles.feedItemContent}>
+                    <div className={styles.feedItemHeader}>
+                      <span className={styles.feedItemType}>{getTypeLabel(log.type)}</span>
+                      <span className={styles.feedItemDate}>· {formatDate(log.date)}</span>
+                    </div>
+                    <div className={styles.feedItemTitle}>{log.title}</div>
+                    {log.subtitle && (
+                      <div className={styles.feedItemSubtitle}>{log.subtitle}</div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

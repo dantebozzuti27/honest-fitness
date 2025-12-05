@@ -11,12 +11,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  padding-top: calc(env(safe-area-inset-top, 0px) + var(--space-sm));
-  padding-bottom: var(--space-sm);
+  padding: 8px var(--space-md);
+  padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+  padding-bottom: 8px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
-  min-height: 52px;
+  min-height: 48px;
   flex-shrink: 0;
   position: relative;
   z-index: 10;

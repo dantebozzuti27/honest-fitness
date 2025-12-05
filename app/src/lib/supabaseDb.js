@@ -25,27 +25,89 @@ export async function saveWorkoutToSupabase(workout, userId) {
     throw new Error('Cannot save workout with no exercise data')
   }
   
-  // Insert workout
-  const { data: workoutData, error: workoutError } = await supabase
+  // Check for duplicate workouts on the same date (prevent duplicates)
+  const { data: existingWorkouts, error: checkError } = await supabase
     .from('workouts')
-    .insert({
-      user_id: userId,
-      date: workout.date,
-      duration: workout.duration,
-      template_name: workout.templateName || null,
-      perceived_effort: workout.perceivedEffort || null,
-      mood_after: workout.moodAfter || null,
-      notes: workout.notes || null,
-      day_of_week: workout.dayOfWeek ?? null
-    })
-    .select()
-    .single()
+    .select('id, date, created_at')
+    .eq('user_id', userId)
+    .eq('date', workout.date)
+    .order('created_at', { ascending: false })
 
-  if (workoutError) throw workoutError
+  if (checkError) throw checkError
 
-  // Insert exercises
+  let workoutData
+  
+  // If duplicates exist, delete the older ones and update the most recent
+  if (existingWorkouts && existingWorkouts.length > 0) {
+    const duplicates = existingWorkouts.slice(1) // Keep the first (most recent), delete the rest
+    for (const dup of duplicates) {
+      await deleteWorkoutFromSupabase(dup.id)
+    }
+    
+    // Update the existing workout instead of creating a new one
+    const existingId = existingWorkouts[0].id
+    
+    // Delete old exercises and sets for this workout
+    const { data: oldExercises } = await supabase
+      .from('workout_exercises')
+      .select('id')
+      .eq('workout_id', existingId)
+    
+    if (oldExercises) {
+      for (const ex of oldExercises) {
+        await supabase.from('workout_sets').delete().eq('workout_exercise_id', ex.id)
+      }
+      await supabase.from('workout_exercises').delete().eq('workout_id', existingId)
+    }
+    
+    // Update the workout
+    const { data: updatedWorkout, error: updateError } = await supabase
+      .from('workouts')
+      .update({
+        duration: workout.duration,
+        template_name: workout.templateName || null,
+        perceived_effort: workout.perceivedEffort || null,
+        mood_after: workout.moodAfter || null,
+        notes: workout.notes || null,
+        day_of_week: workout.dayOfWeek ?? null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existingId)
+      .select()
+      .single()
+
+    if (updateError) throw updateError
+    workoutData = updatedWorkout
+  } else {
+    // No duplicate, insert new workout
+    const { data: newWorkout, error: workoutError } = await supabase
+      .from('workouts')
+      .insert({
+        user_id: userId,
+        date: workout.date,
+        duration: workout.duration,
+        template_name: workout.templateName || null,
+        perceived_effort: workout.perceivedEffort || null,
+        mood_after: workout.moodAfter || null,
+        notes: workout.notes || null,
+        day_of_week: workout.dayOfWeek ?? null
+      })
+      .select()
+      .single()
+
+    if (workoutError) throw workoutError
+    workoutData = newWorkout
+  }
+
+  // Insert exercises (only those with valid sets data)
+  let exerciseOrder = 0
   for (let i = 0; i < workout.exercises.length; i++) {
     const ex = workout.exercises[i]
+    
+    // Skip exercises without valid sets data (prevent dummy data)
+    if (!ex.sets || ex.sets.length === 0 || !ex.sets.some(s => s.weight || s.reps || s.time)) {
+      continue
+    }
     
     const { data: exerciseData, error: exerciseError } = await supabase
       .from('workout_exercises')
@@ -55,16 +117,17 @@ export async function saveWorkoutToSupabase(workout, userId) {
         category: ex.category,
         body_part: ex.bodyPart,
         equipment: ex.equipment,
-        exercise_order: i
+        exercise_order: exerciseOrder++
       })
       .select()
       .single()
 
     if (exerciseError) throw exerciseError
 
-    // Insert sets
-    if (ex.sets && ex.sets.length > 0) {
-      const setsToInsert = ex.sets.map((set, idx) => ({
+    // Insert sets (only sets with actual data)
+    const validSets = ex.sets.filter(s => s.weight || s.reps || s.time)
+    if (validSets.length > 0) {
+      const setsToInsert = validSets.map((set, idx) => ({
         workout_exercise_id: exerciseData.id,
         set_number: idx + 1,
         weight: set.weight ? Number(set.weight) : null,
@@ -99,7 +162,34 @@ export async function getWorkoutsFromSupabase(userId) {
     .order('date', { ascending: false })
 
   if (error) throw error
-  return data
+  
+  // Filter out workouts without valid exercise data (dummy data cleanup)
+  const validWorkouts = (data || []).filter(workout => {
+    // Must have exercises
+    if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
+      return false
+    }
+    
+    // Must have at least one exercise with sets that have actual data
+    const hasValidExercise = workout.workout_exercises.some(ex => {
+      if (!ex.workout_sets || ex.workout_sets.length === 0) return false
+      return ex.workout_sets.some(s => s.weight || s.reps || s.time)
+    })
+    
+    return hasValidExercise
+  })
+  
+  // Deduplicate by date (keep most recent)
+  const deduplicated = []
+  const seenDates = new Set()
+  for (const workout of validWorkouts) {
+    if (!seenDates.has(workout.date)) {
+      seenDates.add(workout.date)
+      deduplicated.push(workout)
+    }
+  }
+  
+  return deduplicated
 }
 
 export async function getWorkoutDatesFromSupabase(userId) {
@@ -245,6 +335,47 @@ export async function deleteAllWorkoutsFromSupabase(userId) {
     }
   }
 
+  return { deleted: deletedCount }
+}
+
+// Clean up duplicate workouts and invalid data
+export async function cleanupDuplicateWorkouts(userId) {
+  const workouts = await getWorkoutsFromSupabase(userId)
+  const dateGroups = {}
+  
+  // Group workouts by date
+  workouts.forEach(w => {
+    if (!dateGroups[w.date]) {
+      dateGroups[w.date] = []
+    }
+    dateGroups[w.date].push(w)
+  })
+  
+  let deletedCount = 0
+  
+  // For each date with multiple workouts, keep only the most recent
+  for (const [date, dateWorkouts] of Object.entries(dateGroups)) {
+    if (dateWorkouts.length > 1) {
+      // Sort by created_at (most recent first)
+      dateWorkouts.sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0
+        return bTime - aTime
+      })
+      
+      // Keep the first (most recent), delete the rest
+      const duplicates = dateWorkouts.slice(1)
+      for (const dup of duplicates) {
+        try {
+          await deleteWorkoutFromSupabase(dup.id)
+          deletedCount++
+        } catch (error) {
+          console.error(`Error deleting duplicate workout ${dup.id}:`, error)
+        }
+      }
+    }
+  }
+  
   return { deleted: deletedCount }
 }
 
@@ -473,7 +604,13 @@ export async function getExerciseStats(userId) {
   
   workouts.forEach(w => {
     w.workout_exercises?.forEach(ex => {
-      exerciseCounts[ex.exercise_name] = (exerciseCounts[ex.exercise_name] || 0) + 1
+      // ONLY count exercises that have actual sets with data (no dummy data)
+      const hasValidSets = ex.workout_sets && ex.workout_sets.length > 0 && 
+        ex.workout_sets.some(s => s.weight || s.reps || s.time)
+      
+      if (hasValidSets && ex.exercise_name) {
+        exerciseCounts[ex.exercise_name] = (exerciseCounts[ex.exercise_name] || 0) + 1
+      }
     })
   })
   

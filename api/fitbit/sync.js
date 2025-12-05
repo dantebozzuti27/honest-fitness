@@ -346,21 +346,24 @@ export default async function handler(req, res) {
     console.error('Fitbit sync error:', {
       userId,
       date,
-      error: error.message,
-      stack: error.stack
+      error: error?.message || String(error),
+      stack: error?.stack
     })
     
     let statusCode = 500
     let errorMessage = 'Failed to sync Fitbit data'
     
-    if (error.message?.includes('authorization') || error.message?.includes('reconnect') || error.message?.includes('401') || error.message?.includes('403')) {
+    // Safely get error message as string
+    const errorMsg = typeof error?.message === 'string' ? error.message : String(error || 'Unknown error')
+    
+    if (errorMsg.includes('authorization') || errorMsg.includes('reconnect') || errorMsg.includes('401') || errorMsg.includes('403')) {
       statusCode = 401
       errorMessage = 'Fitbit authorization expired. Please reconnect your account.'
-    } else if (error.message?.includes('not connected') || error.message?.includes('404') || error.message?.includes('not found')) {
+    } else if (errorMsg.includes('not connected') || errorMsg.includes('404') || errorMsg.includes('not found')) {
       statusCode = 404
       errorMessage = 'Fitbit account not connected'
-    } else if (error.message) {
-      errorMessage = error.message
+    } else if (errorMsg && errorMsg !== 'Unknown error') {
+      errorMessage = errorMsg
     }
     
     return res.status(statusCode).json({ 

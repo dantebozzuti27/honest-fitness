@@ -657,6 +657,7 @@ h1 {
   font-weight: 600;
   font-size: 12px;
   color: var(--text-primary);
+  align-items: center;
 }
 
 .historyTableBody {
@@ -674,6 +675,8 @@ h1 {
   transition: background 0.2s;
   font-size: 12px;
   color: var(--text-primary);
+  align-items: center;
+  position: relative;
 }
 
 .historyTableRow:hover {
@@ -690,6 +693,23 @@ h1 {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+}
+
+.manualLogHint {
+  position: absolute;
+  right: 16px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.emptyState {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary);
 }
 
 .historyTableEmpty {

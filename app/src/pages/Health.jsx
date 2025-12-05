@@ -6,6 +6,7 @@ import { getWorkoutsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupaba
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, mergeWearableDataToMetrics } from '../lib/wearables'
+import { supabase } from '../lib/supabase'
 import { getTodayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 // All charts are now BarChart only
@@ -152,9 +153,106 @@ export default function Health() {
         }
       }
       
-      // Load metrics (only once)
+      // Load metrics and merge with Fitbit data
       const allMetrics = await getAllMetricsFromSupabase(user.id)
-      setMetrics(allMetrics || [])
+      
+      // If Fitbit is connected, load all Fitbit data and merge/create metrics
+      const fitbitAccount = connected?.find(a => a.provider === 'fitbit')
+      if (fitbitAccount) {
+        try {
+          const { getFitbitDaily } = await import('../lib/wearables')
+          const { supabase } = await import('../lib/supabase')
+          
+          // Get all Fitbit data for the selected period
+          const now = new Date()
+          const cutoff = new Date()
+          switch (selectedPeriod) {
+            case 'week':
+              cutoff.setDate(now.getDate() - 7)
+              break
+            case 'month':
+              cutoff.setMonth(now.getMonth() - 1)
+              break
+            case '90days':
+              cutoff.setDate(now.getDate() - 90)
+              break
+            default:
+              cutoff.setDate(now.getDate() - 7)
+          }
+          
+          // Get all Fitbit data for the period
+          const { data: fitbitDataList, error: fitbitError } = await (await import('../lib/supabase')).supabase
+            .from('fitbit_daily')
+            .select('*')
+            .eq('user_id', user.id)
+            .gte('date', cutoff.toISOString().split('T')[0])
+            .order('date', { ascending: false })
+          
+          if (!fitbitError && fitbitDataList) {
+            // Create a map of metrics by date
+            const metricsMap = new Map()
+            if (allMetrics) {
+              allMetrics.forEach(m => metricsMap.set(m.date, m))
+            }
+            
+            // Merge Fitbit data into metrics or create new entries
+            const mergedMetrics = []
+            const processedDates = new Set()
+            
+            // First, process existing metrics and merge with Fitbit data
+            if (allMetrics) {
+              for (const metric of allMetrics) {
+                const fitbitData = fitbitDataList.find(f => f.date === metric.date)
+                if (fitbitData) {
+                  mergedMetrics.push({
+                    ...metric,
+                    steps: fitbitData.steps ?? metric.steps,
+                    hrv: fitbitData.hrv ?? metric.hrv,
+                    calories_burned: fitbitData.calories || fitbitData.active_calories || metric.calories_burned || metric.calories || null,
+                    sleep_time: fitbitData.sleep_duration ?? metric.sleep_time,
+                    sleep_score: fitbitData.sleep_efficiency ? Math.round(fitbitData.sleep_efficiency) : (metric.sleep_score ?? null),
+                    resting_heart_rate: fitbitData.resting_heart_rate ?? metric.resting_heart_rate
+                  })
+                } else {
+                  mergedMetrics.push(metric)
+                }
+                processedDates.add(metric.date)
+              }
+            }
+            
+            // Then, add Fitbit-only dates as new metric entries
+            for (const fitbitData of fitbitDataList) {
+              if (!processedDates.has(fitbitData.date)) {
+                mergedMetrics.push({
+                  user_id: user.id,
+                  date: fitbitData.date,
+                  steps: fitbitData.steps ?? null,
+                  hrv: fitbitData.hrv ?? null,
+                  calories_burned: fitbitData.calories || fitbitData.active_calories || null,
+                  sleep_time: fitbitData.sleep_duration ?? null,
+                  sleep_score: fitbitData.sleep_efficiency ? Math.round(fitbitData.sleep_efficiency) : null,
+                  resting_heart_rate: fitbitData.resting_heart_rate ?? null,
+                  weight: null,
+                  body_temp: null
+                })
+              }
+            }
+            
+            // Sort by date descending
+            mergedMetrics.sort((a, b) => new Date(b.date) - new Date(a.date))
+            setMetrics(mergedMetrics)
+          } else {
+            // If Fitbit query fails, just use regular metrics
+            setMetrics(allMetrics || [])
+          }
+        } catch (fitbitError) {
+          // If Fitbit merge fails, just use regular metrics
+          console.error('Error merging Fitbit data into metrics:', fitbitError)
+          setMetrics(allMetrics || [])
+        }
+      } else {
+        setMetrics(allMetrics || [])
+      }
     } catch (error) {
       // Silently fail - data will load on retry
     } finally {
@@ -526,7 +624,30 @@ export default function Health() {
                 </select>
               </div>
               {metrics.length === 0 ? (
-                <p className={styles.emptyText}>No metrics recorded yet</p>
+                <div className={styles.emptyState}>
+                  <p className={styles.emptyText}>No metrics recorded yet</p>
+                  <button
+                    className={styles.actionBtn}
+                    onClick={() => {
+                      const newMetric = {
+                        date: getTodayEST(),
+                        steps: null,
+                        sleep_time: null,
+                        sleep_score: null,
+                        hrv: null,
+                        calories: null,
+                        weight: null,
+                        resting_heart_rate: null,
+                        body_temp: null
+                      }
+                      setEditingMetric(newMetric)
+                      setShowLogModal(true)
+                    }}
+                    style={{ marginTop: '12px' }}
+                  >
+                    Log Metrics
+                  </button>
+                </div>
               ) : (
                 <div className={styles.historyTable}>
                   <div className={styles.historyTableHeader}>
@@ -541,39 +662,48 @@ export default function Health() {
                     {metrics
                       .slice(-14)
                       .reverse()
-                      .map(metric => (
-                        <div
-                          key={metric.date}
-                          className={styles.historyTableRow}
-                          onClick={() => {
-                            setEditingMetric({ ...metric })
-                            setShowLogModal(true)
-                          }}
-                        >
-                          <div className={styles.historyTableCol}>
-                            {new Date(metric.date + 'T12:00:00').toLocaleDateString('en-US', { 
-                              month: 'short', 
-                              day: 'numeric',
-                              year: metric.date !== getTodayEST() ? 'numeric' : undefined
-                            })}
+                      .map(metric => {
+                        // Check if metric has any data (Fitbit or manual)
+                        const hasData = metric.steps || metric.hrv || metric.calories_burned || metric.calories || metric.sleep_score || metric.weight
+                        return (
+                          <div
+                            key={metric.date}
+                            className={styles.historyTableRow}
+                            onClick={() => {
+                              setEditingMetric({ ...metric })
+                              setShowLogModal(true)
+                            }}
+                          >
+                            <div className={styles.historyTableCol}>
+                              {new Date(metric.date + 'T12:00:00').toLocaleDateString('en-US', { 
+                                month: 'short', 
+                                day: 'numeric',
+                                year: metric.date !== getTodayEST() ? 'numeric' : undefined
+                              })}
+                            </div>
+                            <div className={styles.historyTableCol}>
+                              {metric.weight ? `${metric.weight} lbs` : '-'}
+                            </div>
+                            <div className={styles.historyTableCol}>
+                              {metric.steps ? metric.steps.toLocaleString() : '-'}
+                            </div>
+                            <div className={styles.historyTableCol}>
+                              {metric.hrv ? `${metric.hrv} ms` : '-'}
+                            </div>
+                            <div className={styles.historyTableCol}>
+                              {metric.calories_burned || metric.calories ? (metric.calories_burned || metric.calories).toLocaleString() : '-'}
+                            </div>
+                            <div className={styles.historyTableCol}>
+                              {metric.sleep_score ? metric.sleep_score : '-'}
+                            </div>
+                            {!hasData && (
+                              <div className={styles.manualLogHint}>
+                                Tap to log
+                              </div>
+                            )}
                           </div>
-                          <div className={styles.historyTableCol}>
-                            {metric.weight ? `${metric.weight} lbs` : '-'}
-                          </div>
-                          <div className={styles.historyTableCol}>
-                            {metric.steps ? metric.steps.toLocaleString() : '-'}
-                          </div>
-                          <div className={styles.historyTableCol}>
-                            {metric.hrv ? `${metric.hrv} ms` : '-'}
-                          </div>
-                          <div className={styles.historyTableCol}>
-                            {metric.calories_burned || metric.calories ? (metric.calories_burned || metric.calories).toLocaleString() : '-'}
-                          </div>
-                          <div className={styles.historyTableCol}>
-                            {metric.sleep_score ? metric.sleep_score : '-'}
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                   </div>
                 </div>
               )}

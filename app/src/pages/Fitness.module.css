@@ -525,6 +525,7 @@ h3 {
   font-weight: 600;
   font-size: 13px;
   color: var(--text-primary);
+  align-items: center;
 }
 
 .historyTableBody {
@@ -542,6 +543,7 @@ h3 {
   transition: background 0.2s;
   font-size: 13px;
   color: var(--text-primary);
+  align-items: center;
 }
 
 .historyTableRow:hover {
@@ -555,6 +557,11 @@ h3 {
 .historyTableCol {
   display: flex;
   align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
 }
 
 .historyTableEmpty {

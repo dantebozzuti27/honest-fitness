@@ -1100,6 +1100,7 @@ h1 {
   font-weight: 600;
   font-size: 14px;
   color: var(--text-primary);
+  align-items: center;
 }
 
 .historyTableBody {
@@ -1117,6 +1118,7 @@ h1 {
   transition: background 0.2s;
   font-size: 14px;
   color: var(--text-primary);
+  align-items: center;
 }
 
 .historyTableRow:hover {
@@ -1130,6 +1132,11 @@ h1 {
 .historyTableCol {
   display: flex;
   align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
 }
 
 .historyTableEmpty {

@@ -113,9 +113,10 @@ export default function BarChart({
       onBarClick({ index, value, key, date, fullData: dateData?.[date] || dateData?.[key] })
     } else {
       // Default behavior: show detail modal with full chart
+      setPopupZoom(1) // Reset zoom when opening
+      setDataRangeStart(0) // Reset data range when opening
       setSelectedBar({ index, value, key, date, fullData: dateData?.[date] || dateData?.[key] })
       setShowDetail(true)
-      setPopupZoom(1) // Reset zoom when opening
     }
   }
 
@@ -195,21 +196,29 @@ export default function BarChart({
   
   // Calculate visible data range based on zoom
   const visibleData = useMemo(() => {
-    if (!chartData) return null
+    if (!chartData || !showDetail) return null
     const totalBars = chartData.values.length
+    if (totalBars === 0) return null
+    
     const visibleCount = Math.max(1, Math.floor(totalBars / popupZoom))
     const startIdx = Math.max(0, Math.min(dataRangeStart, totalBars - visibleCount))
     const endIdx = Math.min(totalBars, startIdx + visibleCount)
     
+    const slicedValues = chartData.values.slice(startIdx, endIdx)
+    const slicedKeys = chartData.keys.slice(startIdx, endIdx)
+    const slicedDateKeys = chartData.dateKeys.slice(startIdx, endIdx)
+    
+    if (slicedValues.length === 0) return null
+    
     return {
-      values: chartData.values.slice(startIdx, endIdx),
-      keys: chartData.keys.slice(startIdx, endIdx),
-      dateKeys: chartData.dateKeys.slice(startIdx, endIdx),
-      max: Math.max(...chartData.values.slice(startIdx, endIdx), 1),
+      values: slicedValues,
+      keys: slicedKeys,
+      dateKeys: slicedDateKeys,
+      max: Math.max(...slicedValues, 1),
       startIdx,
       endIdx
     }
-  }, [chartData, popupZoom, dataRangeStart])
+  }, [chartData, popupZoom, dataRangeStart, showDetail])
 
   return (
     <>
@@ -407,14 +416,33 @@ export default function BarChart({
               <div className={styles.popupChartContainer} ref={chartRef}>
                 <div className={styles.chartContainer} style={{ height: '300px' }}>
                   <div className={styles.chartWrapper}>
-                    {chartData && visibleData && (
+                    {chartData && chartData.values.length > 0 && (
                       <svg viewBox="0 0 100 100" className={styles.chart} preserveAspectRatio="xMidYMid meet">
-                        {/* Render visible bars based on zoom */}
-                        {visibleData.values.map((value, i) => {
-                          const barHeight = visibleData.max > 0 ? (value / visibleData.max) * 80 : 0
-                          const x = 10 + (i * (80 / visibleData.values.length))
+                        {/* Y-axis line */}
+                        <line
+                          x1="10"
+                          y1="10"
+                          x2="10"
+                          y2="90"
+                          stroke="#ffffff"
+                          strokeWidth="0.5"
+                        />
+                        {/* X-axis line */}
+                        <line
+                          x1="10"
+                          y1="90"
+                          x2="90"
+                          y2="90"
+                          stroke="#ffffff"
+                          strokeWidth="0.5"
+                        />
+                        {/* Render bars - always use chartData for popup display */}
+                        {chartData.values.map((value, i) => {
+                          const barHeight = chartData.max > 0 ? (value / chartData.max) * 80 : 0
+                          const totalBars = chartData.values.length
+                          const x = 10 + (i * (80 / Math.max(totalBars, 1)))
                           const y = 90 - barHeight
-                          const barWidth = Math.max(2, 80 / visibleData.values.length * 0.8)
+                          const barWidth = Math.max(2, 80 / Math.max(totalBars, 1) * 0.8)
                           
                           return (
                             <rect
@@ -429,6 +457,9 @@ export default function BarChart({
                           )
                         })}
                       </svg>
+                    )}
+                    {(!chartData || chartData.values.length === 0) && (
+                      <div className={styles.emptyChart}>No data to display</div>
                     )}
                   </div>
                 </div>

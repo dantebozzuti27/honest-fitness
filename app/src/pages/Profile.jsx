@@ -44,38 +44,25 @@ export default function Profile() {
     if (!file || !user) return
     
     try {
-      // Upload to Supabase Storage
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`
-      const filePath = `profile-pictures/${fileName}`
-      
-      // Delete old profile picture if exists
-      const prefs = await getUserPreferences(user.id)
-      if (prefs?.profile_picture) {
-        const oldPath = prefs.profile_picture.replace(/^.*\/profile-pictures\//, 'profile-pictures/')
+      // Convert to base64 (simpler than storage bucket)
+      const reader = new FileReader()
+      reader.onloadend = async () => {
         try {
-          await supabase.storage.from('avatars').remove([oldPath])
-        } catch (e) {
-          // Ignore errors deleting old file
+          const base64String = reader.result
+          setProfilePictureUrl(base64String)
+          setProfilePicture(base64String)
+        } catch (error) {
+          console.error('Profile picture read error:', error)
+          alert('Failed to read image file. Please try again.')
         }
       }
-      
-      // Upload new file
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file, { upsert: true })
-      
-      if (uploadError) throw uploadError
-      
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath)
-      
-      setProfilePictureUrl(publicUrl)
-      setProfilePicture(publicUrl)
+      reader.onerror = () => {
+        alert('Failed to read image file. Please try again.')
+      }
+      reader.readAsDataURL(file)
     } catch (error) {
-      alert('Failed to upload profile picture. Please try again.')
+      console.error('Profile picture upload error:', error)
+      alert(`Failed to upload profile picture: ${error.message || 'Please try again.'}`)
     }
   }
 
@@ -83,15 +70,26 @@ export default function Profile() {
     if (!user) return
     setSaving(true)
     try {
-      const prefs = await getUserPreferences(user.id)
-      await saveUserPreferences(user.id, {
-        ...prefs,
+      const prefs = await getUserPreferences(user.id) || {}
+      
+      // Build complete updates object with all existing preferences
+      const updates = {
+        planName: prefs.planName || null,
+        fitnessGoal: prefs.fitnessGoal || null,
+        experienceLevel: prefs.experienceLevel || null,
+        availableDays: prefs.availableDays || null,
+        sessionDuration: prefs.sessionDuration || null,
+        equipmentAvailable: prefs.equipmentAvailable || null,
+        injuries: prefs.injuries || null,
         username: username || null,
         profilePicture: profilePicture || profilePictureUrl || null
-      })
+      }
+      
+      await saveUserPreferences(user.id, updates)
       alert('Profile updated successfully!')
     } catch (error) {
-      alert('Failed to update profile. Please try again.')
+      console.error('Profile save error:', error)
+      alert(`Failed to update profile: ${error.message || 'Please try again.'}`)
     } finally {
       setSaving(false)
     }

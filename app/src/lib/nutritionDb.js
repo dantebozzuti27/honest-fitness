@@ -30,7 +30,8 @@ export async function saveMealToSupabase(userId, date, meal) {
     try {
       meals = typeof existing.meals === 'string' ? JSON.parse(existing.meals) : existing.meals
       if (!Array.isArray(meals)) meals = []
-      totalCalories = Number(existing.calories) || 0
+      // Use calories_consumed if available, fallback to calories for backward compatibility
+      totalCalories = Number(existing.calories_consumed || existing.calories) || 0
       if (existing.macros) {
         totalMacros = typeof existing.macros === 'string' ? JSON.parse(existing.macros) : existing.macros
         if (!totalMacros || typeof totalMacros !== 'object') {
@@ -91,10 +92,11 @@ export async function saveMealToSupabase(userId, date, meal) {
   
   // Save to database - JSONB columns can accept objects directly
   // But we'll stringify to ensure compatibility
+  // Use calories_consumed instead of calories to avoid overwriting calories burned (health metrics)
   const upsertData = {
       user_id: userId,
       date: date,
-      calories: totalCalories,
+      calories_consumed: totalCalories,
       meals: meals, // JSONB accepts objects/arrays directly
       macros: totalMacros // JSONB accepts objects directly
     }
@@ -229,7 +231,8 @@ export async function getMealsFromSupabase(userId, date) {
   
   return {
     meals: meals || [],
-    calories: Number(data.calories) || 0,
+    // Use calories_consumed if available, fallback to calories for backward compatibility
+    calories: Number(data.calories_consumed || data.calories) || 0,
     macros: macros || { protein: 0, carbs: 0, fat: 0 },
     water: Number(data.water) || 0
   }
@@ -273,7 +276,8 @@ export async function getNutritionRangeFromSupabase(userId, startDate, endDate) 
     return {
       date: item.date,
       meals,
-      calories: item.calories || 0,
+      // Use calories_consumed if available, fallback to calories for backward compatibility
+      calories: item.calories_consumed || item.calories || 0,
       macros,
       water: item.water || 0
     }

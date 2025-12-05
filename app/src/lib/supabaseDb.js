@@ -212,12 +212,15 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
     sleep_time: metrics.sleepTime !== null && metrics.sleepTime !== undefined && metrics.sleepTime !== '' ? Number(metrics.sleepTime) : null,
     hrv: metrics.hrv !== null && metrics.hrv !== undefined && metrics.hrv !== '' ? Number(metrics.hrv) : null,
     steps: metrics.steps !== null && metrics.steps !== undefined && metrics.steps !== '' ? Number(metrics.steps) : null,
-    calories: metrics.caloriesBurned !== null && metrics.caloriesBurned !== undefined && metrics.caloriesBurned !== '' ? Number(metrics.caloriesBurned) : null,
     weight: metrics.weight !== null && metrics.weight !== undefined && metrics.weight !== '' ? Number(metrics.weight) : null
   }
   
   // Optional metrics that may not exist in schema yet
+  // Use calories_burned instead of calories to avoid overwriting calories consumed (nutrition)
   const optionalMetrics = {}
+  if (metrics.caloriesBurned !== null && metrics.caloriesBurned !== undefined && metrics.caloriesBurned !== '') {
+    optionalMetrics.calories_burned = Number(metrics.caloriesBurned)
+  }
   if (metrics.restingHeartRate !== null && metrics.restingHeartRate !== undefined && metrics.restingHeartRate !== '') {
     optionalMetrics.resting_heart_rate = Number(metrics.restingHeartRate)
   }
@@ -240,7 +243,8 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
       // If error is about missing columns, try without optional metrics
       if (error.code === 'PGRST204' && (
         error.message?.includes('resting_heart_rate') || 
-        error.message?.includes('body_temp')
+        error.message?.includes('body_temp') ||
+        error.message?.includes('calories_burned')
       )) {
         console.warn('Optional columns missing, retrying with base metrics only')
         const { data: retryData, error: retryError } = await supabase

@@ -169,11 +169,11 @@ export async function getFitbitDaily(userId, date) {
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
-    .single()
+    .maybeSingle()
   
-  if (error && error.code !== 'PGRST116') {
+  if (error) {
     console.error('Error getting Fitbit daily data:', error)
-    throw error
+    return null
   }
   return data
 }

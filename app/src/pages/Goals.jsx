@@ -8,7 +8,10 @@ import {
   archiveGoal,
   deleteGoalFromSupabase
 } from '../lib/goalsDb'
-import { getTodayEST } from '../utils/dateUtils'
+import { getWorkoutsFromSupabase } from '../lib/supabaseDb'
+import { getNutritionRangeFromSupabase } from '../lib/nutritionDb'
+import { getMetricsFromSupabase } from '../lib/supabaseDb'
+import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import styles from './Goals.module.css'
 
 const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
@@ -147,14 +150,90 @@ export default function Goals() {
     setAnalysisResult(null)
 
     try {
-      const allActiveGoals = await getActiveGoalsFromSupabase(user.id)
-      const goalsSummary = allActiveGoals.map(g => ({
-        category: g.category,
-        type: g.type || g.custom_name,
-        target: g.target_value,
-        current: g.current_value,
-        unit: g.unit
-      }))
+      // Get last 7 days of data for each category
+      const today = getTodayEST()
+      const sevenDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      
+      // Get fitness data (workouts)
+      const allWorkouts = await getWorkoutsFromSupabase(user.id)
+      const last7DaysWorkouts = allWorkouts.filter(w => w.date >= sevenDaysAgo && w.date <= today)
+      const uniqueWorkoutDates = [...new Set(last7DaysWorkouts.map(w => w.date))]
+      
+      // Get nutrition data
+      const nutritionData = await getNutritionRangeFromSupabase(user.id, sevenDaysAgo, today)
+      const uniqueNutritionDates = [...new Set(nutritionData.map(n => n.date))]
+      
+      // Get health metrics data
+      const healthMetrics = await getMetricsFromSupabase(user.id, sevenDaysAgo, today)
+      const uniqueHealthDates = [...new Set(healthMetrics.map(m => m.date))]
+      
+      // Check if we have at least 7 days of data for each category
+      const missingData = []
+      if (uniqueWorkoutDates.length < 7) {
+        missingData.push(`Fitness (${uniqueWorkoutDates.length}/7 days)`)
+      }
+      if (uniqueNutritionDates.length < 7) {
+        missingData.push(`Nutrition (${uniqueNutritionDates.length}/7 days)`)
+      }
+      if (uniqueHealthDates.length < 7) {
+        missingData.push(`Health (${uniqueHealthDates.length}/7 days)`)
+      }
+      
+      if (missingData.length > 0) {
+        setAnalysisResult(`You need at least 7 days of data for each category to get a full analysis.\n\nMissing data:\n${missingData.join('\n')}\n\nPlease log more data and try again.`)
+        setAnalyzing(false)
+        return
+      }
+      
+      // Prepare comprehensive data for analysis
+      const analysisData = {
+        fitness: {
+          workouts: last7DaysWorkouts.map(w => ({
+            date: w.date,
+            exercises: w.workout_exercises?.map(ex => ({
+              name: ex.exercise_name,
+              bodyPart: ex.body_part,
+              sets: ex.workout_sets?.length || 0,
+              totalVolume: ex.workout_sets?.reduce((sum, s) => sum + ((s.weight || 0) * (s.reps || 0)), 0) || 0
+            })) || []
+          })),
+          totalWorkouts: uniqueWorkoutDates.length,
+          uniqueDates: uniqueWorkoutDates
+        },
+        nutrition: {
+          dailyData: nutritionData.map(n => ({
+            date: n.date,
+            calories: n.calories,
+            protein: n.macros?.protein || 0,
+            carbs: n.macros?.carbs || 0,
+            fat: n.macros?.fat || 0,
+            meals: n.meals?.length || 0,
+            water: n.water || 0
+          })),
+          totalDays: uniqueNutritionDates.length,
+          uniqueDates: uniqueNutritionDates
+        },
+        health: {
+          dailyData: healthMetrics.map(m => ({
+            date: m.date,
+            steps: m.steps,
+            calories_burned: m.calories_burned || m.calories,
+            sleep_time: m.sleep_time,
+            sleep_score: m.sleep_score,
+            hrv: m.hrv,
+            weight: m.weight
+          })),
+          totalDays: uniqueHealthDates.length,
+          uniqueDates: uniqueHealthDates
+        },
+        goals: (await getActiveGoalsFromSupabase(user.id)).map(g => ({
+          category: g.category,
+          type: g.type || g.custom_name,
+          target: g.target_value,
+          current: g.current_value,
+          unit: g.unit
+        }))
+      }
 
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -162,7 +241,7 @@ export default function Goals() {
         body: JSON.stringify({
           messages: [{
             role: 'user',
-            content: `Analyze my fitness goals and give me a score out of 100, plus recommendations. Here are my goals: ${JSON.stringify(goalsSummary)}`
+            content: `As a comprehensive health and fitness analyst, analyze my complete health picture from the last 7 days. Provide a detailed analysis covering fitness, nutrition, and health metrics. Here's my complete data: ${JSON.stringify(analysisData, null, 2)}`
           }]
         })
       })
@@ -171,10 +250,11 @@ export default function Goals() {
         const data = await response.json()
         setAnalysisResult(data.response || data.message || 'Analysis complete')
       } else {
-        throw new Error('Analysis failed')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || errorData.message || 'Analysis failed')
       }
     } catch (error) {
-      alert('Failed to analyze goals. Please try again.')
+      setAnalysisResult(`Failed to analyze: ${error.message || 'Unknown error'}`)
     } finally {
       setAnalyzing(false)
     }

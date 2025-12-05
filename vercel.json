@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd app && npm install && npx vite build",
+  "buildCommand": "cd app && npm install && bash -c 'npm run build'",
   "outputDirectory": "app/dist",
   "installCommand": "cd app && npm install && cd ../backend && npm install",
   "rewrites": [

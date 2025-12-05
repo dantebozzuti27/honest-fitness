@@ -1,4 +1,4 @@
-/* Grind Font - Using Bebas Neue as similar bold athletic alternative */
+/* Inter Font - Modern UI Font (like Vercel) */
 
 * {
   margin: 0;
@@ -52,8 +52,8 @@
   
   /* Typography */
   --font-mono: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
-  --font-sans: 'Oswald', 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
-  --font-display: 'Oswald', 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
   
   /* Font Sizes - Optimized for iPhone 17 */
   --text-xs: 13px;

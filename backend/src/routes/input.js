@@ -13,10 +13,18 @@ import { syncLimiter } from '../middleware/rateLimiter.js'
 
 export const inputRouter = express.Router()
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
-)
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing Supabase credentials:', {
+    hasUrl: !!supabaseUrl,
+    hasKey: !!supabaseKey,
+    envKeys: Object.keys(process.env).filter(k => k.includes('SUPABASE'))
+  })
+}
+
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null
 
 // Submit workout data
 inputRouter.post('/workout', async (req, res, next) => {

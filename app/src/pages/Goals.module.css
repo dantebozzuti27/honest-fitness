@@ -27,6 +27,11 @@
   white-space: nowrap;
   min-height: 48px;
   min-width: 80px;
+  opacity: 1;
+}
+
+.backBtn * {
+  color: inherit;
 }
 
 .backBtn:hover {
@@ -109,10 +114,15 @@
   font-size: 14px;
   font-weight: 600;
   background: var(--accent);
-  color: var(--text-primary);
+  color: #000;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
+  opacity: 1;
+}
+
+.newGoalBtn * {
+  color: inherit;
 }
 
 .goalsList {
@@ -130,7 +140,7 @@
 }
 
 .goalCard * {
-  color: var(--text-primary);
+  color: inherit;
 }
 
 .goalHeader {
@@ -145,6 +155,7 @@
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
+  opacity: 1;
 }
 
 .goalCategory {
@@ -168,7 +179,13 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.archiveBtn *,
+.deleteBtn * {
+  color: inherit;
 }
 
 .goalProgress {
@@ -192,20 +209,23 @@
 
 .progressText {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  opacity: 1;
 }
 
 .goalDescription {
   font-size: 14px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   margin: 8px 0;
+  opacity: 1;
 }
 
 .goalDates {
   display: flex;
   gap: 16px;
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  opacity: 1;
 }
 
 .pastGoalCard {
@@ -219,11 +239,13 @@
 
 .pastGoalName {
   color: var(--text-primary);
+  opacity: 1;
 }
 
 .pastGoalStatus {
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font-size: 12px;
+  opacity: 1;
 }
 
 .analyzeBtn {
@@ -232,10 +254,15 @@
   font-size: 16px;
   font-weight: 600;
   background: var(--accent);
-  color: var(--text-primary);
+  color: #000;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
+  opacity: 1;
+}
+
+.analyzeBtn * {
+  color: inherit;
 }
 
 .analyzeBtn:disabled {
@@ -273,23 +300,32 @@
   left: 0 !important;
   right: 0 !important;
   bottom: 0 !important;
-  background: rgba(0, 0, 0, 0.5) !important;
+  background: rgba(0, 0, 0, 0.85) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   z-index: 9999 !important;
   padding: 20px !important;
+  padding-top: max(20px, env(safe-area-inset-top, 20px)) !important;
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 20px)) !important;
   margin: 0 !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
 }
 
 .modal {
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   max-width: 500px;
   width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  margin: auto;
 }
 
 .modalHeader {
@@ -308,16 +344,27 @@
 .modalHeader button {
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font-size: 24px;
   cursor: pointer;
+  opacity: 1;
+}
+
+.modalHeader button * {
+  color: inherit;
 }
 
 .modalContent {
-  padding: 20px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 200px);
+  max-height: calc(100dvh - 200px);
+  -webkit-overflow-scrolling: touch;
 }
 
 .formGroup {
@@ -346,7 +393,15 @@
 .modalActions {
   display: flex;
   gap: 12px;
-  margin-top: 8px;
+  margin-top: 0;
+  padding: 16px 20px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  z-index: 1;
 }
 
 .cancelBtn,
@@ -368,7 +423,12 @@
 
 .saveBtn {
   background: var(--accent);
-  color: var(--text-primary);
+  color: #000;
+  opacity: 1;
+}
+
+.saveBtn * {
+  color: inherit;
 }
 
 .loading {

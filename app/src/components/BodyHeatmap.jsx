@@ -59,7 +59,7 @@ export default function BodyHeatmap({ data, metric = 'count', detailedStats = {}
         {/* Front View */}
         <div className={styles.view}>
           <span className={styles.viewLabel}>
-            <span className={styles.labelIcon}>▸</span> FRONT
+            <span className={styles.labelIcon}>▶</span> FRONT
           </span>
           <div className={styles.bodyWrapper}>
             <svg viewBox="0 0 200 380" className={styles.body}>
@@ -185,7 +185,7 @@ export default function BodyHeatmap({ data, metric = 'count', detailedStats = {}
         {/* Back View */}
         <div className={styles.view}>
           <span className={styles.viewLabel}>
-            <span className={styles.labelIcon}>▸</span> BACK
+            <span className={styles.labelIcon}>▶</span> BACK
           </span>
           <div className={styles.bodyWrapper}>
             <svg viewBox="0 0 200 380" className={styles.body}>

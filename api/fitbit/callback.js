@@ -37,7 +37,6 @@ export default async function handler(req, res) {
         ).toString('base64')}`
       },
       body: new URLSearchParams({
-        client_id: process.env.FITBIT_CLIENT_ID,
         grant_type: 'authorization_code',
         redirect_uri: process.env.FITBIT_REDIRECT_URI,
         code: code

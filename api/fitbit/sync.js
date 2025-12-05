@@ -5,25 +5,31 @@
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' })
+    return res.status(405).json({ message: 'Method not allowed', success: false })
   }
 
   const { userId, date } = req.body
 
   if (!userId || !date) {
-    return res.status(400).json({ message: 'Missing userId or date' })
+    return res.status(400).json({ message: 'Missing userId or date', success: false })
   }
 
   try {
+    console.log('Fitbit sync request:', { userId, date })
     // Get Fitbit account from Supabase
     const { createClient } = await import('@supabase/supabase-js')
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
     
     if (!supabaseUrl || !supabaseKey) {
+      console.error('Missing Supabase credentials:', {
+        hasUrl: !!supabaseUrl,
+        hasKey: !!supabaseKey
+      })
       return res.status(500).json({ 
         message: 'Server configuration error',
-        error: 'Missing Supabase credentials' 
+        error: 'Missing Supabase credentials',
+        success: false
       })
     }
     
@@ -38,7 +44,12 @@ export default async function handler(req, res) {
       .single()
 
     if (accountError || !account) {
-      return res.status(404).json({ message: 'Fitbit account not connected' })
+      console.error('Fitbit account not found:', accountError)
+      return res.status(404).json({ 
+        message: 'Fitbit account not connected',
+        error: 'Fitbit account not connected',
+        success: false
+      })
     }
 
     // Check if token needs refresh (refresh if expires within 10 minutes)
@@ -47,6 +58,11 @@ export default async function handler(req, res) {
     let accessToken = account.access_token
     let tokenRefreshed = false
 
+    // Check if Fitbit credentials are configured
+    if (!process.env.FITBIT_CLIENT_ID || !process.env.FITBIT_CLIENT_SECRET) {
+      throw new Error('Fitbit integration not configured. Please set FITBIT_CLIENT_ID and FITBIT_CLIENT_SECRET environment variables.')
+    }
+    
     if (!expiresAt || expiresAt <= new Date(now.getTime() + 10 * 60 * 1000)) {
       // Refresh token proactively
       try {
@@ -60,7 +76,8 @@ export default async function handler(req, res) {
           },
           body: new URLSearchParams({
             grant_type: 'refresh_token',
-            refresh_token: account.refresh_token
+            refresh_token: account.refresh_token,
+            client_id: process.env.FITBIT_CLIENT_ID
           })
         })
 
@@ -141,6 +158,9 @@ export default async function handler(req, res) {
           const heartData = hrJson['activities-heart'][0].value
           fitbitData.resting_heart_rate = heartData?.restingHeartRate || null
         }
+      } else if (hrResponse.status === 401 || hrResponse.status === 403) {
+        const errorText = await hrResponse.text().catch(() => '')
+        throw new Error(`Authorization failed: ${hrResponse.status}. ${errorText}`)
       }
     } catch (e) {
       console.error('Error fetching heart rate:', e)
@@ -202,15 +222,17 @@ export default async function handler(req, res) {
         fitbitData.fairly_active_minutes = summary.fairlyActiveMinutes || null
         fitbitData.very_active_minutes = summary.veryActiveMinutes || null
         fitbitData.marginal_calories = summary.marginalCalories || null
-      } else if (activityResponse.status === 401) {
-        // Token expired, try one more refresh
-        throw new Error('Token expired during activity fetch')
+      } else if (activityResponse.status === 401 || activityResponse.status === 403) {
+        const errorText = await activityResponse.text().catch(() => '')
+        throw new Error(`Authorization failed: ${activityResponse.status}. Please reconnect your Fitbit account.`)
+      } else {
+        const errorText = await activityResponse.text().catch(() => '')
+        console.warn(`Activity API error ${activityResponse.status}:`, errorText)
       }
     } catch (e) {
       console.error('Error fetching activity:', e)
-      if (e.message === 'Token expired during activity fetch' && !tokenRefreshed) {
-        // Retry with token refresh
-        throw new Error('Authorization expired. Please reconnect your Fitbit account.')
+      if (e.message?.includes('Authorization failed')) {
+        throw e
       }
     }
     
@@ -337,6 +359,7 @@ export default async function handler(req, res) {
     }
 
     return res.status(200).json({
+      success: true,
       synced: true,
       date: date,
       data: fitbitData

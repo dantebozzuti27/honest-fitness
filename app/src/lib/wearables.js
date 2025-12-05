@@ -130,8 +130,6 @@ export async function syncOuraData(userId, date = null) {
 
 // ============ FITBIT INTEGRATION ============
 
-import { toInteger, toNumber } from '../utils/numberUtils'
-
 export async function saveFitbitDaily(userId, date, data) {
   const { data: result, error } = await supabase
     .from('fitbit_daily')

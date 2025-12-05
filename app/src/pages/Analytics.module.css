@@ -164,9 +164,9 @@
 }
 
 .readinessCard {
-  padding: 24px;
+  padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-md);
   border: 2px solid var(--border);
   box-shadow: 0 0 30px rgba(255, 255, 255, 0.05);
 }
@@ -250,9 +250,9 @@
 }
 
 .nutritionCard {
-  padding: 20px;
+  padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
 }
 

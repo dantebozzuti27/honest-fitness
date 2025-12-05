@@ -39,6 +39,7 @@ export default function BarChart({
   }
 
   const handleTouchStart = (e) => {
+    e.preventDefault()
     if (e.touches.length === 2) {
       touchStartRef.current = {
         touches: [e.touches[0], e.touches[1]],
@@ -58,6 +59,7 @@ export default function BarChart({
 
   const handleTouchMove = (e) => {
     if (!touchStartRef.current) return
+    e.preventDefault()
     
     if (e.touches.length === 2 && touchStartRef.current.touches?.length === 2) {
       // Pinch zoom
@@ -66,16 +68,18 @@ export default function BarChart({
       
       if (initialDistance > 0) {
         const scale = currentDistance / initialDistance
-        const newZoom = Math.max(0.5, Math.min(5, touchStartRef.current.zoom * scale))
+        const newZoom = Math.max(0.5, Math.min(3, touchStartRef.current.zoom * scale))
         setZoom(newZoom)
         lastPinchDistanceRef.current = currentDistance
       }
-    } else if (e.touches.length === 1 && touchStartRef.current.startX !== undefined) {
-      // Pan
+    } else if (e.touches.length === 1 && touchStartRef.current.startX !== undefined && zoom > 1) {
+      // Pan only when zoomed
       const deltaX = e.touches[0].clientX - touchStartRef.current.startX
-      const maxPan = (zoom - 1) * 100
-      const newPan = Math.max(-maxPan, Math.min(maxPan, touchStartRef.current.pan + deltaX / 10))
+      const containerWidth = containerRef.current?.offsetWidth || 300
+      const maxPan = (zoom - 1) * containerWidth * 0.5
+      const newPan = Math.max(-maxPan, Math.min(maxPan, touchStartRef.current.pan + deltaX * 0.5))
       setPan(newPan)
+      touchStartRef.current.startX = e.touches[0].clientX
     }
   }
 
@@ -88,6 +92,17 @@ export default function BarChart({
   const handleDoubleClick = () => {
     setZoom(1)
     setPan(0)
+  }
+
+  // Mouse wheel zoom
+  const handleWheel = (e) => {
+    e.preventDefault()
+    const delta = e.deltaY > 0 ? 0.9 : 1.1
+    const newZoom = Math.max(0.5, Math.min(3, zoom * delta))
+    setZoom(newZoom)
+    if (newZoom === 1) {
+      setPan(0)
+    }
   }
 
   // Bar click handler
@@ -127,12 +142,22 @@ export default function BarChart({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onDoubleClick={handleDoubleClick}
+        onWheel={handleWheel}
         style={{
-          transform: `scale(${zoom}) translateX(${pan}px)`,
-          transformOrigin: 'center center',
-          transition: touchStartRef.current ? 'none' : 'transform 0.2s ease-out'
+          height: `${height}px`,
+          minHeight: `${height}px`
         }}
       >
+        <div 
+          className={styles.chartWrapper}
+          style={{
+            transform: `scale(${zoom}) translateX(${pan}px)`,
+            transformOrigin: 'center center',
+            transition: touchStartRef.current ? 'none' : 'transform 0.2s ease-out',
+            width: '100%',
+            height: '100%'
+          }}
+        >
         {zoom !== 1 && (
           <div className={styles.zoomIndicator}>
             {Math.round(zoom * 100)}% • Double tap to reset
@@ -239,6 +264,7 @@ export default function BarChart({
       {xAxisLabel && (
         <div className={styles.xAxisLabelText}>{xAxisLabel}</div>
       )}
+        </div>
       </div>
 
       {/* Detail Modal */}

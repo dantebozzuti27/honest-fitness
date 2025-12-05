@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getWorkoutsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/supabaseDb'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
@@ -16,6 +16,7 @@ import styles from './Health.module.css'
 
 export default function Health() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const [readiness, setReadiness] = useState(null)
   const [workouts, setWorkouts] = useState([])
@@ -32,11 +33,43 @@ export default function Health() {
   const [showLogModal, setShowLogModal] = useState(false)
   const { toast, showToast, hideToast } = useToast()
 
+  const loadHealthGoals = async () => {
+    if (!user) return
+    try {
+      const goals = await getActiveGoalsFromSupabase(user.id, 'health')
+      setHealthGoals(goals)
+    } catch (error) {
+      // Silently fail
+    }
+  }
+
   useEffect(() => {
     if (user) {
       loadAllData()
     }
   }, [user, selectedPeriod])
+
+  // Refresh goals when page becomes visible or when navigating back from Goals page
+  useEffect(() => {
+    if (!user) return
+    loadHealthGoals()
+  }, [user, location.key])
+
+  useEffect(() => {
+    if (!user) return
+    
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadHealthGoals()
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [user])
 
   const loadAllData = async () => {
     if (!user) return
@@ -57,8 +90,7 @@ export default function Health() {
       setWearables(connected || [])
       
       // Load health goals
-      const goals = await getActiveGoalsFromSupabase(user.id, 'health')
-      setHealthGoals(goals)
+      await loadHealthGoals()
       
       // Load Fitbit data (try today, then yesterday, then most recent)
       const fitbitAccount = connected?.find(a => a.provider === 'fitbit')
@@ -485,36 +517,54 @@ export default function Health() {
 
         {/* Metrics History */}
         <div className={styles.metricsCard}>
-          <h3>Edit Past Metrics</h3>
+          <h3>Health Metrics History</h3>
           {metrics.length === 0 ? (
             <p className={styles.emptyText}>No metrics recorded yet</p>
           ) : (
-            <div className={styles.metricsList}>
-              {metrics.slice(-14).reverse().map(metric => (
-                <button
-                  key={metric.date}
-                  className={styles.metricItem}
-                  onClick={() => setEditingMetric({ ...metric })}
-                >
-                  <div className={styles.metricDate}>
-                    {new Date(metric.date + 'T12:00:00').toLocaleDateString('en-US', { 
-                      month: 'short', 
-                      day: 'numeric',
-                      year: metric.date !== getTodayEST() ? 'numeric' : undefined
-                    })}
-                  </div>
-                  <div className={styles.metricValues}>
-                    {metric.weight && <span>Weight: {metric.weight} lbs</span>}
-                    {metric.steps && <span>Steps: {metric.steps.toLocaleString()}</span>}
-                    {metric.hrv && <span>HRV: {metric.hrv} ms</span>}
-                    {metric.calories && <span>Calories: {metric.calories.toLocaleString()}</span>}
-                    {!metric.weight && !metric.steps && !metric.hrv && !metric.calories && (
-                      <span className={styles.noData}>No data</span>
-                    )}
-                  </div>
-                  <span className={styles.editIcon}>✎</span>
-                </button>
-              ))}
+            <div className={styles.historyTable}>
+              <div className={styles.historyTableHeader}>
+                <div className={styles.historyTableCol}>Date</div>
+                <div className={styles.historyTableCol}>Weight</div>
+                <div className={styles.historyTableCol}>Steps</div>
+                <div className={styles.historyTableCol}>HRV</div>
+                <div className={styles.historyTableCol}>Calories</div>
+                <div className={styles.historyTableCol}>Sleep</div>
+              </div>
+              <div className={styles.historyTableBody}>
+                {metrics
+                  .slice(-14)
+                  .reverse()
+                  .map(metric => (
+                    <div
+                      key={metric.date}
+                      className={styles.historyTableRow}
+                      onClick={() => setEditingMetric({ ...metric })}
+                    >
+                      <div className={styles.historyTableCol}>
+                        {new Date(metric.date + 'T12:00:00').toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric',
+                          year: metric.date !== getTodayEST() ? 'numeric' : undefined
+                        })}
+                      </div>
+                      <div className={styles.historyTableCol}>
+                        {metric.weight ? `${metric.weight} lbs` : '-'}
+                      </div>
+                      <div className={styles.historyTableCol}>
+                        {metric.steps ? metric.steps.toLocaleString() : '-'}
+                      </div>
+                      <div className={styles.historyTableCol}>
+                        {metric.hrv ? `${metric.hrv} ms` : '-'}
+                      </div>
+                      <div className={styles.historyTableCol}>
+                        {metric.calories_burned || metric.calories ? (metric.calories_burned || metric.calories).toLocaleString() : '-'}
+                      </div>
+                      <div className={styles.historyTableCol}>
+                        {metric.sleep_score ? metric.sleep_score : '-'}
+                      </div>
+                    </div>
+                  ))}
+              </div>
             </div>
           )}
         </div>

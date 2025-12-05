@@ -2,7 +2,7 @@
 // Includes Dietician LLM feature and Goals sync
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
@@ -28,6 +28,7 @@ const COMMON_FOODS = [
 
 export default function Nutrition() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
   const [activeTab, setActiveTab] = useState('Today')
@@ -82,6 +83,28 @@ export default function Nutrition() {
       }
     }
   }, [user, selectedDate])
+
+  // Refresh goals when page becomes visible or when navigating back from Goals page
+  useEffect(() => {
+    if (!user) return
+    loadNutritionGoals()
+  }, [user, location.key])
+
+  useEffect(() => {
+    if (!user) return
+    
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadNutritionGoals()
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [user])
 
   // Save meal input to localStorage when it changes
   useEffect(() => {

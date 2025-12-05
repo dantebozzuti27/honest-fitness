@@ -49,10 +49,10 @@
 }
 
 .labelIcon {
-  font-size: 12px;
+  font-size: 16px;
   opacity: 1;
-  color: inherit;
-  font-weight: 700;
+  color: var(--text-muted);
+  font-weight: 400;
   line-height: 1;
   display: inline-block;
 }

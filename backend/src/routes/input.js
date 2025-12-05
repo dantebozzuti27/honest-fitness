@@ -91,6 +91,11 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
       return res.status(404).json({ error: 'Fitbit account not connected' })
     }
     
+    // Check if Fitbit credentials are configured
+    if (!process.env.FITBIT_CLIENT_ID || !process.env.FITBIT_CLIENT_SECRET) {
+      throw new Error('Fitbit integration not configured. Please set FITBIT_CLIENT_ID and FITBIT_CLIENT_SECRET environment variables.')
+    }
+    
     // Check if token needs refresh
     const expiresAt = account.expires_at ? new Date(account.expires_at) : null
     const now = new Date()

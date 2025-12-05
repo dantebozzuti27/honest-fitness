@@ -1,33 +1,4 @@
-/* Grind Font - Bold Athletic Font */
-@font-face {
-  font-family: 'Grind';
-  src: url('/fonts/Grind-Regular.woff2') format('woff2'),
-       url('/fonts/Grind-Regular.woff') format('woff'),
-       url('/fonts/Grind-Regular.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Grind';
-  src: url('/fonts/Grind-Bold.woff2') format('woff2'),
-       url('/fonts/Grind-Bold.woff') format('woff'),
-       url('/fonts/Grind-Bold.ttf') format('truetype');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Grind';
-  src: url('/fonts/Grind-Black.woff2') format('woff2'),
-       url('/fonts/Grind-Black.woff') format('woff'),
-       url('/fonts/Grind-Black.ttf') format('truetype');
-  font-weight: 900;
-  font-style: normal;
-  font-display: swap;
-}
+/* Grind Font - Using Bebas Neue as similar bold athletic alternative */
 
 * {
   margin: 0;
@@ -81,8 +52,8 @@
   
   /* Typography */
   --font-mono: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
-  --font-sans: 'Grind', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
-  --font-display: 'Grind', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+  --font-sans: 'Bebas Neue', 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
+  --font-display: 'Bebas Neue', 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
   
   /* Font Sizes - Optimized for iPhone 17 */
   --text-xs: 13px;

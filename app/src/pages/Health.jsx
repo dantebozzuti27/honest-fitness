@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getWorkoutsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/supabaseDb'
+import { toInteger, toNumber } from '../utils/numberUtils'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, mergeWearableDataToMetrics } from '../lib/wearables'
@@ -1019,19 +1020,16 @@ export default function Health() {
                       
                       try {
                         console.log('Saving health metrics:', metricToSave)
-                        // Ensure steps is an integer (not a decimal string)
-                        const stepsValue = metricToSave.steps != null && metricToSave.steps !== '' 
-                          ? Math.round(Number(metricToSave.steps)) 
-                          : null
+                        // Use utility functions to ensure proper type conversion
                         const result = await saveMetricsToSupabase(user.id, metricToSave.date, {
-                          weight: metricToSave.weight != null && metricToSave.weight !== '' ? Number(metricToSave.weight) : null,
-                          steps: stepsValue,
-                          hrv: metricToSave.hrv != null && metricToSave.hrv !== '' ? Number(metricToSave.hrv) : null,
-                          caloriesBurned: metricToSave.calories != null && metricToSave.calories !== '' ? Number(metricToSave.calories) : null,
-                          sleepTime: metricToSave.sleep_time != null && metricToSave.sleep_time !== '' ? Number(metricToSave.sleep_time) : null,
-                          sleepScore: metricToSave.sleep_score != null && metricToSave.sleep_score !== '' ? Number(metricToSave.sleep_score) : null,
-                          restingHeartRate: metricToSave.resting_heart_rate != null && metricToSave.resting_heart_rate !== '' ? Number(metricToSave.resting_heart_rate) : null,
-                          bodyTemp: metricToSave.body_temp != null && metricToSave.body_temp !== '' ? Number(metricToSave.body_temp) : null
+                          weight: toNumber(metricToSave.weight),
+                          steps: toInteger(metricToSave.steps), // INTEGER - must be whole number
+                          hrv: toNumber(metricToSave.hrv),
+                          caloriesBurned: toNumber(metricToSave.calories),
+                          sleepTime: toNumber(metricToSave.sleep_time),
+                          sleepScore: toNumber(metricToSave.sleep_score),
+                          restingHeartRate: toNumber(metricToSave.resting_heart_rate),
+                          bodyTemp: toNumber(metricToSave.body_temp)
                         })
                         console.log('Health metrics save result:', result)
                         await loadAllData()

@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { getTodayEST } from '../utils/dateUtils'
+import { toInteger, toNumber } from '../utils/numberUtils'
 
 /**
  * Wearables OAuth and Data Sync
@@ -129,20 +130,22 @@ export async function syncOuraData(userId, date = null) {
 
 // ============ FITBIT INTEGRATION ============
 
+import { toInteger, toNumber } from '../utils/numberUtils'
+
 export async function saveFitbitDaily(userId, date, data) {
   const { data: result, error } = await supabase
     .from('fitbit_daily')
     .upsert({
       user_id: userId,
       date: date,
-      hrv: data.hrv != null ? Number(data.hrv) : null,
-      resting_heart_rate: data.resting_heart_rate != null ? Number(data.resting_heart_rate) : null,
-      sleep_duration: data.sleep_duration != null ? Number(data.sleep_duration) : null,
-      sleep_efficiency: data.sleep_efficiency != null ? Number(data.sleep_efficiency) : null,
-      calories: data.calories != null ? Number(data.calories) : null,
-      steps: data.steps != null ? Math.round(Number(data.steps)) : null,
-      active_calories: data.active_calories != null ? Number(data.active_calories) : null,
-      distance: data.distance != null ? Number(data.distance) : null,
+      hrv: toNumber(data.hrv),
+      resting_heart_rate: toNumber(data.resting_heart_rate),
+      sleep_duration: toNumber(data.sleep_duration),
+      sleep_efficiency: toNumber(data.sleep_efficiency),
+      calories: toNumber(data.calories),
+      steps: toInteger(data.steps), // INTEGER column - must be whole number
+      active_calories: toNumber(data.active_calories),
+      distance: toNumber(data.distance),
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id,date' })
     .select()
@@ -450,7 +453,7 @@ async function syncFitbitDataDirect(userId, date = null) {
       const activityJson = await activityResponse.json()
       const summary = activityJson.summary || {}
       activityData = {
-        steps: summary.steps != null ? Math.round(Number(summary.steps)) : null,
+        steps: toInteger(summary.steps),
         calories: summary.caloriesOut || null,
         active_calories: summary.activityCalories || null,
         distance: summary.distances && summary.distances.length > 0 
@@ -583,11 +586,11 @@ export async function mergeWearableDataToMetrics(userId, date = null) {
   // Map Fitbit sleep_duration (minutes) to sleep_time
   // Map Fitbit calories to calories
   const merged = {
-    hrv: ouraData?.hrv != null ? Number(ouraData.hrv) : (fitbitData?.hrv != null ? Number(fitbitData.hrv) : null),
-    sleep_time: ouraData?.total_sleep != null ? Number(ouraData.total_sleep) : (fitbitData?.sleep_duration != null ? Number(fitbitData.sleep_duration) : null), // Both in minutes
-    sleep_score: ouraData?.sleep_score != null ? Number(ouraData.sleep_score) : (fitbitData?.sleep_efficiency != null ? Math.round(Number(fitbitData.sleep_efficiency)) : null),
-    steps: ouraData?.steps != null ? Math.round(Number(ouraData.steps)) : (fitbitData?.steps != null ? Math.round(Number(fitbitData.steps)) : null), // INTEGER - must be whole number
-    calories: ouraData?.calories != null ? Number(ouraData.calories) : ((fitbitData?.calories || fitbitData?.active_calories) != null ? Number(fitbitData.calories || fitbitData.active_calories) : null),
+    hrv: toNumber(ouraData?.hrv) ?? toNumber(fitbitData?.hrv) ?? null,
+    sleep_time: toNumber(ouraData?.total_sleep) ?? toNumber(fitbitData?.sleep_duration) ?? null, // Both in minutes
+    sleep_score: toNumber(ouraData?.sleep_score) ?? (fitbitData?.sleep_efficiency != null ? Math.round(toNumber(fitbitData.sleep_efficiency)) : null),
+    steps: toInteger(ouraData?.steps) ?? toInteger(fitbitData?.steps) ?? null, // INTEGER - must be whole number
+    calories: toNumber(ouraData?.calories) ?? toNumber(fitbitData?.calories ?? fitbitData?.active_calories) ?? null,
     weight: null // Would come from scale or manual entry
   }
   
@@ -596,11 +599,11 @@ export async function mergeWearableDataToMetrics(userId, date = null) {
     // Update daily_metrics - map to the format expected by saveMetricsToSupabase
     const { saveMetricsToSupabase } = await import('./supabaseDb')
     await saveMetricsToSupabase(userId, targetDate, {
-      sleepScore: merged.sleep_score != null ? Number(merged.sleep_score) : null,
-      sleepTime: merged.sleep_time != null ? Number(merged.sleep_time) : null, // Keep as minutes
-      hrv: merged.hrv != null ? Number(merged.hrv) : null,
-      steps: merged.steps != null ? Math.round(Number(merged.steps)) : null, // INTEGER - must be whole number
-      caloriesBurned: merged.calories != null ? Number(merged.calories) : null,
+      sleepScore: merged.sleep_score,
+      sleepTime: merged.sleep_time,
+      hrv: merged.hrv,
+      steps: merged.steps, // Already converted to integer by toInteger()
+      caloriesBurned: merged.calories,
       weight: null
     })
   }

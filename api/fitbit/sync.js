@@ -308,7 +308,12 @@ export default async function handler(req, res) {
         hrv: fitbitData.hrv != null ? Number(fitbitData.hrv) : null,
         sleep_time: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
         sleep_score: fitbitData.sleep_efficiency != null ? Math.round(Number(fitbitData.sleep_efficiency)) : null,
-        steps: fitbitData.steps != null ? Math.round(Number(fitbitData.steps)) : null,
+        steps: (() => {
+          const val = fitbitData.steps
+          if (val === null || val === undefined || val === '') return null
+          const num = Number(val)
+          return isNaN(num) ? null : Math.round(num)
+        })(),
         calories: (fitbitData.calories || fitbitData.active_calories) != null ? Number(fitbitData.calories || fitbitData.active_calories) : null,
         weight: null
       }

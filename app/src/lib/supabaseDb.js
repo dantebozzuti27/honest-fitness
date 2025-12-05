@@ -201,24 +201,13 @@ export async function deleteWorkoutFromSupabase(workoutId) {
 
 // ============ DAILY METRICS ============
 
+import { toInteger, toNumber } from '../utils/numberUtils'
+
 export async function saveMetricsToSupabase(userId, date, metrics) {
   console.log('saveMetricsToSupabase called with:', { userId, date, metrics })
   
-  // Helper function to safely convert to number
-  const toNumber = (val) => {
-    if (val === null || val === undefined || val === '') return null
-    const num = Number(val)
-    return isNaN(num) ? null : num
-  }
-  
-  // Helper function to safely convert to integer
-  const toInteger = (val) => {
-    if (val === null || val === undefined || val === '') return null
-    const num = Number(val)
-    return isNaN(num) ? null : Math.round(num)
-  }
-  
   // Base metrics that should always exist
+  // IMPORTANT: steps is INTEGER - must be whole number, use toInteger
   const baseMetrics = {
     user_id: userId,
     date: date,

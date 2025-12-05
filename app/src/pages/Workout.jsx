@@ -5,6 +5,7 @@ import { getAllTemplates, saveMetrics, saveTemplate, deleteTemplate } from '../d
 import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { toInteger, toNumber } from '../utils/numberUtils'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import styles from './Workout.module.css'
@@ -210,7 +211,7 @@ export default function Workout() {
     if (metrics.sleepScore) metricsToSave.sleepScore = Number(metrics.sleepScore)
     if (metrics.sleepTime) metricsToSave.sleepTime = metrics.sleepTime
     if (metrics.hrv) metricsToSave.hrv = Number(metrics.hrv)
-    if (metrics.steps) metricsToSave.steps = Math.round(Number(metrics.steps)) // INTEGER - must be whole number
+    if (metrics.steps) metricsToSave.steps = toInteger(metrics.steps) // INTEGER - must be whole number
     if (metrics.caloriesBurned) metricsToSave.caloriesBurned = Number(metrics.caloriesBurned)
     if (metrics.weight) metricsToSave.weight = Number(metrics.weight)
     

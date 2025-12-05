@@ -106,18 +106,20 @@ export async function getWorkoutDatesFromSupabase(userId) {
 
 // ============ DAILY METRICS ============
 
+import { toInteger, toNumber } from '../utils/numberUtils'
+
 export async function saveMetricsToSupabase(date, metrics, userId) {
   const { data, error } = await supabase
     .from('daily_metrics')
     .upsert({
       user_id: userId,
       date,
-      sleep_score: metrics.sleepScore != null && metrics.sleepScore !== '' ? Number(metrics.sleepScore) : null,
-      sleep_time: metrics.sleepTime != null && metrics.sleepTime !== '' ? Number(metrics.sleepTime) : null,
-      hrv: metrics.hrv != null && metrics.hrv !== '' ? Number(metrics.hrv) : null,
-      steps: metrics.steps != null && metrics.steps !== '' ? Math.round(Number(metrics.steps)) : null, // INTEGER - must be whole number
-      calories: metrics.caloriesBurned != null && metrics.caloriesBurned !== '' ? Number(metrics.caloriesBurned) : null,
-      weight: metrics.weight != null && metrics.weight !== '' ? Number(metrics.weight) : null
+      sleep_score: toNumber(metrics.sleepScore),
+      sleep_time: toNumber(metrics.sleepTime),
+      hrv: toNumber(metrics.hrv),
+      steps: toInteger(metrics.steps), // INTEGER - must be whole number
+      calories: toNumber(metrics.caloriesBurned),
+      weight: toNumber(metrics.weight)
     }, { onConflict: 'user_id,date' })
     .select()
 

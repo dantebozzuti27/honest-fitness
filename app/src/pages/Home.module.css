@@ -66,9 +66,9 @@
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
-  padding: var(--space-lg);
-  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px) + var(--space-lg));
-  gap: var(--space-lg);
+  padding: var(--space-md);
+  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  gap: var(--space-md);
   width: 100%;
   max-width: 100%;
   overflow-y: auto;

@@ -1,6 +1,8 @@
 .menuButton {
   width: 44px;
   height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: var(--radius-lg);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -78,8 +80,10 @@
 }
 
 .closeButton {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: var(--radius-md);
   background: transparent;
   border: none;
@@ -110,7 +114,7 @@
 
 .menuItem {
   width: 100%;
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-sm) var(--space-lg);
   background: transparent;
   border: none;
   color: var(--text-primary);
@@ -123,7 +127,7 @@
   align-items: center;
   justify-content: space-between;
   letter-spacing: -0.01em;
-  min-height: 52px;
+  min-height: 44px;
 }
 
 .menuItem:hover {

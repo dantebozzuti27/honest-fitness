@@ -10,13 +10,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-md) var(--space-lg);
-  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
-  padding-bottom: 12px;
+  padding: var(--space-sm) var(--space-md);
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--space-sm));
+  padding-bottom: var(--space-sm);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
-  min-height: 56px;
-  gap: var(--space-md);
+  min-height: 52px;
+  gap: var(--space-sm);
   flex-shrink: 0;
   position: relative;
   z-index: 10;
@@ -28,14 +28,15 @@
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  font-size: 15px;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all var(--transition-base);
   white-space: nowrap;
-  min-height: 40px;
-  min-width: 70px;
+  min-height: 44px;
+  min-width: 80px;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .backBtn:hover {
@@ -77,8 +78,8 @@
 
 .content {
   flex: 1;
-  padding: var(--space-md) var(--space-lg);
-  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px) + var(--space-md));
+  padding: var(--space-md);
+  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
 }
 
@@ -90,12 +91,17 @@
 }
 
 .monthNav button {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   font-size: 18px;
   background: var(--bg-secondary);
   border-radius: var(--radius-lg);
   color: var(--text-primary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all var(--transition-base);
 }
 
 .monthName {

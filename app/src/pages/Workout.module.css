@@ -14,26 +14,31 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px;
-  padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
-  padding-bottom: 24px;
-  gap: 16px;
-  min-height: 80px;
+  padding: var(--space-sm) var(--space-md);
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--space-sm));
+  padding-bottom: var(--space-sm);
+  gap: var(--space-sm);
+  min-height: 52px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
 }
 
 .backBtn {
-  padding: 14px 20px;
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  font-size: 17px;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all var(--transition-base);
   white-space: nowrap;
-  min-height: 48px;
+  min-height: 44px;
   min-width: 80px;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .backBtn:hover {
@@ -53,8 +58,8 @@ h1 {
 .content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-lg) var(--space-xl);
-  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px) + var(--space-lg));
+  padding: var(--space-md);
+  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
 }
 
 .section {
@@ -127,11 +132,13 @@ h1 {
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  padding: 14px 16px;
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
-  transition: background 0.15s;
+  transition: all var(--transition-base);
+  min-height: 44px;
+  cursor: pointer;
 }
 
 .templateBtn:active {

@@ -12,6 +12,8 @@ import Toast from '../components/Toast'
 import ShareModal from '../components/ShareModal'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
+import BottomNav from '../components/BottomNav'
+import ProfileButton from '../components/ProfileButton'
 import styles from './Fitness.module.css'
 
 const TABS = ['Workout', 'Templates', 'History', 'Goals']
@@ -172,6 +174,7 @@ export default function Fitness() {
           Back
         </button>
         <h1>Fitness</h1>
+        <ProfileButton />
       </div>
 
       <div className={styles.tabs}>
@@ -499,6 +502,8 @@ export default function Fitness() {
         )
       })()}
       </div>
+
+      <BottomNav />
     </div>
   )
 }

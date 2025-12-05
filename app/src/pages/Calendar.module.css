@@ -10,24 +10,24 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
   padding-bottom: 12px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   min-height: 56px;
-  gap: 12px;
+  gap: var(--space-md);
   flex-shrink: 0;
   position: relative;
   z-index: 10;
 }
 
 .backBtn {
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
@@ -77,8 +77,8 @@
 
 .content {
   flex: 1;
-  padding: 12px 16px;
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  padding: var(--space-md) var(--space-lg);
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px) + var(--space-md));
   overflow-y: auto;
 }
 
@@ -94,7 +94,7 @@
   height: 40px;
   font-size: 18px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
 }
 
@@ -106,7 +106,7 @@
 .weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: var(--space-xs);
   margin-bottom: 8px;
 }
 
@@ -120,7 +120,7 @@
 .days {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .day {
@@ -306,7 +306,7 @@
   padding: 14px;
   background: transparent;
   border: 1px solid var(--danger);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--danger);
   font-size: 14px;
   font-weight: 500;
@@ -346,7 +346,7 @@
   color: var(--bg-primary);
   font-size: 14px;
   font-weight: 600;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 }
 
 .scheduler {
@@ -384,7 +384,7 @@
   margin-top: 20px;
   padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
 }
 
@@ -400,7 +400,7 @@
 .weeklyPlanGrid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: var(--space-xs);
   margin-bottom: 12px;
 }
 
@@ -441,7 +441,7 @@
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--text-secondary);
 }
 

@@ -4,6 +4,8 @@ import { getAllTemplates, scheduleWorkout, getScheduledWorkout } from '../db'
 import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan, deleteWorkoutFromSupabase } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
+import BottomNav from '../components/BottomNav'
+import ProfileButton from '../components/ProfileButton'
 import styles from './Calendar.module.css'
 
 export default function Calendar() {
@@ -172,9 +174,12 @@ export default function Calendar() {
           ← Back
         </button>
         <h1 className={styles.title}>Calendar</h1>
-        <div className={styles.streak}>
-          {streak}
-          <img src="/streak-icon.png" alt="" className={styles.streakIcon} />
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div className={styles.streak}>
+            {streak}
+            <img src="/streak-icon.png" alt="" className={styles.streakIcon} />
+          </div>
+          <ProfileButton />
         </div>
       </header>
 
@@ -369,6 +374,8 @@ export default function Calendar() {
           </div>
         </div>
       )}
+
+      <BottomNav />
     </div>
   )
 }

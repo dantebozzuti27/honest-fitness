@@ -15,6 +15,8 @@ import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
+import BottomNav from '../components/BottomNav'
+import ProfileButton from '../components/ProfileButton'
 import styles from './Health.module.css'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
@@ -398,29 +400,32 @@ export default function Health() {
           Back
         </button>
         <h1>Health</h1>
-        {activeTab === 'Today' && (
-          <button 
-            className={styles.plusBtn}
-            onClick={() => {
-              const newMetric = {
-                date: getTodayEST(),
-                steps: null,
-                sleep_time: null,
-                sleep_score: null,
-                hrv: null,
-                calories: null,
-                weight: null,
-                resting_heart_rate: null,
-                body_temp: null
-              }
-              setEditingMetric(newMetric)
-              setShowLogModal(true)
-            }}
-            aria-label="Log health metrics"
-          >
-            <span className={styles.plusIcon}>+</span>
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {activeTab === 'Today' && (
+            <button 
+              className={styles.plusBtn}
+              onClick={() => {
+                const newMetric = {
+                  date: getTodayEST(),
+                  steps: null,
+                  sleep_time: null,
+                  sleep_score: null,
+                  hrv: null,
+                  calories: null,
+                  weight: null,
+                  resting_heart_rate: null,
+                  body_temp: null
+                }
+                setEditingMetric(newMetric)
+                setShowLogModal(true)
+              }}
+              aria-label="Log health metrics"
+            >
+              <span className={styles.plusIcon}>+</span>
+            </button>
+          )}
+          <ProfileButton />
+        </div>
       </div>
 
       <div className={styles.tabs}>
@@ -1125,6 +1130,8 @@ export default function Health() {
           />
         )
       })()}
+
+      <BottomNav />
     </div>
   )
 }

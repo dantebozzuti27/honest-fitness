@@ -11,6 +11,8 @@ import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
+import BottomNav from '../components/BottomNav'
+import ProfileButton from '../components/ProfileButton'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
@@ -661,15 +663,18 @@ export default function Nutrition() {
           Back
         </button>
         <h1>Nutrition</h1>
-        {activeTab === 'Today' && (
-          <button 
-            className={styles.plusBtn}
-            onClick={() => setShowManualEntry(true)}
-            aria-label="Add meal"
-          >
-            <span className={styles.plusIcon}>+</span>
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {activeTab === 'Today' && (
+            <button 
+              className={styles.plusBtn}
+              onClick={() => setShowManualEntry(true)}
+              aria-label="Add meal"
+            >
+              <span className={styles.plusIcon}>+</span>
+            </button>
+          )}
+          <ProfileButton />
+        </div>
       </div>
 
       <div className={styles.tabs}>
@@ -1534,6 +1539,8 @@ export default function Nutrition() {
           onClose={() => setShowShareModal(false)}
         />
       )}
+
+      <BottomNav />
     </div>
   )
 }

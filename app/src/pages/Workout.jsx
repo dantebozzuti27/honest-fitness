@@ -8,6 +8,8 @@ import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
+import BottomNav from '../components/BottomNav'
+import ProfileButton from '../components/ProfileButton'
 import styles from './Workout.module.css'
 
 export default function Workout() {
@@ -264,6 +266,7 @@ export default function Workout() {
           Back
         </button>
         <h1>New Workout</h1>
+        <ProfileButton />
       </div>
 
       <div className={styles.content}>
@@ -456,6 +459,8 @@ export default function Workout() {
           document.body
         )}
       </div>
+
+      <BottomNav />
     </div>
   )
 }

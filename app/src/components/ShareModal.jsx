@@ -29,10 +29,10 @@ export default function ShareModal({ type, data, onClose }) {
     setSharing(true)
     try {
       const text = type === 'workout' 
-        ? `Just completed a workout! 💪`
+        ? `Just completed a workout!`
         : type === 'nutrition'
-        ? `Today's nutrition summary 🥗`
-        : `Today's health metrics 📊`
+        ? `Today's nutrition summary`
+        : `Today's health metrics`
       
       const shared = await shareNative(
         'Echelon',
@@ -110,7 +110,6 @@ export default function ShareModal({ type, data, onClose }) {
               onClick={handleNativeShare}
               disabled={sharing}
             >
-              <span className={styles.shareIcon}>📱</span>
               Share
             </button>
           )}
@@ -120,7 +119,6 @@ export default function ShareModal({ type, data, onClose }) {
             className={styles.shareBtn}
             onClick={handleCopyImage}
           >
-            <span className={styles.shareIcon}>📋</span>
             Copy Image
           </button>
 
@@ -129,7 +127,6 @@ export default function ShareModal({ type, data, onClose }) {
             className={styles.shareBtn}
             onClick={handleDownload}
           >
-            <span className={styles.shareIcon}>💾</span>
             Download
           </button>
 
@@ -154,18 +151,18 @@ export default function ShareModal({ type, data, onClose }) {
               onClick={handleDownload}
               title="Download for Instagram Stories (download image, then upload to Instagram)"
             >
-              <span className={styles.socialIcon}>📷</span>
+              <span className={styles.socialIcon}>IG</span>
             </button>
             <button 
               className={styles.socialBtn}
               onClick={() => openShareUrl(shareUrls.whatsapp)}
               title="Share on WhatsApp"
             >
-              <span className={styles.socialIcon}>💬</span>
+              <span className={styles.socialIcon}>WA</span>
             </button>
           </div>
           <p className={styles.instagramNote}>
-            💡 For Instagram Stories: Download the image, then upload it to your Instagram Stories
+            For Instagram Stories: Download the image, then upload it to your Instagram Stories
           </p>
         </div>
       </div>

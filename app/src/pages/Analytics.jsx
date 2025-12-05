@@ -25,6 +25,8 @@ import BodyHeatmap from '../components/BodyHeatmap'
 import BarChart from '../components/BarChart'
 import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
+import BottomNav from '../components/BottomNav'
+import ProfileButton from '../components/ProfileButton'
 import styles from './Analytics.module.css'
 
 const TABS = ['Overview', 'Scan', 'History', 'Metrics', 'Trends']
@@ -1259,6 +1261,7 @@ export default function Analytics() {
           ← Back
         </button>
         <h1 className={styles.title}>Analytics</h1>
+        <ProfileButton />
       </header>
 
       <div className={styles.tabs}>
@@ -1528,6 +1531,8 @@ export default function Analytics() {
           </div>
         </div>
       )}
+
+      <BottomNav />
     </div>
   )
 }

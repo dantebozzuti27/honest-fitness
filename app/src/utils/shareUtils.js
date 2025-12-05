@@ -119,19 +119,19 @@ function generateShareText(type, data) {
     const { workout } = data
     const duration = workout?.duration ? `${Math.floor(workout.duration / 60)}h ${workout.duration % 60}m` : '0m'
     const exercises = workout?.exercises?.length || 0
-    return `Just completed a ${duration} workout with ${exercises} exercises! 💪 #EchelonFitness`
+    return `Just completed a ${duration} workout with ${exercises} exercises! #EchelonFitness`
   }
   
   if (type === 'nutrition') {
     const { nutrition } = data
     const calories = nutrition?.calories || 0
-    return `Today's nutrition: ${calories.toLocaleString()} calories! 🥗 #EchelonNutrition`
+    return `Today's nutrition: ${calories.toLocaleString()} calories! #EchelonNutrition`
   }
   
   if (type === 'health') {
     const { health } = data
     const steps = health?.steps || 0
-    return `Health metrics: ${steps.toLocaleString()} steps today! 📊 #EchelonHealth`
+    return `Health metrics: ${steps.toLocaleString()} steps today! #EchelonHealth`
   }
   
   return 'Check out my progress on Echelon! #EchelonFitness'

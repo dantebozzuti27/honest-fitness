@@ -210,7 +210,7 @@ export default function Wearables() {
                     marginBottom: '10px',
                     fontSize: '14px'
                   }}>
-                    ⚠️ Fitbit Client ID not configured. Please set VITE_FITBIT_CLIENT_ID in your environment variables.
+                    Warning: Fitbit Client ID not configured. Please set VITE_FITBIT_CLIENT_ID in your environment variables.
                   </div>
                 )}
                 <button

@@ -13,6 +13,8 @@ import { getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
+import BottomNav from '../components/BottomNav'
+import ProfileButton from '../components/ProfileButton'
 import styles from './Goals.module.css'
 
 const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
@@ -300,6 +302,7 @@ export default function Goals() {
           ← Back
         </button>
         <h1 className={styles.title}>Goals</h1>
+        <ProfileButton />
       </header>
 
       <div className={styles.content}>
@@ -575,6 +578,8 @@ export default function Goals() {
           </div>
         </div>
       )}
+
+      <BottomNav />
     </div>
   )
 }

@@ -14,10 +14,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
-  padding-bottom: 12px;
-  gap: 12px;
+  padding: var(--space-md) var(--space-lg);
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--space-md));
+  padding-bottom: var(--space-md);
+  gap: var(--space-md);
   min-height: 56px;
   flex-shrink: 0;
   position: relative;
@@ -25,42 +25,51 @@
 }
 
 .backBtn {
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: 15px;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all var(--transition-base);
   white-space: nowrap;
-  min-height: 40px;
-  min-width: 70px;
+  min-height: 44px;
+  min-width: 80px;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .backBtn:hover {
   background: var(--bg-tertiary);
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.backBtn:active {
+  transform: translateY(0);
 }
 
 h1 {
-  font-size: 24px;
+  font-size: var(--text-xl);
   font-weight: 700;
   margin: 0;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.022em;
   flex: 1;
   text-align: center;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.07143;
 }
 
 .plusBtn {
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: var(--accent);
   color: #000;
@@ -69,23 +78,24 @@ h1 {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
   transition: all var(--transition-base);
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 300;
   line-height: 1;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 56px;
+  min-height: 56px;
   flex-shrink: 0;
 }
 
 .plusBtn:hover {
-  transform: scale(1.05);
-  box-shadow: var(--shadow-lg);
+  transform: scale(1.08);
+  box-shadow: var(--shadow-2xl);
 }
 
 .plusBtn:active {
-  transform: scale(0.95);
+  transform: scale(0.96);
+  box-shadow: var(--shadow-lg);
 }
 
 .plusIcon {
@@ -96,10 +106,10 @@ h1 {
 /* Tabs */
 .tabs {
   display: flex;
-  gap: 4px;
-  margin-bottom: 12px;
-  border-bottom: 2px solid var(--border);
-  padding: 0 16px;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  padding: 0 var(--space-lg);
   flex-shrink: 0;
   position: relative;
   z-index: 5;
@@ -107,18 +117,19 @@ h1 {
 
 .tab {
   flex: 1;
-  padding: 10px 8px;
-  min-height: 44px;
+  padding: var(--space-sm) var(--space-xs);
+  min-height: 48px;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-base);
   text-align: center;
-  margin-bottom: -2px;
+  margin-bottom: -1px;
+  letter-spacing: -0.01em;
 }
 
 .tab:hover {
@@ -148,9 +159,9 @@ h1 {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 0 16px 16px;
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  gap: var(--space-md);
+  padding: 0 var(--space-lg) var(--space-lg);
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px) + var(--space-lg));
   width: 100%;
 }
 

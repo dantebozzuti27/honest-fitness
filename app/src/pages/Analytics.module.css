@@ -9,8 +9,8 @@
 .header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
   padding-bottom: 12px;
   background: var(--bg-secondary);
@@ -22,11 +22,11 @@
 }
 
 .backBtn {
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
@@ -92,8 +92,8 @@
 
 .content {
   flex: 1;
-  padding: 16px;
-  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
+  padding: var(--space-md);
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px) + var(--space-md));
   overflow-y: auto;
 }
 
@@ -138,7 +138,7 @@
   font-size: 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: #000;
   transition: all 0.15s;
 }
@@ -160,13 +160,13 @@
 .combinedStatsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .readinessCard {
   padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   border: 2px solid var(--border);
   box-shadow: 0 0 30px rgba(255, 255, 255, 0.05);
 }
@@ -233,7 +233,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .componentLabel {
@@ -252,7 +252,7 @@
 .nutritionCard {
   padding: 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
 }
 
@@ -266,13 +266,13 @@
 .nutritionStats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .nutritionItem {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .nutritionLabel {
@@ -304,13 +304,13 @@
 .fitbitSummaryGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .fitbitSummaryItem {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .fitbitSummaryLabel {
@@ -413,13 +413,13 @@
 .goalsList {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .goalItem {
   padding: 12px;
   background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
 }
 
@@ -479,7 +479,7 @@
   align-items: center;
   justify-content: center;
   padding: 14px 10px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--bg-secondary);
   transition: transform 0.15s;
@@ -512,7 +512,7 @@
   align-items: center;
   padding: 18px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--accent-dim);
 }
 
@@ -532,7 +532,7 @@
 
 .metricsTable {
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -572,7 +572,7 @@
 
 .metricsSummary {
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   padding: 16px;
 }
 
@@ -600,7 +600,7 @@
 .upcomingContainer {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .emptyState {
@@ -609,7 +609,7 @@
   align-items: center;
   padding: 30px 16px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 }
 
 .emptyText {
@@ -625,7 +625,7 @@
   color: var(--bg-primary);
   font-size: 13px;
   font-weight: 600;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 }
 
 .upcomingList {
@@ -637,10 +637,10 @@
 .upcomingItem {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   padding: 12px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
 }
 
@@ -680,7 +680,7 @@
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  gap: var(--space-md);
   margin-bottom: 20px;
 }
 
@@ -690,7 +690,7 @@
   align-items: center;
   padding: 16px 10px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   position: relative;
   overflow: hidden;
@@ -725,7 +725,7 @@
 
 .topExercises {
   background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -763,7 +763,7 @@
 .historyContainer {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .historyList {
@@ -775,11 +775,11 @@
 .historyItem {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   padding: 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   text-align: left;
   width: 100%;
 }
@@ -908,7 +908,7 @@
 
 .workoutMeta {
   display: flex;
-  gap: 12px;
+  gap: var(--space-md);
   margin-bottom: 16px;
 }
 
@@ -990,7 +990,7 @@
   padding: 14px;
   background: var(--accent);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--bg-primary);
   font-size: 14px;
   font-weight: 500;
@@ -1001,7 +1001,7 @@
   padding: 14px;
   background: transparent;
   border: 1px solid var(--danger);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--danger);
   font-size: 14px;
   font-weight: 500;
@@ -1032,7 +1032,7 @@
   font-size: 15px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
 }
 
@@ -1047,7 +1047,7 @@
   padding: 14px;
   background: var(--accent);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--bg-primary);
   font-size: 14px;
   font-weight: 500;
@@ -1058,7 +1058,7 @@
   padding: 14px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
@@ -1108,7 +1108,7 @@
 
 .exerciseGroup {
   background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -1146,7 +1146,7 @@
 .exerciseSession {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .sessionDate {
@@ -1278,7 +1278,7 @@
   }
   
   .chartTypeSelector {
-    gap: 4px;
+    gap: var(--space-xs);
     margin-bottom: 10px;
     padding: 0;
   }
@@ -1291,7 +1291,7 @@
   }
   
   .chartViewToggle {
-    gap: 4px;
+    gap: var(--space-xs);
     margin-bottom: 8px;
     padding: 0;
   }

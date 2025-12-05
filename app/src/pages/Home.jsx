@@ -3,9 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { hasExercises } from '../db'
 import { initializeData } from '../utils/initData'
 import { useAuth } from '../context/AuthContext'
-import { calculateStreakFromSupabase } from '../lib/supabaseDb'
+import { calculateStreakFromSupabase, getWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
+import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
+import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
+import BottomNav from '../components/BottomNav'
+import ProfileButton from '../components/ProfileButton'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -14,7 +18,7 @@ export default function Home() {
   const [streak, setStreak] = useState(0)
   const [loading, setLoading] = useState(true)
   const [fitbitSteps, setFitbitSteps] = useState(null)
-  const [showQuickMenu, setShowQuickMenu] = useState(false)
+  const [recentLogs, setRecentLogs] = useState([])
 
   useEffect(() => {
     async function init() {
@@ -24,7 +28,7 @@ export default function Home() {
         await initializeData()
       }
       
-      // Get streak and Fitbit data if logged in
+      // Get streak, Fitbit data, and recent logs if logged in
       if (user) {
         try {
           const currentStreak = await calculateStreakFromSupabase(user.id)
@@ -51,6 +55,9 @@ export default function Home() {
           } catch (fitbitError) {
             // Silently fail - Fitbit data is optional
           }
+
+          // Load recent logs for feed
+          await loadRecentLogs(user.id)
         } catch (e) {
           // Silently fail - data will load on retry
         }
@@ -71,6 +78,85 @@ export default function Home() {
     }
   }, [user, navigate])
 
+  const loadRecentLogs = async (userId) => {
+    try {
+      const logs = []
+      const today = getTodayEST()
+      const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+      // Fetch recent workouts
+      try {
+        const workouts = await getWorkoutsFromSupabase(userId)
+        workouts.slice(0, 10).forEach(workout => {
+          logs.push({
+            type: 'workout',
+            date: workout.date,
+            title: workout.template_name || 'Freestyle Workout',
+            subtitle: `${Math.floor(workout.duration / 60)}m ${workout.duration % 60}s`,
+            data: workout
+          })
+        })
+      } catch (e) {
+        // Silently fail
+      }
+
+      // Fetch recent meals
+      try {
+        const nutritionData = await getNutritionRangeFromSupabase(userId, startDate, today)
+        nutritionData.forEach(day => {
+          if (day.meals && day.meals.length > 0) {
+            day.meals.forEach(meal => {
+              logs.push({
+                type: 'meal',
+                date: day.date,
+                title: meal.name,
+                subtitle: `${meal.calories || 0} calories`,
+                data: meal
+              })
+            })
+          }
+        })
+      } catch (e) {
+        // Silently fail
+      }
+
+      // Fetch recent health metrics
+      try {
+        const metrics = await getMetricsFromSupabase(userId, startDate, today)
+        metrics.forEach(metric => {
+          if (metric.steps || metric.weight || metric.hrv || metric.sleep_time) {
+            const parts = []
+            if (metric.steps) parts.push(`${metric.steps.toLocaleString()} steps`)
+            if (metric.weight) parts.push(`${metric.weight}lbs`)
+            if (metric.hrv) parts.push(`HRV: ${Math.round(metric.hrv)}ms`)
+            if (metric.sleep_time) {
+              const h = Math.floor(metric.sleep_time / 60)
+              const m = Math.round(metric.sleep_time % 60)
+              parts.push(`Sleep: ${h}:${m.toString().padStart(2, '0')}`)
+            }
+            if (parts.length > 0) {
+              logs.push({
+                type: 'health',
+                date: metric.date,
+                title: 'Health Metrics',
+                subtitle: parts.join(' • '),
+                data: metric
+              })
+            }
+          }
+        })
+      } catch (e) {
+        // Silently fail
+      }
+
+      // Sort by date (newest first) and limit to 20
+      logs.sort((a, b) => new Date(b.date + 'T' + (b.data?.time || '12:00')) - new Date(a.date + 'T' + (a.data?.time || '12:00')))
+      setRecentLogs(logs.slice(0, 20))
+    } catch (e) {
+      // Silently fail
+    }
+  }
+
   if (loading) {
     return (
       <div className={styles.container}>
@@ -79,28 +165,29 @@ export default function Home() {
     )
   }
 
-  const navItems = [
-    { id: 'fitness', label: 'Fitness', path: '/fitness' },
-    { id: 'nutrition', label: 'Nutrition', path: '/nutrition' },
-    { id: 'health', label: 'Health', path: '/health' },
-    { id: 'calendar', label: 'Calendar', path: '/calendar' },
-    { id: 'analytics', label: 'Analytics', path: '/analytics' },
-    { id: 'goals', label: 'Goals', path: '/goals' },
-    { id: 'profile', label: 'Profile', path: '/profile' }
-  ]
+  const formatDate = (dateString) => {
+    const date = new Date(dateString)
+    const today = new Date()
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
 
-  const quickActions = [
-    { id: 'workout', label: 'Start Workout', path: '/fitness' },
-    { id: 'meal', label: 'Log Meal', path: '/nutrition' },
-    { id: 'metrics', label: 'Log Metrics', path: '/health' }
-  ]
-
-  const handleQuickAction = (path) => {
-    setShowQuickMenu(false)
-    navigate(path)
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today'
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday'
+    } else {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
   }
 
-  // Icons removed - using text labels only
+  const getTypeLabel = (type) => {
+    switch (type) {
+      case 'workout': return 'Workout'
+      case 'meal': return 'Meal'
+      case 'health': return 'Health'
+      default: return type
+    }
+  }
 
   return (
     <div className={styles.container}>
@@ -108,50 +195,38 @@ export default function Home() {
         <div className={styles.logoContainer}>
           <h1 className={styles.logo}>Echelon</h1>
         </div>
-        <button 
-          className={styles.quickActionBtn}
-          onClick={() => setShowQuickMenu(!showQuickMenu)}
-          aria-label="Quick actions"
-        >
-          <span className={styles.plusIcon}>+</span>
-        </button>
+        <ProfileButton />
       </div>
-
-      {/* Quick Action Menu */}
-      {showQuickMenu && (
-        <>
-          <div 
-            className={styles.menuOverlay}
-            onClick={() => setShowQuickMenu(false)}
-          />
-          <div className={styles.quickMenu}>
-            {quickActions.map(action => (
-              <button
-                key={action.id}
-                className={styles.quickMenuItem}
-                onClick={() => handleQuickAction(action.path)}
-              >
-                <span className={styles.quickMenuLabel}>{action.label}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
 
       <div className={styles.content}>
-        {/* Navigation Menu - Right Side */}
-        <div className={styles.navMenu}>
-          {navItems.map(item => (
-            <button
-              key={item.id}
-              className={styles.navItem}
-              onClick={() => navigate(item.path)}
-            >
-              <span className={styles.navLabel}>{item.label}</span>
-            </button>
-          ))}
+        {/* Recent Activity Feed */}
+        <div className={styles.feed}>
+          <h2 className={styles.feedTitle}>Recent Activity</h2>
+          {recentLogs.length === 0 ? (
+            <div className={styles.emptyFeed}>
+              <p>No recent activity</p>
+              <p className={styles.emptyFeedSubtext}>Start logging workouts, meals, or health metrics to see them here</p>
+            </div>
+          ) : (
+            <div className={styles.feedList}>
+              {recentLogs.map((log, index) => (
+                <div key={index} className={styles.feedItem}>
+                  <div className={styles.feedItemHeader}>
+                    <span className={styles.feedItemType}>{getTypeLabel(log.type)}</span>
+                    <span className={styles.feedItemDate}>{formatDate(log.date)}</span>
+                  </div>
+                  <div className={styles.feedItemTitle}>{log.title}</div>
+                  {log.subtitle && (
+                    <div className={styles.feedItemSubtitle}>{log.subtitle}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      <BottomNav />
     </div>
   )
 }

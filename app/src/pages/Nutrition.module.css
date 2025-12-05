@@ -167,6 +167,29 @@ h1 {
   transform: translateY(0);
 }
 
+.shareBtn {
+  padding: 14px 20px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  flex: 1;
+}
+
+.shareBtn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.shareBtn:active {
+  transform: translateY(0);
+}
+
 .optionsList {
   display: flex;
   flex-direction: column;

@@ -10,6 +10,7 @@ import { logError } from '../utils/logger'
 import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
+import ShareModal from '../components/ShareModal'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
@@ -1454,6 +1455,24 @@ export default function Nutrition() {
           type={toast.type}
           duration={toast.duration}
           onClose={hideToast}
+        />
+      )}
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <ShareModal
+          type="nutrition"
+          data={{
+            nutrition: {
+              date: selectedDate,
+              calories: currentCalories,
+              protein: currentMacros.protein,
+              carbs: currentMacros.carbs,
+              fat: currentMacros.fat,
+              meals: meals
+            }
+          }}
+          onClose={() => setShowShareModal(false)}
         />
       )}
     </div>

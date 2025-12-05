@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { getAutoAdjustmentFactor, applyAutoAdjustment, getWorkoutRecommendation } from '../lib/autoAdjust'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
+import ShareModal from '../components/ShareModal'
 import styles from './ActiveWorkout.module.css'
 
 export default function ActiveWorkout() {
@@ -28,6 +29,8 @@ export default function ActiveWorkout() {
   const [feedback, setFeedback] = useState({ rpe: 7, moodAfter: 3, notes: '' })
   const [showTimesUp, setShowTimesUp] = useState(false)
   const [adjustmentInfo, setAdjustmentInfo] = useState(null)
+  const [showShareModal, setShowShareModal] = useState(false)
+  const [savedWorkout, setSavedWorkout] = useState(null)
   const workoutTimerRef = useRef(null)
   const restTimerRef = useRef(null)
   const workoutStartTimeRef = useRef(null)
@@ -435,6 +438,14 @@ export default function ActiveWorkout() {
       }
     }
     
+    // Store workout for sharing
+    setSavedWorkout(workout)
+    setShowShareModal(true)
+  }
+  
+  const handleShareClose = () => {
+    setShowShareModal(false)
+    setSavedWorkout(null)
     navigate('/')
   }
 

@@ -720,6 +720,30 @@ h1 {
 }
 
 /* Dashboard Container */
+.shareBtn {
+  padding: 14px 20px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.shareBtn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.shareBtn:active {
+  transform: translateY(0);
+}
+
 .dashboardContainer {
   display: flex;
   flex-direction: column;

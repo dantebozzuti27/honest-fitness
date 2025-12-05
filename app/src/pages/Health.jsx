@@ -14,6 +14,7 @@ import { logError } from '../utils/logger'
 import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
+import ShareModal from '../components/ShareModal'
 import styles from './Health.module.css'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
@@ -36,6 +37,7 @@ export default function Health() {
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState(null)
   const [showLogModal, setShowLogModal] = useState(false)
+  const [showShareModal, setShowShareModal] = useState(false)
   const { toast, showToast, hideToast } = useToast()
 
   const loadHealthGoals = async () => {
@@ -449,6 +451,16 @@ export default function Health() {
           
           return (
             <div className={styles.dashboardContainer}>
+              {/* Share Button */}
+              {todayMetric && (todayMetric.steps || todayMetric.hrv || todayMetric.sleep_time || todayMetric.calories_burned || todayMetric.weight) && (
+                <button
+                  className={styles.shareBtn}
+                  onClick={() => setShowShareModal(true)}
+                >
+                  📤 Share Health Summary
+                </button>
+              )}
+              
               {/* Readiness Score Card - Top Priority */}
               {readiness && (
                 <div className={`${styles.readinessCard} ${styles[`readiness${readiness.zone}`]}`}>
@@ -1071,6 +1083,25 @@ export default function Health() {
           onClose={hideToast}
         />
       )}
+
+      {showShareModal && (() => {
+        const todayMetric = metrics.find(m => m.date === getTodayEST()) || {
+          date: getTodayEST(),
+          steps: null,
+          hrv: null,
+          sleep_time: null,
+          calories_burned: null,
+          weight: null,
+          resting_heart_rate: null
+        }
+        return (
+          <ShareModal
+            type="health"
+            data={{ health: todayMetric }}
+            onClose={() => setShowShareModal(false)}
+          />
+        )
+      })()}
     </div>
   )
 }

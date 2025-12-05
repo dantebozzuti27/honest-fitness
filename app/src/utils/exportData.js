@@ -1,5 +1,42 @@
-import * as XLSX from 'xlsx'
 import { getWorkoutsFromSupabase, getAllMetricsFromSupabase } from '../lib/supabaseDb'
+
+/**
+ * Convert array of objects to CSV string
+ */
+function arrayToCSV(data, headers) {
+  if (!data || data.length === 0) {
+    return headers.join(',') + '\n'
+  }
+  
+  const rows = [headers.join(',')]
+  
+  data.forEach(row => {
+    const values = headers.map(header => {
+      const value = row[header] ?? ''
+      // Escape quotes and wrap in quotes if contains comma, quote, or newline
+      if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+        return `"${value.replace(/"/g, '""')}"`
+      }
+      return value
+    })
+    rows.push(values.join(','))
+  })
+  
+  return rows.join('\n')
+}
+
+/**
+ * Download CSV file
+ */
+function downloadCSV(csvContent, filename) {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 export async function exportWorkoutData(userId, userEmail) {
   // Fetch all data
@@ -8,29 +45,33 @@ export async function exportWorkoutData(userId, userEmail) {
     getAllMetricsFromSupabase(userId)
   ])
 
-  const wb = XLSX.utils.book_new()
+  const dateStr = new Date().toISOString().split('T')[0]
+  const baseFilename = `HonestFitness_Export_${dateStr}`
 
-  // Workouts Summary Sheet
+  // Workouts Summary CSV
   const workoutSummary = workouts.map(w => ({
     Date: w.date,
     Duration: `${Math.floor(w.duration / 60)}:${String(w.duration % 60).padStart(2, '0')}`,
     Exercises: w.workout_exercises?.length || 0,
     'Total Sets': w.workout_exercises?.reduce((sum, ex) => sum + (ex.workout_sets?.length || 0), 0) || 0
   }))
-  const summarySheet = XLSX.utils.json_to_sheet(workoutSummary)
-  XLSX.utils.book_append_sheet(wb, summarySheet, 'Workout Summary')
+  const summaryCSV = arrayToCSV(workoutSummary, ['Date', 'Duration', 'Exercises', 'Total Sets'])
+  downloadCSV(summaryCSV, `${baseFilename}_WorkoutSummary.csv`)
 
-  // Detailed Exercises Sheet
+  // Wait a bit before next download to avoid browser blocking
+  await new Promise(resolve => setTimeout(resolve, 300))
+
+  // Detailed Exercises CSV
   const exerciseDetails = []
   workouts.forEach(w => {
     w.workout_exercises?.forEach(ex => {
       ex.workout_sets?.forEach(set => {
         exerciseDetails.push({
           Date: w.date,
-          Exercise: ex.exercise_name,
-          Category: ex.category,
-          'Body Part': ex.body_part,
-          Set: set.set_number,
+          Exercise: ex.exercise_name || '',
+          Category: ex.category || '',
+          'Body Part': ex.body_part || '',
+          Set: set.set_number || '',
           Weight: set.weight || '',
           Reps: set.reps || '',
           Time: set.time || '',
@@ -40,10 +81,13 @@ export async function exportWorkoutData(userId, userEmail) {
       })
     })
   })
-  const exerciseSheet = XLSX.utils.json_to_sheet(exerciseDetails)
-  XLSX.utils.book_append_sheet(wb, exerciseSheet, 'Exercise Details')
+  const exerciseCSV = arrayToCSV(exerciseDetails, ['Date', 'Exercise', 'Category', 'Body Part', 'Set', 'Weight', 'Reps', 'Time', 'Speed', 'Incline'])
+  downloadCSV(exerciseCSV, `${baseFilename}_ExerciseDetails.csv`)
 
-  // Daily Metrics Sheet
+  // Wait a bit before next download
+  await new Promise(resolve => setTimeout(resolve, 300))
+
+  // Daily Metrics CSV
   const metricsData = metrics.map(m => ({
     Date: m.date,
     Weight: m.weight || '',
@@ -53,24 +97,12 @@ export async function exportWorkoutData(userId, userEmail) {
     Steps: m.steps || '',
     Calories: m.calories || ''
   }))
-  const metricsSheet = XLSX.utils.json_to_sheet(metricsData)
-  XLSX.utils.book_append_sheet(wb, metricsSheet, 'Daily Metrics')
-
-  // Generate file
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  
-  // Download file
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `HonestFitness_Export_${new Date().toISOString().split('T')[0]}.xlsx`
-  a.click()
-  URL.revokeObjectURL(url)
+  const metricsCSV = arrayToCSV(metricsData, ['Date', 'Weight', 'Sleep Score', 'Sleep Time', 'HRV', 'Steps', 'Calories'])
+  downloadCSV(metricsCSV, `${baseFilename}_DailyMetrics.csv`)
 
   // Open email with attachment instructions
   const subject = encodeURIComponent('My HonestFitness Workout Data')
-  const body = encodeURIComponent(`Here's my workout data export from HonestFitness!\n\nTotal Workouts: ${workouts.length}\nDate Range: ${workouts.length > 0 ? `${workouts[workouts.length - 1]?.date} to ${workouts[0]?.date}` : 'N/A'}\n\nPlease attach the downloaded Excel file to this email.`)
+  const body = encodeURIComponent(`Here's my workout data export from HonestFitness!\n\nTotal Workouts: ${workouts.length}\nDate Range: ${workouts.length > 0 ? `${workouts[workouts.length - 1]?.date} to ${workouts[0]?.date}` : 'N/A'}\n\nThree CSV files have been downloaded:\n- Workout Summary\n- Exercise Details\n- Daily Metrics\n\nThese files can be opened in Excel. Please attach them to this email.`)
   
   window.location.href = `mailto:${userEmail}?subject=${subject}&body=${body}`
   

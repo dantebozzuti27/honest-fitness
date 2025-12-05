@@ -42,9 +42,19 @@ export async function shareNative(title, text, url, imageUrl = null) {
       url
     }
 
-    if (imageUrl && navigator.canShare && navigator.canShare({ files: [new File([], 'share.png')] })) {
-      // For files, we'd need to convert data URL to File
-      // For now, just share text
+    // If image is provided, convert data URL to File and attach
+    if (imageUrl) {
+      try {
+        const response = await fetch(imageUrl)
+        const blob = await response.blob()
+        const file = new File([blob], 'echelon-share.png', { type: 'image/png' })
+        
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          shareData.files = [file]
+        }
+      } catch (e) {
+        // If file conversion fails, share without image
+      }
     }
 
     await navigator.share(shareData)

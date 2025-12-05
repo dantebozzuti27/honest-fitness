@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
+import { getUserPreferences, saveUserPreferences } from '../lib/supabaseDb'
 import HomeButton from '../components/HomeButton'
 import styles from './Profile.module.css'
 
@@ -12,12 +13,60 @@ export default function Profile() {
   const [exporting, setExporting] = useState(false)
   const [connectedAccounts, setConnectedAccounts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [username, setUsername] = useState('')
+  const [profilePicture, setProfilePicture] = useState(null)
+  const [profilePictureUrl, setProfilePictureUrl] = useState(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (user) {
       loadConnectedAccounts()
+      loadProfile()
     }
   }, [user])
+
+  const loadProfile = async () => {
+    if (!user) return
+    try {
+      const prefs = await getUserPreferences(user.id)
+      if (prefs) {
+        setUsername(prefs.username || '')
+        setProfilePictureUrl(prefs.profile_picture || null)
+      }
+    } catch (error) {
+      // Silently fail
+    }
+  }
+
+  const handleProfilePictureChange = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setProfilePicture(reader.result)
+        setProfilePictureUrl(reader.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleSaveProfile = async () => {
+    if (!user) return
+    setSaving(true)
+    try {
+      const prefs = await getUserPreferences(user.id)
+      await saveUserPreferences(user.id, {
+        ...prefs,
+        username: username || null,
+        profilePicture: profilePicture || null
+      })
+      alert('Profile updated successfully!')
+    } catch (error) {
+      alert('Failed to update profile. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const loadConnectedAccounts = async () => {
     if (!user) return
@@ -76,6 +125,43 @@ export default function Profile() {
       <div className={styles.content}>
         {user && (
           <div className={styles.userInfo}>
+            <div className={styles.profilePictureSection}>
+              <div className={styles.profilePictureContainer}>
+                {profilePictureUrl ? (
+                  <img src={profilePictureUrl} alt="Profile" className={styles.profilePicture} />
+                ) : (
+                  <div className={styles.profilePicturePlaceholder}>
+                    {username ? username.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
+              <label className={styles.uploadBtn}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleProfilePictureChange}
+                  style={{ display: 'none' }}
+                />
+                Upload Photo
+              </label>
+            </div>
+            <div className={styles.usernameSection}>
+              <label className={styles.label}>Username</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter username"
+                className={styles.usernameInput}
+              />
+              <button
+                className={styles.saveBtn}
+                onClick={handleSaveProfile}
+                disabled={saving}
+              >
+                {saving ? 'Saving...' : 'Save Profile'}
+              </button>
+            </div>
             <div className={styles.userEmail}>{user.email}</div>
           </div>
         )}

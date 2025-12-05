@@ -261,6 +261,68 @@
   overflow-y: auto;
 }
 
+.zoomControls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+.zoomLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.zoomButtons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.zoomBtn {
+  width: 36px;
+  height: 36px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.zoomBtn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+}
+
+.zoomValue {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 50px;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+.popupChartContainer {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  transform-origin: left center;
+}
+
 @media (max-width: 480px) {
   .chartContainer {
     padding: 10px;

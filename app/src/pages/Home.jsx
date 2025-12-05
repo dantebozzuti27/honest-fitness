@@ -20,6 +20,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [fitbitSteps, setFitbitSteps] = useState(null)
   const [recentLogs, setRecentLogs] = useState([])
+  const [profilePicture, setProfilePicture] = useState(null)
 
   useEffect(() => {
     async function init() {
@@ -34,6 +35,16 @@ export default function Home() {
         try {
           const currentStreak = await calculateStreakFromSupabase(user.id)
           setStreak(currentStreak)
+          
+          // Load profile picture
+          try {
+            const prefs = await getUserPreferences(user.id)
+            if (prefs?.profile_picture) {
+              setProfilePicture(prefs.profile_picture)
+            }
+          } catch (e) {
+            // Silently fail
+          }
           
           // Load Fitbit steps (try today, then yesterday, then most recent)
           try {
@@ -215,7 +226,11 @@ export default function Home() {
               {recentLogs.map((log, index) => (
                 <div key={index} className={styles.feedItem}>
                   <div className={styles.feedItemIcon}>
-                    {log.type === 'workout' ? 'W' : log.type === 'meal' ? 'M' : 'H'}
+                    {profilePicture ? (
+                      <img src={profilePicture} alt="Profile" />
+                    ) : (
+                      log.type === 'workout' ? 'W' : log.type === 'meal' ? 'M' : 'H'
+                    )}
                   </div>
                   <div className={styles.feedItemContent}>
                     <div className={styles.feedItemHeader}>

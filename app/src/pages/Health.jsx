@@ -464,7 +464,7 @@ export default function Health() {
                   className={styles.shareBtn}
                   onClick={() => setShowShareModal(true)}
                 >
-                  📤 Share Health Summary
+                  Share Health Summary
                 </button>
               )}
               

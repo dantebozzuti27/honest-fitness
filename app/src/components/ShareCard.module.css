@@ -2,12 +2,15 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 20px;
+  padding: 0;
 }
 
 .card {
   width: 400px;
+  height: 400px;
   max-width: 90vw;
+  max-height: 90vw;
+  aspect-ratio: 1;
   background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
   border: 2px solid var(--accent);
   border-radius: var(--radius-xl);
@@ -15,6 +18,8 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .cardHeader {
@@ -43,10 +48,13 @@
 }
 
 .cardContent {
-  padding: 30px 20px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .mainStat {

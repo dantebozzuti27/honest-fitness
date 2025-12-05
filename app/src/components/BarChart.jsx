@@ -17,6 +17,7 @@ export default function BarChart({
   const [pan, setPan] = useState(0)
   const [selectedBar, setSelectedBar] = useState(null)
   const [showDetail, setShowDetail] = useState(false)
+  const [popupZoom, setPopupZoom] = useState(1)
   const containerRef = useRef(null)
   const touchStartRef = useRef(null)
   const lastPinchDistanceRef = useRef(null)
@@ -301,13 +302,13 @@ export default function BarChart({
         </div>
       </div>
 
-      {/* Detail Modal */}
+      {/* Detail Modal with Chart Popup */}
       {showDetail && selectedBar && (
         <>
           <div className={styles.modalOverlay} onClick={() => setShowDetail(false)} />
           <div className={styles.detailModal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3>Day Details</h3>
+              <h3>Chart Details</h3>
               <button className={styles.closeBtn} onClick={() => setShowDetail(false)}>×</button>
             </div>
             <div className={styles.modalContent}>
@@ -323,6 +324,41 @@ export default function BarChart({
                     : Math.round(selectedBar.value)}
                 </span>
               </div>
+              
+              {/* Zoom Controls */}
+              <div className={styles.zoomControls}>
+                <span className={styles.zoomLabel}>Zoom X-Axis:</span>
+                <div className={styles.zoomButtons}>
+                  <button 
+                    className={styles.zoomBtn}
+                    onClick={() => setPopupZoom(Math.max(0.5, popupZoom - 0.25))}
+                  >
+                    −
+                  </button>
+                  <span className={styles.zoomValue}>{Math.round(popupZoom * 100)}%</span>
+                  <button 
+                    className={styles.zoomBtn}
+                    onClick={() => setPopupZoom(Math.min(3, popupZoom + 0.25))}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Expanded Chart View */}
+              <div className={styles.popupChartContainer} style={{ transform: `scaleX(${popupZoom})` }}>
+                <div className={styles.chartContainer}>
+                  <div className={styles.chartWrapper}>
+                    <svg viewBox="0 0 100 100" className={styles.chart} preserveAspectRatio="xMidYMid meet">
+                      {/* Chart visualization would go here - simplified for popup */}
+                      <text x="50" y="50" textAnchor="middle" fontSize="4" fill="#ffffff">
+                        Chart View (Zoom: {Math.round(popupZoom * 100)}%)
+                      </text>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
               {selectedBar.fullData && (
                 <div className={styles.detailData}>
                   <h4>Full Data:</h4>

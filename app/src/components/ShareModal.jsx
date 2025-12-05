@@ -34,10 +34,14 @@ export default function ShareModal({ type, data, onClose }) {
         ? `Today's nutrition summary`
         : `Today's health metrics`
       
+      // Use the generated image if available
+      const imageToShare = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current) : null)
+      
       const shared = await shareNative(
         'Echelon',
         text,
-        window.location.origin
+        window.location.origin,
+        imageToShare
       )
       
       if (shared) {

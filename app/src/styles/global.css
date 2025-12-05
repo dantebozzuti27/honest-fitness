@@ -8,7 +8,7 @@
 }
 
 :root {
-  /* Color System - Apple-inspired Premium Black & White */
+  /* Color System - Apple-inspired Premium Black & White with character */
   --bg-primary: #000000;
   --bg-secondary: #0a0a0a;
   --bg-tertiary: #141414;
@@ -24,8 +24,13 @@
   --accent: #ffffff;
   --accent-hover: #f5f5f7;
   --accent-dim: #2a2a2a;
-  --accent-glow: rgba(255, 255, 255, 0.1);
-  --accent-glow-strong: rgba(255, 255, 255, 0.2);
+  --accent-glow: rgba(255, 255, 255, 0.15);
+  --accent-glow-strong: rgba(255, 255, 255, 0.25);
+  
+  /* Apple MacBook-inspired gradients and effects */
+  --gradient-primary: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+  --gradient-card: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  --text-gradient: linear-gradient(135deg, #ffffff 0%, #e0e0e0 100%);
   
   --border: #1d1d1f;
   --border-light: #2d2d30;
@@ -58,18 +63,18 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
   --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
   
-  /* Font Sizes - Apple's refined scale */
-  --text-xs: 13px;
-  --text-sm: 15px;
-  --text-base: 17px;
-  --text-md: 19px;
-  --text-lg: 21px;
-  --text-xl: 28px;
-  --text-2xl: 34px;
-  --text-3xl: 48px;
-  --text-4xl: 64px;
-  --text-5xl: 80px;
-  --text-6xl: 96px;
+  /* Font Sizes - Apple's refined scale (reduced for better fit) */
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-md: 17px;
+  --text-lg: 19px;
+  --text-xl: 24px;
+  --text-2xl: 28px;
+  --text-3xl: 36px;
+  --text-4xl: 48px;
+  --text-5xl: 64px;
+  --text-6xl: 80px;
   
   /* Shadows - Apple's depth system */
   --shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -112,6 +117,7 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.022em;
   line-height: 1.07143;
   font-feature-settings: "kern" 1;
+  color: var(--text-primary);
 }
 
 h1 { font-size: var(--text-3xl); }
@@ -217,19 +223,32 @@ html {
   scroll-behavior: smooth;
 }
 
-/* Apple-inspired card styles */
+/* Apple-inspired card styles with character */
 .card {
-  background: var(--bg-secondary);
+  background: var(--gradient-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   padding: var(--space-lg);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(255, 255, 255, 0.03);
   transition: all var(--transition-base);
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--gradient-primary);
+  opacity: 0.5;
 }
 
 .card:hover {
   border-color: var(--border-light);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), 0 0 30px rgba(255, 255, 255, 0.05);
   transform: translateY(-2px);
 }
 

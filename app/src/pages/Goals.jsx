@@ -305,14 +305,27 @@ export default function Goals() {
       </header>
 
       <div className={styles.content}>
-        {/* My Goals Section - Show All Goals First */}
+        {/* Category Filter - Top of Page */}
+        <div className={styles.categoryTabs}>
+          {GOAL_CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              className={`${styles.categoryTab} ${activeCategory === cat ? styles.active : ''}`}
+              onClick={() => setActiveCategory(cat)}
+            >
+              {cat.charAt(0).toUpperCase() + cat.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Goals Section - Show Only Active Category Goals */}
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>My Goals</h2>
             <button
               className={styles.newGoalBtn}
               onClick={() => {
-                setNewGoal({ ...newGoal, category: 'fitness' })
+                setNewGoal({ ...newGoal, category: activeCategory })
                 setShowNewGoal(true)
               }}
             >
@@ -321,10 +334,10 @@ export default function Goals() {
           </div>
 
           <div className={styles.goalsList}>
-            {allGoals.length === 0 ? (
-              <p className={styles.emptyText}>No goals yet. Create your first goal!</p>
+            {goals[activeCategory].length === 0 ? (
+              <p className={styles.emptyText}>No {activeCategory} goals yet. Create your first goal!</p>
             ) : (
-              allGoals.map(goal => {
+              goals[activeCategory].map(goal => {
                 const progress = goal.target_value > 0 
                   ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
                   : 0
@@ -378,19 +391,6 @@ export default function Goals() {
             )}
           </div>
         </section>
-
-        {/* Category Tabs */}
-        <div className={styles.categoryTabs}>
-          {GOAL_CATEGORIES.map(cat => (
-            <button
-              key={cat}
-              className={`${styles.categoryTab} ${activeCategory === cat ? styles.active : ''}`}
-              onClick={() => setActiveCategory(cat)}
-            >
-              {cat.charAt(0).toUpperCase() + cat.slice(1)}
-            </button>
-          ))}
-        </div>
 
         {/* Category Goals Section */}
         <section className={styles.section}>

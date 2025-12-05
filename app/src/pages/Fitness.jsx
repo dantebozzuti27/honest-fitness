@@ -34,6 +34,7 @@ export default function Fitness() {
   const { toast, showToast, hideToast } = useToast()
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedWorkoutForShare, setSelectedWorkoutForShare] = useState(null)
+  const [showWorkoutStartModal, setShowWorkoutStartModal] = useState(false)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -128,8 +129,25 @@ export default function Fitness() {
     }
   }, [user])
 
-  const startWorkout = async (templateId) => {
-    navigate('/workout/active', { state: { templateId } })
+  const startWorkout = async (templateId, random = false) => {
+    if (templateId === null && !random) {
+      // Show modal to choose workout type
+      setShowWorkoutStartModal(true)
+      return
+    }
+    navigate('/workout/active', { state: { templateId, randomWorkout: random } })
+  }
+
+  const handleWorkoutTypeSelect = (type) => {
+    setShowWorkoutStartModal(false)
+    if (type === 'templates') {
+      // User will select from templates below
+      return
+    } else if (type === 'freestyle') {
+      startWorkout(null, false)
+    } else if (type === 'random') {
+      startWorkout(null, true)
+    }
   }
 
   // Removed startOutdoorRun - not needed for now
@@ -198,6 +216,41 @@ export default function Fitness() {
             >
               Start Workout
             </button>
+
+            {/* Workout Start Modal */}
+            {showWorkoutStartModal && (
+              <div className={styles.workoutStartModalOverlay} onClick={() => setShowWorkoutStartModal(false)}>
+                <div className={styles.workoutStartModal} onClick={(e) => e.stopPropagation()}>
+                  <h3>Choose Workout Type</h3>
+                  <div className={styles.workoutTypeOptions}>
+                    <button
+                      className={styles.workoutTypeBtn}
+                      onClick={() => handleWorkoutTypeSelect('templates')}
+                    >
+                      Templates
+                    </button>
+                    <button
+                      className={styles.workoutTypeBtn}
+                      onClick={() => handleWorkoutTypeSelect('freestyle')}
+                    >
+                      Freestyle
+                    </button>
+                    <button
+                      className={styles.workoutTypeBtn}
+                      onClick={() => handleWorkoutTypeSelect('random')}
+                    >
+                      Random
+                    </button>
+                  </div>
+                  <button
+                    className={styles.closeModalBtn}
+                    onClick={() => setShowWorkoutStartModal(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Today's Plan */}
             {todaysPlan && (
@@ -278,7 +331,7 @@ export default function Fitness() {
                   className={styles.templateBtn}
                   onClick={() => {
                     setActiveTab('Workout')
-                    startWorkout(template.id)
+                    startWorkout(template.id, false)
                   }}
                 >
                   <span className={styles.templateName}>{template.name}</span>
@@ -290,7 +343,7 @@ export default function Fitness() {
                 className={styles.freestyleBtn}
                 onClick={() => {
                   setActiveTab('Workout')
-                  startWorkout(null)
+                  startWorkout(null, false)
                 }}
               >
                 Freestyle Workout

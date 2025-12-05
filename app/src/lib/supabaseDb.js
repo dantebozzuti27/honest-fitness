@@ -773,6 +773,8 @@ export async function saveUserPreferences(userId, prefs) {
       session_duration: prefs.sessionDuration,
       equipment_available: prefs.equipmentAvailable,
       injuries: prefs.injuries,
+      username: prefs.username || null,
+      profile_picture: prefs.profilePicture || null,
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id' })
     .select()

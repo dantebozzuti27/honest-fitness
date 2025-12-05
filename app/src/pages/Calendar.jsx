@@ -177,7 +177,6 @@ export default function Calendar() {
           <HomeButton />
           <div className={styles.streak}>
             {streak}
-            <img src="/streak-icon.png" alt="" className={styles.streakIcon} />
           </div>
         </div>
       </header>

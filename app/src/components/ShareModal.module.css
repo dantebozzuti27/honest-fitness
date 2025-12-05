@@ -18,8 +18,8 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   width: 100%;
-  max-width: 500px;
-  max-height: 90vh;
+  max-width: 450px;
+  max-height: 85vh;
   overflow-y: auto;
   box-shadow: var(--shadow-xl);
   display: flex;
@@ -63,11 +63,13 @@
 }
 
 .cardPreview {
-  padding: 20px;
+  padding: 12px;
   display: flex;
   justify-content: center;
   background: var(--bg-primary);
   flex-shrink: 0;
+  max-height: 400px;
+  overflow: hidden;
 }
 
 .shareOptions {

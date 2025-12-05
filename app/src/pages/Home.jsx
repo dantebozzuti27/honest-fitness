@@ -23,89 +23,71 @@ export default function Home() {
   const [profilePicture, setProfilePicture] = useState(null)
 
   useEffect(() => {
+    let mounted = true
+    
     async function init() {
-      // Initialize exercise data if not present
-      const hasData = await hasExercises()
-      if (!hasData) {
-        await initializeData()
-      }
+      // Initialize exercise data if not present (non-blocking)
+      hasExercises().then(hasData => {
+        if (!hasData && mounted) {
+          initializeData().catch(() => {}) // Don't block on this
+        }
+      })
       
       // Get streak, Fitbit data, and recent logs if logged in
       if (user) {
         try {
-          const currentStreak = await calculateStreakFromSupabase(user.id)
-          setStreak(currentStreak)
-          
-          // Load profile picture
-          try {
-            const prefs = await getUserPreferences(user.id)
-            if (prefs?.profile_picture) {
+          // Load profile picture once
+          getUserPreferences(user.id).then(prefs => {
+            if (mounted && prefs?.profile_picture) {
               setProfilePicture(prefs.profile_picture)
             }
-          } catch (e) {
-            // Silently fail
+          }).catch(() => {})
+          
+          // Load data in parallel
+          const [currentStreak] = await Promise.all([
+            calculateStreakFromSupabase(user.id)
+          ])
+          
+          if (mounted) {
+            setStreak(currentStreak)
           }
           
-          // Refresh profile picture when visibility changes
-          const handleVisibilityChange = async () => {
-            if (!document.hidden && user) {
-              try {
-                const prefs = await getUserPreferences(user.id)
-                if (prefs?.profile_picture) {
-                  setProfilePicture(prefs.profile_picture)
-                }
-              } catch (e) {
-                // Silently fail
-              }
+          // Load Fitbit steps (try today, then yesterday, then most recent) - non-blocking
+          getTodayEST().then(today => {
+            return getFitbitDaily(user.id, today).catch(() => null)
+          }).then(fitbit => {
+            if (!fitbit && mounted) {
+              return import('../utils/dateUtils').then(({ getYesterdayEST }) => {
+                return getFitbitDaily(user.id, getYesterdayEST()).catch(() => null)
+              })
             }
-          }
-          document.addEventListener('visibilitychange', handleVisibilityChange)
-          
-          return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange)
-          }
-          
-          // Load Fitbit steps (try today, then yesterday, then most recent)
-          try {
-            const today = getTodayEST()
-            let fitbit = await getFitbitDaily(user.id, today)
-            if (!fitbit) {
-              const { getYesterdayEST } = await import('../utils/dateUtils')
-              const yesterday = getYesterdayEST()
-              fitbit = await getFitbitDaily(user.id, yesterday)
+            return fitbit
+          }).then(fitbit => {
+            if (!fitbit && mounted) {
+              return getMostRecentFitbitData(user.id).catch(() => null)
             }
-            if (!fitbit) {
-              fitbit = await getMostRecentFitbitData(user.id)
-            }
-            if (fitbit && fitbit.steps != null) {
+            return fitbit
+          }).then(fitbit => {
+            if (mounted && fitbit && fitbit.steps != null) {
               setFitbitSteps({
                 steps: Number(fitbit.steps),
                 date: fitbit.date
               })
             }
-          } catch (fitbitError) {
-            // Silently fail - Fitbit data is optional
-          }
+          }).catch(() => {})
 
-          // Load recent logs for feed (this will also refresh profile picture)
-          await loadRecentLogs(user.id)
-          
-          // Also refresh profile picture after a short delay to ensure it's loaded
-          setTimeout(async () => {
-            try {
-              const prefs = await getUserPreferences(user.id)
-              if (prefs?.profile_picture) {
-                setProfilePicture(prefs.profile_picture)
-              }
-            } catch (e) {
-              // Silently fail
-            }
-          }, 500)
+          // Load recent logs for feed
+          if (mounted) {
+            loadRecentLogs(user.id).catch(() => {})
+          }
         } catch (e) {
           // Silently fail - data will load on retry
         }
       }
-      setLoading(false)
+      
+      if (mounted) {
+        setLoading(false)
+      }
     }
     init()
     
@@ -120,12 +102,12 @@ export default function Home() {
       navigate(`/wearables?fitbit_error=${fitbitError}`, { replace: true })
     }
     
-    // Refresh profile picture when visibility changes
+    // Refresh profile picture when visibility changes (only once)
     const handleVisibilityChange = async () => {
-      if (!document.hidden && user) {
+      if (!document.hidden && user && mounted) {
         try {
           const prefs = await getUserPreferences(user.id)
-          if (prefs?.profile_picture) {
+          if (mounted && prefs?.profile_picture) {
             setProfilePicture(prefs.profile_picture)
           }
         } catch (e) {
@@ -136,6 +118,7 @@ export default function Home() {
     document.addEventListener('visibilitychange', handleVisibilityChange)
     
     return () => {
+      mounted = false
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [user, navigate])

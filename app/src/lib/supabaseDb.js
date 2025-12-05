@@ -7,8 +7,24 @@ import { logError, logDebug } from '../utils/logger'
 const safeLogDebug = logDebug || (() => {})
 
 // ============ WORKOUTS ============
+// IMPORTANT: Workouts are ONLY created through explicit user action (finishing a workout).
+// This function is ONLY called from ActiveWorkout.jsx when the user finishes a workout.
+// NEVER call this function automatically or with dummy/test data.
 
 export async function saveWorkoutToSupabase(workout, userId) {
+  // Validate that this is a real workout with exercises
+  if (!workout.exercises || workout.exercises.length === 0) {
+    throw new Error('Cannot save workout with no exercises')
+  }
+  
+  // Validate that exercises have actual data (sets with weight/reps/time)
+  const hasValidData = workout.exercises.some(ex => 
+    ex.sets && ex.sets.length > 0 && ex.sets.some(s => s.weight || s.reps || s.time)
+  )
+  if (!hasValidData) {
+    throw new Error('Cannot save workout with no exercise data')
+  }
+  
   // Insert workout
   const { data: workoutData, error: workoutError } = await supabase
     .from('workouts')
@@ -233,9 +249,18 @@ export async function deleteAllWorkoutsFromSupabase(userId) {
 }
 
 // ============ DAILY METRICS ============
+// IMPORTANT: Health metrics are ONLY created through explicit user action (logging metrics).
+// This function is ONLY called when the user manually logs health metrics or when Fitbit syncs real data.
+// NEVER call this function automatically or with dummy/test data.
 
 export async function saveMetricsToSupabase(userId, date, metrics) {
   console.log('saveMetricsToSupabase called with:', { userId, date, metrics })
+  
+  // Validate that we have at least one metric value
+  const hasData = Object.values(metrics).some(val => val !== null && val !== undefined && val !== '')
+  if (!hasData) {
+    throw new Error('Cannot save metrics with no data')
+  }
   
   // Base metrics that should always exist
   // IMPORTANT: steps is INTEGER - must be whole number, use toInteger
@@ -494,6 +519,8 @@ export async function saveUserPreferences(userId, prefs) {
 }
 
 // ============ WORKOUT PLAN GENERATOR ============
+// NOTE: This function ONLY generates a plan structure. It NEVER creates actual workout logs.
+// Workouts are ONLY created when the user explicitly finishes a workout in ActiveWorkout.jsx
 
 export function generateWorkoutPlan(prefs, templates) {
   const { fitnessGoal, experienceLevel, availableDays, sessionDuration } = prefs

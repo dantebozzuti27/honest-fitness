@@ -12,7 +12,15 @@ const safeLogDebug = logDebug || (() => {})
 /**
  * Save meal data to database
  */
+// IMPORTANT: Meals are ONLY created through explicit user action (adding a meal).
+// This function is ONLY called when the user manually adds a meal.
+// NEVER call this function automatically or with dummy/test data.
+
 export async function saveMealToSupabase(userId, date, meal) {
+  // Validate that this is a real meal with data
+  if (!meal.name || (!meal.calories && meal.calories !== 0)) {
+    throw new Error('Cannot save meal without name and calories')
+  }
   // Save to a nutrition/meals table
   // For now, we'll use daily_metrics and store meals as JSON
   // In production, you'd want a separate meals table

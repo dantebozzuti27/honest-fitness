@@ -399,6 +399,8 @@ export default function ActiveWorkout() {
     setShowSummary(true)
   }
 
+  // IMPORTANT: Workouts are ONLY created when the user explicitly finishes a workout.
+  // This is the ONLY place where workout logs are created - never automatically.
   const finishWorkout = async () => {
     // Clean up timers and localStorage
     clearInterval(workoutTimerRef.current)
@@ -424,7 +426,11 @@ export default function ActiveWorkout() {
       })).filter(ex => ex.sets.length > 0)
     }
     
-    // Saving workout to database
+    // ONLY save workout if user has exercises with actual data
+    if (workout.exercises.length === 0) {
+      alert('Cannot save workout with no exercises. Please add at least one exercise with sets.')
+      return
+    }
     
     // Save to local IndexedDB
     await saveWorkout(workout)

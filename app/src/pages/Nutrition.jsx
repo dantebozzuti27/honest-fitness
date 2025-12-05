@@ -837,7 +837,9 @@ export default function Nutrition() {
                   if (typeMeals.length === 0) return null
                   return (
                     <div key={type} className={styles.mealTypeGroup}>
-                      <h4 className={styles.mealTypeTitle}>{type}</h4>
+                      <h4 className={styles.mealTypeTitle}>
+                        <span className={styles.mealTypeLabel}>{type}</span>
+                      </h4>
                       <div className={styles.mealsList}>
                         {typeMeals.map(meal => (
                           <MealCard
@@ -956,7 +958,9 @@ export default function Nutrition() {
               if (typeMeals.length === 0) return null
               return (
                 <div key={type} className={styles.mealSection}>
-                  <h3 className={styles.mealSectionTitle}>{type}</h3>
+                  <h3 className={styles.mealSectionTitle}>
+                    <span className={styles.mealTypeLabel}>{type}</span>
+                  </h3>
                   {typeMeals.map(meal => (
                     <MealCard
                       key={meal.id}

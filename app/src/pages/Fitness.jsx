@@ -451,9 +451,11 @@ export default function Fitness() {
                   return (
                     <div key={goal.id} className={styles.goalCard}>
                       <div className={styles.goalHeader}>
-                        <span className={styles.goalName}>
-                          {goal.custom_name || goal.type}
-                        </span>
+                        <div className={styles.goalNameContainer}>
+                          <span className={styles.goalName}>
+                            {goal.custom_name || goal.type}
+                          </span>
+                        </div>
                         <span className={styles.goalProgress}>{Math.round(progress)}%</span>
                       </div>
                       <div className={styles.goalBar}>

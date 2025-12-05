@@ -391,68 +391,6 @@ export default function Goals() {
           </div>
         </section>
 
-        {/* Category Goals Section */}
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>{activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Goals</h2>
-          </div>
-
-          <div className={styles.goalsList}>
-            {goals[activeCategory].length === 0 ? (
-              <p className={styles.emptyText}>No {activeCategory} goals yet</p>
-            ) : (
-              goals[activeCategory].map(goal => {
-                const progress = goal.target_value > 0 
-                  ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
-                  : 0
-                return (
-                  <div key={goal.id} className={styles.goalCard}>
-                    <div className={styles.goalHeader}>
-                      <h3 className={styles.goalName}>
-                        {goal.custom_name || getGoalTypes(goal.category).find(t => t.type === goal.type)?.label || goal.type}
-                      </h3>
-                      <div className={styles.goalActions}>
-                        <button
-                          className={styles.archiveBtn}
-                          onClick={() => handleArchiveGoal(goal.id)}
-                        >
-                          Archive
-                        </button>
-                        <button
-                          className={styles.deleteBtn}
-                          onClick={() => handleDeleteGoal(goal.id)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                    <div className={styles.goalProgress}>
-                      <div className={styles.progressBar}>
-                        <div
-                          className={styles.progressFill}
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                      <div className={styles.progressText}>
-                        {goal.current_value} / {goal.target_value} {goal.unit}
-                      </div>
-                    </div>
-                    {goal.description && (
-                      <p className={styles.goalDescription}>{goal.description}</p>
-                    )}
-                    <div className={styles.goalDates}>
-                      <span>Start: {new Date(goal.start_date).toLocaleDateString()}</span>
-                      {goal.end_date && (
-                        <span>End: {new Date(goal.end_date).toLocaleDateString()}</span>
-                      )}
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </section>
-
         {/* Past Goals */}
         {pastGoals.length > 0 && (
           <section className={styles.section}>

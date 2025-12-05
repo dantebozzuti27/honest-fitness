@@ -217,21 +217,7 @@ export default function Calendar() {
                   className={`${styles.weeklyPlanDay} ${day.restDay ? styles.restDay : ''}`}
                 >
                   <span className={styles.weeklyPlanDayName}>{day.day.slice(0, 3)}</span>
-                  <div className={styles.weeklyPlanFocusContainer}>
-                    {day.focus && (
-                      <span className={styles.weeklyPlanFocusIcon}>
-                        {day.focus === 'Push' && '↑'}
-                        {day.focus === 'Pull' && '↓'}
-                        {day.focus === 'Legs' && '⚡'}
-                        {day.focus === 'Upper' && '▲'}
-                        {day.focus === 'Lower' && '▼'}
-                        {day.focus === 'Full Body' && '●'}
-                        {day.focus === 'Cardio + Core' && '♥'}
-                        {!['Push', 'Pull', 'Legs', 'Upper', 'Lower', 'Full Body', 'Cardio + Core'].includes(day.focus) && '○'}
-                      </span>
-                    )}
-                    <span className={styles.weeklyPlanFocus}>{day.focus}</span>
-                  </div>
+                  <span className={styles.weeklyPlanFocus}>{day.focus}</span>
                 </div>
               ))}
             </div>

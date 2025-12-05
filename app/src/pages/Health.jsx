@@ -899,7 +899,7 @@ export default function Health() {
             </div>
             <div className={styles.editForm}>
               <div className={styles.formGroup}>
-                <label>📅 Date *</label>
+                <label>Date *</label>
                 <input
                   type="date"
                   value={(editingMetric && editingMetric.date) || (showLogModal ? getTodayEST() : getTodayEST())}
@@ -911,7 +911,7 @@ export default function Health() {
                 />
               </div>
               <div className={styles.formGroup}>
-                <label>⚖️ Weight (lbs)</label>
+                <label>Weight (lbs)</label>
                 <input
                   type="number"
                   step="0.1"
@@ -924,7 +924,7 @@ export default function Health() {
                 />
               </div>
               <div className={styles.formGroup}>
-                <label>👣 Steps</label>
+                <label>Steps</label>
                 <input
                   type="number"
                   step="1"
@@ -938,7 +938,7 @@ export default function Health() {
                 />
               </div>
               <div className={styles.formGroup}>
-                <label>❤️ HRV (ms)</label>
+                <label>HRV (ms)</label>
                 <input
                   type="number"
                   value={(editingMetric && editingMetric.hrv) || ''}

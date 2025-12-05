@@ -260,13 +260,6 @@ export default async function handler(req, res) {
           ? summary.distances[0].distance || null 
           : null
         fitbitData.floors = summary.floors || null
-        
-        // Additional activity metrics
-        fitbitData.sedentary_minutes = summary.sedentaryMinutes || null
-        fitbitData.lightly_active_minutes = summary.lightlyActiveMinutes || null
-        fitbitData.fairly_active_minutes = summary.fairlyActiveMinutes || null
-        fitbitData.very_active_minutes = summary.veryActiveMinutes || null
-        fitbitData.marginal_calories = summary.marginalCalories || null
       } else if (activityResponse.status === 401 || activityResponse.status === 403) {
         const errorText = await activityResponse.text().catch(() => '')
         throw new Error(`Authorization failed: ${activityResponse.status}. Please reconnect your Fitbit account.`)
@@ -281,35 +274,8 @@ export default async function handler(req, res) {
       }
     }
     
-    // Fetch body composition (weight, BMI, fat) if available
-    try {
-      const bodyResponse = await fetch(
-        `https://api.fitbit.com/1/user/-/body/log/weight/date/${date}.json`,
-        {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`
-          }
-        }
-      )
-      
-      if (bodyResponse.ok) {
-        const bodyJson = await bodyResponse.json()
-        if (bodyJson.weight && bodyJson.weight.length > 0) {
-          const latestWeight = bodyJson.weight[bodyJson.weight.length - 1]
-          fitbitData.weight = latestWeight.weight || null
-          fitbitData.bmi = latestWeight.bmi || null
-          fitbitData.fat = latestWeight.fat || null
-        }
-      }
-    } catch (e) {
-      // Body composition is optional, don't fail if unavailable
-      console.log('Body composition data not available:', e.message)
-    }
-    
-
-    // Save to fitbit_daily table - ensure all stats are saved
-    // First try with all fields
-    let saveData = {
+    // Save to fitbit_daily table - only sync metrics we're actually using
+    const saveData = {
       user_id: userId,
       date: date,
       hrv: fitbitData.hrv || null,
@@ -324,39 +290,12 @@ export default async function handler(req, res) {
       updated_at: new Date().toISOString()
     }
     
-    // Add optional fields that may not exist in schema
-    // Note: weight, bmi, and fat are not included as they may not exist in all schemas
-    const optionalFields = {
-      marginal_calories: fitbitData.marginal_calories,
-      sedentary_minutes: fitbitData.sedentary_minutes,
-      lightly_active_minutes: fitbitData.lightly_active_minutes,
-      fairly_active_minutes: fitbitData.fairly_active_minutes,
-      very_active_minutes: fitbitData.very_active_minutes
-    }
-    
-    // Try saving with all fields first
-    let { error: saveError } = await supabase
+    // Save to fitbit_daily table
+    const { error: saveError } = await supabase
       .from('fitbit_daily')
-      .upsert({
-        ...saveData,
-        ...optionalFields
-      }, { onConflict: 'user_id,date' })
+      .upsert(saveData, { onConflict: 'user_id,date' })
 
-    // If error is about missing columns, retry without optional fields
-    if (saveError && saveError.code === 'PGRST204') {
-      console.warn('Some columns missing in fitbit_daily table, saving without optional fields:', saveError.message)
-      const { error: retryError } = await supabase
-        .from('fitbit_daily')
-        .upsert(saveData, { onConflict: 'user_id,date' })
-      
-      if (retryError) {
-        console.error('Error saving Fitbit data (retry):', retryError)
-        return res.status(500).json({ 
-          message: 'Failed to save data',
-          error: retryError 
-        })
-      }
-    } else if (saveError) {
+    if (saveError) {
       console.error('Error saving Fitbit data:', saveError)
       return res.status(500).json({ 
         message: 'Failed to save data',

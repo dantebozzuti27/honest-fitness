@@ -237,8 +237,12 @@ export default function Health() {
               }
             }
             
-            // Sort by date descending
-            mergedMetrics.sort((a, b) => new Date(b.date) - new Date(a.date))
+            // Sort by date descending (newest first)
+            mergedMetrics.sort((a, b) => {
+              const dateA = new Date(a.date)
+              const dateB = new Date(b.date)
+              return dateB - dateA
+            })
             setMetrics(mergedMetrics)
           } else {
             // If Fitbit query fails, just use regular metrics
@@ -429,183 +433,208 @@ export default function Health() {
       </div>
 
       <div className={styles.content}>
-        {activeTab === 'Today' && (
-          <div>
-        {/* Readiness Score Card - Top Priority */}
-        {readiness && (
-          <div className={`${styles.readinessCard} ${styles[`readiness${readiness.zone}`]}`}>
-            <div className={styles.readinessHeader}>
-              <h2>Honest Readiness</h2>
-              <span className={styles.readinessZone}>{readiness.zone.toUpperCase()}</span>
-            </div>
-            <div className={styles.readinessScore}>
-              <span className={styles.readinessNumber}>{readiness.score}</span>
-              <span className={styles.readinessLabel}>/ 100</span>
-            </div>
-            <div className={styles.readinessComponents}>
-              <div className={styles.component}>
-                <span className={styles.componentLabel}>Load</span>
-                <span className={styles.componentValue}>
-                  {readiness.ac_ratio !== undefined ? readiness.ac_ratio : 
-                   readiness.components?.acRatio !== undefined ? readiness.components.acRatio : 'N/A'}
-                </span>
-              </div>
-              <div className={styles.component}>
-                <span className={styles.componentLabel}>HRV</span>
-                <span className={styles.componentValue}>
-                  {readiness.hrv_score !== undefined ? readiness.hrv_score : 
-                   readiness.components?.hrvScore !== undefined ? readiness.components.hrvScore : 'N/A'}
-                </span>
-              </div>
-              <div className={styles.component}>
-                <span className={styles.componentLabel}>Sleep</span>
-                <span className={styles.componentValue}>
-                  {readiness.sleep_score !== undefined ? readiness.sleep_score : 
-                   readiness.components?.sleepScore !== undefined ? readiness.components.sleepScore : 'N/A'}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
+        {activeTab === 'Today' && (() => {
+          const todayMetric = metrics.find(m => m.date === getTodayEST()) || {
+            date: getTodayEST(),
+            steps: null,
+            sleep_time: null,
+            sleep_score: null,
+            hrv: null,
+            calories: null,
+            weight: null,
+            resting_heart_rate: null,
+            body_temp: null
+          }
+          
+          return (
+            <div className={styles.dashboardContainer}>
+              {/* Readiness Score Card - Top Priority */}
+              {readiness && (
+                <div className={`${styles.readinessCard} ${styles[`readiness${readiness.zone}`]}`}>
+                  <div className={styles.readinessHeader}>
+                    <h2>Honest Readiness</h2>
+                    <span className={styles.readinessZone}>{readiness.zone.toUpperCase()}</span>
+                  </div>
+                  <div className={styles.readinessScore}>
+                    <span className={styles.readinessNumber}>{readiness.score}</span>
+                    <span className={styles.readinessLabel}>/ 100</span>
+                  </div>
+                  <div className={styles.readinessComponents}>
+                    <div className={styles.component}>
+                      <span className={styles.componentLabel}>Load</span>
+                      <span className={styles.componentValue}>
+                        {readiness.ac_ratio !== undefined ? readiness.ac_ratio : 
+                         readiness.components?.acRatio !== undefined ? readiness.components.acRatio : 'N/A'}
+                      </span>
+                    </div>
+                    <div className={styles.component}>
+                      <span className={styles.componentLabel}>HRV</span>
+                      <span className={styles.componentValue}>
+                        {readiness.hrv_score !== undefined ? readiness.hrv_score : 
+                         readiness.components?.hrvScore !== undefined ? readiness.components.hrvScore : 'N/A'}
+                      </span>
+                    </div>
+                    <div className={styles.component}>
+                      <span className={styles.componentLabel}>Sleep</span>
+                      <span className={styles.componentValue}>
+                        {readiness.sleep_score !== undefined ? readiness.sleep_score : 
+                         readiness.components?.sleepScore !== undefined ? readiness.components.sleepScore : 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-        {/* Fitbit Stats - Show at top */}
-        {fitbitData ? (
-          <div className={styles.fitbitCard}>
-            <h3>Fitbit Data {fitbitData.date && fitbitData.date !== getTodayEST() ? `(${fitbitData.date})` : ''}</h3>
-            <div className={styles.fitbitStatsGrid}>
-              {fitbitData.steps != null && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Steps</span>
-                  <span className={styles.fitbitStatValue}>{Number(fitbitData.steps).toLocaleString()}</span>
-                </div>
-              )}
-              {fitbitData.calories != null && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Calories</span>
-                  <span className={styles.fitbitStatValue}>{Number(fitbitData.calories).toLocaleString()}</span>
-                </div>
-              )}
-              {fitbitData.active_calories != null && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Active Calories</span>
-                  <span className={styles.fitbitStatValue}>{Number(fitbitData.active_calories).toLocaleString()}</span>
-                </div>
-              )}
-              {fitbitData.sleep_duration != null && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Sleep</span>
-                  <span className={styles.fitbitStatValue}>
-                    {Math.floor(Number(fitbitData.sleep_duration) / 60)}h {Math.round(Number(fitbitData.sleep_duration) % 60)}m
-                  </span>
-                </div>
-              )}
-              {fitbitData.sleep_efficiency != null && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Sleep Efficiency</span>
-                  <span className={styles.fitbitStatValue}>{Math.round(Number(fitbitData.sleep_efficiency))}%</span>
-                </div>
-              )}
-              {fitbitData.hrv != null && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>HRV</span>
-                  <span className={styles.fitbitStatValue}>{Math.round(Number(fitbitData.hrv))} ms</span>
-                </div>
-              )}
-              {fitbitData.resting_heart_rate != null && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Resting HR</span>
-                  <span className={styles.fitbitStatValue}>{Math.round(Number(fitbitData.resting_heart_rate))} bpm</span>
-                </div>
-              )}
-              {fitbitData.distance != null && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Distance</span>
-                  <span className={styles.fitbitStatValue}>{Number(fitbitData.distance).toFixed(2)} km</span>
-                </div>
-              )}
-              {fitbitData.floors != null && (
-                <div className={styles.fitbitStatItem}>
-                  <span className={styles.fitbitStatLabel}>Floors</span>
-                  <span className={styles.fitbitStatValue}>{Number(fitbitData.floors)}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className={styles.fitbitCard}>
-            <h3>Fitbit Data</h3>
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              <p>No Fitbit data available. Connect your Fitbit and sync data to see your health metrics here.</p>
-              <button
-                className={styles.actionBtn}
-                onClick={() => navigate('/wearables')}
-                style={{ marginTop: '12px' }}
-              >
-                Connect Fitbit
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Sync Button - Show if Fitbit is connected */}
-        {wearables.some(w => w.provider === 'fitbit') && (
-          <div className={styles.fitbitCard}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3 style={{ margin: 0 }}>Sync Fitbit Data</h3>
-              <button
-                className={styles.actionBtn}
-                onClick={handleSyncFitbit}
-                disabled={syncing}
-                style={{ minWidth: '120px' }}
-              >
-                {syncing ? 'Syncing...' : 'Sync Now'}
-              </button>
-            </div>
-            {syncError && (
-              <div style={{ 
-                padding: '12px', 
-                marginTop: '12px', 
-                backgroundColor: 'var(--bg-tertiary)', 
-                borderRadius: '8px',
-                color: 'var(--error)',
-                fontSize: '14px'
-              }}>
-                {syncError}
-              </div>
-            )}
-          </div>
-        )}
-
-
-
-            {/* Quick Actions */}
-            <div className={styles.actionsCard}>
-              <h3>Quick Actions</h3>
-              <div className={styles.actionsGrid}>
-                <button
-                  className={styles.actionBtn}
-                  onClick={() => navigate('/fitness')}
+              {/* Dashboard Grid - Individual Metric Cards */}
+              <div className={styles.dashboardGrid}>
+                {/* Steps Card */}
+                <div 
+                  className={styles.dashboardCard}
+                  onClick={() => {
+                    setEditingMetric({ ...todayMetric })
+                    setShowLogModal(true)
+                  }}
                 >
-                  Log Workout
-                </button>
-                <button
-                  className={styles.actionBtn}
-                  onClick={() => navigate('/nutrition')}
+                  <div className={styles.dashboardStat}>
+                    <span className={styles.dashboardStatLabel}>Steps</span>
+                    <span className={styles.dashboardStatValue}>
+                      {fitbitData?.steps != null 
+                        ? Number(fitbitData.steps).toLocaleString()
+                        : todayMetric?.steps != null
+                        ? Number(todayMetric.steps).toLocaleString()
+                        : '-'}
+                    </span>
+                  </div>
+                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                </div>
+
+                {/* Calories Card */}
+                <div 
+                  className={styles.dashboardCard}
+                  onClick={() => {
+                    setEditingMetric({ ...todayMetric })
+                    setShowLogModal(true)
+                  }}
                 >
-                  Log Meal
-                </button>
-                {!healthMetrics.hasWearables && (
-                  <button
-                    className={styles.actionBtn}
-                    onClick={() => navigate('/wearables')}
-                  >
-                    Connect Fitbit
-                  </button>
-                )}
+                  <div className={styles.dashboardStat}>
+                    <span className={styles.dashboardStatLabel}>Calories</span>
+                    <span className={styles.dashboardStatValue}>
+                      {fitbitData?.calories != null 
+                        ? Number(fitbitData.calories).toLocaleString()
+                        : todayMetric?.calories_burned != null
+                        ? Number(todayMetric.calories_burned).toLocaleString()
+                        : '-'}
+                    </span>
+                  </div>
+                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                </div>
+
+                {/* HRV Card */}
+                <div 
+                  className={styles.dashboardCard}
+                  onClick={() => {
+                    setEditingMetric({ ...todayMetric })
+                    setShowLogModal(true)
+                  }}
+                >
+                  <div className={styles.dashboardStat}>
+                    <span className={styles.dashboardStatLabel}>HRV</span>
+                    <span className={styles.dashboardStatValue}>
+                      {fitbitData?.hrv != null 
+                        ? `${Math.round(Number(fitbitData.hrv))} ms`
+                        : todayMetric?.hrv != null
+                        ? `${Math.round(Number(todayMetric.hrv))} ms`
+                        : '-'}
+                    </span>
+                  </div>
+                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                </div>
+
+                {/* Sleep Card */}
+                <div 
+                  className={styles.dashboardCard}
+                  onClick={() => {
+                    setEditingMetric({ ...todayMetric })
+                    setShowLogModal(true)
+                  }}
+                >
+                  <div className={styles.dashboardStat}>
+                    <span className={styles.dashboardStatLabel}>Sleep</span>
+                    <span className={styles.dashboardStatValue}>
+                      {fitbitData?.sleep_duration != null 
+                        ? `${Math.floor(Number(fitbitData.sleep_duration) / 60)}h ${Math.round(Number(fitbitData.sleep_duration) % 60)}m`
+                        : todayMetric?.sleep_time != null
+                        ? `${Math.floor(Number(todayMetric.sleep_time) / 60)}h ${Math.round(Number(todayMetric.sleep_time) % 60)}m`
+                        : '-'}
+                    </span>
+                  </div>
+                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                </div>
+
+                {/* Weight Card */}
+                <div 
+                  className={styles.dashboardCard}
+                  onClick={() => {
+                    setEditingMetric({ ...todayMetric })
+                    setShowLogModal(true)
+                  }}
+                >
+                  <div className={styles.dashboardStat}>
+                    <span className={styles.dashboardStatLabel}>Weight</span>
+                    <span className={styles.dashboardStatValue}>
+                      {todayMetric?.weight != null 
+                        ? `${todayMetric.weight} lbs`
+                        : '-'}
+                    </span>
+                  </div>
+                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                </div>
+
+                {/* Resting HR Card */}
+                <div 
+                  className={styles.dashboardCard}
+                  onClick={() => {
+                    setEditingMetric({ ...todayMetric })
+                    setShowLogModal(true)
+                  }}
+                >
+                  <div className={styles.dashboardStat}>
+                    <span className={styles.dashboardStatLabel}>Resting HR</span>
+                    <span className={styles.dashboardStatValue}>
+                      {fitbitData?.resting_heart_rate != null 
+                        ? `${Math.round(Number(fitbitData.resting_heart_rate))} bpm`
+                        : todayMetric?.resting_heart_rate != null
+                        ? `${Math.round(Number(todayMetric.resting_heart_rate))} bpm`
+                        : '-'}
+                    </span>
+                  </div>
+                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                </div>
               </div>
+
+              {/* Sync Button - Show if Fitbit is connected */}
+              {wearables.some(w => w.provider === 'fitbit') && (
+                <div className={styles.syncCard}>
+                  <div className={styles.syncHeader}>
+                    <h3>Fitbit Sync</h3>
+                    <button
+                      className={styles.actionBtn}
+                      onClick={handleSyncFitbit}
+                      disabled={syncing}
+                    >
+                      {syncing ? 'Syncing...' : 'Sync Now'}
+                    </button>
+                  </div>
+                  {syncError && (
+                    <div className={styles.syncError}>
+                      {syncError}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {activeTab === 'History' && (
           <div>
@@ -659,8 +688,7 @@ export default function Health() {
                   </div>
                   <div className={styles.historyTableBody}>
                     {metrics
-                      .slice(-14)
-                      .reverse()
+                      .slice(0, 14)
                       .map(metric => {
                         // Check if metric has any data (Fitbit or manual)
                         const hasData = metric.steps || metric.hrv || metric.calories_burned || metric.calories || metric.sleep_score || metric.weight

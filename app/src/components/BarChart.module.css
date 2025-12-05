@@ -316,10 +316,15 @@
 .popupChartContainer {
   width: 100%;
   margin: 16px 0;
+  padding: 16px;
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  overflow: hidden;
+  overflow: visible;
+  min-height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .shareControls {

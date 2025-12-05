@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { hasExercises } from '../db'
 import { initializeData } from '../utils/initData'
 import { useAuth } from '../context/AuthContext'
-import { calculateStreakFromSupabase, getWorkoutsFromSupabase } from '../lib/supabaseDb'
+import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences } from '../lib/supabaseDb'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
@@ -46,6 +46,25 @@ export default function Home() {
             // Silently fail
           }
           
+          // Refresh profile picture when visibility changes
+          const handleVisibilityChange = async () => {
+            if (!document.hidden && user) {
+              try {
+                const prefs = await getUserPreferences(user.id)
+                if (prefs?.profile_picture) {
+                  setProfilePicture(prefs.profile_picture)
+                }
+              } catch (e) {
+                // Silently fail
+              }
+            }
+          }
+          document.addEventListener('visibilitychange', handleVisibilityChange)
+          
+          return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange)
+          }
+          
           // Load Fitbit steps (try today, then yesterday, then most recent)
           try {
             const today = getTodayEST()
@@ -68,8 +87,20 @@ export default function Home() {
             // Silently fail - Fitbit data is optional
           }
 
-          // Load recent logs for feed
+          // Load recent logs for feed (this will also refresh profile picture)
           await loadRecentLogs(user.id)
+          
+          // Also refresh profile picture after a short delay to ensure it's loaded
+          setTimeout(async () => {
+            try {
+              const prefs = await getUserPreferences(user.id)
+              if (prefs?.profile_picture) {
+                setProfilePicture(prefs.profile_picture)
+              }
+            } catch (e) {
+              // Silently fail
+            }
+          }, 500)
         } catch (e) {
           // Silently fail - data will load on retry
         }
@@ -87,6 +118,25 @@ export default function Home() {
       navigate('/wearables?fitbit_connected=true', { replace: true })
     } else if (fitbitError) {
       navigate(`/wearables?fitbit_error=${fitbitError}`, { replace: true })
+    }
+    
+    // Refresh profile picture when visibility changes
+    const handleVisibilityChange = async () => {
+      if (!document.hidden && user) {
+        try {
+          const prefs = await getUserPreferences(user.id)
+          if (prefs?.profile_picture) {
+            setProfilePicture(prefs.profile_picture)
+          }
+        } catch (e) {
+          // Silently fail
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [user, navigate])
 

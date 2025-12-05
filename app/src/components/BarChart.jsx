@@ -414,10 +414,15 @@ export default function BarChart({
 
               {/* Expanded Chart View with Scale-Based Zoom */}
               <div className={styles.popupChartContainer} ref={chartRef}>
-                <div className={styles.chartContainer} style={{ height: '300px' }}>
-                  <div className={styles.chartWrapper}>
-                    {chartData && chartData.values.length > 0 && (
-                      <svg viewBox="0 0 100 100" className={styles.chart} preserveAspectRatio="xMidYMid meet">
+                {chartData && chartData.values.length > 0 ? (
+                  <div className={styles.chartContainer} style={{ height: '300px', width: '100%' }}>
+                    <div className={styles.chartWrapper} style={{ width: '100%', height: '100%' }}>
+                      <svg 
+                        viewBox="0 0 100 100" 
+                        className={styles.chart} 
+                        preserveAspectRatio="xMidYMid meet"
+                        style={{ width: '100%', height: '100%' }}
+                      >
                         {/* Y-axis line */}
                         <line
                           x1="10"
@@ -457,12 +462,11 @@ export default function BarChart({
                           )
                         })}
                       </svg>
-                    )}
-                    {(!chartData || chartData.values.length === 0) && (
-                      <div className={styles.emptyChart}>No data to display</div>
-                    )}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className={styles.emptyChart}>No data to display</div>
+                )}
               </div>
 
               {/* Share Button */}

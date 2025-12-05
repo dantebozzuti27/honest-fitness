@@ -19,7 +19,10 @@ export default function ShareModal({ type, data, onClose }) {
     }
     
     // Small delay to ensure card is rendered
-    setTimeout(generateImage, 100)
+    const timeoutId = setTimeout(generateImage, 100)
+    
+    // Cleanup timeout on unmount
+    return () => clearTimeout(timeoutId)
   }, [type, data])
 
   const handleNativeShare = async () => {

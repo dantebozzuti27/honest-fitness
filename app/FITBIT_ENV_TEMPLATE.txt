@@ -9,23 +9,24 @@
 # Add these for Production, Preview, and Development:
 
 # Fitbit OAuth (Server-side - for API routes)
-FITBIT_CLIENT_ID=23TLJ5
-FITBIT_CLIENT_SECRET=52a08b3f9b3ed5d0e157e5aa46ac06a8
-FITBIT_REDIRECT_URI=https://honest-fitness.vercel.app/api/fitbit/callback
+# Replace with your actual values from https://dev.fitbit.com/apps
+FITBIT_CLIENT_ID=YOUR_CLIENT_ID_HERE
+FITBIT_CLIENT_SECRET=YOUR_CLIENT_SECRET_HERE
+FITBIT_REDIRECT_URI=https://your-domain.vercel.app/api/fitbit/callback
 
 # Fitbit OAuth (Client-side - for frontend)
-VITE_FITBIT_CLIENT_ID=23TLJ5
-VITE_FITBIT_REDIRECT_URI=https://honest-fitness.vercel.app/api/fitbit/callback
+VITE_FITBIT_CLIENT_ID=YOUR_CLIENT_ID_HERE
+VITE_FITBIT_REDIRECT_URI=https://your-domain.vercel.app/api/fitbit/callback
 
 # ============================================
 # FOR LOCAL DEVELOPMENT (Optional - only if testing locally)
 # ============================================
 # If you want to test locally, use these in your .env file:
 
-# FITBIT_CLIENT_ID=23TLJ5
-# FITBIT_CLIENT_SECRET=52a08b3f9b3ed5d0e157e5aa46ac06a8
+# FITBIT_CLIENT_ID=YOUR_CLIENT_ID_HERE
+# FITBIT_CLIENT_SECRET=YOUR_CLIENT_SECRET_HERE
 # FITBIT_REDIRECT_URI=http://localhost:5173/api/fitbit/callback
-# VITE_FITBIT_CLIENT_ID=23TLJ5
+# VITE_FITBIT_CLIENT_ID=YOUR_CLIENT_ID_HERE
 # VITE_FITBIT_REDIRECT_URI=http://localhost:5173/api/fitbit/callback
 
 # ============================================

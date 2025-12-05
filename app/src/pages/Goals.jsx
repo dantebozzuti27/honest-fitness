@@ -12,6 +12,7 @@ import { getWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { logError } from '../utils/logger'
 import styles from './Goals.module.css'
 
 const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
@@ -83,7 +84,7 @@ export default function Goals() {
       setAllGoals(activeGoals)
       setPastGoals(allGoals)
     } catch (error) {
-      console.error('Error loading goals', error)
+      logError('Error loading goals', error)
     } finally {
       setLoading(false)
     }

@@ -4,7 +4,7 @@
  */
 
 import { supabase } from './supabase'
-import { logError } from '../utils/logger'
+import { logError, logDebug } from '../utils/logger'
 
 /**
  * Save meal data to database
@@ -39,7 +39,7 @@ export async function saveMealToSupabase(userId, date, meal) {
         }
       }
     } catch (e) {
-      console.error('Error parsing existing meals:', e)
+      logError('Error parsing existing meals', e)
       meals = []
       totalCalories = 0
       totalMacros = { protein: 0, carbs: 0, fat: 0 }
@@ -142,7 +142,7 @@ export async function saveMealToSupabase(userId, date, meal) {
       .single()
     
     if (error) {
-      console.error('Error saving meal to Supabase:', error)
+      logError('Error saving meal to Supabase', error)
       throw error
     }
     
@@ -150,13 +150,11 @@ export async function saveMealToSupabase(userId, date, meal) {
   }
   
   if (error) {
-    console.error('Error saving meal to Supabase:', error)
-    console.error('Meal data:', mealToAdd)
-    console.error('Meals array:', meals)
+    logError('Error saving meal to Supabase', { error, mealToAdd, meals })
     throw error
   }
   
-  console.log('Meal saved successfully:', data)
+  logDebug('Meal saved successfully', data)
   return data
 }
 
@@ -218,16 +216,16 @@ export async function getMealsFromSupabase(userId, date) {
       }
       // Ensure macros is an object
       if (!macros || typeof macros !== 'object' || Array.isArray(macros)) {
-        console.warn('Macros is not an object:', macros, 'Type:', typeof macros)
+        logError('Macros is not an object', { macros, type: typeof macros })
         macros = { protein: 0, carbs: 0, fat: 0 }
       }
     } catch (e) {
-      console.error('Error parsing macros:', e, 'Raw data:', data.macros)
+      logError('Error parsing macros', { error: e, rawData: data.macros })
       macros = { protein: 0, carbs: 0, fat: 0 }
     }
   }
   
-  console.log('Loaded meals for', date, ':', meals.length, 'meals')
+  logDebug(`Loaded meals for ${date}: ${meals.length} meals`)
   
   return {
     meals: meals || [],
@@ -459,11 +457,11 @@ export async function getNutritionSettingsFromSupabase(userId) {
         ? JSON.parse(data.nutrition_settings) 
         : data.nutrition_settings
     } catch (e) {
-      console.error('Error parsing nutrition settings:', e)
+      logError('Error parsing nutrition settings', e)
       return null
     }
   } catch (e) {
-    console.error('Error getting nutrition settings:', e)
+    logError('Error getting nutrition settings', e)
     return null
   }
 }
@@ -518,7 +516,7 @@ export async function getWeeklyMealPlanFromSupabase(userId) {
         ? JSON.parse(data.weekly_meal_plan) 
         : data.weekly_meal_plan
     } catch (e) {
-      console.error('Error parsing weekly meal plan:', e)
+      logError('Error parsing weekly meal plan', e)
       return null
     }
   } catch (e) {

@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { toInteger, toNumber } from '../utils/numberUtils'
 
 // ============ WORKOUTS ============
 
@@ -201,8 +202,6 @@ export async function deleteWorkoutFromSupabase(workoutId) {
 
 // ============ DAILY METRICS ============
 
-import { toInteger, toNumber } from '../utils/numberUtils'
-
 export async function saveMetricsToSupabase(userId, date, metrics) {
   console.log('saveMetricsToSupabase called with:', { userId, date, metrics })
   
@@ -233,7 +232,7 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
   
   const metricsToSave = { ...baseMetrics, ...optionalMetrics }
   
-  console.log('saveMetricsToSupabase: Prepared data:', metricsToSave)
+  logDebug('saveMetricsToSupabase: Prepared data', metricsToSave)
   
   try {
     // Try with all metrics first
@@ -249,38 +248,38 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
         error.message?.includes('body_temp') ||
         error.message?.includes('calories_burned')
       )) {
-        console.warn('Optional columns missing, retrying with base metrics only')
+        logDebug('Optional columns missing, retrying with base metrics only')
         const { data: retryData, error: retryError } = await supabase
           .from('daily_metrics')
           .upsert(baseMetrics, { onConflict: 'user_id,date' })
           .select()
         
         if (retryError) {
-          console.error('saveMetricsToSupabase: Error from Supabase (retry):', retryError)
+          logError('saveMetricsToSupabase: Error from Supabase (retry)', retryError)
           throw retryError
         }
         
-        console.log('saveMetricsToSupabase: Success (without optional columns), returned data:', retryData)
+        logDebug('saveMetricsToSupabase: Success (without optional columns)', retryData)
         return retryData
       }
       
-      console.error('saveMetricsToSupabase: Error from Supabase:', error)
+      logError('saveMetricsToSupabase: Error from Supabase', error)
       throw error
     }
     
-    console.log('saveMetricsToSupabase: Success, returned data:', data)
+    logDebug('saveMetricsToSupabase: Success', data)
     return data
   } catch (err) {
     // Final fallback: try with base metrics only
     if (err.code === 'PGRST204') {
-      console.warn('Columns missing, using base metrics only')
+      logDebug('Columns missing, using base metrics only')
       const { data, error } = await supabase
         .from('daily_metrics')
         .upsert(baseMetrics, { onConflict: 'user_id,date' })
         .select()
       
       if (error) {
-        console.error('saveMetricsToSupabase: Error from Supabase (fallback):', error)
+        logError('saveMetricsToSupabase: Error from Supabase (fallback)', error)
         throw error
       }
       
@@ -349,17 +348,17 @@ export async function getBodyPartStats(userId) {
   const workouts = await getWorkoutsFromSupabase(userId)
   const bodyPartCounts = {}
   
-  console.log('getBodyPartStats - workouts:', workouts.length)
+  logDebug('getBodyPartStats - workouts', workouts.length)
   
   workouts.forEach(w => {
     w.workout_exercises?.forEach(ex => {
       const bp = ex.body_part || 'Other'
-      console.log('Exercise:', ex.exercise_name, 'Body part:', bp)
+      logDebug('Exercise body part', { exercise: ex.exercise_name, bodyPart: bp })
       bodyPartCounts[bp] = (bodyPartCounts[bp] || 0) + 1
     })
   })
   
-  console.log('Body part counts:', bodyPartCounts)
+  logDebug('Body part counts', bodyPartCounts)
   return bodyPartCounts
 }
 

@@ -85,7 +85,7 @@ async function apiRequest(endpoint, options = {}) {
     if (error.name === 'AbortError') {
       throw new Error('Request timeout. Please check your connection.')
     }
-    console.error('API request error:', error)
+    // Error is already handled by caller, no need to log here
     throw error
   }
 }

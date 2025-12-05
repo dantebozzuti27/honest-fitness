@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react'
 import styles from './ShareCard.module.css'
 
-export default function ShareCard({ type, data, onClose }) {
+export default function ShareCard({ type, data }) {
   const cardRef = useRef(null)
 
   const formatDuration = (minutes) => {

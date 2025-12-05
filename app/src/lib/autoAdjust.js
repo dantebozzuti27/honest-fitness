@@ -1,5 +1,6 @@
 import { getReadinessScore } from './readiness'
 import { getTodayEST } from '../utils/dateUtils'
+import { logError } from '../utils/logger'
 
 /**
  * Auto-adjust workout program based on readiness score
@@ -43,7 +44,7 @@ export async function getAutoAdjustmentFactor(userId, date = null) {
       message
     }
   } catch (error) {
-    console.error('Error getting auto-adjustment:', error)
+    logError('Error getting auto-adjustment', error)
     return { factor: 1.0, zone: 'unknown', message: 'Error calculating adjustment' }
   }
 }

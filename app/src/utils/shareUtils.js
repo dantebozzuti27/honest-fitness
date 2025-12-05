@@ -22,7 +22,7 @@ export async function generateShareImage(cardElement) {
     
     return canvas.toDataURL('image/png')
   } catch (error) {
-    console.error('Error generating share image:', error)
+    // Silently fail - image generation is optional
     return null
   }
 }
@@ -50,8 +50,12 @@ export async function shareNative(title, text, url, imageUrl = null) {
     await navigator.share(shareData)
     return true
   } catch (error) {
+    // User cancelled or error occurred - silently fail
     if (error.name !== 'AbortError') {
-      console.error('Error sharing:', error)
+      // Log only in development
+      if (import.meta.env.DEV) {
+        console.error('Error sharing:', error)
+      }
     }
     return false
   }
@@ -69,7 +73,7 @@ export async function copyImageToClipboard(dataUrl) {
     ])
     return true
   } catch (error) {
-    console.error('Error copying image:', error)
+    // Silently fail - clipboard access may not be available
     return false
   }
 }

@@ -61,7 +61,7 @@ export async function analyzeMeal(input) {
       confidence: data.confidence || null
     }
   } catch (error) {
-    console.error('Cal AI API error:', error)
+    // Re-throw with original error for caller to handle
     throw error
   }
 }

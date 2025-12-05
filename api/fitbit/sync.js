@@ -253,7 +253,14 @@ export default async function handler(req, res) {
       if (activityResponse.ok) {
         const activityJson = await activityResponse.json()
         const summary = activityJson.summary || {}
-        fitbitData.steps = summary.steps != null ? Math.round(Number(summary.steps)) : null
+        // Ensure steps is always an integer, handle string conversion
+        const stepsValue = summary.steps
+        if (stepsValue != null && stepsValue !== '') {
+          const num = typeof stepsValue === 'string' ? parseFloat(stepsValue) : Number(stepsValue)
+          fitbitData.steps = isNaN(num) ? null : Math.round(num)
+        } else {
+          fitbitData.steps = null
+        }
         fitbitData.calories = summary.caloriesOut != null ? Number(summary.caloriesOut) : null
         fitbitData.active_calories = summary.activityCalories != null ? Number(summary.activityCalories) : null
         fitbitData.distance = summary.distances && summary.distances.length > 0 && summary.distances[0].distance != null
@@ -275,6 +282,13 @@ export default async function handler(req, res) {
     
     // Save to fitbit_daily table - only sync metrics we're actually using
     // Ensure steps is an integer (not a decimal string)
+    // Helper to ensure integer conversion
+    const toInteger = (val) => {
+      if (val === null || val === undefined || val === '') return null
+      const num = typeof val === 'string' ? parseFloat(val) : Number(val)
+      return isNaN(num) ? null : Math.round(num)
+    }
+    
     const saveData = {
       user_id: userId,
       date: date,
@@ -282,7 +296,7 @@ export default async function handler(req, res) {
       resting_heart_rate: fitbitData.resting_heart_rate != null ? Number(fitbitData.resting_heart_rate) : null,
       sleep_duration: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
       sleep_efficiency: fitbitData.sleep_efficiency != null ? Number(fitbitData.sleep_efficiency) : null,
-      steps: fitbitData.steps != null ? Math.round(Number(fitbitData.steps)) : null,
+      steps: toInteger(fitbitData.steps), // INTEGER - must be whole number, handle string conversion
       calories: fitbitData.calories != null ? Number(fitbitData.calories) : null,
       active_calories: fitbitData.active_calories != null ? Number(fitbitData.active_calories) : null,
       distance: fitbitData.distance != null ? Number(fitbitData.distance) : null,
@@ -304,22 +318,27 @@ export default async function handler(req, res) {
 
     // Also merge into daily_metrics for use in workout page
     try {
+      // Helper to ensure integer conversion
+      const toInteger = (val) => {
+        if (val === null || val === undefined || val === '') return null
+        const num = typeof val === 'string' ? parseFloat(val) : Number(val)
+        return isNaN(num) ? null : Math.round(num)
+      }
+      
       const merged = {
         hrv: fitbitData.hrv != null ? Number(fitbitData.hrv) : null,
         sleep_time: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
         sleep_score: fitbitData.sleep_efficiency != null ? Math.round(Number(fitbitData.sleep_efficiency)) : null,
-        steps: (() => {
-          const val = fitbitData.steps
-          if (val === null || val === undefined || val === '') return null
-          const num = Number(val)
-          return isNaN(num) ? null : Math.round(num)
-        })(),
+        steps: toInteger(fitbitData.steps), // INTEGER - must be whole number
         calories: (fitbitData.calories || fitbitData.active_calories) != null ? Number(fitbitData.calories || fitbitData.active_calories) : null,
         weight: null
       }
       
       // Update daily_metrics - only if we have data
       if (merged.hrv || merged.sleep_time || merged.steps || merged.calories) {
+        // Double-check steps is an integer before saving
+        const stepsValue = merged.steps != null ? Math.round(Number(merged.steps)) : null
+        
         const { error: metricsError } = await supabase
           .from('daily_metrics')
           .upsert({
@@ -328,7 +347,7 @@ export default async function handler(req, res) {
             sleep_score: merged.sleep_score,
             sleep_time: merged.sleep_time,
             hrv: merged.hrv,
-            steps: merged.steps,
+            steps: stepsValue, // Explicitly ensure integer
             calories: merged.calories,
             weight: null
           }, { onConflict: 'user_id,date' })

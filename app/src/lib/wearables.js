@@ -82,7 +82,7 @@ export async function saveOuraDaily(userId, date, data) {
       activity_score: data.activity_score || null,
       readiness_score: data.readiness_score || null,
       calories: data.calories || null,
-      steps: data.steps || null,
+      steps: toInteger(data.steps), // INTEGER column - must be whole number
       active_calories: data.active_calories || null,
       updated_at: new Date().toISOString()
     }, { onConflict: 'user_id,date' })
@@ -184,7 +184,7 @@ export async function getMostRecentFitbitData(userId) {
     .maybeSingle()
   
   if (error) {
-    console.error('Error getting most recent Fitbit data:', error)
+    logError('Error getting most recent Fitbit data', error)
     return null
   }
   return data
@@ -406,7 +406,7 @@ async function syncFitbitDataDirect(userId, date = null) {
       }
     } catch (hrvError) {
       // HRV endpoint might not be available for all devices
-      console.log('HRV data not available:', hrvError)
+      logDebug('HRV data not available', hrvError)
     }
     
     // Also check sleep data for HRV (some Fitbit devices include HRV in sleep)
@@ -478,7 +478,7 @@ async function syncFitbitDataDirect(userId, date = null) {
     }
     
   } catch (error) {
-    console.error('Error syncing Fitbit data:', error)
+    logError('Error syncing Fitbit data', error)
     
     // If 401, token might be invalid
     if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
@@ -562,7 +562,7 @@ export async function syncAllWearables(userId) {
       }
       results.push({ provider: account.provider, ...result })
     } catch (error) {
-      console.error(`Error syncing ${account.provider}:`, error)
+      logError(`Error syncing ${account.provider}`, error)
       results.push({ provider: account.provider, error: error.message })
     }
   }

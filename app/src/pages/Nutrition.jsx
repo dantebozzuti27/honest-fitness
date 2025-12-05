@@ -6,7 +6,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
-import { logError } from '../utils/logger'
+import { logError, logDebug } from '../utils/logger'
 import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
@@ -63,6 +63,7 @@ export default function Nutrition() {
   const [editingMealPlanDay, setEditingMealPlanDay] = useState(null)
   const [goalsStartDate, setGoalsStartDate] = useState(getTodayEST())
   const [goalsEndDate, setGoalsEndDate] = useState(getTodayEST())
+  const [showShareModal, setShowShareModal] = useState(false)
   const fastingTimerRef = useRef(null)
 
   useEffect(() => {
@@ -346,18 +347,18 @@ export default function Nutrition() {
         timestamp: new Date().toISOString()
       }
       
-      console.log('addMeal: Saving meal:', newMeal)
+      logDebug('addMeal: Saving meal', newMeal)
       
       // Save to database first
       const { saveMealToSupabase } = await import('../lib/nutritionDb')
       const result = await saveMealToSupabase(user.id, selectedDate, newMeal)
-      console.log('addMeal: Save result:', result)
+      logDebug('addMeal: Save result', result)
       
       // Reload data from database to ensure consistency
       await loadDateDataFromSupabase(selectedDate)
-      console.log('addMeal: Data reloaded successfully')
+      logDebug('addMeal: Data reloaded successfully')
     } catch (error) {
-      console.error('addMeal: Error saving meal to database', error)
+      logError('addMeal: Error saving meal to database', error)
       logError('Error saving meal to database', error)
       throw error
     }
@@ -593,7 +594,14 @@ export default function Nutrition() {
       })
 
       if (response.ok) {
-        const data = await response.json()
+        let data
+        try {
+          data = await response.json()
+        } catch (e) {
+          logError('Error parsing dietician response', e)
+          showToast('Failed to parse response. Please try again.', 'error')
+          return
+        }
         setDieticianResult(data.response || data.message || 'Analysis complete')
       } else {
         throw new Error('Dietician analysis failed')
@@ -1319,9 +1327,7 @@ export default function Nutrition() {
       {/* Log Meal Modal */}
       {showManualEntry && createPortal(
         <>
-          {console.log('Rendering Log Meal Modal - showManualEntry is true')}
           <div className={styles.overlay} onClick={() => {
-            console.log('Overlay clicked, closing modal')
             setShowManualEntry(false)
             setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
           }}>
@@ -1432,7 +1438,7 @@ export default function Nutrition() {
                       try {
                         await handleManualEntry()
                       } catch (error) {
-                        console.error('Error in submit button:', error)
+                        logError('Error in submit button', error)
                         showToast('Failed to log meal. Please check console for details.', 'error')
                       }
                     }}

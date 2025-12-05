@@ -9,7 +9,7 @@ import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, mergeWearableDataToMetrics } from '../lib/wearables'
 import { supabase } from '../lib/supabase'
 import { getTodayEST } from '../utils/dateUtils'
-import { logError } from '../utils/logger'
+import { logError, logDebug } from '../utils/logger'
 // All charts are now BarChart only
 import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
@@ -253,7 +253,7 @@ export default function Health() {
           }
         } catch (fitbitError) {
           // If Fitbit merge fails, just use regular metrics
-          console.error('Error merging Fitbit data into metrics:', fitbitError)
+          logError('Error merging Fitbit data into metrics', fitbitError)
           setMetrics(allMetrics || [])
         }
       } else {
@@ -293,7 +293,7 @@ export default function Health() {
       
       showToast('Fitbit data synced successfully!', 'success')
     } catch (error) {
-      console.error('Fitbit sync error:', error)
+      logError('Fitbit sync error', error)
       // Don't show error toast for sync errors - they're expected if account isn't connected
       // Only show if it's a critical error
       const errorMsg = error.message || 'Failed to sync Fitbit data. Please try again or reconnect your account.'
@@ -852,9 +852,7 @@ export default function Health() {
       {/* Log/Edit Metric Modal */}
       {(editingMetric || showLogModal) && createPortal(
         <>
-          {console.log('Rendering Health Metrics Modal - editingMetric:', editingMetric, 'showLogModal:', showLogModal)}
           <div className={styles.overlay} onClick={() => {
-            console.log('Health modal overlay clicked, closing')
             setEditingMetric(null)
             setShowLogModal(false)
           }}>
@@ -1031,7 +1029,7 @@ export default function Health() {
                       }
                       
                       try {
-                        console.log('Saving health metrics:', metricToSave)
+                        logDebug('Saving health metrics', metricToSave)
                         // Use utility functions to ensure proper type conversion
                         const result = await saveMetricsToSupabase(user.id, metricToSave.date, {
                           weight: toNumber(metricToSave.weight),
@@ -1043,14 +1041,13 @@ export default function Health() {
                           restingHeartRate: toNumber(metricToSave.resting_heart_rate),
                           bodyTemp: toNumber(metricToSave.body_temp)
                         })
-                        console.log('Health metrics save result:', result)
+                        logDebug('Health metrics save result', result)
                         await loadAllData()
                         setEditingMetric(null)
                         setShowLogModal(false)
                         showToast('Health metrics saved successfully!', 'success')
                       } catch (e) {
-                        console.error('Error saving metrics:', e)
-                        console.error('Error details:', e.message, e.stack)
+                        logError('Error saving metrics', { error: e, message: e.message, stack: e.stack })
                         showToast(`Failed to save metrics: ${e.message || 'Unknown error'}. Please check console.`, 'error')
                       }
                   }}

@@ -7,8 +7,8 @@ const FITBIT_CLIENT_ID = import.meta.env.VITE_FITBIT_CLIENT_ID || ''
 const FITBIT_REDIRECT_URI = import.meta.env.VITE_FITBIT_REDIRECT_URI || 
   (typeof window !== 'undefined' ? `${window.location.origin}/api/fitbit/callback` : '')
 
-// Debug logging
-if (typeof window !== 'undefined') {
+// Debug logging (only in development)
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
   console.log('[Fitbit Auth] Client ID:', FITBIT_CLIENT_ID ? 'SET' : 'NOT SET')
   console.log('[Fitbit Auth] Redirect URI:', FITBIT_REDIRECT_URI)
 }
@@ -41,24 +41,28 @@ export function getFitbitAuthUrl(userId) {
  * Initiate Fitbit OAuth flow
  */
 export function connectFitbit(userId) {
-  console.log('connectFitbit called with userId:', userId)
-  console.log('FITBIT_CLIENT_ID:', FITBIT_CLIENT_ID ? 'SET' : 'NOT SET')
-  console.log('FITBIT_REDIRECT_URI:', FITBIT_REDIRECT_URI)
+  if (import.meta.env.DEV) {
+    console.log('connectFitbit called with userId:', userId)
+    console.log('FITBIT_CLIENT_ID:', FITBIT_CLIENT_ID ? 'SET' : 'NOT SET')
+    console.log('FITBIT_REDIRECT_URI:', FITBIT_REDIRECT_URI)
+  }
   
   if (!FITBIT_CLIENT_ID) {
     const error = 'Fitbit Client ID not configured. Set VITE_FITBIT_CLIENT_ID in environment variables.'
-    console.error(error)
+    if (import.meta.env.DEV) console.error(error)
     throw new Error(error)
   }
   
   if (!userId) {
     const error = 'User ID is required to connect Fitbit'
-    console.error(error)
+    if (import.meta.env.DEV) console.error(error)
     throw new Error(error)
   }
   
   const authUrl = getFitbitAuthUrl(userId)
-  console.log('Redirecting to Fitbit OAuth:', authUrl)
+  if (import.meta.env.DEV) {
+    console.log('Redirecting to Fitbit OAuth:', authUrl)
+  }
   
   // Use window.location.assign for better error handling
   window.location.assign(authUrl)

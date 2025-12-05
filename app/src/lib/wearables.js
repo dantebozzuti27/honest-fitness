@@ -252,8 +252,8 @@ export async function syncFitbitData(userId, date = null) {
     const { data: { session } } = await supabase.auth.getSession()
     const authToken = session?.access_token || ''
     
-    // Use backend API to sync Fitbit data
-    const response = await fetch('/api/input/fitbit/sync', {
+    // Use serverless function to sync Fitbit data
+    const response = await fetch('/api/fitbit/sync', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',

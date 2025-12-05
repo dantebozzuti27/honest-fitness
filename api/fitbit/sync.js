@@ -343,10 +343,31 @@ export default async function handler(req, res) {
     })
 
   } catch (error) {
-    console.error('Fitbit sync error:', error)
-    return res.status(500).json({ 
-      message: 'Internal server error',
-      error: error.message 
+    console.error('Fitbit sync error:', {
+      userId,
+      date,
+      error: error.message,
+      stack: error.stack
+    })
+    
+    let statusCode = 500
+    let errorMessage = 'Failed to sync Fitbit data'
+    
+    if (error.message?.includes('authorization') || error.message?.includes('reconnect') || error.message?.includes('401') || error.message?.includes('403')) {
+      statusCode = 401
+      errorMessage = 'Fitbit authorization expired. Please reconnect your account.'
+    } else if (error.message?.includes('not connected') || error.message?.includes('404') || error.message?.includes('not found')) {
+      statusCode = 404
+      errorMessage = 'Fitbit account not connected'
+    } else if (error.message) {
+      errorMessage = error.message
+    }
+    
+    return res.status(statusCode).json({ 
+      error: errorMessage,
+      success: false,
+      message: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     })
   }
 }

@@ -129,7 +129,7 @@ export default async function handler(req, res) {
 
     const readinessData = await readinessResponse.json()
 
-    // Fetch daily sleep data
+    // Fetch daily sleep data (summary scores)
     const sleepResponse = await fetch(
       `https://api.ouraring.com/v2/usercollection/daily_sleep?start_date=${date}&end_date=${date}`,
       {
@@ -142,6 +142,23 @@ export default async function handler(req, res) {
     let sleepData = null
     if (sleepResponse.ok) {
       sleepData = await sleepResponse.json()
+    }
+
+    // Also fetch detailed sleep data (has actual durations)
+    const sleepDetailedResponse = await fetch(
+      `https://api.ouraring.com/v2/usercollection/sleep?start_date=${date}&end_date=${date}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      }
+    )
+
+    let sleepDetailedData = null
+    if (sleepDetailedResponse.ok) {
+      sleepDetailedData = await sleepDetailedResponse.json()
+    } else {
+      console.log('Sleep detailed API response not OK:', sleepDetailedResponse.status, sleepDetailedResponse.statusText)
     }
 
     // Fetch daily activity data
@@ -157,17 +174,23 @@ export default async function handler(req, res) {
     let activityData = null
     if (activityResponse.ok) {
       activityData = await activityResponse.json()
+    } else {
+      console.log('Activity API response not OK:', activityResponse.status, activityResponse.statusText)
+      const errorText = await activityResponse.text().catch(() => '')
+      console.log('Activity API error:', errorText)
     }
 
     // Parse and combine Oura data
     const dailyReadiness = readinessData.data?.[0] || null
     const dailySleep = sleepData?.data?.[0] || null
+    const sleepDetailed = sleepDetailedData?.data?.[0] || null // Detailed sleep with actual durations
     const dailyActivity = activityData?.data?.[0] || null
 
     // Log full response structure for debugging
     console.log('Oura API Full Response:', {
       readinessFull: dailyReadiness,
       sleepFull: dailySleep,
+      sleepDetailedFull: sleepDetailed,
       activityFull: dailyActivity
     })
 
@@ -209,21 +232,21 @@ export default async function handler(req, res) {
       sleep_score: typeof dailySleep?.score === 'number' ? dailySleep.score : 
                    readinessContributors?.sleep_balance || 
                    dailyReadiness?.score?.sleep_balance || null,
-      // Sleep duration from sleep contributors (in seconds, convert to minutes)
-      // Check multiple possible field names
-      sleep_duration: sleepContributors?.total_sleep_duration ? Math.round(sleepContributors.total_sleep_duration / 60) : 
-                      sleepContributors?.duration ? Math.round(sleepContributors.duration / 60) :
+      // Sleep duration - use detailed sleep endpoint which has actual durations (in seconds)
+      sleep_duration: sleepDetailed?.total_sleep_duration ? Math.round(sleepDetailed.total_sleep_duration / 60) :
+                      sleepDetailed?.duration ? Math.round(sleepDetailed.duration / 60) :
+                      // Fallback to calculating from sleep stages if available
+                      (sleepDetailed?.deep_sleep_duration && sleepDetailed?.rem_sleep_duration && sleepDetailed?.light_sleep_duration) ?
+                        Math.round((sleepDetailed.deep_sleep_duration + sleepDetailed.rem_sleep_duration + sleepDetailed.light_sleep_duration) / 60) :
+                      // Last resort: check dailySleep structure
                       dailySleep?.total_sleep_duration ? Math.round(dailySleep.total_sleep_duration / 60) : null,
-      // Sleep stages from sleep contributors (in seconds, convert to minutes)
-      deep_sleep: sleepContributors?.deep_sleep_duration ? Math.round(sleepContributors.deep_sleep_duration / 60) :
-                  sleepContributors?.deep?.duration ? Math.round(sleepContributors.deep.duration / 60) :
-                  dailySleep?.sleep?.deep?.duration ? Math.round(dailySleep.sleep.deep.duration / 60) : null,
-      rem_sleep: sleepContributors?.rem_sleep_duration ? Math.round(sleepContributors.rem_sleep_duration / 60) :
-                 sleepContributors?.rem?.duration ? Math.round(sleepContributors.rem.duration / 60) :
-                 dailySleep?.sleep?.rem?.duration ? Math.round(dailySleep.sleep.rem.duration / 60) : null,
-      light_sleep: sleepContributors?.light_sleep_duration ? Math.round(sleepContributors.light_sleep_duration / 60) :
-                   sleepContributors?.light?.duration ? Math.round(sleepContributors.light.duration / 60) :
-                   dailySleep?.sleep?.light?.duration ? Math.round(dailySleep.sleep.light.duration / 60) : null,
+      // Sleep stages - use detailed sleep endpoint (durations in seconds, convert to minutes)
+      deep_sleep: sleepDetailed?.deep_sleep_duration ? Math.round(sleepDetailed.deep_sleep_duration / 60) :
+                  sleepDetailed?.sleep?.deep?.duration ? Math.round(sleepDetailed.sleep.deep.duration / 60) : null,
+      rem_sleep: sleepDetailed?.rem_sleep_duration ? Math.round(sleepDetailed.rem_sleep_duration / 60) :
+                 sleepDetailed?.sleep?.rem?.duration ? Math.round(sleepDetailed.sleep.rem.duration / 60) : null,
+      light_sleep: sleepDetailed?.light_sleep_duration ? Math.round(sleepDetailed.light_sleep_duration / 60) :
+                   sleepDetailed?.sleep?.light?.duration ? Math.round(sleepDetailed.sleep.light.duration / 60) : null,
       // Calories and steps from activity (may not be available)
       calories_burned: dailyActivity?.total_calories || dailyActivity?.calories?.total || null,
       steps: dailyActivity?.steps || null,

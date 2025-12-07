@@ -6,7 +6,7 @@ import { getWorkoutsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupaba
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getReadinessScore } from '../lib/readiness'
-import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, mergeWearableDataToMetrics } from '../lib/wearables'
+import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, syncOuraData, mergeWearableDataToMetrics } from '../lib/wearables'
 import { supabase } from '../lib/supabase'
 import { getTodayEST } from '../utils/dateUtils'
 import { logError, logDebug } from '../utils/logger'
@@ -124,9 +124,64 @@ export default function Health() {
       // Load health goals
       await loadHealthGoals()
       
-      // Check for connected accounts (for display purposes)
+      // Check for connected accounts (for display purposes and provider-specific UI)
       const fitbitAccount = connected?.find(a => a.provider === 'fitbit')
       const ouraAccount = connected?.find(a => a.provider === 'oura')
+      const connectedProvider = ouraAccount ? 'oura' : (fitbitAccount ? 'fitbit' : null)
+      
+      // Auto-sync wearable data if accounts are connected (silently in background)
+      const todayDate = getTodayEST()
+      
+      // Sync wearable data and reload metrics after sync completes
+      const syncPromises = []
+      if (fitbitAccount) {
+        syncPromises.push(
+          syncFitbitData(user.id, todayDate).catch(err => {
+            // Silently fail - user can manually sync if needed
+            logError('Auto-sync Fitbit failed', err)
+          })
+        )
+      }
+      
+      if (ouraAccount) {
+        syncPromises.push(
+          syncOuraData(user.id, todayDate).catch(err => {
+            // Silently fail - user can manually sync if needed
+            logError('Auto-sync Oura failed', err)
+          })
+        )
+      }
+      
+      // After all syncs complete, reload metrics to show updated data
+      if (syncPromises.length > 0) {
+        Promise.all(syncPromises).then(() => {
+          // Reload metrics after sync completes
+          getAllMetricsFromSupabase(user.id).then(updatedMetrics => {
+            const transformedMetrics = (updatedMetrics || []).map(metric => ({
+              ...metric,
+              sleep_time: metric.sleep_duration ?? metric.sleep_time ?? null,
+              calories: metric.calories_burned ?? metric.calories ?? null,
+              calories_burned: metric.calories_burned ?? metric.calories ?? null,
+              steps: metric.steps ?? null,
+              hrv: metric.hrv ?? null,
+              sleep_score: metric.sleep_score ?? null,
+              weight: metric.weight ?? null,
+              resting_heart_rate: metric.resting_heart_rate ?? null,
+              body_temp: metric.body_temp ?? null
+            }))
+            
+            transformedMetrics.sort((a, b) => {
+              const dateA = new Date(a.date)
+              const dateB = new Date(b.date)
+              return dateB - dateA
+            })
+            
+            setMetrics(transformedMetrics)
+          }).catch(err => {
+            logError('Error reloading metrics after sync', err)
+          })
+        })
+      }
 
                 // Load nutrition data from Supabase
                 try {
@@ -401,8 +456,40 @@ export default function Health() {
             calories: null,
             weight: null,
             resting_heart_rate: null,
-            body_temp: null
+            body_temp: null,
+            source_data: null,
+            source_provider: null
           }
+          
+          // Determine which provider's data to show
+          const fitbitAccount = wearables.find(w => w.provider === 'fitbit')
+          const ouraAccount = wearables.find(w => w.provider === 'oura')
+          const connectedProvider = ouraAccount ? 'oura' : (fitbitAccount ? 'fitbit' : null)
+          
+          // Extract provider-specific metrics from source_data
+          const sourceData = todayMetric?.source_data || {}
+          const isOura = connectedProvider === 'oura' && todayMetric?.source_provider === 'oura'
+          const isFitbit = connectedProvider === 'fitbit' && todayMetric?.source_provider === 'fitbit'
+          
+          // Oura-specific metrics
+          const ouraReadinessScore = isOura ? (sourceData.readiness_score || null) : null
+          const ouraActivityScore = isOura ? (sourceData.activity_score || null) : null
+          const ouraRecoveryIndex = isOura ? (sourceData.recovery_index || null) : null
+          const ouraSleepEfficiency = isOura ? (sourceData.sleep_efficiency || null) : null
+          const ouraSleepLatency = isOura ? (sourceData.sleep_latency || null) : null
+          const ouraReadinessContributors = isOura ? (sourceData.readiness_contributors || {}) : {}
+          const ouraSleepContributors = isOura ? (sourceData.sleep_contributors || {}) : {}
+          
+          // Fitbit-specific metrics
+          const fitbitActiveCalories = isFitbit ? (sourceData.active_calories || null) : null
+          const fitbitDistance = isFitbit ? (sourceData.distance || null) : null
+          const fitbitFloors = isFitbit ? (sourceData.floors || null) : null
+          const fitbitSleepEfficiency = isFitbit ? (sourceData.sleep_efficiency || null) : null
+          const fitbitAvgHeartRate = isFitbit ? (sourceData.average_heart_rate || null) : null
+          const fitbitSedentaryMinutes = isFitbit ? (sourceData.sedentary_minutes || null) : null
+          const fitbitLightlyActiveMinutes = isFitbit ? (sourceData.lightly_active_minutes || null) : null
+          const fitbitFairlyActiveMinutes = isFitbit ? (sourceData.fairly_active_minutes || null) : null
+          const fitbitVeryActiveMinutes = isFitbit ? (sourceData.very_active_minutes || null) : null
           
           return (
             <div className={styles.dashboardContainer}>
@@ -416,8 +503,50 @@ export default function Health() {
                 </button>
               )}
               
-              {/* Readiness Score Card - Top Priority */}
-              {readiness && (
+              {/* Oura Readiness Score Card - Show if Oura is connected */}
+              {isOura && ouraReadinessScore != null && (
+                <div className={`${styles.readinessCard} ${styles[`readiness${ouraReadinessScore >= 85 ? 'optimal' : ouraReadinessScore >= 70 ? 'good' : ouraReadinessScore >= 55 ? 'attention' : 'low'}`]}`}>
+                  <div className={styles.readinessHeader}>
+                    <h2>Readiness Score</h2>
+                    <span className={styles.readinessZone}>
+                      {ouraReadinessScore >= 85 ? 'OPTIMAL' : ouraReadinessScore >= 70 ? 'GOOD' : ouraReadinessScore >= 55 ? 'PAY ATTENTION' : 'LOW'}
+                    </span>
+                  </div>
+                  <div className={styles.readinessScore}>
+                    <span className={styles.readinessNumber}>{Math.round(ouraReadinessScore)}</span>
+                    <span className={styles.readinessLabel}>/ 100</span>
+                  </div>
+                  <div className={styles.readinessComponents}>
+                    {ouraReadinessContributors.activity_balance != null && (
+                      <div className={styles.component}>
+                        <span className={styles.componentLabel}>Activity</span>
+                        <span className={styles.componentValue}>{Math.round(ouraReadinessContributors.activity_balance)}</span>
+                      </div>
+                    )}
+                    {ouraReadinessContributors.hrv_balance != null && (
+                      <div className={styles.component}>
+                        <span className={styles.componentLabel}>HRV</span>
+                        <span className={styles.componentValue}>{Math.round(ouraReadinessContributors.hrv_balance)}</span>
+                      </div>
+                    )}
+                    {ouraReadinessContributors.sleep_balance != null && (
+                      <div className={styles.component}>
+                        <span className={styles.componentLabel}>Sleep</span>
+                        <span className={styles.componentValue}>{Math.round(ouraReadinessContributors.sleep_balance)}</span>
+                      </div>
+                    )}
+                    {ouraRecoveryIndex != null && (
+                      <div className={styles.component}>
+                        <span className={styles.componentLabel}>Recovery</span>
+                        <span className={styles.componentValue}>{Math.round(ouraRecoveryIndex)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* Honest Readiness Score Card - Show if no Oura or as fallback */}
+              {(!isOura || !ouraReadinessScore) && readiness && (
                 <div className={`${styles.readinessCard} ${styles[`readiness${readiness.zone}`]}`}>
                   <div className={styles.readinessHeader}>
                     <h2>Honest Readiness</h2>
@@ -684,6 +813,241 @@ export default function Health() {
                   </button>
                 </div>
               </div>
+
+              {/* Oura-Specific Metrics Section */}
+              {isOura && (
+                <div className={styles.providerSection}>
+                  <h3 className={styles.providerSectionTitle}>Oura Metrics</h3>
+                  <div className={styles.dashboardGrid}>
+                    {/* Activity Balance */}
+                    {ouraReadinessContributors.activity_balance != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Activity Balance</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(ouraReadinessContributors.activity_balance)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Recovery Index */}
+                    {ouraRecoveryIndex != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Recovery Index</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(ouraRecoveryIndex)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Sleep Efficiency */}
+                    {ouraSleepEfficiency != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Sleep Efficiency</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(ouraSleepEfficiency)}%
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Sleep Latency */}
+                    {ouraSleepLatency != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Sleep Latency</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(ouraSleepLatency)} min
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Deep Sleep */}
+                    {todayMetric?.deep_sleep != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Deep Sleep</span>
+                          <span className={styles.dashboardStatValue}>
+                            {(() => {
+                              const minutes = Math.round(Number(todayMetric.deep_sleep))
+                              const hours = Math.floor(minutes / 60)
+                              const mins = minutes % 60
+                              return `${hours}:${mins.toString().padStart(2, '0')}`
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* REM Sleep */}
+                    {todayMetric?.rem_sleep != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>REM Sleep</span>
+                          <span className={styles.dashboardStatValue}>
+                            {(() => {
+                              const minutes = Math.round(Number(todayMetric.rem_sleep))
+                              const hours = Math.floor(minutes / 60)
+                              const mins = minutes % 60
+                              return `${hours}:${mins.toString().padStart(2, '0')}`
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Light Sleep */}
+                    {todayMetric?.light_sleep != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Light Sleep</span>
+                          <span className={styles.dashboardStatValue}>
+                            {(() => {
+                              const minutes = Math.round(Number(todayMetric.light_sleep))
+                              const hours = Math.floor(minutes / 60)
+                              const mins = minutes % 60
+                              return `${hours}:${mins.toString().padStart(2, '0')}`
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Sleep Regularity */}
+                    {ouraReadinessContributors.sleep_regularity != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Sleep Regularity</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(ouraReadinessContributors.sleep_regularity)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Fitbit-Specific Metrics Section */}
+              {isFitbit && (
+                <div className={styles.providerSection}>
+                  <h3 className={styles.providerSectionTitle}>Fitbit Metrics</h3>
+                  <div className={styles.dashboardGrid}>
+                    {/* Active Calories */}
+                    {fitbitActiveCalories != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Active Calories</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(fitbitActiveCalories).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Distance */}
+                    {fitbitDistance != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Distance</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Number(fitbitDistance).toFixed(2)} mi
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Floors */}
+                    {fitbitFloors != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Floors</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(fitbitFloors)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Sleep Efficiency */}
+                    {fitbitSleepEfficiency != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Sleep Efficiency</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(fitbitSleepEfficiency)}%
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Average Heart Rate */}
+                    {fitbitAvgHeartRate != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Avg Heart Rate</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(fitbitAvgHeartRate)} bpm
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Very Active Minutes */}
+                    {fitbitVeryActiveMinutes != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Very Active</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(fitbitVeryActiveMinutes)} min
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Fairly Active Minutes */}
+                    {fitbitFairlyActiveMinutes != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Fairly Active</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(fitbitFairlyActiveMinutes)} min
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Lightly Active Minutes */}
+                    {fitbitLightlyActiveMinutes != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Lightly Active</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(fitbitLightlyActiveMinutes)} min
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Sedentary Minutes */}
+                    {fitbitSedentaryMinutes != null && (
+                      <div className={styles.dashboardCard}>
+                        <div className={styles.dashboardStat}>
+                          <span className={styles.dashboardStatLabel}>Sedentary</span>
+                          <span className={styles.dashboardStatValue}>
+                            {Math.round(fitbitSedentaryMinutes)} min
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Sync Button - Show if Fitbit is connected */}
               {wearables.some(w => w.provider === 'fitbit') && (

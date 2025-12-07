@@ -188,6 +188,26 @@ h1 {
   box-shadow: 0 0 30px rgba(136, 136, 136, 0.1);
 }
 
+.readinessCard.readinessoptimal {
+  border-color: #ffffff;
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
+}
+
+.readinessCard.readinessgood {
+  border-color: #cccccc;
+  box-shadow: 0 0 30px rgba(204, 204, 204, 0.1);
+}
+
+.readinessCard.readinessattention {
+  border-color: #aaaaaa;
+  box-shadow: 0 0 30px rgba(170, 170, 170, 0.1);
+}
+
+.readinessCard.readinesslow {
+  border-color: #888888;
+  box-shadow: 0 0 30px rgba(136, 136, 136, 0.1);
+}
+
 .readinessHeader {
   display: flex;
   justify-content: space-between;
@@ -872,6 +892,20 @@ h1 {
 }
 
 /* Sync Card */
+.providerSection {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.providerSectionTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+  letter-spacing: -0.02em;
+}
+
 .syncCard {
   padding: 14px;
   background: var(--bg-secondary);

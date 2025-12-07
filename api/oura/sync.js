@@ -202,18 +202,55 @@ export default async function handler(req, res) {
     }
 
     // Parse and combine Oura data
-    const dailyReadiness = readinessData.data?.[0] || null
-    const dailySleep = sleepData?.data?.[0] || null
-    const sleepDetailed = sleepDetailedData?.data?.[0] || null // Detailed sleep with actual durations
-    const dailyActivity = activityData?.data?.[0] || null
+    // Match exact dates - don't use fallback to avoid date mismatches
+    const dailyReadiness = readinessData.data?.find(r => r.day === date) || null
+    const dailySleep = sleepData?.data?.find(s => s.day === date) || null
+    
+    // Find sleep session that matches our target date
+    // Sleep sessions might span multiple days, so find the one that includes our date
+    let sleepDetailed = null
+    if (sleepDetailedData?.data && sleepDetailedData.data.length > 0) {
+      // Find sleep session that matches the date (check day field first, then bedtime_start)
+      sleepDetailed = sleepDetailedData.data.find(session => {
+        if (session.day) {
+          return session.day === date
+        }
+        if (session.bedtime_start) {
+          const sessionDate = new Date(session.bedtime_start).toISOString().split('T')[0]
+          return sessionDate === date
+        }
+        return false
+      })
+      
+      // If no exact match, don't use fallback - we want the correct date
+      if (!sleepDetailed && sleepDetailedData.data.length > 0) {
+        console.log('No sleep session found for date:', date, 'Available sessions:', sleepDetailedData.data.map(s => ({ day: s.day, bedtime_start: s.bedtime_start })))
+      }
+    }
+    
+    // Find activity data that matches our target date exactly
+    let dailyActivity = null
+    if (activityData?.data && activityData.data.length > 0) {
+      dailyActivity = activityData.data.find(activity => activity.day === date)
+      
+      // If no exact match, don't use fallback - we want the correct date
+      if (!dailyActivity && activityData.data.length > 0) {
+        console.log('No activity data found for date:', date, 'Available dates:', activityData.data.map(a => a.day))
+      }
+    }
     
     console.log('Parsed data:', {
+      targetDate: date,
       dailyReadiness: !!dailyReadiness,
+      dailyReadinessDay: dailyReadiness?.day,
       dailySleep: !!dailySleep,
+      dailySleepDay: dailySleep?.day,
       sleepDetailed: !!sleepDetailed,
-      sleepDetailedDataArray: sleepDetailedData?.data,
+      sleepDetailedDay: sleepDetailed?.day || sleepDetailed?.bedtime_start,
+      sleepDetailedDataArray: sleepDetailedData?.data?.map(s => ({ day: s.day, bedtime_start: s.bedtime_start })),
       dailyActivity: !!dailyActivity,
-      activityDataArray: activityData?.data
+      dailyActivityDay: dailyActivity?.day,
+      activityDataArray: activityData?.data?.map(a => a.day)
     })
 
     // Log full response structure for debugging

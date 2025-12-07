@@ -2,6 +2,8 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
 import { startTokenRefreshInterval } from './lib/tokenManager'
+import { getAllConnectedAccounts, syncFitbitData, syncOuraData } from './lib/wearables'
+import { getTodayEST } from './utils/dateUtils'
 import Home from './pages/Home'
 import Fitness from './pages/Fitness'
 import Nutrition from './pages/Nutrition'
@@ -47,6 +49,52 @@ export default function App() {
     if (user) {
       const cleanup = startTokenRefreshInterval(user.id)
       return cleanup
+    }
+  }, [user])
+  
+  // Auto-sync wearable data when app loads (once per session)
+  useEffect(() => {
+    if (!user) return
+    
+    let hasSynced = false
+    const syncKey = `wearable_sync_${user.id}_${getTodayEST()}`
+    
+    // Check if we've already synced today (avoid multiple syncs)
+    const lastSync = sessionStorage.getItem(syncKey)
+    const now = Date.now()
+    
+    // Only sync if we haven't synced in the last 5 minutes
+    if (!lastSync || (now - parseInt(lastSync)) > 5 * 60 * 1000) {
+      hasSynced = true
+      sessionStorage.setItem(syncKey, now.toString())
+      
+      // Sync wearable data in background (non-blocking)
+      getAllConnectedAccounts(user.id).then(connected => {
+        if (!connected || connected.length === 0) return
+        
+        const fitbitAccount = connected.find(a => a.provider === 'fitbit')
+        const ouraAccount = connected.find(a => a.provider === 'oura')
+        const today = getTodayEST()
+        
+        // Sync Fitbit if connected
+        if (fitbitAccount) {
+          syncFitbitData(user.id, today).catch(err => {
+            // Silently fail - will retry on next load
+            console.error('Auto-sync Fitbit failed on app load:', err)
+          })
+        }
+        
+        // Sync Oura if connected
+        if (ouraAccount) {
+          syncOuraData(user.id, today).catch(err => {
+            // Silently fail - will retry on next load
+            console.error('Auto-sync Oura failed on app load:', err)
+          })
+        }
+      }).catch(err => {
+        // Silently fail
+        console.error('Error checking connected accounts on app load:', err)
+      })
     }
   }, [user])
   

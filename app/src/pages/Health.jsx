@@ -182,109 +182,35 @@ export default function Health() {
         }
       }
       
-      // Load metrics and merge with Fitbit data
+      // Load metrics from health_metrics table (includes Fitbit, Oura, and manual data)
       const allMetrics = await getAllMetricsFromSupabase(user.id)
       
-      // If Fitbit is connected, load all Fitbit data and merge/create metrics
-      if (fitbitAccount) {
-        try {
-          const { getFitbitDaily } = await import('../lib/wearables')
-          const { supabase } = await import('../lib/supabase')
-          
-          // Get all Fitbit data for the selected period
-          const now = new Date()
-          const cutoff = new Date()
-          switch (selectedPeriod) {
-            case 'week':
-              cutoff.setDate(now.getDate() - 7)
-              break
-            case 'month':
-              cutoff.setMonth(now.getMonth() - 1)
-              break
-            case '90days':
-              cutoff.setDate(now.getDate() - 90)
-              break
-            default:
-              cutoff.setDate(now.getDate() - 7)
-          }
-          
-          // Get all Fitbit data for the period
-          const { data: fitbitDataList, error: fitbitError } = await (await import('../lib/supabase')).supabase
-            .from('fitbit_daily')
-            .select('*')
-            .eq('user_id', user.id)
-            .gte('date', cutoff.toISOString().split('T')[0])
-            .order('date', { ascending: false })
-          
-          if (!fitbitError && fitbitDataList) {
-            // Create a map of metrics by date
-            const metricsMap = new Map()
-            if (allMetrics) {
-              allMetrics.forEach(m => metricsMap.set(m.date, m))
-            }
-            
-            // Merge Fitbit data into metrics or create new entries
-            const mergedMetrics = []
-            const processedDates = new Set()
-            
-            // First, process existing metrics and merge with Fitbit data
-            if (allMetrics) {
-              for (const metric of allMetrics) {
-                const fitbitData = fitbitDataList.find(f => f.date === metric.date)
-                if (fitbitData) {
-                  mergedMetrics.push({
-                    ...metric,
-                    steps: fitbitData.steps ?? metric.steps,
-                    hrv: fitbitData.hrv ?? metric.hrv,
-                    calories_burned: fitbitData.calories || fitbitData.active_calories || metric.calories_burned || metric.calories || null,
-                    sleep_time: fitbitData.sleep_duration ?? metric.sleep_time,
-                    sleep_score: fitbitData.sleep_efficiency ? Math.round(fitbitData.sleep_efficiency) : (metric.sleep_score ?? null),
-                    resting_heart_rate: fitbitData.resting_heart_rate ?? metric.resting_heart_rate
-                  })
-                } else {
-                  mergedMetrics.push(metric)
-                }
-                processedDates.add(metric.date)
-              }
-            }
-            
-            // Then, add Fitbit-only dates as new metric entries
-            for (const fitbitData of fitbitDataList) {
-              if (!processedDates.has(fitbitData.date)) {
-                mergedMetrics.push({
-                  user_id: user.id,
-                  date: fitbitData.date,
-                  steps: fitbitData.steps ?? null,
-                  hrv: fitbitData.hrv ?? null,
-                  calories_burned: fitbitData.calories || fitbitData.active_calories || null,
-                  sleep_time: fitbitData.sleep_duration ?? null,
-                  sleep_score: fitbitData.sleep_efficiency ? Math.round(fitbitData.sleep_efficiency) : null,
-                  resting_heart_rate: fitbitData.resting_heart_rate ?? null,
-                  weight: null,
-                  body_temp: null
-                })
-              }
-            }
-            
-            // Sort by date descending (newest first)
-            mergedMetrics.sort((a, b) => {
-              const dateA = new Date(a.date)
-              const dateB = new Date(b.date)
-              return dateB - dateA
-            })
-            setMetrics(mergedMetrics)
-          } else {
-            // If Fitbit query fails, just use regular metrics
-            setMetrics(allMetrics || [])
-          }
-        } catch (fitbitError) {
-          // If Fitbit merge fails, just use regular metrics
-          logError('Error merging Fitbit data into metrics', fitbitError)
-          setMetrics(allMetrics || [])
-        }
-      } else {
-        setMetrics(allMetrics || [])
-      }
+      // Transform health_metrics data to match UI expectations
+      // health_metrics uses: sleep_duration, calories_burned
+      // UI expects: sleep_time, calories
+      const transformedMetrics = (allMetrics || []).map(metric => ({
+        ...metric,
+        // Map database fields to UI fields
+        sleep_time: metric.sleep_duration ?? metric.sleep_time ?? null,
+        calories: metric.calories_burned ?? metric.calories ?? null,
+        calories_burned: metric.calories_burned ?? metric.calories ?? null,
+        // Ensure all expected fields exist
+        steps: metric.steps ?? null,
+        hrv: metric.hrv ?? null,
+        sleep_score: metric.sleep_score ?? null,
+        weight: metric.weight ?? null,
+        resting_heart_rate: metric.resting_heart_rate ?? null,
+        body_temp: metric.body_temp ?? null
+      }))
+      
+      // Sort by date descending (newest first)
+      transformedMetrics.sort((a, b) => {
+        const dateA = new Date(a.date)
+        const dateB = new Date(b.date)
+        return dateB - dateA
+      })
+      
+      setMetrics(transformedMetrics)
     } catch (error) {
       // Silently fail - data will load on retry
     } finally {

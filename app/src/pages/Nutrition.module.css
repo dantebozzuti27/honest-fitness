@@ -1926,3 +1926,46 @@ h1 {
   color: var(--text-secondary);
   font-family: var(--font-mono);
 }
+
+/* Mobile Optimizations */
+@media (max-width: 480px) {
+  h1 {
+    font-size: 18px;
+  }
+  
+  .tab {
+    padding: 12px 6px;
+    font-size: 10px;
+  }
+  
+  .sectionTitle {
+    font-size: 16px;
+  }
+  
+  .historyTableHeader,
+  .historyTableRow {
+    padding: 10px 12px;
+    font-size: 11px;
+    gap: 6px;
+  }
+  
+  .historyTableCol {
+    font-size: 11px;
+  }
+  
+  .mealCard {
+    padding: 12px;
+  }
+  
+  .mealCardHeader {
+    font-size: 14px;
+  }
+  
+  .macroValue {
+    font-size: 18px;
+  }
+  
+  .macroLabel {
+    font-size: 10px;
+  }
+}

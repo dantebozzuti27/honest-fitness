@@ -8,7 +8,6 @@ import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
-import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import styles from './Workout.module.css'
@@ -459,7 +458,6 @@ export default function Workout() {
         )}
       </div>
 
-      <BottomNav />
     </div>
   )
 }

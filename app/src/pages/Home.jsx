@@ -8,7 +8,6 @@ import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
-import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import styles from './Home.module.css'
@@ -333,7 +332,6 @@ export default function Home() {
         </div>
       </div>
 
-      <BottomNav />
     </div>
   )
 }

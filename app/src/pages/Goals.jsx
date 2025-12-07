@@ -13,7 +13,6 @@ import { getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
-import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import styles from './Goals.module.css'
@@ -515,7 +514,6 @@ export default function Goals() {
         </div>
       )}
 
-      <BottomNav />
     </div>
   )
 }

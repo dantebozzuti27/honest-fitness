@@ -5,10 +5,10 @@
 export function FitnessIcon({ size = 20 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.4 14.4L9.6 9.6" />
-      <path d="M16.5 7.5l-1.1-1.1a2 2 0 0 0-2.8 0L9.6 9.6a2 2 0 0 0 0 2.8l1.1 1.1" />
-      <path d="M7.5 16.5l1.1 1.1a2 2 0 0 0 2.8 0l2.8-2.8a2 2 0 0 0 0-2.8L14.4 11.4" />
-      <path d="M6 6l3 3M15 15l3 3M6 18l3-3M15 9l3-3" />
+      {/* Dumbbell icon */}
+      <path d="M6.5 6.5h11v11h-11z" />
+      <path d="M6.5 6.5l-3-3M17.5 6.5l3-3M6.5 17.5l-3 3M17.5 17.5l3 3" />
+      <path d="M12 8v8M8 12h8" />
     </svg>
   )
 }
@@ -16,8 +16,9 @@ export function FitnessIcon({ size = 20 }) {
 export function NutritionIcon({ size = 20 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2C9 2 7 4 7 7c0 3.5 2.5 6.5 5 9.5 2.5-3 5-6 5-9.5 0-3-2-5-5-5z" />
-      <path d="M12 7v-1M10 6.5h4" />
+      {/* Apple icon */}
+      <path d="M17.5 8.5c-.5-2.5-2-4.5-4.5-5-1.5-.3-3 .2-4 1.2-1-1-2.5-1.5-4-1.2-2.5.5-4 2.5-4.5 5-1 4.5 1.5 7.5 3.5 9.5 1.5 1.5 3.5 2.5 5.5 2.5s4-1 5.5-2.5c2-2 4.5-5 3.5-9.5z" />
+      <path d="M12 2c.5 1.5 1.5 2.5 3 3" />
     </svg>
   )
 }

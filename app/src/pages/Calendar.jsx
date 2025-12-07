@@ -4,7 +4,6 @@ import { getAllTemplates, scheduleWorkout, getScheduledWorkout } from '../db'
 import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan, deleteWorkoutFromSupabase } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
-import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import styles from './Calendar.module.css'
@@ -373,7 +372,6 @@ export default function Calendar() {
         </div>
       )}
 
-      <BottomNav />
     </div>
   )
 }

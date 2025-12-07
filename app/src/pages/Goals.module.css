@@ -108,7 +108,31 @@
 .categoryTab.active {
   color: #000;
   border-bottom-color: var(--accent);
-  background: var(--accent);
+}
+
+/* Mobile Optimizations */
+@media (max-width: 480px) {
+  .title {
+    font-size: 18px;
+  }
+  
+  .categoryTab {
+    padding: 6px 4px;
+    font-size: 12px;
+    min-height: 36px;
+  }
+  
+  .goalCard {
+    padding: 12px;
+  }
+  
+  .goalCardHeader {
+    font-size: 14px;
+  }
+  
+  .goalProgress {
+    font-size: 12px;
+  }
 }
 
 .section {

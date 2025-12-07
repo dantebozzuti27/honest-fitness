@@ -156,6 +156,7 @@ h1 {
   margin: 0;
   display: flex;
   flex-direction: column;
+  padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
 }
 
 .loading {
@@ -682,7 +683,7 @@ h1 {
 
 .historyTableHeader {
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr;
+  grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr 0.9fr 1.1fr 1fr;
   gap: 8px;
   padding: var(--space-sm) var(--space-md);
   background: var(--bg-tertiary);
@@ -701,7 +702,7 @@ h1 {
 
 .historyTableRow {
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr;
+  grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr 0.9fr 1.1fr 1fr;
   gap: 8px;
   padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--border);
@@ -730,6 +731,7 @@ h1 {
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 0;
+  justify-content: flex-start;
 }
 
 .manualLogHint {
@@ -935,4 +937,53 @@ h1 {
   color: var(--error);
   font-size: 13px;
   border: 1px solid var(--error);
+}
+
+/* Mobile Optimizations */
+@media (max-width: 480px) {
+  .header h1 {
+    font-size: 18px;
+  }
+  
+  .dashboardCard {
+    min-height: 80px;
+    padding: 12px;
+  }
+  
+  .dashboardStatValue {
+    font-size: 20px;
+  }
+  
+  .dashboardStatLabel {
+    font-size: 10px;
+  }
+  
+  .readinessCard {
+    padding: 12px;
+  }
+  
+  .readinessNumber {
+    font-size: 36px;
+  }
+  
+  .historyTableHeader,
+  .historyTableRow {
+    padding: 10px 12px;
+    font-size: 11px;
+    gap: 6px;
+  }
+  
+  .historyTableCol {
+    font-size: 11px;
+  }
+  
+  .dashboardLogBtn {
+    padding: 5px 10px;
+    font-size: 10px;
+    min-height: 32px;
+  }
+  
+  .providerSectionTitle {
+    font-size: 16px;
+  }
 }

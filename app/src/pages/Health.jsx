@@ -18,7 +18,6 @@ import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
-import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import styles from './Health.module.css'
@@ -1636,7 +1635,6 @@ export default function Health() {
         )
       })()}
 
-      <BottomNav />
     </div>
   )
 }

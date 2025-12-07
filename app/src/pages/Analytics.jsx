@@ -25,7 +25,6 @@ import BodyHeatmap from '../components/BodyHeatmap'
 import BarChart from '../components/BarChart'
 import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
-import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import styles from './Analytics.module.css'
@@ -1554,7 +1553,6 @@ export default function Analytics() {
         </div>
       )}
 
-      <BottomNav />
     </div>
   )
 }

@@ -325,3 +325,27 @@
   transform: scale(0.98);
 }
 
+/* Mobile Optimizations */
+@media (max-width: 480px) {
+  .header h1 {
+    font-size: 18px;
+  }
+  
+  .userInfo {
+    padding: 16px;
+  }
+  
+  .profilePictureContainer {
+    width: 80px;
+    height: 80px;
+  }
+  
+  .section {
+    padding: 16px;
+  }
+  
+  .sectionTitle {
+    font-size: 14px;
+  }
+}
+

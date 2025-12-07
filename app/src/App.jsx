@@ -15,6 +15,7 @@ import Profile from './pages/Profile'
 import ActiveWorkout from './pages/ActiveWorkout'
 import Auth from './pages/Auth'
 import Wearables from './pages/Wearables'
+import BottomNav from './components/BottomNav'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -99,22 +100,26 @@ export default function App() {
   }, [user])
   
   return (
-    <Routes>
-      <Route path="/auth" element={<Auth />} />
-      <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-      <Route path="/fitness" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />
-      <Route path="/workout" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />
-      <Route path="/workout/active" element={<ProtectedRoute><ActiveWorkout /></ProtectedRoute>} />
-      <Route path="/nutrition" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
-      <Route path="/health" element={<ProtectedRoute><Health /></ProtectedRoute>} />
-      <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
-      <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
-      <Route path="/goals" element={<ProtectedRoute><Goals /></ProtectedRoute>} />
-      <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-      <Route path="/wearables" element={<ProtectedRoute><Wearables /></ProtectedRoute>} />
-      {/* Legacy routes for backward compatibility */}
-      <Route path="/ghost-mode" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
-      <Route path="/account" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+        <Route path="/fitness" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />
+        <Route path="/workout" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />
+        <Route path="/workout/active" element={<ProtectedRoute><ActiveWorkout /></ProtectedRoute>} />
+        <Route path="/nutrition" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
+        <Route path="/health" element={<ProtectedRoute><Health /></ProtectedRoute>} />
+        <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+        <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+        <Route path="/goals" element={<ProtectedRoute><Goals /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+        <Route path="/wearables" element={<ProtectedRoute><Wearables /></ProtectedRoute>} />
+        {/* Legacy routes for backward compatibility */}
+        <Route path="/ghost-mode" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
+        <Route path="/account" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+      </Routes>
+      {/* BottomNav appears on all pages except auth */}
+      {user && <BottomNav />}
+    </>
   )
 }

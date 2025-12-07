@@ -12,7 +12,6 @@ import Toast from '../components/Toast'
 import ShareModal from '../components/ShareModal'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
-import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import styles from './Fitness.module.css'
@@ -673,7 +672,6 @@ export default function Fitness() {
       })()}
       </div>
 
-      <BottomNav />
     </div>
   )
 }

@@ -478,3 +478,27 @@
   color: var(--accent);
 }
 
+/* Mobile Optimizations */
+@media (max-width: 480px) {
+  .title {
+    font-size: 18px;
+  }
+  
+  .monthNav {
+    padding: 8px;
+  }
+  
+  .calendarGrid {
+    gap: 2px;
+  }
+  
+  .calendarDay {
+    min-height: 40px;
+    font-size: 12px;
+  }
+  
+  .calendarDayNumber {
+    font-size: 13px;
+  }
+}
+

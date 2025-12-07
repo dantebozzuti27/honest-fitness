@@ -15,7 +15,6 @@ import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
-import BottomNav from '../components/BottomNav'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 // All charts are now BarChart only
@@ -1634,7 +1633,6 @@ export default function Nutrition() {
         />
       )}
 
-      <BottomNav />
     </div>
   )
 }

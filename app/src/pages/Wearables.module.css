@@ -1,8 +1,9 @@
 .container {
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 16px;
   padding-top: calc(env(safe-area-inset-top, 16px) + 16px);
-  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
+  padding-bottom: calc(120px + env(safe-area-inset-bottom, 16px));
   background: var(--bg-primary);
   color: var(--text-primary);
 }
@@ -104,201 +105,164 @@ h1 {
   transform: scale(0.98);
 }
 
-.connectedBadge {
+.connectedStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 16px;
-  background: rgba(34, 197, 94, 0.2);
-  color: #ffffff;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.accountDetails {
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.detailRow {
-  display: flex;
-  justify-content: space-between;
   font-size: 13px;
   color: var(--text-secondary);
 }
 
-.statusConnected {
-  color: #ffffff;
-  font-weight: 600;
+.connectedStatus svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
 }
 
-.actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.accountActions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-  flex-wrap: wrap;
-}
-
-.syncBtn,
-.disconnectBtn {
-  flex: 1;
-  padding: 10px;
+.syncBtn {
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.1s;
-  border: none;
+  transition: all 0.2s;
+  margin-top: 12px;
 }
 
-.syncBtn {
-  background: var(--accent);
-  color: var(--bg-primary);
+.syncBtn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-light);
 }
 
-.syncBtn:hover:not(:disabled) {
-  transform: scale(1.02);
+.syncBtn:active {
+  transform: scale(0.98);
 }
 
 .syncBtn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.disconnectBtn {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
+.syncing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.disconnectBtn:hover {
-  background: var(--bg-elevated);
+.syncing svg {
+  width: 16px;
+  height: 16px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .syncStatus {
+  margin-top: 12px;
   padding: 12px;
-  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
   font-size: 13px;
-  margin-top: 8px;
+  color: var(--text-secondary);
 }
 
 .syncStatus.success {
   background: rgba(34, 197, 94, 0.1);
-  color: #ffffff;
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.2);
 }
 
 .syncStatus.error {
   background: rgba(239, 68, 68, 0.1);
-  color: #888888;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
-.syncData {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-  font-size: 12px;
-}
-
-.syncData span {
-  padding: 4px 8px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-}
-
-/* Info Card */
-.infoCard {
-  padding: 20px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border);
-}
-
-.infoCard h3 {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-}
-
-.infoList {
-  margin: 0;
-  padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.disconnectBtn {
+  padding: 8px 16px;
+  background: transparent;
   color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 12px;
 }
 
-.infoList li {
+.disconnectBtn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+.disconnectBtn:active {
+  transform: scale(0.98);
+}
+
+.providerIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.providerIcon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.warningMessage {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: #fbbf24;
   line-height: 1.5;
 }
 
-/* Coming Soon Card */
-.comingSoonCard {
-  padding: 20px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border);
-  opacity: 0.7;
-}
-
-.comingSoonCard h3 {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-}
-
-.comingSoonList {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.comingSoonItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.comingSoonItem span:first-child {
-  font-size: 20px;
-}
-
-/* Modal */
 .modalOverlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
   padding: 20px;
 }
 
 .modal {
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
   border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
   max-width: 500px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
+  box-shadow: var(--shadow-2xl);
 }
 
 .modalHeader {
@@ -310,15 +274,15 @@ h1 {
 }
 
 .modalHeader h2 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   margin: 0;
+  color: var(--text-primary);
 }
 
 .modalHeader button {
-  background: none;
+  background: transparent;
   border: none;
-  font-size: 24px;
   color: var(--text-secondary);
   cursor: pointer;
   padding: 0;
@@ -337,3 +301,31 @@ h1 {
   padding: 20px;
 }
 
+/* Mobile Optimizations */
+@media (max-width: 480px) {
+  h1 {
+    font-size: 18px;
+  }
+  
+  .content {
+    padding: 12px;
+  }
+  
+  .providerCard {
+    padding: 16px;
+  }
+  
+  .providerInfo h2 {
+    font-size: 18px;
+  }
+  
+  .connectBtn {
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+  
+  .syncBtn {
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+}

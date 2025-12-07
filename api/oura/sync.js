@@ -373,25 +373,35 @@ export default async function handler(req, res) {
                    readinessContributors?.sleep_balance || 
                    dailyReadiness?.score?.sleep_balance || null,
       // Sleep duration - Calculate from detailed sleep endpoint
-      // total_sleep_duration is in seconds, convert to minutes
-      // If detailed sleep not available, calculate from sleep stages
-      // If stages not available, use null (don't use daily_sleep as it only has scores)
+      // Oura API v2: total_sleep_duration is in SECONDS
+      // But if value is > 1440 (24 hours in minutes), it might already be in minutes
+      // Check: if value > 1440, assume minutes; otherwise assume seconds and convert
       sleep_duration: (() => {
         if (sleepDetailed?.total_sleep_duration != null) {
-          const minutes = Math.round(sleepDetailed.total_sleep_duration / 60)
-          console.log('Sleep duration from total_sleep_duration:', minutes, 'minutes (from', sleepDetailed.total_sleep_duration, 'seconds)')
+          const rawValue = sleepDetailed.total_sleep_duration
+          // If value > 1440 (24 hours), it's likely already in minutes
+          // Otherwise, it's in seconds and needs conversion
+          const minutes = rawValue > 1440 ? Math.round(rawValue) : Math.round(rawValue / 60)
+          console.log('Sleep duration from total_sleep_duration:', minutes, 'minutes (raw:', rawValue, rawValue > 1440 ? 'assumed minutes' : 'assumed seconds)')
           return minutes
         }
         if (sleepDetailed?.duration != null) {
-          const minutes = Math.round(sleepDetailed.duration / 60)
-          console.log('Sleep duration from duration:', minutes, 'minutes (from', sleepDetailed.duration, 'seconds)')
+          const rawValue = sleepDetailed.duration
+          const minutes = rawValue > 1440 ? Math.round(rawValue) : Math.round(rawValue / 60)
+          console.log('Sleep duration from duration:', minutes, 'minutes (raw:', rawValue, rawValue > 1440 ? 'assumed minutes' : 'assumed seconds)')
           return minutes
         }
         // Calculate from sleep stages if all are available
+        // Sleep stage durations are in SECONDS according to Oura API v2
         if (sleepDetailed?.deep_sleep_duration != null && sleepDetailed?.rem_sleep_duration != null && sleepDetailed?.light_sleep_duration != null) {
-          const totalSeconds = sleepDetailed.deep_sleep_duration + sleepDetailed.rem_sleep_duration + sleepDetailed.light_sleep_duration
+          const deep = sleepDetailed.deep_sleep_duration
+          const rem = sleepDetailed.rem_sleep_duration
+          const light = sleepDetailed.light_sleep_duration
+          // If any value > 60, assume they're already in minutes (unlikely but possible)
+          // Otherwise assume seconds
+          const totalSeconds = (deep > 60 ? deep * 60 : deep) + (rem > 60 ? rem * 60 : rem) + (light > 60 ? light * 60 : light)
           const minutes = Math.round(totalSeconds / 60)
-          console.log('Sleep duration calculated from stages:', minutes, 'minutes (deep:', sleepDetailed.deep_sleep_duration, 'rem:', sleepDetailed.rem_sleep_duration, 'light:', sleepDetailed.light_sleep_duration, 'total seconds:', totalSeconds, ')')
+          console.log('Sleep duration calculated from stages:', minutes, 'minutes (deep:', deep, 'rem:', rem, 'light:', light, 'total seconds:', totalSeconds, ')')
           return minutes
         }
         // If we have some but not all stages, still calculate what we have
@@ -399,7 +409,10 @@ export default async function handler(req, res) {
           const deep = sleepDetailed?.deep_sleep_duration || 0
           const rem = sleepDetailed?.rem_sleep_duration || 0
           const light = sleepDetailed?.light_sleep_duration || 0
-          const totalSeconds = deep + rem + light
+          const deepSec = deep > 60 ? deep * 60 : deep
+          const remSec = rem > 60 ? rem * 60 : rem
+          const lightSec = light > 60 ? light * 60 : light
+          const totalSeconds = deepSec + remSec + lightSec
           if (totalSeconds > 0) {
             const minutes = Math.round(totalSeconds / 60)
             console.log('Sleep duration calculated from partial stages:', minutes, 'minutes (deep:', deep, 'rem:', rem, 'light:', light, 'total seconds:', totalSeconds, ')')
@@ -413,13 +426,41 @@ export default async function handler(req, res) {
         })
         return null
       })(),
-      // Sleep stages - use detailed sleep endpoint (durations in seconds, convert to minutes)
-      deep_sleep: sleepDetailed?.deep_sleep_duration ? Math.round(sleepDetailed.deep_sleep_duration / 60) :
-                  sleepDetailed?.sleep?.deep?.duration ? Math.round(sleepDetailed.sleep.deep.duration / 60) : null,
-      rem_sleep: sleepDetailed?.rem_sleep_duration ? Math.round(sleepDetailed.rem_sleep_duration / 60) :
-                 sleepDetailed?.sleep?.rem?.duration ? Math.round(sleepDetailed.sleep.rem.duration / 60) : null,
-      light_sleep: sleepDetailed?.light_sleep_duration ? Math.round(sleepDetailed.light_sleep_duration / 60) :
-                   sleepDetailed?.sleep?.light?.duration ? Math.round(sleepDetailed.sleep.light.duration / 60) : null,
+      // Sleep stages - use detailed sleep endpoint
+      // Oura API v2: durations are in SECONDS, but check if already in minutes (> 60)
+      deep_sleep: (() => {
+        if (sleepDetailed?.deep_sleep_duration != null) {
+          const rawValue = sleepDetailed.deep_sleep_duration
+          return rawValue > 60 ? Math.round(rawValue) : Math.round(rawValue / 60)
+        }
+        if (sleepDetailed?.sleep?.deep?.duration != null) {
+          const rawValue = sleepDetailed.sleep.deep.duration
+          return rawValue > 60 ? Math.round(rawValue) : Math.round(rawValue / 60)
+        }
+        return null
+      })(),
+      rem_sleep: (() => {
+        if (sleepDetailed?.rem_sleep_duration != null) {
+          const rawValue = sleepDetailed.rem_sleep_duration
+          return rawValue > 60 ? Math.round(rawValue) : Math.round(rawValue / 60)
+        }
+        if (sleepDetailed?.sleep?.rem?.duration != null) {
+          const rawValue = sleepDetailed.sleep.rem.duration
+          return rawValue > 60 ? Math.round(rawValue) : Math.round(rawValue / 60)
+        }
+        return null
+      })(),
+      light_sleep: (() => {
+        if (sleepDetailed?.light_sleep_duration != null) {
+          const rawValue = sleepDetailed.light_sleep_duration
+          return rawValue > 60 ? Math.round(rawValue) : Math.round(rawValue / 60)
+        }
+        if (sleepDetailed?.sleep?.light?.duration != null) {
+          const rawValue = sleepDetailed.sleep.light.duration
+          return rawValue > 60 ? Math.round(rawValue) : Math.round(rawValue / 60)
+        }
+        return null
+      })(),
       // Calories and steps from activity (may not be available)
       calories_burned: dailyActivity?.total_calories || dailyActivity?.calories?.total || null,
       steps: dailyActivity?.steps || null,

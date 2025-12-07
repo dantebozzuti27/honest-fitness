@@ -145,6 +145,7 @@ export default async function handler(req, res) {
     }
 
     // Also fetch detailed sleep data (has actual durations)
+    // Note: This endpoint might require different scopes or might not be available for all dates
     const sleepDetailedResponse = await fetch(
       `https://api.ouraring.com/v2/usercollection/sleep?start_date=${date}&end_date=${date}`,
       {
@@ -158,7 +159,8 @@ export default async function handler(req, res) {
     if (sleepDetailedResponse.ok) {
       sleepDetailedData = await sleepDetailedResponse.json()
     } else {
-      console.log('Sleep detailed API response not OK:', sleepDetailedResponse.status, sleepDetailedResponse.statusText)
+      const errorText = await sleepDetailedResponse.text().catch(() => '')
+      console.log('Sleep detailed API response not OK:', sleepDetailedResponse.status, sleepDetailedResponse.statusText, errorText)
     }
 
     // Fetch daily activity data
@@ -175,9 +177,9 @@ export default async function handler(req, res) {
     if (activityResponse.ok) {
       activityData = await activityResponse.json()
     } else {
-      console.log('Activity API response not OK:', activityResponse.status, activityResponse.statusText)
       const errorText = await activityResponse.text().catch(() => '')
-      console.log('Activity API error:', errorText)
+      console.log('Activity API response not OK:', activityResponse.status, activityResponse.statusText, errorText)
+      // Activity data might not be available for all dates or might require different scopes
     }
 
     // Parse and combine Oura data
@@ -232,14 +234,17 @@ export default async function handler(req, res) {
       sleep_score: typeof dailySleep?.score === 'number' ? dailySleep.score : 
                    readinessContributors?.sleep_balance || 
                    dailyReadiness?.score?.sleep_balance || null,
-      // Sleep duration - use detailed sleep endpoint which has actual durations (in seconds)
+      // Sleep duration - Oura API v2 daily_sleep only provides scores, not durations
+      // The detailed sleep endpoint might not be available or might require different scopes
+      // For now, we'll need to estimate or leave null until we can access the detailed endpoint
+      // TODO: Check if we need 'session' scope for detailed sleep data
       sleep_duration: sleepDetailed?.total_sleep_duration ? Math.round(sleepDetailed.total_sleep_duration / 60) :
                       sleepDetailed?.duration ? Math.round(sleepDetailed.duration / 60) :
-                      // Fallback to calculating from sleep stages if available
+                      // Fallback to calculating from sleep stages if available in detailed endpoint
                       (sleepDetailed?.deep_sleep_duration && sleepDetailed?.rem_sleep_duration && sleepDetailed?.light_sleep_duration) ?
                         Math.round((sleepDetailed.deep_sleep_duration + sleepDetailed.rem_sleep_duration + sleepDetailed.light_sleep_duration) / 60) :
-                      // Last resort: check dailySleep structure
-                      dailySleep?.total_sleep_duration ? Math.round(dailySleep.total_sleep_duration / 60) : null,
+                      // Note: daily_sleep endpoint doesn't provide actual durations, only scores
+                      null,
       // Sleep stages - use detailed sleep endpoint (durations in seconds, convert to minutes)
       deep_sleep: sleepDetailed?.deep_sleep_duration ? Math.round(sleepDetailed.deep_sleep_duration / 60) :
                   sleepDetailed?.sleep?.deep?.duration ? Math.round(sleepDetailed.sleep.deep.duration / 60) : null,
@@ -257,8 +262,11 @@ export default async function handler(req, res) {
                         dailyReadiness?.score?.score || null,
         activity_score: readinessContributors?.activity_balance || dailyReadiness?.score?.activity_balance || null,
         recovery_index: readinessContributors?.recovery_index || dailyReadiness?.score?.recovery_index || null,
-        sleep_efficiency: sleepContributors?.sleep_efficiency || dailySleep?.efficiency || null,
-        sleep_latency: sleepContributors?.sleep_latency || dailySleep?.sleep?.onset_latency || null,
+        sleep_efficiency: sleepContributors?.efficiency != null ? sleepContributors.efficiency : 
+                         dailySleep?.efficiency != null ? dailySleep.efficiency : null,
+        sleep_latency: sleepContributors?.latency != null ? sleepContributors.latency : 
+                      dailySleep?.sleep?.onset_latency != null ? dailySleep.sleep.onset_latency : 
+                      dailySleep?.latency != null ? dailySleep.latency : null,
         active_calories: dailyActivity?.calories?.active || null,
         total_calories: dailyActivity?.calories?.total || null,
         average_heart_rate: dailyActivity?.heart_rate?.average || null,

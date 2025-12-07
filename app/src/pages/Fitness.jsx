@@ -35,6 +35,7 @@ export default function Fitness() {
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedWorkoutForShare, setSelectedWorkoutForShare] = useState(null)
   const [showWorkoutStartModal, setShowWorkoutStartModal] = useState(false)
+  const [showTemplateSelection, setShowTemplateSelection] = useState(false)
   const [todaysScheduledWorkout, setTodaysScheduledWorkout] = useState(null)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
@@ -155,16 +156,18 @@ export default function Fitness() {
   }
 
   const handleWorkoutTypeSelect = (type) => {
-    setShowWorkoutStartModal(false)
     if (type === 'scheduled' && todaysScheduledWorkout) {
       // Start today's scheduled workout
+      setShowWorkoutStartModal(false)
       startWorkout(todaysScheduledWorkout.template_id, false)
     } else if (type === 'templates') {
-      // User will select from templates below
-      return
+      // Show template selection in modal
+      setShowTemplateSelection(true)
     } else if (type === 'freestyle') {
+      setShowWorkoutStartModal(false)
       startWorkout(null, false)
     } else if (type === 'random') {
+      setShowWorkoutStartModal(false)
       startWorkout(null, true)
     }
   }
@@ -238,46 +241,97 @@ export default function Fitness() {
 
             {/* Workout Start Modal */}
             {showWorkoutStartModal && (
-              <div className={styles.workoutStartModalOverlay} onClick={() => setShowWorkoutStartModal(false)}>
+              <div className={styles.workoutStartModalOverlay} onClick={() => {
+                setShowWorkoutStartModal(false)
+                setShowTemplateSelection(false)
+              }}>
                 <div className={styles.workoutStartModal} onClick={(e) => e.stopPropagation()}>
-                  <h3>Choose Workout Type</h3>
-                  <div className={styles.workoutTypeOptions}>
-                    {todaysScheduledWorkout && (
+                  {!showTemplateSelection ? (
+                    <>
+                      <h3>Choose Workout Type</h3>
+                      <div className={styles.workoutTypeOptions}>
+                        {todaysScheduledWorkout && (
+                          <button
+                            className={styles.workoutTypeBtn}
+                            onClick={() => handleWorkoutTypeSelect('scheduled')}
+                          >
+                            Today's Scheduled Workout
+                            <span className={styles.workoutTypeSubtext}>
+                              {templates.find(t => t.id === todaysScheduledWorkout.template_id)?.name || 'Scheduled'}
+                            </span>
+                          </button>
+                        )}
+                        <button
+                          className={styles.workoutTypeBtn}
+                          onClick={() => handleWorkoutTypeSelect('templates')}
+                        >
+                          Choose Template
+                        </button>
+                        <button
+                          className={styles.workoutTypeBtn}
+                          onClick={() => handleWorkoutTypeSelect('freestyle')}
+                        >
+                          Freestyle
+                        </button>
+                        <button
+                          className={styles.workoutTypeBtn}
+                          onClick={() => handleWorkoutTypeSelect('random')}
+                        >
+                          Random Workout
+                        </button>
+                      </div>
                       <button
-                        className={styles.workoutTypeBtn}
-                        onClick={() => handleWorkoutTypeSelect('scheduled')}
+                        className={styles.closeModalBtn}
+                        onClick={() => {
+                          setShowWorkoutStartModal(false)
+                          setShowTemplateSelection(false)
+                        }}
                       >
-                        Today's Scheduled Workout
-                        <span className={styles.workoutTypeSubtext}>
-                          {templates.find(t => t.id === todaysScheduledWorkout.template_id)?.name || 'Scheduled'}
-                        </span>
+                        Cancel
                       </button>
-                    )}
-                    <button
-                      className={styles.workoutTypeBtn}
-                      onClick={() => handleWorkoutTypeSelect('templates')}
-                    >
-                      Choose Template
-                    </button>
-                    <button
-                      className={styles.workoutTypeBtn}
-                      onClick={() => handleWorkoutTypeSelect('freestyle')}
-                    >
-                      Freestyle
-                    </button>
-                    <button
-                      className={styles.workoutTypeBtn}
-                      onClick={() => handleWorkoutTypeSelect('random')}
-                    >
-                      Random Workout
-                    </button>
-                  </div>
-                  <button
-                    className={styles.closeModalBtn}
-                    onClick={() => setShowWorkoutStartModal(false)}
-                  >
-                    Cancel
-                  </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className={styles.modalHeader}>
+                        <button
+                          className={styles.backBtn}
+                          onClick={() => setShowTemplateSelection(false)}
+                        >
+                          ← Back
+                        </button>
+                        <h3>Choose Template</h3>
+                        <button
+                          className={styles.closeModalBtn}
+                          onClick={() => {
+                            setShowWorkoutStartModal(false)
+                            setShowTemplateSelection(false)
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className={styles.templateSelectionList}>
+                        {templates.length === 0 ? (
+                          <p className={styles.emptyText}>No templates available. Create one in the Templates tab.</p>
+                        ) : (
+                          templates.map(template => (
+                            <button
+                              key={template.id}
+                              className={styles.templateSelectionBtn}
+                              onClick={() => {
+                                setShowWorkoutStartModal(false)
+                                setShowTemplateSelection(false)
+                                startWorkout(template.id, false)
+                              }}
+                            >
+                              <span className={styles.templateName}>{template.name}</span>
+                              <span className={styles.templateCount}>{template.exercises?.length || 0} exercises</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -356,17 +410,49 @@ export default function Fitness() {
             
             <div className={styles.templateList}>
               {templates.map(template => (
-                <button
-                  key={template.id}
-                  className={styles.templateBtn}
-                  onClick={() => {
-                    setActiveTab('Workout')
-                    startWorkout(template.id, false)
-                  }}
-                >
-                  <span className={styles.templateName}>{template.name}</span>
-                  <span className={styles.templateCount}>{template.exercises.length} exercises</span>
-                </button>
+                <div key={template.id} className={styles.templateItem}>
+                  <button
+                    className={styles.templateBtn}
+                    onClick={() => {
+                      setActiveTab('Workout')
+                      startWorkout(template.id, false)
+                    }}
+                  >
+                    <span className={styles.templateName}>{template.name}</span>
+                    <span className={styles.templateCount}>{template.exercises.length} exercises</span>
+                  </button>
+                  <div className={styles.templateActions}>
+                    <button
+                      className={styles.editTemplateBtn}
+                      onClick={() => {
+                        setEditingTemplate(template)
+                        setShowTemplateEditor(true)
+                      }}
+                      title="Edit template"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className={styles.deleteTemplateBtn}
+                      onClick={async () => {
+                        if (confirm(`Delete template "${template.name}"?`)) {
+                          try {
+                            await deleteTemplate(template.id)
+                            const updated = await getAllTemplates()
+                            setTemplates(updated)
+                            showToast('Template deleted', 'success')
+                          } catch (e) {
+                            logError('Error deleting template', e)
+                            showToast('Failed to delete template', 'error')
+                          }
+                        }
+                      }}
+                      title="Delete template"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
               ))}
               
               <button

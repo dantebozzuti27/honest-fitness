@@ -74,6 +74,78 @@ export async function checkAndRefreshFitbitToken(userId) {
 }
 
 /**
+ * Generic token refresh function for any provider
+ */
+export async function refreshTokenIfNeeded(userId, provider, account) {
+  if (!account) return null
+  
+  const expiresAt = account.expires_at ? new Date(account.expires_at) : null
+  const now = new Date()
+  
+  // If token is still valid (more than 15 minutes until expiration), return as-is
+  if (expiresAt && expiresAt > new Date(now.getTime() + 15 * 60 * 1000)) {
+    return account
+  }
+  
+  // Token needs refresh
+  if (provider === 'fitbit') {
+    try {
+      const response = await fetch('/api/fitbit/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          refreshToken: account.refresh_token
+        })
+      })
+      
+      if (response.ok) {
+        const tokenData = await response.json()
+        const { saveConnectedAccount } = await import('./wearables')
+        await saveConnectedAccount(userId, 'fitbit', {
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token,
+          expires_at: tokenData.expires_at,
+          token_type: 'Bearer'
+        })
+        return { ...account, access_token: tokenData.access_token, expires_at: tokenData.expires_at }
+      }
+    } catch (error) {
+      logError('Error refreshing Fitbit token', error)
+      return account // Return original if refresh fails
+    }
+  } else if (provider === 'oura') {
+    try {
+      const response = await fetch('/api/oura/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          refreshToken: account.refresh_token
+        })
+      })
+      
+      if (response.ok) {
+        const tokenData = await response.json()
+        const { saveConnectedAccount } = await import('./wearables')
+        await saveConnectedAccount(userId, 'oura', {
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token,
+          expires_at: tokenData.expires_at,
+          token_type: 'Bearer'
+        })
+        return { ...account, access_token: tokenData.access_token, expires_at: tokenData.expires_at }
+      }
+    } catch (error) {
+      logError('Error refreshing Oura token', error)
+      return account // Return original if refresh fails
+    }
+  }
+  
+  return account
+}
+
+/**
  * Start automatic token refresh interval
  * Checks every 30 minutes
  */

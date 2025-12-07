@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { logError, logDebug } from '../utils/logger'
+import { getSystemFoods, getFoodCategories, getFavoriteFoods, getRecentFoods } from '../lib/foodLibrary'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -48,8 +49,11 @@ export default function Nutrition() {
   const [selectedDate, setSelectedDate] = useState(getTodayEST())
   const [historyData, setHistoryData] = useState({})
   const [favorites, setFavorites] = useState([])
+  const [foodSuggestions, setFoodSuggestions] = useState([])
+  const [foodCategories, setFoodCategories] = useState([])
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [showManualEntry, setShowManualEntry] = useState(false)
+  const [showFoodSuggestions, setShowFoodSuggestions] = useState(false)
   const [selectedMealType, setSelectedMealType] = useState('Snacks')
   const [manualEntry, setManualEntry] = useState({
     name: '',
@@ -136,6 +140,28 @@ export default function Nutrition() {
       setNutritionGoals(goals)
     } catch (error) {
       // Silently fail
+    }
+  }
+
+  const loadFoodSuggestions = async () => {
+    if (!user) return
+    try {
+      const [categories, systemFoods, favoriteFoods, recentFoods] = await Promise.all([
+        getFoodCategories(),
+        getSystemFoods({ search: '' }),
+        getFavoriteFoods(user.id),
+        getRecentFoods(user.id, 10)
+      ])
+      setFoodCategories(categories)
+      // Combine favorites, recent, and system foods (prioritize favorites/recent)
+      const allSuggestions = [
+        ...favoriteFoods.map(f => ({ ...f, isFavorite: true })),
+        ...recentFoods.map(f => ({ ...f, isRecent: true })),
+        ...systemFoods.filter(f => !favoriteFoods.some(fav => fav.id === f.id) && !recentFoods.some(rec => rec.id === f.id))
+      ]
+      setFoodSuggestions(allSuggestions.slice(0, 50)) // Limit to 50 suggestions
+    } catch (error) {
+      logError('Error loading food suggestions', error)
     }
   }
 
@@ -703,14 +729,70 @@ export default function Nutrition() {
         {activeTab === 'Today' && (
           <div>
             {/* Log Meal Button */}
-            <button
-              className={styles.logMealBtn}
-              onClick={() => {
-                setShowManualEntry(true)
-              }}
-            >
-              Log meal
-            </button>
+            <div className={styles.logMealActions}>
+              <button
+                className={styles.logMealBtn}
+                onClick={() => {
+                  setShowManualEntry(true)
+                }}
+              >
+                Log meal
+              </button>
+              <button
+                className={styles.foodSuggestionsBtn}
+                onClick={() => setShowFoodSuggestions(!showFoodSuggestions)}
+              >
+                {showFoodSuggestions ? 'Hide' : 'Show'} Food Suggestions
+              </button>
+            </div>
+
+            {/* Food Suggestions */}
+            {showFoodSuggestions && foodSuggestions.length > 0 && (
+              <div className={styles.foodSuggestionsCard}>
+                <h3>Food Suggestions</h3>
+                <div className={styles.foodSuggestionsGrid}>
+                  {foodSuggestions.map(food => {
+                    // Calculate calories and macros for 100g
+                    const calories = food.calories_per_100g || 0
+                    const protein = food.protein_per_100g || 0
+                    const carbs = food.carbs_per_100g || 0
+                    const fat = food.fat_per_100g || 0
+                    
+                    return (
+                      <button
+                        key={food.id}
+                        className={styles.foodSuggestionBtn}
+                        onClick={() => {
+                          // Add food to meal
+                          addMeal({
+                            calories: Math.round(calories),
+                            macros: {
+                              protein: Math.round(protein),
+                              carbs: Math.round(carbs),
+                              fat: Math.round(fat)
+                            },
+                            foods: [food.name],
+                            type: 'suggestion',
+                            description: food.name
+                          })
+                          setShowFoodSuggestions(false)
+                        }}
+                      >
+                        <div className={styles.foodSuggestionName}>{food.name}</div>
+                        <div className={styles.foodSuggestionMacros}>
+                          <span>{Math.round(calories)} cal</span>
+                          {protein > 0 && <span>P: {Math.round(protein)}g</span>}
+                          {carbs > 0 && <span>C: {Math.round(carbs)}g</span>}
+                          {fat > 0 && <span>F: {Math.round(fat)}g</span>}
+                        </div>
+                        {food.isFavorite && <span className={styles.foodSuggestionBadge}>★</span>}
+                        {food.isRecent && <span className={styles.foodSuggestionBadge}>Recent</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Calories and Macros vs Goal */}
             <div className={styles.summaryCard}>

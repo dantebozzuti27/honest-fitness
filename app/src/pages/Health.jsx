@@ -439,6 +439,7 @@ export default function Health() {
                   body_temp: null
                 }
                 setEditingMetric(newMetric)
+                setEditingMetricType(null) // Show all fields
                 setShowLogModal(true)
               }}
               aria-label="Log health metrics"
@@ -559,17 +560,8 @@ export default function Health() {
                     className={styles.dashboardLogBtn} 
                     onClick={(e) => { 
                       e.stopPropagation()
-                      const stepsMetric = { 
-                        ...todayMetric,
-                        weight: null,
-                        hrv: null,
-                        calories_burned: null,
-                        sleep_time: null,
-                        sleep_score: null,
-                        resting_heart_rate: null,
-                        body_temp: null
-                      }
-                      setEditingMetric(stepsMetric)
+                      setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                      setEditingMetricType('steps')
                       setShowLogModal(true)
                     }}
                   >
@@ -610,17 +602,8 @@ export default function Health() {
                     className={styles.dashboardLogBtn} 
                     onClick={(e) => { 
                       e.stopPropagation()
-                      const caloriesMetric = { 
-                        ...todayMetric,
-                        weight: null,
-                        steps: null,
-                        hrv: null,
-                        sleep_time: null,
-                        sleep_score: null,
-                        resting_heart_rate: null,
-                        body_temp: null
-                      }
-                      setEditingMetric(caloriesMetric)
+                      setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                      setEditingMetricType('calories')
                       setShowLogModal(true)
                     }}
                   >
@@ -661,17 +644,8 @@ export default function Health() {
                     className={styles.dashboardLogBtn} 
                     onClick={(e) => { 
                       e.stopPropagation()
-                      const hrvMetric = { 
-                        ...todayMetric,
-                        weight: null,
-                        steps: null,
-                        calories_burned: null,
-                        sleep_time: null,
-                        sleep_score: null,
-                        resting_heart_rate: null,
-                        body_temp: null
-                      }
-                      setEditingMetric(hrvMetric)
+                      setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                      setEditingMetricType('hrv')
                       setShowLogModal(true)
                     }}
                   >
@@ -719,16 +693,8 @@ export default function Health() {
                     className={styles.dashboardLogBtn} 
                     onClick={(e) => { 
                       e.stopPropagation()
-                      const sleepMetric = { 
-                        ...todayMetric,
-                        weight: null,
-                        steps: null,
-                        hrv: null,
-                        calories_burned: null,
-                        resting_heart_rate: null,
-                        body_temp: null
-                      }
-                      setEditingMetric(sleepMetric)
+                      setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                      setEditingMetricType('sleep')
                       setShowLogModal(true)
                     }}
                   >
@@ -740,19 +706,8 @@ export default function Health() {
                 <div 
                   className={styles.dashboardCard}
                   onClick={() => {
-                    // Create metric with only weight field for editing
-                    const weightMetric = { 
-                      ...todayMetric,
-                      // Clear other fields to focus on weight
-                      steps: null,
-                      hrv: null,
-                      calories_burned: null,
-                      sleep_time: null,
-                      sleep_score: null,
-                      resting_heart_rate: null,
-                      body_temp: null
-                    }
-                    setEditingMetric(weightMetric)
+                    setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                    setEditingMetricType('weight')
                     setShowLogModal(true)
                   }}
                   style={{ cursor: 'pointer' }}
@@ -769,17 +724,8 @@ export default function Health() {
                     className={styles.dashboardLogBtn} 
                     onClick={(e) => { 
                       e.stopPropagation()
-                      const weightMetric = { 
-                        ...todayMetric,
-                        steps: null,
-                        hrv: null,
-                        calories_burned: null,
-                        sleep_time: null,
-                        sleep_score: null,
-                        resting_heart_rate: null,
-                        body_temp: null
-                      }
-                      setEditingMetric(weightMetric)
+                      setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                      setEditingMetricType('weight')
                       setShowLogModal(true)
                     }}
                   >
@@ -791,17 +737,8 @@ export default function Health() {
                 <div 
                   className={styles.dashboardCard}
                   onClick={() => {
-                    const hrMetric = { 
-                      ...todayMetric,
-                      weight: null,
-                      steps: null,
-                      hrv: null,
-                      calories_burned: null,
-                      sleep_time: null,
-                      sleep_score: null,
-                      body_temp: null
-                    }
-                    setEditingMetric(hrMetric)
+                    setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                    setEditingMetricType('resting_heart_rate')
                     setShowLogModal(true)
                   }}
                   style={{ cursor: 'pointer' }}
@@ -820,17 +757,8 @@ export default function Health() {
                     className={styles.dashboardLogBtn} 
                     onClick={(e) => { 
                       e.stopPropagation()
-                      const hrMetric = { 
-                        ...todayMetric,
-                        weight: null,
-                        steps: null,
-                        hrv: null,
-                        calories_burned: null,
-                        sleep_time: null,
-                        sleep_score: null,
-                        body_temp: null
-                      }
-                      setEditingMetric(hrMetric)
+                      setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                      setEditingMetricType('resting_heart_rate')
                       setShowLogModal(true)
                     }}
                   >
@@ -896,6 +824,7 @@ export default function Health() {
                         body_temp: null
                       }
                       setEditingMetric(newMetric)
+                      setEditingMetricType(null) // Show all fields
                       setShowLogModal(true)
                     }}
                     style={{ marginTop: '12px' }}
@@ -926,6 +855,7 @@ export default function Health() {
                             className={styles.historyTableRow}
                             onClick={() => {
                               setEditingMetric({ ...metric })
+                              setEditingMetricType(null) // Show all fields
                               setShowLogModal(true)
                             }}
                           >
@@ -1086,6 +1016,7 @@ export default function Health() {
         <>
           <div className={styles.overlay} onClick={() => {
             setEditingMetric(null)
+            setEditingMetricType(null)
             setShowLogModal(false)
           }}>
             <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -1093,6 +1024,7 @@ export default function Health() {
               <h2>{editingMetric?.date ? `Log Health Metrics - ${new Date(editingMetric.date + 'T12:00:00').toLocaleDateString()}` : 'Log Health Metrics'}</h2>
               <button onClick={() => {
                 setEditingMetric(null)
+                setEditingMetricType(null)
                 setShowLogModal(false)
               }}>✕</button>
             </div>
@@ -1109,109 +1041,126 @@ export default function Health() {
                   max={getTodayEST()}
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label>Weight (lbs)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={(editingMetric && editingMetric.weight) || ''}
-                  onChange={(e) => {
-                    const currentMetric = editingMetric || {}
-                    setEditingMetric({ ...currentMetric, weight: parseFloat(e.target.value) || null })
-                  }}
-                  placeholder="Enter weight"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Steps</label>
-                <input
-                  type="number"
-                  step="1"
-                  value={(editingMetric && editingMetric.steps) || ''}
-                  onChange={(e) => {
-                    const currentMetric = editingMetric || {}
-                    const val = e.target.value
-                    setEditingMetric({ ...currentMetric, steps: val === '' ? null : Math.round(Number(val)) })
-                  }}
-                  placeholder="Enter steps"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>HRV (ms)</label>
-                <input
-                  type="number"
-                  value={(editingMetric && editingMetric.hrv) || ''}
-                  onChange={(e) => {
-                    const currentMetric = editingMetric || {}
-                    setEditingMetric({ ...currentMetric, hrv: parseInt(e.target.value) || null })
-                  }}
-                  placeholder="Enter HRV"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Calories Burned</label>
-                <input
-                  type="number"
-                  value={(editingMetric && (editingMetric.calories_burned || editingMetric.calories)) || ''}
-                  onChange={(e) => {
-                    const currentMetric = editingMetric || {}
-                    const val = parseInt(e.target.value) || null
-                    setEditingMetric({ ...currentMetric, calories_burned: val, calories: val })
-                  }}
-                  placeholder="Enter calories burned"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Sleep Time</label>
-                <input
-                  type="text"
-                  value={(editingMetric && editingMetric.sleep_time) || ''}
-                  onChange={(e) => {
-                    const currentMetric = editingMetric || {}
-                    setEditingMetric({ ...currentMetric, sleep_time: e.target.value })
-                  }}
-                  placeholder="e.g., 7h 30m"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Sleep Score</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={(editingMetric && editingMetric.sleep_score) || ''}
-                  onChange={(e) => {
-                    const currentMetric = editingMetric || {}
-                    setEditingMetric({ ...currentMetric, sleep_score: parseInt(e.target.value) || null })
-                  }}
-                  placeholder="0-100"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Resting Heart Rate (bpm)</label>
-                <input
-                  type="number"
-                  value={(editingMetric && editingMetric.resting_heart_rate) || ''}
-                  onChange={(e) => {
-                    const currentMetric = editingMetric || {}
-                    setEditingMetric({ ...currentMetric, resting_heart_rate: parseInt(e.target.value) || null })
-                  }}
-                  placeholder="Enter resting heart rate"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Body Temperature (°F)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={(editingMetric && editingMetric.body_temp) || ''}
-                  onChange={(e) => {
-                    const currentMetric = editingMetric || {}
-                    setEditingMetric({ ...currentMetric, body_temp: parseFloat(e.target.value) || null })
-                  }}
-                  placeholder="Enter body temperature"
-                />
-              </div>
+              {/* Only show the field being edited, or all fields if editingMetricType is null */}
+              {(!editingMetricType || editingMetricType === 'weight') && (
+                <div className={styles.formGroup}>
+                  <label>Weight (lbs)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={(editingMetric && editingMetric.weight) || ''}
+                    onChange={(e) => {
+                      const currentMetric = editingMetric || {}
+                      setEditingMetric({ ...currentMetric, weight: parseFloat(e.target.value) || null })
+                    }}
+                    placeholder="Enter weight"
+                  />
+                </div>
+              )}
+              {(!editingMetricType || editingMetricType === 'steps') && (
+                <div className={styles.formGroup}>
+                  <label>Steps</label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={(editingMetric && editingMetric.steps) || ''}
+                    onChange={(e) => {
+                      const currentMetric = editingMetric || {}
+                      const val = e.target.value
+                      setEditingMetric({ ...currentMetric, steps: val === '' ? null : Math.round(Number(val)) })
+                    }}
+                    placeholder="Enter steps"
+                  />
+                </div>
+              )}
+              {(!editingMetricType || editingMetricType === 'hrv') && (
+                <div className={styles.formGroup}>
+                  <label>HRV (ms)</label>
+                  <input
+                    type="number"
+                    value={(editingMetric && editingMetric.hrv) || ''}
+                    onChange={(e) => {
+                      const currentMetric = editingMetric || {}
+                      setEditingMetric({ ...currentMetric, hrv: parseInt(e.target.value) || null })
+                    }}
+                    placeholder="Enter HRV"
+                  />
+                </div>
+              )}
+              {(!editingMetricType || editingMetricType === 'calories') && (
+                <div className={styles.formGroup}>
+                  <label>Calories Burned</label>
+                  <input
+                    type="number"
+                    value={(editingMetric && (editingMetric.calories_burned || editingMetric.calories)) || ''}
+                    onChange={(e) => {
+                      const currentMetric = editingMetric || {}
+                      const val = parseInt(e.target.value) || null
+                      setEditingMetric({ ...currentMetric, calories_burned: val, calories: val })
+                    }}
+                    placeholder="Enter calories burned"
+                  />
+                </div>
+              )}
+              {(!editingMetricType || editingMetricType === 'sleep') && (
+                <div className={styles.formGroup}>
+                  <label>Sleep Time</label>
+                  <input
+                    type="text"
+                    value={(editingMetric && editingMetric.sleep_time) || ''}
+                    onChange={(e) => {
+                      const currentMetric = editingMetric || {}
+                      setEditingMetric({ ...currentMetric, sleep_time: e.target.value })
+                    }}
+                    placeholder="e.g., 7h 30m"
+                  />
+                </div>
+              )}
+              {(!editingMetricType || editingMetricType === 'sleep') && (
+                <div className={styles.formGroup}>
+                  <label>Sleep Score</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={(editingMetric && editingMetric.sleep_score) || ''}
+                    onChange={(e) => {
+                      const currentMetric = editingMetric || {}
+                      setEditingMetric({ ...currentMetric, sleep_score: parseInt(e.target.value) || null })
+                    }}
+                    placeholder="0-100"
+                  />
+                </div>
+              )}
+              {(!editingMetricType || editingMetricType === 'resting_heart_rate') && (
+                <div className={styles.formGroup}>
+                  <label>Resting Heart Rate (bpm)</label>
+                  <input
+                    type="number"
+                    value={(editingMetric && editingMetric.resting_heart_rate) || ''}
+                    onChange={(e) => {
+                      const currentMetric = editingMetric || {}
+                      setEditingMetric({ ...currentMetric, resting_heart_rate: parseInt(e.target.value) || null })
+                    }}
+                    placeholder="Enter resting heart rate"
+                  />
+                </div>
+              )}
+              {(!editingMetricType || editingMetricType === 'body_temp') && (
+                <div className={styles.formGroup}>
+                  <label>Body Temperature (°F)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={(editingMetric && editingMetric.body_temp) || ''}
+                    onChange={(e) => {
+                      const currentMetric = editingMetric || {}
+                      setEditingMetric({ ...currentMetric, body_temp: parseFloat(e.target.value) || null })
+                    }}
+                    placeholder="Enter body temperature"
+                  />
+                </div>
+              )}
               <div className={styles.formActions}>
                 <button 
                   className={styles.saveBtn} 
@@ -1277,6 +1226,7 @@ export default function Health() {
                         safeLogDebug('Health metrics save result', result)
                         await loadAllData()
                         setEditingMetric(null)
+                        setEditingMetricType(null)
                         setShowLogModal(false)
                         showToast('Health metrics saved successfully!', 'success')
                       } catch (e) {
@@ -1291,6 +1241,7 @@ export default function Health() {
                   className={styles.cancelBtn} 
                   onClick={() => {
                     setEditingMetric(null)
+                    setEditingMetricType(null)
                     setShowLogModal(false)
                   }}
                 >

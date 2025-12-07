@@ -221,7 +221,7 @@ export async function getOuraDaily(userId, date) {
 
 /**
  * Sync Oura data for a date
- * Calls Oura API to fetch daily readiness, sleep, and activity data
+ * Uses serverless function to avoid CORS issues
  */
 export async function syncOuraData(userId, date = null) {
   const targetDate = date || getTodayEST()
@@ -231,100 +231,34 @@ export async function syncOuraData(userId, date = null) {
     throw new Error('Oura account not connected')
   }
 
-  // Check if token needs refresh
-  const { refreshTokenIfNeeded } = await import('./tokenManager')
-  const refreshedAccount = await refreshTokenIfNeeded(userId, 'oura', account)
-  const accessToken = refreshedAccount?.access_token || account.access_token
-
   try {
-    // Fetch daily readiness data
-    const readinessResponse = await fetch(
-      `https://api.ouraring.com/v2/usercollection/daily_readiness?start_date=${targetDate}&end_date=${targetDate}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      }
-    )
+    // Use serverless function to proxy Oura API calls (avoids CORS)
+    const response = await fetch('/api/oura/sync', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        userId,
+        date: targetDate
+      })
+    })
 
-    if (!readinessResponse.ok) {
-      if (readinessResponse.status === 401) {
-        throw new Error('Oura token expired. Please reconnect your account.')
-      }
-      throw new Error(`Oura API error: ${readinessResponse.statusText}`)
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.message || `Failed to sync Oura data: ${response.statusText}`)
     }
 
-    const readinessData = await readinessResponse.json()
+    const result = await response.json()
 
-    // Fetch daily sleep data
-    const sleepResponse = await fetch(
-      `https://api.ouraring.com/v2/usercollection/daily_sleep?start_date=${targetDate}&end_date=${targetDate}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      }
-    )
-
-    let sleepData = null
-    if (sleepResponse.ok) {
-      sleepData = await sleepResponse.json()
+    if (!result.success) {
+      throw new Error(result.message || 'Oura sync failed')
     }
-
-    // Fetch daily activity data
-    const activityResponse = await fetch(
-      `https://api.ouraring.com/v2/usercollection/daily_activity?start_date=${targetDate}&end_date=${targetDate}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      }
-    )
-
-    let activityData = null
-    if (activityResponse.ok) {
-      activityData = await activityResponse.json()
-    }
-
-    // Parse and combine Oura data
-    const dailyReadiness = readinessData.data?.[0] || null
-    const dailySleep = sleepData?.data?.[0] || null
-    const dailyActivity = activityData?.data?.[0] || null
-
-    // Map Oura data to our health_metrics schema
-    const ouraData = {
-      date: targetDate,
-      hrv: dailyReadiness?.score?.hrv_balance?.middle || dailyReadiness?.score?.hrv_balance?.average || null,
-      resting_heart_rate: dailyReadiness?.score?.resting_heart_rate || dailyActivity?.heart_rate?.resting || null,
-      body_temp: dailyReadiness?.score?.body_temperature?.deviation || null,
-      sleep_score: dailyReadiness?.score?.sleep_balance || dailySleep?.score || null,
-      sleep_duration: dailySleep?.total_sleep_duration ? Math.round(dailySleep.total_sleep_duration / 60) : null, // Convert seconds to minutes
-      deep_sleep: dailySleep?.sleep?.deep?.duration ? Math.round(dailySleep.sleep.deep.duration / 60) : null,
-      rem_sleep: dailySleep?.sleep?.rem?.duration ? Math.round(dailySleep.sleep.rem.duration / 60) : null,
-      light_sleep: dailySleep?.sleep?.light?.duration ? Math.round(dailySleep.sleep.light.duration / 60) : null,
-      calories_burned: dailyActivity?.total_calories || dailyActivity?.calories?.total || null,
-      steps: dailyActivity?.steps || null,
-      source_provider: 'oura',
-      source_data: {
-        readiness_score: dailyReadiness?.score?.score || null,
-        activity_score: dailyReadiness?.score?.activity_balance || null,
-        recovery_index: dailyReadiness?.score?.recovery_index || null,
-        sleep_efficiency: dailySleep?.efficiency || null,
-        sleep_latency: dailySleep?.sleep?.onset_latency || null,
-        active_calories: dailyActivity?.calories?.active || null,
-        total_calories: dailyActivity?.calories?.total || null,
-        average_heart_rate: dailyActivity?.heart_rate?.average || null,
-        max_heart_rate: dailyActivity?.heart_rate?.max || null
-      }
-    }
-
-    // Save to health_metrics
-    await saveOuraDaily(userId, targetDate, ouraData)
 
     return {
       synced: true,
-      date: targetDate,
-      data: ouraData
+      date: result.date,
+      data: result.data
     }
 
   } catch (error) {

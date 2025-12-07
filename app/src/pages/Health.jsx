@@ -34,7 +34,6 @@ export default function Health() {
   const [workouts, setWorkouts] = useState([])
   const [wearables, setWearables] = useState([])
   const [nutrition, setNutrition] = useState(null)
-  const [fitbitData, setFitbitData] = useState(null)
   const [metrics, setMetrics] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState('week') // week, month, 90days
@@ -125,33 +124,9 @@ export default function Health() {
       // Load health goals
       await loadHealthGoals()
       
-      // Load Fitbit data (try today, then yesterday, then most recent)
+      // Check for connected accounts (for display purposes)
       const fitbitAccount = connected?.find(a => a.provider === 'fitbit')
-      if (fitbitAccount) {
-        try {
-          const today = getTodayEST()
-          let fitbit = await getFitbitDaily(user.id, today)
-          if (!fitbit) {
-            // Try yesterday
-            const { getYesterdayEST } = await import('../utils/dateUtils')
-            const yesterday = getYesterdayEST()
-            fitbit = await getFitbitDaily(user.id, yesterday)
-          }
-          // If still no data, get most recent
-          if (!fitbit) {
-            const { getMostRecentFitbitData } = await import('../lib/wearables')
-            fitbit = await getMostRecentFitbitData(user.id)
-          }
-          if (fitbit) {
-            setFitbitData(fitbit)
-          } else {
-            // Set to null so we can show the "no data" message
-            setFitbitData(null)
-                    }
-                  } catch (fitbitError) {
-                    logError('Error loading Fitbit data', fitbitError)
-                  }
-                }
+      const ouraAccount = connected?.find(a => a.provider === 'oura')
 
                 // Load nutrition data from Supabase
                 try {
@@ -185,6 +160,16 @@ export default function Health() {
       // Load metrics from health_metrics table (includes Fitbit, Oura, and manual data)
       const allMetrics = await getAllMetricsFromSupabase(user.id)
       
+      console.log('Loaded metrics from database:', allMetrics?.length || 0, 'records')
+      if (allMetrics && allMetrics.length > 0) {
+        console.log('Sample metric:', allMetrics[0])
+        const ouraMetrics = allMetrics.filter(m => m.source_provider === 'oura')
+        console.log('Oura metrics found:', ouraMetrics.length)
+        if (ouraMetrics.length > 0) {
+          console.log('Sample Oura metric:', ouraMetrics[0])
+        }
+      }
+      
       // Transform health_metrics data to match UI expectations
       // health_metrics uses: sleep_duration, calories_burned
       // UI expects: sleep_time, calories
@@ -202,6 +187,11 @@ export default function Health() {
         resting_heart_rate: metric.resting_heart_rate ?? null,
         body_temp: metric.body_temp ?? null
       }))
+      
+      console.log('Transformed metrics:', transformedMetrics.length)
+      const today = getTodayEST()
+      const todayMetric = transformedMetrics.find(m => m.date === today)
+      console.log('Today metric:', todayMetric)
       
       // Sort by date descending (newest first)
       transformedMetrics.sort((a, b) => {
@@ -287,7 +277,7 @@ export default function Health() {
   const healthMetrics = useMemo(() => {
     const health = {
       hasWearables: wearables.length > 0,
-      hasFitbitData: fitbitData !== null,
+      hasFitbitData: wearables.some(w => w.provider === 'fitbit'),
       avgHRV: 0,
       avgSleep: 0,
       avgRestingHR: 0
@@ -311,7 +301,7 @@ export default function Health() {
     }
 
     return health
-  }, [wearables, fitbitData, metrics])
+  }, [wearables, metrics])
 
   // Weekly trends
   const weeklyTrends = useMemo(() => {
@@ -476,9 +466,7 @@ export default function Health() {
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Steps</span>
                     <span className={styles.dashboardStatValue}>
-                      {fitbitData?.steps != null 
-                        ? Number(fitbitData.steps).toLocaleString()
-                        : todayMetric?.steps != null
+                      {todayMetric?.steps != null
                         ? Number(todayMetric.steps).toLocaleString()
                         : '-'}
                     </span>
@@ -518,10 +506,8 @@ export default function Health() {
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Calories</span>
                     <span className={styles.dashboardStatValue}>
-                      {fitbitData?.calories != null 
-                        ? Number(fitbitData.calories).toLocaleString()
-                        : todayMetric?.calories_burned != null
-                        ? Number(todayMetric.calories_burned).toLocaleString()
+                      {todayMetric?.calories_burned != null || todayMetric?.calories != null
+                        ? Number(todayMetric.calories_burned || todayMetric.calories).toLocaleString()
                         : '-'}
                     </span>
                   </div>
@@ -560,9 +546,7 @@ export default function Health() {
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>HRV</span>
                     <span className={styles.dashboardStatValue}>
-                      {fitbitData?.hrv != null 
-                        ? `${Math.round(Number(fitbitData.hrv))} ms`
-                        : todayMetric?.hrv != null
+                      {todayMetric?.hrv != null
                         ? `${Math.round(Number(todayMetric.hrv))} ms`
                         : '-'}
                     </span>
@@ -602,9 +586,7 @@ export default function Health() {
                     <span className={styles.dashboardStatLabel}>Sleep</span>
                     <span className={styles.dashboardStatValue}>
                       {(() => {
-                        const sleepMinutes = fitbitData?.sleep_duration != null 
-                          ? Number(fitbitData.sleep_duration)
-                          : todayMetric?.sleep_time != null
+                        const sleepMinutes = todayMetric?.sleep_time != null
                           ? Number(todayMetric.sleep_time)
                           : null
                         
@@ -673,9 +655,7 @@ export default function Health() {
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Resting HR</span>
                     <span className={styles.dashboardStatValue}>
-                      {fitbitData?.resting_heart_rate != null 
-                        ? `${Math.round(Number(fitbitData.resting_heart_rate))} bpm`
-                        : todayMetric?.resting_heart_rate != null
+                      {todayMetric?.resting_heart_rate != null
                         ? `${Math.round(Number(todayMetric.resting_heart_rate))} bpm`
                         : '-'}
                     </span>

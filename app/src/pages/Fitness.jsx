@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getAllTemplates, saveTemplate, deleteTemplate } from '../db'
-import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase, deleteWorkoutFromSupabase } from '../lib/supabaseDb'
+import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase, deleteWorkoutFromSupabase, getScheduledWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
@@ -35,6 +35,7 @@ export default function Fitness() {
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedWorkoutForShare, setSelectedWorkoutForShare] = useState(null)
   const [showWorkoutStartModal, setShowWorkoutStartModal] = useState(false)
+  const [todaysScheduledWorkout, setTodaysScheduledWorkout] = useState(null)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -70,6 +71,13 @@ export default function Fitness() {
       }
     }
 
+    // Check if workout modal should open from quick log
+    if (location.state?.openWorkoutModal) {
+      setShowWorkoutStartModal(true)
+      // Clear the state to prevent reopening on re-render
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+
     async function load() {
       const t = await getAllTemplates()
       setTemplates(t)
@@ -83,6 +91,14 @@ export default function Fitness() {
           // Load fitness goals
           await loadFitnessGoals()
           
+          // Load today's scheduled workout
+          const today = getTodayEST()
+          const scheduled = await getScheduledWorkoutsFromSupabase(user.id)
+          const todaysScheduled = scheduled?.find(s => s.date === today)
+          if (todaysScheduled) {
+            setTodaysScheduledWorkout(todaysScheduled)
+          }
+          
           const prefs = await getUserPreferences(user.id)
           if (prefs && prefs.available_days?.length > 0) {
             const plan = generateWorkoutPlan({
@@ -95,8 +111,8 @@ export default function Fitness() {
             }, t)
             
             const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-            const today = dayNames[new Date().getDay()]
-            const todaysWorkout = plan.schedule.find(d => d.day === today && !d.restDay)
+            const todayDay = dayNames[new Date().getDay()]
+            const todaysWorkout = plan.schedule.find(d => d.day === todayDay && !d.restDay)
             setTodaysPlan(todaysWorkout)
           }
         } catch (e) {
@@ -140,7 +156,10 @@ export default function Fitness() {
 
   const handleWorkoutTypeSelect = (type) => {
     setShowWorkoutStartModal(false)
-    if (type === 'templates') {
+    if (type === 'scheduled' && todaysScheduledWorkout) {
+      // Start today's scheduled workout
+      startWorkout(todaysScheduledWorkout.template_id, false)
+    } else if (type === 'templates') {
       // User will select from templates below
       return
     } else if (type === 'freestyle') {
@@ -223,11 +242,22 @@ export default function Fitness() {
                 <div className={styles.workoutStartModal} onClick={(e) => e.stopPropagation()}>
                   <h3>Choose Workout Type</h3>
                   <div className={styles.workoutTypeOptions}>
+                    {todaysScheduledWorkout && (
+                      <button
+                        className={styles.workoutTypeBtn}
+                        onClick={() => handleWorkoutTypeSelect('scheduled')}
+                      >
+                        Today's Scheduled Workout
+                        <span className={styles.workoutTypeSubtext}>
+                          {templates.find(t => t.id === todaysScheduledWorkout.template_id)?.name || 'Scheduled'}
+                        </span>
+                      </button>
+                    )}
                     <button
                       className={styles.workoutTypeBtn}
                       onClick={() => handleWorkoutTypeSelect('templates')}
                     >
-                      Templates
+                      Choose Template
                     </button>
                     <button
                       className={styles.workoutTypeBtn}
@@ -239,7 +269,7 @@ export default function Fitness() {
                       className={styles.workoutTypeBtn}
                       onClick={() => handleWorkoutTypeSelect('random')}
                     >
-                      Random
+                      Random Workout
                     </button>
                   </div>
                   <button

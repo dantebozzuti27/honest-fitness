@@ -25,6 +25,10 @@ export async function saveGoalToSupabase(userId, goal) {
       status: goal.status || 'active', // 'active', 'completed', 'archived'
       custom_name: goal.customName || null,
       description: goal.description || null,
+      is_daily_goal: goal.isDailyGoal || false,
+      daily_achievements: goal.dailyAchievements || null,
+      progress_percentage: goal.progressPercentage || 0,
+      last_calculated_at: goal.lastCalculatedAt || null,
       created_at: goal.createdAt || new Date().toISOString(),
       updated_at: new Date().toISOString()
     }, {
@@ -88,11 +92,70 @@ export async function getActiveGoalsFromSupabase(userId, category = null) {
 /**
  * Update goal progress
  */
-export async function updateGoalProgress(userId, goalId, currentValue) {
+export async function updateGoalProgress(userId, goalId, currentValue, progressPercentage = null) {
+  const updateData = {
+    current_value: currentValue,
+    updated_at: new Date().toISOString()
+  }
+  
+  if (progressPercentage !== null) {
+    updateData.progress_percentage = progressPercentage
+    updateData.last_calculated_at = new Date().toISOString()
+  }
+  
+  const { data, error } = await supabase
+    .from('goals')
+    .update(updateData)
+    .eq('id', goalId)
+    .eq('user_id', userId)
+    .select()
+    .single()
+
+  if (error) {
+    logError('Error updating goal progress', error)
+    throw error
+  }
+  return data
+}
+
+/**
+ * Calculate and update goal progress using database function
+ */
+export async function calculateGoalProgress(goalId) {
+  const { data, error } = await supabase.rpc('calculate_goal_progress', {
+    p_goal_id: goalId
+  })
+
+  if (error) {
+    logError('Error calculating goal progress', error)
+    throw error
+  }
+  return data
+}
+
+/**
+ * Update daily goal achievement
+ */
+export async function updateDailyGoalAchievement(userId, goalId, date, achieved) {
+  // Get current goal
+  const { data: goal, error: fetchError } = await supabase
+    .from('goals')
+    .select('daily_achievements, is_daily_goal')
+    .eq('id', goalId)
+    .eq('user_id', userId)
+    .single()
+
+  if (fetchError || !goal || !goal.is_daily_goal) {
+    throw new Error('Goal not found or not a daily goal')
+  }
+
+  const achievements = goal.daily_achievements || {}
+  achievements[date] = achieved
+
   const { data, error } = await supabase
     .from('goals')
     .update({
-      current_value: currentValue,
+      daily_achievements: achievements,
       updated_at: new Date().toISOString()
     })
     .eq('id', goalId)
@@ -101,7 +164,7 @@ export async function updateGoalProgress(userId, goalId, currentValue) {
     .single()
 
   if (error) {
-    logError('Error updating goal progress', error)
+    logError('Error updating daily goal achievement', error)
     throw error
   }
   return data

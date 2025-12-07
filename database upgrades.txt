@@ -1,0 +1,45 @@
+Database Notes
+
+Lets simplify the database without deleting any data
+The connected accounts should currently only be
+Fitbit
+Oura
+Apple watch
+We need to standardize the inputted data from those 3 sources as they will impact our health metrics page 
+Date
+Resting heart rate
+Hrv
+Body temp
+Sleep score
+Sleep duration
+Deep sleep
+Rem sleep
+Light sleep
+Calories burned
+Steps
+Breathing rate
+Spo2
+Strain
+If any of these metrics do not exist from one wearables source, it should come in as null to my database
+If any of these are named differently across the 3 sources, they need to be normalized in my database
+Health metrics should have some other columns that are only manually inputted by the user, these should be 
+Weight
+Body fat percentage
+Age (determined by date of birth, prompt user during sign up)
+Gender
+Height (feet, inches)
+These manual metrics can be optional for the user, and for trending purposes, they should be assumed as unchanged unless the user makes that changed 
+For example, if a user logs their weight as 170, and then doesn’t log their weight for another week, the weight for the days in between should be assumed as 170
+For workouts and exercises, we will log each workout down to the set, so that this can be organized easily, so far the structure seems to be doing that
+For exercises, we need to expand our database to understand sub body parts, and the total body part
+For example, squats are a leg exercise, but the sub body part would be glutes, quads, hamstrings, etc
+When a user adds their own custom exercise, this should be written to the database as well
+We need to differentiate weightlifting vs cardio, cardio should include distance
+For nutrition, we need more detail as well, and common options
+Categorizing, meat, dairy, grains, fruit, etc
+Common foods and their calories and macronutrients
+Ability for the user to save custom foods as well as favorites
+User can choose recent foods as well
+Does not need to normalize with the database as strictly as exercises and health metrics, as portion sizes can differ
+CalAI add in (API to come later) must normalize with our calorie and macronutrient structure as data comes in
+For goals, we need to match the structure of fitness, nutrition and health as we want to show them against the goals, and create a yes/no column on whether or not the user reached that daily goal (calorie intake), as well as making progress towards that goal (weight)

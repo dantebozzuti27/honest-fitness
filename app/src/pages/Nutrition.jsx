@@ -74,6 +74,14 @@ export default function Nutrition() {
 
   useEffect(() => {
     if (!user) return
+    
+    // Check if meal modal should open from quick log
+    if (location.state?.openMealModal) {
+      setShowManualEntry(true)
+      // Clear the state to prevent reopening on re-render
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+    
     loadSettings()
     loadDateDataFromSupabase(selectedDate)
     loadNutritionGoals()

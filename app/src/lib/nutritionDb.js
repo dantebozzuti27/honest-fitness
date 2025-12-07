@@ -32,9 +32,9 @@ export async function saveMealToSupabase(userId, date, meal) {
   // For now, we'll use daily_metrics and store meals as JSON
   // In production, you'd want a separate meals table
   
-  // First, get existing data for the date
+  // First, get existing data for the date from health_metrics
   const { data: existing, error: fetchError } = await supabase
-    .from('daily_metrics')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
@@ -128,57 +128,25 @@ export async function saveMealToSupabase(userId, date, meal) {
   // The migration will add this column, but we handle gracefully if it doesn't exist yet
   try {
     const { data, error } = await supabase
-      .from('daily_metrics')
+      .from('health_metrics')
       .upsert({
         ...upsertData,
+        source_provider: existing?.source_provider || 'manual',
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id,date' })
       .select()
       .single()
     
     if (error) {
-      // If updated_at column doesn't exist, try without it
-      if (error.code === 'PGRST204' && error.message?.includes('updated_at')) {
-        const { data: retryData, error: retryError } = await supabase
-          .from('daily_metrics')
-          .upsert(upsertData, { onConflict: 'user_id,date' })
-          .select()
-          .single()
-        
-        if (retryError) {
-          console.error('Error saving meal to Supabase:', retryError)
-          throw retryError
-        }
-        return retryData
-      }
       console.error('Error saving meal to Supabase:', error)
       throw error
     }
     
     return data
   } catch (err) {
-    // Fallback: try without updated_at
-    const { data, error } = await supabase
-      .from('daily_metrics')
-      .upsert(upsertData, { onConflict: 'user_id,date' })
-      .select()
-      .single()
-    
-    if (error) {
-      logError('Error saving meal to Supabase', error)
-      throw error
-    }
-    
-    return data
+    logError('Error saving meal to Supabase', err)
+    throw err
   }
-  
-  if (error) {
-    logError('Error saving meal to Supabase', { error, mealToAdd, meals })
-    throw error
-  }
-  
-  safeLogDebug('Meal saved successfully', data)
-  return data
 }
 
 /**
@@ -186,7 +154,7 @@ export async function saveMealToSupabase(userId, date, meal) {
  */
 export async function getMealsFromSupabase(userId, date) {
   const { data, error } = await supabase
-    .from('daily_metrics')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
@@ -250,13 +218,12 @@ export async function getMealsFromSupabase(userId, date) {
   
   safeLogDebug(`Loaded meals for ${date}: ${meals.length} meals`)
   
-  return {
-    meals: meals || [],
-    // Use calories_consumed if available, fallback to calories for backward compatibility
-    calories: Number(data.calories_consumed || data.calories) || 0,
-    macros: macros || { protein: 0, carbs: 0, fat: 0 },
-    water: Number(data.water) || 0
-  }
+    return {
+      meals: meals || [],
+      calories: Number(data.calories_consumed) || 0,
+      macros: macros || { protein: 0, carbs: 0, fat: 0 },
+      water: Number(data.water) || 0
+    }
 }
 
 /**
@@ -264,12 +231,12 @@ export async function getMealsFromSupabase(userId, date) {
  */
 export async function getNutritionRangeFromSupabase(userId, startDate, endDate) {
   const { data, error } = await supabase
-    .from('daily_metrics')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .gte('date', startDate)
     .lte('date', endDate)
-    .not('calories', 'is', null)
+    .not('calories_consumed', 'is', null)
     .order('date', { ascending: true })
   
   if (error) throw error
@@ -297,8 +264,7 @@ export async function getNutritionRangeFromSupabase(userId, startDate, endDate) 
     return {
       date: item.date,
       meals,
-      // Use calories_consumed if available, fallback to calories for backward compatibility
-      calories: item.calories_consumed || item.calories || 0,
+      calories: item.calories_consumed || 0,
       macros,
       water: item.water || 0
     }
@@ -317,7 +283,7 @@ export async function updateWaterIntake(userId, date, water) {
   
   try {
     const { data, error } = await supabase
-      .from('daily_metrics')
+      .from('health_metrics')
       .upsert({
         ...upsertData,
         updated_at: new Date().toISOString()
@@ -325,30 +291,11 @@ export async function updateWaterIntake(userId, date, water) {
       .select()
       .single()
     
-    if (error && error.code === 'PGRST204' && error.message?.includes('updated_at')) {
-      // Fallback without updated_at
-      const { data: retryData, error: retryError } = await supabase
-        .from('daily_metrics')
-        .upsert(upsertData, { onConflict: 'user_id,date' })
-        .select()
-        .single()
-      
-      if (retryError) throw retryError
-      return retryData
-    }
-    
     if (error) throw error
     return data
   } catch (err) {
-    // Fallback: try without updated_at
-    const { data, error } = await supabase
-      .from('daily_metrics')
-      .upsert(upsertData, { onConflict: 'user_id,date' })
-      .select()
-      .single()
-    
-    if (error) throw error
-    return data
+    logError('Error updating water intake', err)
+    throw err
   }
 }
 
@@ -356,13 +303,13 @@ export async function updateWaterIntake(userId, date, water) {
  * Delete a meal
  */
 export async function deleteMealFromSupabase(userId, date, mealId) {
-  // Get existing data
+  // Get existing data from health_metrics
   const { data: existing, error: fetchError } = await supabase
-    .from('daily_metrics')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
-    .single()
+    .maybeSingle()
   
   if (fetchError && fetchError.code !== 'PGRST116') throw fetchError
   
@@ -386,41 +333,26 @@ export async function deleteMealFromSupabase(userId, date, mealId) {
     fat: macros.fat + (m.macros?.fat || m.fat || 0)
   }), { protein: 0, carbs: 0, fat: 0 })
   
-  // Save updated data
+  // Save updated data to health_metrics
   const upsertData = {
     user_id: userId,
     date: date,
-    calories: totalCalories,
+    calories_consumed: totalCalories,
     meals: meals, // JSONB accepts objects/arrays directly
-    macros: totalMacros // JSONB accepts objects directly
+    macros: totalMacros, // JSONB accepts objects directly
+    source_provider: existing?.source_provider || 'manual',
+    updated_at: new Date().toISOString()
   }
   
   try {
     const { error } = await supabase
-      .from('daily_metrics')
-      .upsert({
-        ...upsertData,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id,date' })
-    
-    if (error && error.code === 'PGRST204' && error.message?.includes('updated_at')) {
-      // Fallback without updated_at
-      const { error: retryError } = await supabase
-        .from('daily_metrics')
-        .upsert(upsertData, { onConflict: 'user_id,date' })
-      
-      if (retryError) throw retryError
-      return
-    }
-    
-    if (error) throw error
-  } catch (err) {
-    // Fallback: try without updated_at
-    const { error } = await supabase
-      .from('daily_metrics')
+      .from('health_metrics')
       .upsert(upsertData, { onConflict: 'user_id,date' })
     
     if (error) throw error
+  } catch (err) {
+    logError('Error deleting meal from Supabase', err)
+    throw err
   }
 }
 

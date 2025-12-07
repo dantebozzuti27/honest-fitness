@@ -110,16 +110,18 @@ import { toInteger, toNumber } from '../utils/numberUtils'
 
 export async function saveMetricsToSupabase(date, metrics, userId) {
   const { data, error } = await supabase
-    .from('daily_metrics')
+    .from('health_metrics')
     .upsert({
       user_id: userId,
       date,
       sleep_score: toNumber(metrics.sleepScore),
-      sleep_time: toNumber(metrics.sleepTime),
+      sleep_duration: toNumber(metrics.sleepTime), // Map sleepTime to sleep_duration
       hrv: toNumber(metrics.hrv),
       steps: toInteger(metrics.steps), // INTEGER - must be whole number
-      calories: toNumber(metrics.caloriesBurned),
-      weight: toNumber(metrics.weight)
+      calories_burned: toNumber(metrics.caloriesBurned),
+      weight: toNumber(metrics.weight),
+      source_provider: 'manual',
+      updated_at: new Date().toISOString()
     }, { onConflict: 'user_id,date' })
     .select()
 
@@ -129,7 +131,7 @@ export async function saveMetricsToSupabase(date, metrics, userId) {
 
 export async function getMetricsFromSupabase(userId, startDate, endDate) {
   const { data, error } = await supabase
-    .from('daily_metrics')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .gte('date', startDate)
@@ -142,7 +144,7 @@ export async function getMetricsFromSupabase(userId, startDate, endDate) {
 
 export async function getAllMetrics(userId) {
   const { data, error } = await supabase
-    .from('daily_metrics')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .order('date', { ascending: true })

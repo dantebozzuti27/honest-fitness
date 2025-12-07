@@ -36,7 +36,7 @@ export default function BarChart({
     return { values, keys, max, dateKeys }
   }, [data, labels, dates])
 
-  // Pinch/zoom handlers
+  // Pinch/zoom handlers - changes time scale in detail modal
   const getDistance = (touch1, touch2) => {
     const dx = touch2.clientX - touch1.clientX
     const dy = touch2.clientY - touch1.clientY
@@ -44,19 +44,32 @@ export default function BarChart({
   }
 
   const handleTouchStart = (e) => {
-    if (e.touches.length === 2) {
-      touchStartRef.current = {
-        touches: [e.touches[0], e.touches[1]],
-        zoom,
-        pan
+    if (showDetail && visibleData) {
+      // In detail modal, track pinch for time scale
+      if (e.touches.length === 2) {
+        touchStartRef.current = {
+          touches: [e.touches[0], e.touches[1]],
+          zoom: popupZoom,
+          dataRangeStart
+        }
+        lastPinchDistanceRef.current = getDistance(e.touches[0], e.touches[1])
       }
-      lastPinchDistanceRef.current = getDistance(e.touches[0], e.touches[1])
-    } else if (e.touches.length === 1) {
-      touchStartRef.current = {
-        touches: [e.touches[0]],
-        zoom,
-        pan,
-        startX: e.touches[0].clientX
+    } else {
+      // On main chart, use image zoom (legacy behavior)
+      if (e.touches.length === 2) {
+        touchStartRef.current = {
+          touches: [e.touches[0], e.touches[1]],
+          zoom,
+          pan
+        }
+        lastPinchDistanceRef.current = getDistance(e.touches[0], e.touches[1])
+      } else if (e.touches.length === 1) {
+        touchStartRef.current = {
+          touches: [e.touches[0]],
+          zoom,
+          pan,
+          startX: e.touches[0].clientX
+        }
       }
     }
   }
@@ -64,8 +77,28 @@ export default function BarChart({
   const handleTouchMove = (e) => {
     if (!touchStartRef.current) return
     
-    if (e.touches.length === 2 && touchStartRef.current.touches?.length === 2) {
-      // Pinch zoom
+    if (showDetail && visibleData && e.touches.length === 2 && touchStartRef.current.touches?.length === 2) {
+      // Pinch zoom in detail modal - changes time scale
+      const currentDistance = getDistance(e.touches[0], e.touches[1])
+      const initialDistance = lastPinchDistanceRef.current
+      
+      if (initialDistance > 0) {
+        const scale = currentDistance / initialDistance
+        const newZoom = Math.max(0.5, Math.min(5, touchStartRef.current.zoom * scale))
+        setPopupZoom(newZoom)
+        lastPinchDistanceRef.current = currentDistance
+        
+        // Adjust data range
+        if (chartData) {
+          const totalBars = chartData.values.length
+          const visibleCount = Math.max(1, Math.floor(totalBars / newZoom))
+          const centerIdx = Math.floor((visibleData.startIdx + visibleData.endIdx) / 2)
+          const newStart = Math.max(0, Math.min(centerIdx - Math.floor(visibleCount / 2), totalBars - visibleCount))
+          setDataRangeStart(newStart)
+        }
+      }
+    } else if (!showDetail && e.touches.length === 2 && touchStartRef.current.touches?.length === 2) {
+      // Pinch zoom on main chart (legacy image zoom)
       const currentDistance = getDistance(e.touches[0], e.touches[1])
       const initialDistance = lastPinchDistanceRef.current
       
@@ -75,8 +108,8 @@ export default function BarChart({
         setZoom(newZoom)
         lastPinchDistanceRef.current = currentDistance
       }
-    } else if (e.touches.length === 1 && touchStartRef.current.startX !== undefined && zoom > 1) {
-      // Pan only when zoomed
+    } else if (!showDetail && e.touches.length === 1 && touchStartRef.current.startX !== undefined && zoom > 1) {
+      // Pan only when zoomed (main chart only)
       const deltaX = e.touches[0].clientX - touchStartRef.current.startX
       const containerWidth = containerRef.current?.offsetWidth || 300
       const maxPan = (zoom - 1) * containerWidth * 0.5
@@ -97,13 +130,31 @@ export default function BarChart({
     setPan(0)
   }
 
-  // Mouse wheel zoom
+  // Mouse wheel zoom - changes time scale (data range) instead of image zoom
   const handleWheel = (e) => {
-    const delta = e.deltaY > 0 ? 0.9 : 1.1
-    const newZoom = Math.max(0.5, Math.min(3, zoom * delta))
-    setZoom(newZoom)
-    if (newZoom === 1) {
-      setPan(0)
+    if (showDetail && visibleData) {
+      // In detail modal, change data range (time scale)
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? 1.25 : 0.8
+      const newZoom = Math.max(0.5, Math.min(5, popupZoom * delta))
+      setPopupZoom(newZoom)
+      
+      // Adjust data range to show more/less data
+      if (chartData) {
+        const totalBars = chartData.values.length
+        const visibleCount = Math.max(1, Math.floor(totalBars / newZoom))
+        const centerIdx = Math.floor((visibleData.startIdx + visibleData.endIdx) / 2)
+        const newStart = Math.max(0, Math.min(centerIdx - Math.floor(visibleCount / 2), totalBars - visibleCount))
+        setDataRangeStart(newStart)
+      }
+    } else {
+      // On main chart, use image zoom (legacy behavior)
+      const delta = e.deltaY > 0 ? 0.9 : 1.1
+      const newZoom = Math.max(0.5, Math.min(3, zoom * delta))
+      setZoom(newZoom)
+      if (newZoom === 1) {
+        setPan(0)
+      }
     }
   }
 
@@ -375,46 +426,55 @@ export default function BarChart({
                 </span>
               </div>
               
-              {/* Zoom Controls - Changes data range */}
+              {/* Zoom Controls - Changes time scale (shows more/less data) */}
               <div className={styles.zoomControls}>
-                <span className={styles.zoomLabel}>Zoom X-Axis:</span>
+                <span className={styles.zoomLabel}>Time Scale:</span>
                 <div className={styles.zoomButtons}>
                   <button 
                     className={styles.zoomBtn}
                     onClick={() => {
                       const newZoom = Math.max(0.5, popupZoom - 0.25)
                       setPopupZoom(newZoom)
-                      // Adjust data range start to show more data
+                      // Show more data (zoom out on time scale)
                       if (chartData && visibleData) {
-                        const newStart = Math.max(0, dataRangeStart - Math.floor(chartData.values.length * 0.1))
+                        const totalBars = chartData.values.length
+                        const visibleCount = Math.max(1, Math.floor(totalBars / newZoom))
+                        const centerIdx = Math.floor((visibleData.startIdx + visibleData.endIdx) / 2)
+                        const newStart = Math.max(0, Math.min(centerIdx - Math.floor(visibleCount / 2), totalBars - visibleCount))
                         setDataRangeStart(newStart)
                       }
                     }}
+                    title="Show more time (zoom out)"
                   >
                     −
                   </button>
-                  <span className={styles.zoomValue}>{Math.round(popupZoom * 100)}%</span>
+                  <span className={styles.zoomValue}>
+                    {visibleData ? `${visibleData.endIdx - visibleData.startIdx} of ${chartData.values.length} days` : `${Math.round(popupZoom * 100)}%`}
+                  </span>
                   <button 
                     className={styles.zoomBtn}
                     onClick={() => {
-                      const newZoom = Math.min(3, popupZoom + 0.25)
+                      const newZoom = Math.min(5, popupZoom + 0.25)
                       setPopupZoom(newZoom)
-                      // Adjust data range to show less data (zoom in)
+                      // Show less data (zoom in on time scale)
                       if (chartData && visibleData) {
+                        const totalBars = chartData.values.length
+                        const visibleCount = Math.max(1, Math.floor(totalBars / newZoom))
                         const centerIdx = Math.floor((visibleData.startIdx + visibleData.endIdx) / 2)
-                        const newStart = Math.max(0, Math.min(centerIdx, chartData.values.length - 1))
+                        const newStart = Math.max(0, Math.min(centerIdx - Math.floor(visibleCount / 2), totalBars - visibleCount))
                         setDataRangeStart(newStart)
                       }
                     }}
+                    title="Show less time (zoom in)"
                   >
                     +
                   </button>
                 </div>
               </div>
 
-              {/* Expanded Chart View with Scale-Based Zoom */}
+              {/* Expanded Chart View with Time Scale Zoom */}
               <div className={styles.popupChartContainer} ref={chartRef}>
-                {chartData && chartData.values.length > 0 ? (
+                {visibleData && visibleData.values.length > 0 ? (
                   <div className={styles.chartContainer} style={{ height: '300px', width: '100%' }}>
                     <div className={styles.chartWrapper} style={{ width: '100%', height: '100%' }}>
                       <svg 
@@ -441,13 +501,15 @@ export default function BarChart({
                           stroke="#ffffff"
                           strokeWidth="0.5"
                         />
-                        {/* Render bars - always use chartData for popup display */}
-                        {chartData.values.map((value, i) => {
-                          const barHeight = chartData.max > 0 ? (value / chartData.max) * 80 : 0
-                          const totalBars = chartData.values.length
+                        {/* Render bars - use visibleData for time scale zoom */}
+                        {visibleData.values.map((value, i) => {
+                          const barHeight = visibleData.max > 0 ? (value / visibleData.max) * 80 : 0
+                          const totalBars = visibleData.values.length
                           const x = 10 + (i * (80 / Math.max(totalBars, 1)))
                           const y = 90 - barHeight
                           const barWidth = Math.max(2, 80 / Math.max(totalBars, 1) * 0.8)
+                          const date = visibleData.dateKeys[i]
+                          const key = visibleData.keys[i]
                           
                           return (
                             <rect
@@ -458,6 +520,8 @@ export default function BarChart({
                               height={Math.max(0.5, barHeight)}
                               fill={color}
                               className={styles.bar}
+                              onClick={() => handleBarClick(visibleData.startIdx + i, value, key, date)}
+                              style={{ cursor: 'pointer' }}
                             />
                           )
                         })}

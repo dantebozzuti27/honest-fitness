@@ -40,37 +40,38 @@ export async function saveToDatabase(type, normalizedData) {
       break
       
     case 'nutrition':
-      tableName = 'daily_metrics' // Store nutrition in daily_metrics
+      tableName = 'health_metrics' // Store nutrition in health_metrics
       dataToSave = {
         user_id: normalizedData.user_id,
         date: normalizedData.date,
-        calories: normalizedData.calories || 0,
-        meals: normalizedData.meals ? (typeof normalizedData.meals === 'string' ? normalizedData.meals : JSON.stringify(normalizedData.meals)) : null,
-        macros: normalizedData.macros ? (typeof normalizedData.macros === 'string' ? normalizedData.macros : JSON.stringify(normalizedData.macros)) : null,
-        water: normalizedData.water || null
+        calories_consumed: normalizedData.calories || 0,
+        meals: normalizedData.meals ? (typeof normalizedData.meals === 'string' ? normalizedData.meals : normalizedData.meals) : null,
+        macros: normalizedData.macros ? (typeof normalizedData.macros === 'string' ? normalizedData.macros : normalizedData.macros) : null,
+        water: normalizedData.water || null,
+        source_provider: 'manual'
       }
       break
       
     case 'health':
-      // Store in appropriate health table based on source
-      if (normalizedData.source === 'fitbit') {
-        tableName = 'fitbit_daily'
-      } else {
-        tableName = 'daily_metrics'
-      }
+      // Store in unified health_metrics table
+      tableName = 'health_metrics'
       dataToSave = {
         user_id: normalizedData.user_id,
         date: normalizedData.date,
         steps: normalizedData.steps,
         hrv: normalizedData.hrv,
         sleep_duration: normalizedData.sleep_duration,
-        sleep_efficiency: normalizedData.sleep_efficiency,
-        calories: normalizedData.calories,
-        active_calories: normalizedData.active_calories,
+        sleep_score: normalizedData.sleep_efficiency ? Math.round(normalizedData.sleep_efficiency) : null,
+        calories_burned: normalizedData.calories,
         resting_heart_rate: normalizedData.resting_heart_rate,
-        distance: normalizedData.distance,
-        floors: normalizedData.floors,
-        body_temp: normalizedData.body_temp
+        body_temp: normalizedData.body_temp,
+        source_provider: normalizedData.source || 'manual',
+        source_data: {
+          active_calories: normalizedData.active_calories,
+          distance: normalizedData.distance,
+          floors: normalizedData.floors,
+          sleep_efficiency: normalizedData.sleep_efficiency
+        }
       }
       break
       
@@ -81,6 +82,10 @@ export async function saveToDatabase(type, normalizedData) {
         age: normalizedData.age,
         weight: normalizedData.weight,
         height: normalizedData.height,
+        date_of_birth: normalizedData.date_of_birth || null,
+        gender: normalizedData.gender || null,
+        height_inches: normalizedData.height_inches || null,
+        height_feet: normalizedData.height_feet || null,
         goals: normalizedData.goals,
         preferences: normalizedData.preferences,
         updated_at: normalizedData.updated_at
@@ -118,10 +123,10 @@ export async function getFromDatabase(type, userId, filters = {}) {
       tableName = 'workouts'
       break
     case 'nutrition':
-      tableName = 'daily_metrics'
+      tableName = 'health_metrics'
       break
     case 'health':
-      tableName = filters.source === 'fitbit' ? 'fitbit_daily' : 'daily_metrics'
+      tableName = 'health_metrics'
       break
     case 'user':
       tableName = 'user_preferences'

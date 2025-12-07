@@ -68,44 +68,95 @@ export async function disconnectAccount(userId, provider) {
 // ============ OURA INTEGRATION ============
 
 export async function saveOuraDaily(userId, date, data) {
-  const { data: result, error } = await supabase
-    .from('oura_daily')
-    .upsert({
-      user_id: userId,
-      date: date,
-      hrv: data.hrv || null,
-      resting_heart_rate: data.resting_heart_rate || null,
-      body_temp: data.body_temp || null,
-      sleep_score: data.sleep_score || null,
-      sleep_duration: data.sleep_duration || null,
-      sleep_efficiency: data.sleep_efficiency || null,
-      total_sleep: data.total_sleep || null,
-      deep_sleep: data.deep_sleep || null,
-      rem_sleep: data.rem_sleep || null,
-      light_sleep: data.light_sleep || null,
+  // Save to health_metrics table (unified table)
+  const healthMetricsData = {
+    user_id: userId,
+    date: date,
+    resting_heart_rate: data.resting_heart_rate || null,
+    hrv: data.hrv || null,
+    body_temp: data.body_temp || null,
+    sleep_score: data.sleep_score || null,
+    sleep_duration: data.total_sleep || data.sleep_duration || null, // Use total_sleep as primary
+    deep_sleep: data.deep_sleep || null,
+    rem_sleep: data.rem_sleep || null,
+    light_sleep: data.light_sleep || null,
+    calories_burned: data.calories || null,
+    steps: toInteger(data.steps), // INTEGER column - must be whole number
+    source_provider: 'oura',
+    source_data: {
       activity_score: data.activity_score || null,
       readiness_score: data.readiness_score || null,
-      calories: data.calories || null,
-      steps: toInteger(data.steps), // INTEGER column - must be whole number
-      active_calories: data.active_calories || null,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id,date' })
+      sleep_efficiency: data.sleep_efficiency || null,
+      active_calories: data.active_calories || null
+    },
+    updated_at: new Date().toISOString()
+  }
+
+  const { data: result, error } = await supabase
+    .from('health_metrics')
+    .upsert(healthMetricsData, { onConflict: 'user_id,date' })
     .select()
     .single()
   
   if (error) throw error
+  
+  // Also save to oura_daily for backward compatibility (deprecated but kept)
+  try {
+    await supabase
+      .from('oura_daily')
+      .upsert({
+        user_id: userId,
+        date: date,
+        hrv: data.hrv || null,
+        resting_heart_rate: data.resting_heart_rate || null,
+        body_temp: data.body_temp || null,
+        sleep_score: data.sleep_score || null,
+        sleep_duration: data.sleep_duration || null,
+        sleep_efficiency: data.sleep_efficiency || null,
+        total_sleep: data.total_sleep || null,
+        deep_sleep: data.deep_sleep || null,
+        rem_sleep: data.rem_sleep || null,
+        light_sleep: data.light_sleep || null,
+        activity_score: data.activity_score || null,
+        readiness_score: data.readiness_score || null,
+        calories: data.calories || null,
+        steps: toInteger(data.steps),
+        active_calories: data.active_calories || null,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,date' })
+  } catch (err) {
+    // Ignore errors on deprecated table
+    safeLogDebug('Error saving to oura_daily (deprecated)', err)
+  }
+  
   return result
 }
 
 export async function getOuraDaily(userId, date) {
+  // Get from health_metrics (primary source)
   const { data, error } = await supabase
-    .from('oura_daily')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
-    .single()
+    .eq('source_provider', 'oura')
+    .maybeSingle()
   
   if (error && error.code !== 'PGRST116') throw error
+  
+  // If not found in health_metrics, try deprecated oura_daily table
+  if (!data) {
+    const { data: legacyData, error: legacyError } = await supabase
+      .from('oura_daily')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .maybeSingle()
+    
+    if (legacyError && legacyError.code !== 'PGRST116') throw legacyError
+    return legacyData
+  }
+  
   return data
 }
 
@@ -135,43 +186,98 @@ export async function syncOuraData(userId, date = null) {
 // ============ FITBIT INTEGRATION ============
 
 export async function saveFitbitDaily(userId, date, data) {
-  const { data: result, error } = await supabase
-    .from('fitbit_daily')
-    .upsert({
-      user_id: userId,
-      date: date,
-      hrv: toNumber(data.hrv),
-      resting_heart_rate: toNumber(data.resting_heart_rate),
-      sleep_duration: toNumber(data.sleep_duration),
+  // Save to health_metrics table (unified table)
+  const healthMetricsData = {
+    user_id: userId,
+    date: date,
+    resting_heart_rate: toNumber(data.resting_heart_rate),
+    hrv: toNumber(data.hrv),
+    body_temp: toNumber(data.body_temp),
+    sleep_duration: toNumber(data.sleep_duration),
+    calories_burned: toNumber(data.calories),
+    steps: toInteger(data.steps), // INTEGER column - must be whole number
+    source_provider: 'fitbit',
+    source_data: {
       sleep_efficiency: toNumber(data.sleep_efficiency),
-      calories: toNumber(data.calories),
-      steps: toInteger(data.steps), // INTEGER column - must be whole number
       active_calories: toNumber(data.active_calories),
       distance: toNumber(data.distance),
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id,date' })
+      floors: data.floors || null,
+      average_heart_rate: toNumber(data.average_heart_rate),
+      sedentary_minutes: data.sedentary_minutes || null,
+      lightly_active_minutes: data.lightly_active_minutes || null,
+      fairly_active_minutes: data.fairly_active_minutes || null,
+      very_active_minutes: data.very_active_minutes || null,
+      marginal_calories: toNumber(data.marginal_calories),
+      weight: toNumber(data.weight),
+      bmi: toNumber(data.bmi),
+      fat: toNumber(data.fat)
+    },
+    updated_at: new Date().toISOString()
+  }
+
+  const { data: result, error } = await supabase
+    .from('health_metrics')
+    .upsert(healthMetricsData, { onConflict: 'user_id,date' })
     .select()
     .maybeSingle()
   
   if (error) {
-    console.error('Error saving Fitbit daily data:', error)
+    console.error('Error saving Fitbit daily data to health_metrics:', error)
     throw error
   }
+  
+  // Also save to fitbit_daily for backward compatibility (deprecated but kept)
+  try {
+    await supabase
+      .from('fitbit_daily')
+      .upsert({
+        user_id: userId,
+        date: date,
+        hrv: toNumber(data.hrv),
+        resting_heart_rate: toNumber(data.resting_heart_rate),
+        sleep_duration: toNumber(data.sleep_duration),
+        sleep_efficiency: toNumber(data.sleep_efficiency),
+        calories: toNumber(data.calories),
+        steps: toInteger(data.steps),
+        active_calories: toNumber(data.active_calories),
+        distance: toNumber(data.distance),
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,date' })
+  } catch (err) {
+    // Ignore errors on deprecated table
+    safeLogDebug('Error saving to fitbit_daily (deprecated)', err)
+  }
+  
   return result
 }
 
 export async function getFitbitDaily(userId, date) {
+  // Get from health_metrics (primary source)
   const { data, error } = await supabase
-    .from('fitbit_daily')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
+    .eq('source_provider', 'fitbit')
     .maybeSingle()
   
   if (error) {
-    console.error('Error getting Fitbit daily data:', error)
-    return null
+    console.error('Error getting Fitbit daily data from health_metrics:', error)
+    // Try deprecated table as fallback
+    const { data: legacyData, error: legacyError } = await supabase
+      .from('fitbit_daily')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .maybeSingle()
+    
+    if (legacyError) {
+      console.error('Error getting Fitbit daily data from fitbit_daily:', legacyError)
+      return null
+    }
+    return legacyData
   }
+  
   return data
 }
 
@@ -179,18 +285,34 @@ export async function getFitbitDaily(userId, date) {
  * Get most recent Fitbit data
  */
 export async function getMostRecentFitbitData(userId) {
+  // Get from health_metrics (primary source)
   const { data, error } = await supabase
-    .from('fitbit_daily')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
+    .eq('source_provider', 'fitbit')
     .order('date', { ascending: false })
     .limit(1)
     .maybeSingle()
   
   if (error) {
-    logError('Error getting most recent Fitbit data', error)
-    return null
+    logError('Error getting most recent Fitbit data from health_metrics', error)
+    // Try deprecated table as fallback
+    const { data: legacyData, error: legacyError } = await supabase
+      .from('fitbit_daily')
+      .select('*')
+      .eq('user_id', userId)
+      .order('date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    
+    if (legacyError) {
+      logError('Error getting most recent Fitbit data from fitbit_daily', legacyError)
+      return null
+    }
+    return legacyData
   }
+  
   return data
 }
 
@@ -575,41 +697,71 @@ export async function syncAllWearables(userId) {
 }
 
 /**
- * Merge wearable data into daily_metrics table
+ * Merge wearable data into health_metrics table
+ * This function now merges data from multiple sources into the unified health_metrics table
  */
 export async function mergeWearableDataToMetrics(userId, date = null) {
   const targetDate = date || getTodayEST()
   
-  // Get all wearable data for the date
+  // Get all wearable data for the date from health_metrics
+  const { data: existingMetrics, error: fetchError } = await supabase
+    .from('health_metrics')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', targetDate)
+    .maybeSingle()
+  
+  // Get source-specific data
   const ouraData = await getOuraDaily(userId, targetDate)
   const fitbitData = await getFitbitDaily(userId, targetDate)
   
-  // Merge into daily_metrics (prefer Oura, fallback to Fitbit)
-  // Map Fitbit sleep_duration (minutes) to sleep_time
-  // Map Fitbit calories to calories
+  // Merge data (prefer Oura, fallback to Fitbit, preserve existing manual entries)
   const merged = {
-    hrv: toNumber(ouraData?.hrv) ?? toNumber(fitbitData?.hrv) ?? null,
-    sleep_time: toNumber(ouraData?.total_sleep) ?? toNumber(fitbitData?.sleep_duration) ?? null, // Both in minutes
-    sleep_score: toNumber(ouraData?.sleep_score) ?? (fitbitData?.sleep_efficiency != null ? Math.round(toNumber(fitbitData.sleep_efficiency)) : null),
-    steps: toInteger(ouraData?.steps) ?? toInteger(fitbitData?.steps) ?? null, // INTEGER - must be whole number
-    calories: toNumber(ouraData?.calories) ?? toNumber(fitbitData?.calories ?? fitbitData?.active_calories) ?? null,
-    weight: null // Would come from scale or manual entry
+    user_id: userId,
+    date: targetDate,
+    resting_heart_rate: toNumber(ouraData?.resting_heart_rate) ?? toNumber(fitbitData?.resting_heart_rate) ?? existingMetrics?.resting_heart_rate ?? null,
+    hrv: toNumber(ouraData?.hrv) ?? toNumber(fitbitData?.hrv) ?? existingMetrics?.hrv ?? null,
+    body_temp: toNumber(ouraData?.body_temp) ?? toNumber(fitbitData?.body_temp) ?? existingMetrics?.body_temp ?? null,
+    sleep_score: toNumber(ouraData?.sleep_score) ?? (fitbitData?.source_data?.sleep_efficiency != null ? Math.round(toNumber(fitbitData.source_data.sleep_efficiency)) : null) ?? existingMetrics?.sleep_score ?? null,
+    sleep_duration: toNumber(ouraData?.sleep_duration) ?? toNumber(fitbitData?.sleep_duration) ?? existingMetrics?.sleep_duration ?? null,
+    deep_sleep: toNumber(ouraData?.deep_sleep) ?? existingMetrics?.deep_sleep ?? null,
+    rem_sleep: toNumber(ouraData?.rem_sleep) ?? existingMetrics?.rem_sleep ?? null,
+    light_sleep: toNumber(ouraData?.light_sleep) ?? existingMetrics?.light_sleep ?? null,
+    calories_burned: toNumber(ouraData?.calories_burned) ?? toNumber(fitbitData?.calories_burned) ?? existingMetrics?.calories_burned ?? null,
+    steps: toInteger(ouraData?.steps) ?? toInteger(fitbitData?.steps) ?? existingMetrics?.steps ?? null,
+    // Preserve manual metrics
+    weight: existingMetrics?.weight ?? null,
+    body_fat_percentage: existingMetrics?.body_fat_percentage ?? null,
+    meals: existingMetrics?.meals ?? null,
+    macros: existingMetrics?.macros ?? null,
+    water: existingMetrics?.water ?? null,
+    calories_consumed: existingMetrics?.calories_consumed ?? null,
+    // Determine source provider
+    source_provider: (ouraData && fitbitData) ? 'merged' : (ouraData ? 'oura' : (fitbitData ? 'fitbit' : existingMetrics?.source_provider ?? 'manual')),
+    source_data: {
+      ...(ouraData?.source_data || {}),
+      ...(fitbitData?.source_data || {}),
+      ...(existingMetrics?.source_data || {})
+    },
+    updated_at: new Date().toISOString()
   }
   
   // Only update if we have at least one metric
-  if (merged.hrv || merged.sleep_time || merged.steps || merged.calories) {
-    // Update daily_metrics - map to the format expected by saveMetricsToSupabase
-    const { saveMetricsToSupabase } = await import('./supabaseDb')
-    await saveMetricsToSupabase(userId, targetDate, {
-      sleepScore: merged.sleep_score,
-      sleepTime: merged.sleep_time,
-      hrv: merged.hrv,
-      steps: merged.steps, // Already converted to integer by toInteger()
-      caloriesBurned: merged.calories,
-      weight: null
-    })
+  if (merged.hrv || merged.sleep_duration || merged.steps || merged.calories_burned || merged.resting_heart_rate) {
+    const { data, error } = await supabase
+      .from('health_metrics')
+      .upsert(merged, { onConflict: 'user_id,date' })
+      .select()
+      .single()
+    
+    if (error) {
+      logError('Error merging wearable data to health_metrics', error)
+      throw error
+    }
+    
+    return data
   }
   
-  return merged
+  return existingMetrics || merged
 }
 

@@ -60,7 +60,26 @@ export default function Health() {
     if (user) {
       loadAllData()
     }
-  }, [user, selectedPeriod])
+    
+    // Check if log modal should open from quick log
+    if (location.state?.openLogModal) {
+      const newMetric = {
+        date: getTodayEST(),
+        steps: null,
+        sleep_time: null,
+        sleep_score: null,
+        hrv: null,
+        calories: null,
+        weight: null,
+        resting_heart_rate: null,
+        body_temp: null
+      }
+      setEditingMetric(newMetric)
+      setShowLogModal(true)
+      // Clear the state to prevent reopening on re-render
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [user, selectedPeriod, location.state])
 
   // Refresh goals when page becomes visible or when navigating back from Goals page
   useEffect(() => {
@@ -507,13 +526,24 @@ export default function Health() {
 
               {/* Dashboard Grid - Individual Metric Cards */}
               <div className={styles.dashboardGrid}>
-                {/* Steps Card */}
+                {/* Steps Card - Clickable to edit just steps */}
                 <div 
                   className={styles.dashboardCard}
                   onClick={() => {
-                    setEditingMetric({ ...todayMetric })
+                    const stepsMetric = { 
+                      ...todayMetric,
+                      weight: null,
+                      hrv: null,
+                      calories_burned: null,
+                      sleep_time: null,
+                      sleep_score: null,
+                      resting_heart_rate: null,
+                      body_temp: null
+                    }
+                    setEditingMetric(stepsMetric)
                     setShowLogModal(true)
                   }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Steps</span>
@@ -525,16 +555,46 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                  <button 
+                    className={styles.dashboardLogBtn} 
+                    onClick={(e) => { 
+                      e.stopPropagation()
+                      const stepsMetric = { 
+                        ...todayMetric,
+                        weight: null,
+                        hrv: null,
+                        calories_burned: null,
+                        sleep_time: null,
+                        sleep_score: null,
+                        resting_heart_rate: null,
+                        body_temp: null
+                      }
+                      setEditingMetric(stepsMetric)
+                      setShowLogModal(true)
+                    }}
+                  >
+                    {todayMetric?.steps != null ? 'Edit' : 'Log'}
+                  </button>
                 </div>
 
-                {/* Calories Card */}
+                {/* Calories Card - Clickable to edit just calories */}
                 <div 
                   className={styles.dashboardCard}
                   onClick={() => {
-                    setEditingMetric({ ...todayMetric })
+                    const caloriesMetric = { 
+                      ...todayMetric,
+                      weight: null,
+                      steps: null,
+                      hrv: null,
+                      sleep_time: null,
+                      sleep_score: null,
+                      resting_heart_rate: null,
+                      body_temp: null
+                    }
+                    setEditingMetric(caloriesMetric)
                     setShowLogModal(true)
                   }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Calories</span>
@@ -546,16 +606,46 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                  <button 
+                    className={styles.dashboardLogBtn} 
+                    onClick={(e) => { 
+                      e.stopPropagation()
+                      const caloriesMetric = { 
+                        ...todayMetric,
+                        weight: null,
+                        steps: null,
+                        hrv: null,
+                        sleep_time: null,
+                        sleep_score: null,
+                        resting_heart_rate: null,
+                        body_temp: null
+                      }
+                      setEditingMetric(caloriesMetric)
+                      setShowLogModal(true)
+                    }}
+                  >
+                    {todayMetric?.calories_burned != null ? 'Edit' : 'Log'}
+                  </button>
                 </div>
 
-                {/* HRV Card */}
+                {/* HRV Card - Clickable to edit just HRV */}
                 <div 
                   className={styles.dashboardCard}
                   onClick={() => {
-                    setEditingMetric({ ...todayMetric })
+                    const hrvMetric = { 
+                      ...todayMetric,
+                      weight: null,
+                      steps: null,
+                      calories_burned: null,
+                      sleep_time: null,
+                      sleep_score: null,
+                      resting_heart_rate: null,
+                      body_temp: null
+                    }
+                    setEditingMetric(hrvMetric)
                     setShowLogModal(true)
                   }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>HRV</span>
@@ -567,16 +657,45 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                  <button 
+                    className={styles.dashboardLogBtn} 
+                    onClick={(e) => { 
+                      e.stopPropagation()
+                      const hrvMetric = { 
+                        ...todayMetric,
+                        weight: null,
+                        steps: null,
+                        calories_burned: null,
+                        sleep_time: null,
+                        sleep_score: null,
+                        resting_heart_rate: null,
+                        body_temp: null
+                      }
+                      setEditingMetric(hrvMetric)
+                      setShowLogModal(true)
+                    }}
+                  >
+                    {todayMetric?.hrv != null ? 'Edit' : 'Log'}
+                  </button>
                 </div>
 
-                {/* Sleep Card */}
+                {/* Sleep Card - Clickable to edit just sleep */}
                 <div 
                   className={styles.dashboardCard}
                   onClick={() => {
-                    setEditingMetric({ ...todayMetric })
+                    const sleepMetric = { 
+                      ...todayMetric,
+                      weight: null,
+                      steps: null,
+                      hrv: null,
+                      calories_burned: null,
+                      resting_heart_rate: null,
+                      body_temp: null
+                    }
+                    setEditingMetric(sleepMetric)
                     setShowLogModal(true)
                   }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Sleep</span>
@@ -596,16 +715,47 @@ export default function Health() {
                       })()}
                     </span>
                   </div>
-                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                  <button 
+                    className={styles.dashboardLogBtn} 
+                    onClick={(e) => { 
+                      e.stopPropagation()
+                      const sleepMetric = { 
+                        ...todayMetric,
+                        weight: null,
+                        steps: null,
+                        hrv: null,
+                        calories_burned: null,
+                        resting_heart_rate: null,
+                        body_temp: null
+                      }
+                      setEditingMetric(sleepMetric)
+                      setShowLogModal(true)
+                    }}
+                  >
+                    {todayMetric?.sleep_time != null ? 'Edit' : 'Log'}
+                  </button>
                 </div>
 
-                {/* Weight Card */}
+                {/* Weight Card - Clickable to edit just weight */}
                 <div 
                   className={styles.dashboardCard}
                   onClick={() => {
-                    setEditingMetric({ ...todayMetric })
+                    // Create metric with only weight field for editing
+                    const weightMetric = { 
+                      ...todayMetric,
+                      // Clear other fields to focus on weight
+                      steps: null,
+                      hrv: null,
+                      calories_burned: null,
+                      sleep_time: null,
+                      sleep_score: null,
+                      resting_heart_rate: null,
+                      body_temp: null
+                    }
+                    setEditingMetric(weightMetric)
                     setShowLogModal(true)
                   }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Weight</span>
@@ -615,16 +765,46 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                  <button 
+                    className={styles.dashboardLogBtn} 
+                    onClick={(e) => { 
+                      e.stopPropagation()
+                      const weightMetric = { 
+                        ...todayMetric,
+                        steps: null,
+                        hrv: null,
+                        calories_burned: null,
+                        sleep_time: null,
+                        sleep_score: null,
+                        resting_heart_rate: null,
+                        body_temp: null
+                      }
+                      setEditingMetric(weightMetric)
+                      setShowLogModal(true)
+                    }}
+                  >
+                    {todayMetric?.weight != null ? 'Edit' : 'Log'}
+                  </button>
                 </div>
 
-                {/* Resting HR Card */}
+                {/* Resting HR Card - Clickable to edit just resting HR */}
                 <div 
                   className={styles.dashboardCard}
                   onClick={() => {
-                    setEditingMetric({ ...todayMetric })
+                    const hrMetric = { 
+                      ...todayMetric,
+                      weight: null,
+                      steps: null,
+                      hrv: null,
+                      calories_burned: null,
+                      sleep_time: null,
+                      sleep_score: null,
+                      body_temp: null
+                    }
+                    setEditingMetric(hrMetric)
                     setShowLogModal(true)
                   }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Resting HR</span>
@@ -636,7 +816,26 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); setEditingMetric({ ...todayMetric }); setShowLogModal(true); }}>Log</button>
+                  <button 
+                    className={styles.dashboardLogBtn} 
+                    onClick={(e) => { 
+                      e.stopPropagation()
+                      const hrMetric = { 
+                        ...todayMetric,
+                        weight: null,
+                        steps: null,
+                        hrv: null,
+                        calories_burned: null,
+                        sleep_time: null,
+                        sleep_score: null,
+                        body_temp: null
+                      }
+                      setEditingMetric(hrMetric)
+                      setShowLogModal(true)
+                    }}
+                  >
+                    {todayMetric?.resting_heart_rate != null ? 'Edit' : 'Log'}
+                  </button>
                 </div>
               </div>
 
@@ -950,15 +1149,16 @@ export default function Health() {
                 />
               </div>
               <div className={styles.formGroup}>
-                <label>Calories</label>
+                <label>Calories Burned</label>
                 <input
                   type="number"
-                  value={(editingMetric && editingMetric.calories) || ''}
+                  value={(editingMetric && (editingMetric.calories_burned || editingMetric.calories)) || ''}
                   onChange={(e) => {
                     const currentMetric = editingMetric || {}
-                    setEditingMetric({ ...currentMetric, calories: parseInt(e.target.value) || null })
+                    const val = parseInt(e.target.value) || null
+                    setEditingMetric({ ...currentMetric, calories_burned: val, calories: val })
                   }}
-                  placeholder="Enter calories"
+                  placeholder="Enter calories burned"
                 />
               </div>
               <div className={styles.formGroup}>
@@ -1068,7 +1268,7 @@ export default function Health() {
                           weight: toNumber(metricToSave.weight),
                           steps: toInteger(metricToSave.steps), // INTEGER - must be whole number
                           hrv: toNumber(metricToSave.hrv),
-                          caloriesBurned: toNumber(metricToSave.calories),
+                          caloriesBurned: toNumber(metricToSave.calories_burned || metricToSave.calories),
                           sleepTime: toNumber(metricToSave.sleep_time),
                           sleepScore: toNumber(metricToSave.sleep_score),
                           restingHeartRate: toNumber(metricToSave.resting_heart_rate),

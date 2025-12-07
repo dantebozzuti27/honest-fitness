@@ -109,6 +109,43 @@ export async function saveWorkoutToSupabase(workout, userId) {
       continue
     }
     
+    // Try to find exercise in exercise_library first
+    let exerciseLibraryId = null
+    if (ex.name) {
+      const { data: libraryExercise } = await supabase
+        .from('exercise_library')
+        .select('id')
+        .eq('name', ex.name)
+        .eq('is_custom', false)
+        .maybeSingle()
+      
+      if (libraryExercise) {
+        exerciseLibraryId = libraryExercise.id
+      } else if (ex.isCustom) {
+        // Create custom exercise in library
+        const { data: customExercise, error: customError } = await supabase
+          .from('exercise_library')
+          .insert({
+            name: ex.name,
+            category: ex.category || 'strength',
+            body_part: ex.bodyPart || 'Other',
+            sub_body_parts: ex.subBodyParts || [],
+            equipment: ex.equipment ? [ex.equipment] : [],
+            is_custom: true,
+            created_by_user_id: userId
+          })
+          .select()
+          .single()
+        
+        if (!customError && customExercise) {
+          exerciseLibraryId = customExercise.id
+        }
+      }
+    }
+    
+    // Determine exercise type (weightlifting vs cardio)
+    const exerciseType = ex.exerciseType || (ex.distance || ex.time ? 'cardio' : 'weightlifting')
+    
     const { data: exerciseData, error: exerciseError } = await supabase
       .from('workout_exercises')
       .insert({
@@ -117,7 +154,11 @@ export async function saveWorkoutToSupabase(workout, userId) {
         category: ex.category,
         body_part: ex.bodyPart,
         equipment: ex.equipment,
-        exercise_order: exerciseOrder++
+        exercise_order: exerciseOrder++,
+        exercise_type: exerciseType,
+        exercise_library_id: exerciseLibraryId,
+        distance: ex.distance || null,
+        distance_unit: ex.distanceUnit || 'km'
       })
       .select()
       .single()
@@ -307,6 +348,43 @@ export async function updateWorkoutInSupabase(workoutId, workout, userId) {
       continue
     }
     
+    // Try to find exercise in exercise_library first
+    let exerciseLibraryId = null
+    if (ex.name) {
+      const { data: libraryExercise } = await supabase
+        .from('exercise_library')
+        .select('id')
+        .eq('name', ex.name)
+        .eq('is_custom', false)
+        .maybeSingle()
+      
+      if (libraryExercise) {
+        exerciseLibraryId = libraryExercise.id
+      } else if (ex.isCustom) {
+        // Create custom exercise in library
+        const { data: customExercise, error: customError } = await supabase
+          .from('exercise_library')
+          .insert({
+            name: ex.name,
+            category: ex.category || 'strength',
+            body_part: ex.bodyPart || 'Other',
+            sub_body_parts: ex.subBodyParts || [],
+            equipment: ex.equipment ? [ex.equipment] : [],
+            is_custom: true,
+            created_by_user_id: userId
+          })
+          .select()
+          .single()
+        
+        if (!customError && customExercise) {
+          exerciseLibraryId = customExercise.id
+        }
+      }
+    }
+    
+    // Determine exercise type (weightlifting vs cardio)
+    const exerciseType = ex.exerciseType || (ex.distance || ex.time ? 'cardio' : 'weightlifting')
+    
     const { data: exerciseData, error: exerciseError } = await supabase
       .from('workout_exercises')
       .insert({
@@ -315,7 +393,11 @@ export async function updateWorkoutInSupabase(workoutId, workout, userId) {
         category: ex.category,
         body_part: ex.bodyPart,
         equipment: ex.equipment,
-        exercise_order: exerciseOrder++
+        exercise_order: exerciseOrder++,
+        exercise_type: exerciseType,
+        exercise_library_id: exerciseLibraryId,
+        distance: ex.distance || null,
+        distance_unit: ex.distanceUnit || 'km'
       })
       .select()
       .single()
@@ -517,64 +599,43 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
     throw new Error('Cannot save metrics with no data')
   }
   
-  // Base metrics that should always exist
-  // IMPORTANT: steps is INTEGER - must be whole number, use toInteger
-  const baseMetrics = {
+  // Map to health_metrics table structure
+  const healthMetricsData = {
     user_id: userId,
     date: date,
     sleep_score: toNumber(metrics.sleepScore),
-    sleep_time: toNumber(metrics.sleepTime),
+    sleep_duration: toNumber(metrics.sleepTime), // Map sleepTime to sleep_duration
     hrv: toNumber(metrics.hrv),
     steps: toInteger(metrics.steps), // INTEGER column - must be whole number
-    weight: toNumber(metrics.weight) // NUMERIC column - can be decimal
+    weight: toNumber(metrics.weight), // NUMERIC column - can be decimal
+    calories_burned: toNumber(metrics.caloriesBurned),
+    resting_heart_rate: toNumber(metrics.restingHeartRate),
+    body_temp: toNumber(metrics.bodyTemp),
+    body_fat_percentage: toNumber(metrics.bodyFatPercentage),
+    breathing_rate: toNumber(metrics.breathingRate),
+    spo2: toNumber(metrics.spo2),
+    strain: toNumber(metrics.strain),
+    source_provider: metrics.sourceProvider || 'manual',
+    updated_at: new Date().toISOString()
   }
   
-  // Optional metrics that may not exist in schema yet
-  // Use calories_burned instead of calories to avoid overwriting calories consumed (nutrition)
-  const optionalMetrics = {}
-  if (metrics.caloriesBurned !== null && metrics.caloriesBurned !== undefined && metrics.caloriesBurned !== '') {
-    optionalMetrics.calories_burned = Number(metrics.caloriesBurned)
-  }
-  if (metrics.restingHeartRate !== null && metrics.restingHeartRate !== undefined && metrics.restingHeartRate !== '') {
-    optionalMetrics.resting_heart_rate = Number(metrics.restingHeartRate)
-  }
-  if (metrics.bodyTemp !== null && metrics.bodyTemp !== undefined && metrics.bodyTemp !== '') {
-    optionalMetrics.body_temp = Number(metrics.bodyTemp)
-  }
+  // Remove null/undefined values to avoid overwriting existing data
+  Object.keys(healthMetricsData).forEach(key => {
+    if (healthMetricsData[key] === null || healthMetricsData[key] === undefined) {
+      delete healthMetricsData[key]
+    }
+  })
   
-  const metricsToSave = { ...baseMetrics, ...optionalMetrics }
-  
-  safeLogDebug('saveMetricsToSupabase: Prepared data', metricsToSave)
+  safeLogDebug('saveMetricsToSupabase: Prepared data for health_metrics', healthMetricsData)
   
   try {
-    // Try with all metrics first
+    // Upsert to health_metrics table
     const { data, error } = await supabase
-      .from('daily_metrics')
-      .upsert(metricsToSave, { onConflict: 'user_id,date' })
+      .from('health_metrics')
+      .upsert(healthMetricsData, { onConflict: 'user_id,date' })
       .select()
 
     if (error) {
-      // If error is about missing columns, try without optional metrics
-      if (error.code === 'PGRST204' && (
-        error.message?.includes('resting_heart_rate') || 
-        error.message?.includes('body_temp') ||
-        error.message?.includes('calories_burned')
-      )) {
-        safeLogDebug('Optional columns missing, retrying with base metrics only')
-        const { data: retryData, error: retryError } = await supabase
-          .from('daily_metrics')
-          .upsert(baseMetrics, { onConflict: 'user_id,date' })
-          .select()
-        
-        if (retryError) {
-          logError('saveMetricsToSupabase: Error from Supabase (retry)', retryError)
-          throw retryError
-        }
-        
-        safeLogDebug('saveMetricsToSupabase: Success (without optional columns)', retryData)
-        return retryData
-      }
-      
       logError('saveMetricsToSupabase: Error from Supabase', error)
       throw error
     }
@@ -582,28 +643,14 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
     safeLogDebug('saveMetricsToSupabase: Success', data)
     return data
   } catch (err) {
-    // Final fallback: try with base metrics only
-    if (err.code === 'PGRST204') {
-      safeLogDebug('Columns missing, using base metrics only')
-      const { data, error } = await supabase
-        .from('daily_metrics')
-        .upsert(baseMetrics, { onConflict: 'user_id,date' })
-        .select()
-      
-      if (error) {
-        logError('saveMetricsToSupabase: Error from Supabase (fallback)', error)
-        throw error
-      }
-      
-      return data
-    }
+    logError('saveMetricsToSupabase: Error', err)
     throw err
   }
 }
 
 export async function getMetricsFromSupabase(userId, startDate, endDate) {
   const { data, error } = await supabase
-    .from('daily_metrics')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .gte('date', startDate)
@@ -616,7 +663,7 @@ export async function getMetricsFromSupabase(userId, startDate, endDate) {
 
 export async function getAllMetricsFromSupabase(userId) {
   const { data, error } = await supabase
-    .from('daily_metrics')
+    .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .order('date', { ascending: true })
@@ -770,6 +817,11 @@ export async function saveUserPreferences(userId, prefs) {
     experience_level: prefs.experienceLevel,
     available_days: prefs.availableDays,
     session_duration: prefs.sessionDuration,
+    // New profile fields
+    date_of_birth: prefs.dateOfBirth || null,
+    gender: prefs.gender || null,
+    height_inches: prefs.heightInches || null,
+    height_feet: prefs.heightFeet || null,
     equipment_available: prefs.equipmentAvailable,
     injuries: prefs.injuries,
     updated_at: new Date().toISOString()

@@ -39,6 +39,7 @@ export default function Health() {
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState('week') // week, month, 90days
   const [editingMetric, setEditingMetric] = useState(null)
+  const [editingMetricType, setEditingMetricType] = useState(null)
   const [healthGoals, setHealthGoals] = useState([])
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState(null)

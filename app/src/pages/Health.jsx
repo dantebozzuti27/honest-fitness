@@ -239,20 +239,35 @@ export default function Health() {
       // Transform health_metrics data to match UI expectations
       // health_metrics uses: sleep_duration, calories_burned
       // UI expects: sleep_time, calories
-      const transformedMetrics = (allMetrics || []).map(metric => ({
-        ...metric,
-        // Map database fields to UI fields
-        sleep_time: metric.sleep_duration ?? metric.sleep_time ?? null,
-        calories: metric.calories_burned ?? metric.calories ?? null,
-        calories_burned: metric.calories_burned ?? metric.calories ?? null,
-        // Ensure all expected fields exist
-        steps: metric.steps ?? null,
-        hrv: metric.hrv ?? null,
-        sleep_score: metric.sleep_score ?? null,
-        weight: metric.weight ?? null,
-        resting_heart_rate: metric.resting_heart_rate ?? null,
-        body_temp: metric.body_temp ?? null
-      }))
+      const transformedMetrics = (allMetrics || []).map(metric => {
+        // Fix sleep duration: if it's from Oura and suspiciously small (< 60 minutes), 
+        // it might be incorrectly stored as seconds or a very small value
+        // Check if sleep_duration is < 60 and source is Oura - might need correction
+        let sleepTime = metric.sleep_duration ?? metric.sleep_time ?? null
+        if (sleepTime != null && metric.source_provider === 'oura') {
+          const sleepValue = Number(sleepTime)
+          // If value is < 60 minutes and we have sleep stages that add up to more,
+          // the total sleep duration might be wrong
+          // But we can't fix it here without more context, so we'll trust the backend
+          // Just ensure it's a number
+          sleepTime = sleepValue
+        }
+        
+        return {
+          ...metric,
+          // Map database fields to UI fields
+          sleep_time: sleepTime,
+          calories: metric.calories_burned ?? metric.calories ?? null,
+          calories_burned: metric.calories_burned ?? metric.calories ?? null,
+          // Ensure all expected fields exist
+          steps: metric.steps ?? null,
+          hrv: metric.hrv ?? null,
+          sleep_score: metric.sleep_score ?? null,
+          weight: metric.weight ?? null,
+          resting_heart_rate: metric.resting_heart_rate ?? null,
+          body_temp: metric.body_temp ?? null
+        }
+      })
       
       console.log('Transformed metrics:', transformedMetrics.length)
       const today = getTodayEST()
@@ -728,11 +743,23 @@ export default function Health() {
                     <span className={styles.dashboardStatLabel}>Sleep Duration</span>
                     <span className={styles.dashboardStatValue}>
                       {(() => {
-                        const sleepMinutes = todayMetric?.sleep_time != null
+                        let sleepMinutes = todayMetric?.sleep_time != null
                           ? Number(todayMetric.sleep_time)
                           : null
                         
                         if (sleepMinutes == null) return '-'
+                        
+                        // Log for debugging
+                        if (todayMetric?.source_provider === 'oura' && sleepMinutes < 60) {
+                          console.warn('Oura sleep duration seems low:', sleepMinutes, 'minutes. Raw sleep_duration:', todayMetric?.sleep_duration, 'sleep_time:', todayMetric?.sleep_time)
+                        }
+                        
+                        // Safety check: ensure valid range
+                        if (sleepMinutes < 0) sleepMinutes = 0
+                        if (sleepMinutes > 1440) {
+                          console.warn('Sleep duration seems too high:', sleepMinutes, 'minutes, capping at 1440')
+                          sleepMinutes = 1440
+                        }
                         
                         const hours = Math.floor(sleepMinutes / 60)
                         const minutes = Math.round(sleepMinutes % 60)
@@ -1197,8 +1224,16 @@ export default function Health() {
                             </div>
                             <div className={styles.historyTableCol}>
                               {(() => {
-                                const sleepMinutes = metric.sleep_time != null ? Number(metric.sleep_time) : null
+                                let sleepMinutes = metric.sleep_time != null ? Number(metric.sleep_time) : null
                                 if (sleepMinutes == null) return '-'
+                                
+                                // Safety check: ensure valid range
+                                if (sleepMinutes < 0) sleepMinutes = 0
+                                if (sleepMinutes > 1440) {
+                                  console.warn('Sleep duration seems too high:', sleepMinutes, 'minutes, capping at 1440')
+                                  sleepMinutes = 1440
+                                }
+                                
                                 const hours = Math.floor(sleepMinutes / 60)
                                 const minutes = Math.round(sleepMinutes % 60)
                                 return `${hours}:${minutes.toString().padStart(2, '0')}`

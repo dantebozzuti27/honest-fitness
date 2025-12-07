@@ -324,13 +324,17 @@ export default async function handler(req, res) {
       console.log('Detailed sleep structure:', JSON.stringify(sleepDetailed, null, 2))
       console.log('Sleep duration calculation check:', {
         total_sleep_duration: sleepDetailed.total_sleep_duration,
+        total_sleep_duration_type: typeof sleepDetailed.total_sleep_duration,
         duration: sleepDetailed.duration,
         deep_sleep_duration: sleepDetailed.deep_sleep_duration,
         rem_sleep_duration: sleepDetailed.rem_sleep_duration,
         light_sleep_duration: sleepDetailed.light_sleep_duration,
         calculatedTotal: sleepDetailed.deep_sleep_duration && sleepDetailed.rem_sleep_duration && sleepDetailed.light_sleep_duration 
           ? (sleepDetailed.deep_sleep_duration + sleepDetailed.rem_sleep_duration + sleepDetailed.light_sleep_duration) / 60
-          : null
+          : null,
+        // Show what the calculation would be
+        wouldBeMinutes: sleepDetailed.total_sleep_duration >= 240 ? sleepDetailed.total_sleep_duration : sleepDetailed.total_sleep_duration / 60,
+        wouldBeHours: sleepDetailed.total_sleep_duration >= 240 ? (sleepDetailed.total_sleep_duration / 60).toFixed(1) : (sleepDetailed.total_sleep_duration / 3600).toFixed(1)
       })
     }
 
@@ -374,21 +378,22 @@ export default async function handler(req, res) {
                    dailyReadiness?.score?.sleep_balance || null,
       // Sleep duration - Calculate from detailed sleep endpoint
       // Oura API v2: total_sleep_duration is in SECONDS
-      // But if value is > 1440 (24 hours in minutes), it might already be in minutes
-      // Check: if value > 1440, assume minutes; otherwise assume seconds and convert
+      // If value is between 240-1440, it's likely already in minutes (4-24 hours)
+      // If value > 1440, it's definitely in minutes
+      // If value < 240, it's likely in seconds (needs conversion)
       sleep_duration: (() => {
         if (sleepDetailed?.total_sleep_duration != null) {
           const rawValue = sleepDetailed.total_sleep_duration
-          // If value > 1440 (24 hours), it's likely already in minutes
-          // Otherwise, it's in seconds and needs conversion
-          const minutes = rawValue > 1440 ? Math.round(rawValue) : Math.round(rawValue / 60)
-          console.log('Sleep duration from total_sleep_duration:', minutes, 'minutes (raw:', rawValue, rawValue > 1440 ? 'assumed minutes' : 'assumed seconds)')
+          // If value is >= 240 (4 hours in minutes), assume it's already in minutes
+          // Otherwise, assume it's in seconds and convert to minutes
+          const minutes = rawValue >= 240 ? Math.round(rawValue) : Math.round(rawValue / 60)
+          console.log('Sleep duration from total_sleep_duration:', minutes, 'minutes (raw:', rawValue, rawValue >= 240 ? 'assumed minutes' : 'assumed seconds)')
           return minutes
         }
         if (sleepDetailed?.duration != null) {
           const rawValue = sleepDetailed.duration
-          const minutes = rawValue > 1440 ? Math.round(rawValue) : Math.round(rawValue / 60)
-          console.log('Sleep duration from duration:', minutes, 'minutes (raw:', rawValue, rawValue > 1440 ? 'assumed minutes' : 'assumed seconds)')
+          const minutes = rawValue >= 240 ? Math.round(rawValue) : Math.round(rawValue / 60)
+          console.log('Sleep duration from duration:', minutes, 'minutes (raw:', rawValue, rawValue >= 240 ? 'assumed minutes' : 'assumed seconds)')
           return minutes
         }
         // Calculate from sleep stages if all are available

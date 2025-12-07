@@ -208,23 +208,68 @@ export default async function handler(req, res) {
     
     // Find sleep session that matches our target date
     // Sleep sessions might span multiple days, so find the one that includes our date
+    // A sleep session that starts on the previous day and ends on the target date should be counted for the target date
     let sleepDetailed = null
     if (sleepDetailedData?.data && sleepDetailedData.data.length > 0) {
-      // Find sleep session that matches the date (check day field first, then bedtime_start)
+      // Find sleep session that matches the date
+      // Check: 1) session.day matches, 2) bedtime_start is on target date, 3) bedtime_end is on target date
       sleepDetailed = sleepDetailedData.data.find(session => {
-        if (session.day) {
-          return session.day === date
+        // First check if session.day matches
+        if (session.day === date) {
+          return true
         }
+        
+        // Check if bedtime_start is on target date (session might start on target date)
         if (session.bedtime_start) {
-          const sessionDate = new Date(session.bedtime_start).toISOString().split('T')[0]
-          return sessionDate === date
+          const bedtimeStartDate = new Date(session.bedtime_start).toISOString().split('T')[0]
+          if (bedtimeStartDate === date) {
+            return true
+          }
         }
+        
+        // Check if bedtime_end is on target date (session might end on target date)
+        if (session.bedtime_end) {
+          const bedtimeEndDate = new Date(session.bedtime_end).toISOString().split('T')[0]
+          if (bedtimeEndDate === date) {
+            return true
+          }
+        }
+        
+        // Check if session spans the target date (starts before and ends after)
+        if (session.bedtime_start && session.bedtime_end) {
+          const startDate = new Date(session.bedtime_start).toISOString().split('T')[0]
+          const endDate = new Date(session.bedtime_end).toISOString().split('T')[0]
+          const targetDateObj = new Date(date)
+          const startDateObj = new Date(startDate)
+          const endDateObj = new Date(endDate)
+          
+          // If session starts before or on target date and ends on or after target date
+          if (startDateObj <= targetDateObj && endDateObj >= targetDateObj) {
+            return true
+          }
+        }
+        
         return false
       })
       
-      // If no exact match, don't use fallback - we want the correct date
+      // If no exact match, log available sessions for debugging
       if (!sleepDetailed && sleepDetailedData.data.length > 0) {
-        console.log('No sleep session found for date:', date, 'Available sessions:', sleepDetailedData.data.map(s => ({ day: s.day, bedtime_start: s.bedtime_start })))
+        console.log('No sleep session found for date:', date, 'Available sessions:', sleepDetailedData.data.map(s => ({ 
+          day: s.day, 
+          bedtime_start: s.bedtime_start,
+          bedtime_end: s.bedtime_end,
+          total_sleep_duration: s.total_sleep_duration
+        })))
+      } else if (sleepDetailed) {
+        console.log('Found sleep session for date:', date, {
+          sessionDay: sleepDetailed.day,
+          bedtimeStart: sleepDetailed.bedtime_start,
+          bedtimeEnd: sleepDetailed.bedtime_end,
+          totalSleepDuration: sleepDetailed.total_sleep_duration,
+          deepSleep: sleepDetailed.deep_sleep_duration,
+          remSleep: sleepDetailed.rem_sleep_duration,
+          lightSleep: sleepDetailed.light_sleep_duration
+        })
       }
     }
     
@@ -260,6 +305,11 @@ export default async function handler(req, res) {
       sleepFullKeys: dailySleep ? Object.keys(dailySleep) : null,
       sleepDetailedFull: sleepDetailed,
       sleepDetailedKeys: sleepDetailed ? Object.keys(sleepDetailed) : null,
+      sleepDetailedTotalSleepDuration: sleepDetailed?.total_sleep_duration,
+      sleepDetailedDuration: sleepDetailed?.duration,
+      sleepDetailedDeepSleep: sleepDetailed?.deep_sleep_duration,
+      sleepDetailedRemSleep: sleepDetailed?.rem_sleep_duration,
+      sleepDetailedLightSleep: sleepDetailed?.light_sleep_duration,
       activityFull: dailyActivity,
       activityFullKeys: dailyActivity ? Object.keys(dailyActivity) : null
     })
@@ -267,6 +317,21 @@ export default async function handler(req, res) {
     // Check if daily_sleep has duration fields we're missing
     if (dailySleep) {
       console.log('Daily sleep all fields:', JSON.stringify(dailySleep, null, 2))
+    }
+    
+    // Log detailed sleep structure if available
+    if (sleepDetailed) {
+      console.log('Detailed sleep structure:', JSON.stringify(sleepDetailed, null, 2))
+      console.log('Sleep duration calculation check:', {
+        total_sleep_duration: sleepDetailed.total_sleep_duration,
+        duration: sleepDetailed.duration,
+        deep_sleep_duration: sleepDetailed.deep_sleep_duration,
+        rem_sleep_duration: sleepDetailed.rem_sleep_duration,
+        light_sleep_duration: sleepDetailed.light_sleep_duration,
+        calculatedTotal: sleepDetailed.deep_sleep_duration && sleepDetailed.rem_sleep_duration && sleepDetailed.light_sleep_duration 
+          ? (sleepDetailed.deep_sleep_duration + sleepDetailed.rem_sleep_duration + sleepDetailed.light_sleep_duration) / 60
+          : null
+      })
     }
 
     // Oura API v2 structure:
@@ -307,17 +372,47 @@ export default async function handler(req, res) {
       sleep_score: typeof dailySleep?.score === 'number' ? dailySleep.score : 
                    readinessContributors?.sleep_balance || 
                    dailyReadiness?.score?.sleep_balance || null,
-      // Sleep duration - Oura API v2 daily_sleep only provides scores, not durations
-      // The detailed sleep endpoint might not be available or might require different scopes
-      // For now, we'll need to estimate or leave null until we can access the detailed endpoint
-      // TODO: Check if we need 'session' scope for detailed sleep data
-      sleep_duration: sleepDetailed?.total_sleep_duration ? Math.round(sleepDetailed.total_sleep_duration / 60) :
-                      sleepDetailed?.duration ? Math.round(sleepDetailed.duration / 60) :
-                      // Fallback to calculating from sleep stages if available in detailed endpoint
-                      (sleepDetailed?.deep_sleep_duration && sleepDetailed?.rem_sleep_duration && sleepDetailed?.light_sleep_duration) ?
-                        Math.round((sleepDetailed.deep_sleep_duration + sleepDetailed.rem_sleep_duration + sleepDetailed.light_sleep_duration) / 60) :
-                      // Note: daily_sleep endpoint doesn't provide actual durations, only scores
-                      null,
+      // Sleep duration - Calculate from detailed sleep endpoint
+      // total_sleep_duration is in seconds, convert to minutes
+      // If detailed sleep not available, calculate from sleep stages
+      // If stages not available, use null (don't use daily_sleep as it only has scores)
+      sleep_duration: (() => {
+        if (sleepDetailed?.total_sleep_duration != null) {
+          const minutes = Math.round(sleepDetailed.total_sleep_duration / 60)
+          console.log('Sleep duration from total_sleep_duration:', minutes, 'minutes (from', sleepDetailed.total_sleep_duration, 'seconds)')
+          return minutes
+        }
+        if (sleepDetailed?.duration != null) {
+          const minutes = Math.round(sleepDetailed.duration / 60)
+          console.log('Sleep duration from duration:', minutes, 'minutes (from', sleepDetailed.duration, 'seconds)')
+          return minutes
+        }
+        // Calculate from sleep stages if all are available
+        if (sleepDetailed?.deep_sleep_duration != null && sleepDetailed?.rem_sleep_duration != null && sleepDetailed?.light_sleep_duration != null) {
+          const totalSeconds = sleepDetailed.deep_sleep_duration + sleepDetailed.rem_sleep_duration + sleepDetailed.light_sleep_duration
+          const minutes = Math.round(totalSeconds / 60)
+          console.log('Sleep duration calculated from stages:', minutes, 'minutes (deep:', sleepDetailed.deep_sleep_duration, 'rem:', sleepDetailed.rem_sleep_duration, 'light:', sleepDetailed.light_sleep_duration, 'total seconds:', totalSeconds, ')')
+          return minutes
+        }
+        // If we have some but not all stages, still calculate what we have
+        if (sleepDetailed?.deep_sleep_duration != null || sleepDetailed?.rem_sleep_duration != null || sleepDetailed?.light_sleep_duration != null) {
+          const deep = sleepDetailed?.deep_sleep_duration || 0
+          const rem = sleepDetailed?.rem_sleep_duration || 0
+          const light = sleepDetailed?.light_sleep_duration || 0
+          const totalSeconds = deep + rem + light
+          if (totalSeconds > 0) {
+            const minutes = Math.round(totalSeconds / 60)
+            console.log('Sleep duration calculated from partial stages:', minutes, 'minutes (deep:', deep, 'rem:', rem, 'light:', light, 'total seconds:', totalSeconds, ')')
+            return minutes
+          }
+        }
+        console.log('No sleep duration available - sleepDetailed:', !!sleepDetailed, 'has total_sleep_duration:', !!sleepDetailed?.total_sleep_duration, 'has duration:', !!sleepDetailed?.duration, 'has stages:', {
+          deep: !!sleepDetailed?.deep_sleep_duration,
+          rem: !!sleepDetailed?.rem_sleep_duration,
+          light: !!sleepDetailed?.light_sleep_duration
+        })
+        return null
+      })(),
       // Sleep stages - use detailed sleep endpoint (durations in seconds, convert to minutes)
       deep_sleep: sleepDetailed?.deep_sleep_duration ? Math.round(sleepDetailed.deep_sleep_duration / 60) :
                   sleepDetailed?.sleep?.deep?.duration ? Math.round(sleepDetailed.sleep.deep.duration / 60) : null,

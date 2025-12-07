@@ -156,8 +156,11 @@ export default async function handler(req, res) {
     )
 
     let sleepDetailedData = null
+    console.log('Sleep detailed response status:', sleepDetailedResponse.status, sleepDetailedResponse.statusText)
     if (sleepDetailedResponse.ok) {
       sleepDetailedData = await sleepDetailedResponse.json()
+      console.log('Sleep detailed response data:', sleepDetailedData)
+      console.log('Sleep detailed data array length:', sleepDetailedData?.data?.length)
     } else {
       const errorText = await sleepDetailedResponse.text().catch(() => '')
       console.log('Sleep detailed API response not OK:', sleepDetailedResponse.status, sleepDetailedResponse.statusText, errorText)
@@ -174,8 +177,11 @@ export default async function handler(req, res) {
     )
 
     let activityData = null
+    console.log('Activity response status:', activityResponse.status, activityResponse.statusText)
     if (activityResponse.ok) {
       activityData = await activityResponse.json()
+      console.log('Activity response data:', activityData)
+      console.log('Activity data array length:', activityData?.data?.length)
     } else {
       const errorText = await activityResponse.text().catch(() => '')
       console.log('Activity API response not OK:', activityResponse.status, activityResponse.statusText, errorText)
@@ -187,14 +193,31 @@ export default async function handler(req, res) {
     const dailySleep = sleepData?.data?.[0] || null
     const sleepDetailed = sleepDetailedData?.data?.[0] || null // Detailed sleep with actual durations
     const dailyActivity = activityData?.data?.[0] || null
+    
+    console.log('Parsed data:', {
+      dailyReadiness: !!dailyReadiness,
+      dailySleep: !!dailySleep,
+      sleepDetailed: !!sleepDetailed,
+      sleepDetailedDataArray: sleepDetailedData?.data,
+      dailyActivity: !!dailyActivity,
+      activityDataArray: activityData?.data
+    })
 
     // Log full response structure for debugging
     console.log('Oura API Full Response:', {
       readinessFull: dailyReadiness,
       sleepFull: dailySleep,
+      sleepFullKeys: dailySleep ? Object.keys(dailySleep) : null,
       sleepDetailedFull: sleepDetailed,
-      activityFull: dailyActivity
+      sleepDetailedKeys: sleepDetailed ? Object.keys(sleepDetailed) : null,
+      activityFull: dailyActivity,
+      activityFullKeys: dailyActivity ? Object.keys(dailyActivity) : null
     })
+    
+    // Check if daily_sleep has duration fields we're missing
+    if (dailySleep) {
+      console.log('Daily sleep all fields:', JSON.stringify(dailySleep, null, 2))
+    }
 
     // Oura API v2 structure:
     // - Readiness: score object may be empty, check contributors instead

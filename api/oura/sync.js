@@ -446,6 +446,15 @@ export default async function handler(req, res) {
     }
 
     console.log('Mapped Oura data:', ouraData)
+    console.log('Sleep duration calculation result:', {
+      sleep_duration: ouraData.sleep_duration,
+      deep_sleep: ouraData.deep_sleep,
+      rem_sleep: ouraData.rem_sleep,
+      light_sleep: ouraData.light_sleep,
+      totalFromStages: ouraData.deep_sleep && ouraData.rem_sleep && ouraData.light_sleep 
+        ? (ouraData.deep_sleep + ouraData.rem_sleep + ouraData.light_sleep)
+        : null
+    })
 
     // Save to health_metrics
     // Use != null to preserve 0 values (which are valid)

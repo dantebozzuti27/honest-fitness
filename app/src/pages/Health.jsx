@@ -704,7 +704,7 @@ export default function Health() {
                   </button>
                 </div>
 
-                {/* Sleep Card - Clickable to edit just sleep */}
+                {/* Sleep Duration Card - Clickable to edit just sleep duration */}
                 <div 
                   className={styles.dashboardCard}
                   onClick={() => {
@@ -714,16 +714,18 @@ export default function Health() {
                       steps: null,
                       hrv: null,
                       calories_burned: null,
+                      sleep_score: null,
                       resting_heart_rate: null,
                       body_temp: null
                     }
                     setEditingMetric(sleepMetric)
+                    setEditingMetricType('sleep')
                     setShowLogModal(true)
                   }}
                   style={{ cursor: 'pointer' }}
                 >
                   <div className={styles.dashboardStat}>
-                    <span className={styles.dashboardStatLabel}>Sleep</span>
+                    <span className={styles.dashboardStatLabel}>Sleep Duration</span>
                     <span className={styles.dashboardStatValue}>
                       {(() => {
                         const sleepMinutes = todayMetric?.sleep_time != null
@@ -750,6 +752,39 @@ export default function Health() {
                     {todayMetric?.sleep_time != null ? 'Edit' : 'Log'}
                   </button>
                 </div>
+
+                {/* Sleep Score Card - Clickable to edit just sleep score */}
+                {todayMetric?.sleep_score != null && (
+                  <div 
+                    className={styles.dashboardCard}
+                    onClick={() => {
+                      setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                      setEditingMetricType('sleep_score')
+                      setShowLogModal(true)
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className={styles.dashboardStat}>
+                      <span className={styles.dashboardStatLabel}>Sleep Score</span>
+                      <span className={styles.dashboardStatValue}>
+                        {todayMetric?.sleep_score != null
+                          ? `${Math.round(Number(todayMetric.sleep_score))}/100`
+                          : '-'}
+                      </span>
+                    </div>
+                    <button 
+                      className={styles.dashboardLogBtn} 
+                      onClick={(e) => { 
+                        e.stopPropagation()
+                        setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
+                        setEditingMetricType('sleep_score')
+                        setShowLogModal(true)
+                      }}
+                    >
+                      Edit
+                    </button>
+                  </div>
+                )}
 
                 {/* Weight Card - Clickable to edit just weight */}
                 <div 
@@ -1122,7 +1157,7 @@ export default function Health() {
                     <div className={styles.historyTableCol}>Steps</div>
                     <div className={styles.historyTableCol}>HRV</div>
                     <div className={styles.historyTableCol}>Calories</div>
-                    <div className={styles.historyTableCol}>Sleep</div>
+                    <div className={styles.historyTableCol}>Sleep Duration</div>
                     <div className={styles.historyTableCol}>Actions</div>
                   </div>
                   <div className={styles.historyTableBody}>
@@ -1386,21 +1421,21 @@ export default function Health() {
               )}
               {(!editingMetricType || editingMetricType === 'sleep') && (
                 <div className={styles.formGroup}>
-                  <label>Sleep Time</label>
+                  <label>Sleep Duration (minutes)</label>
                   <input
-                    type="text"
+                    type="number"
                     value={(editingMetric && editingMetric.sleep_time) || ''}
                     onChange={(e) => {
                       const currentMetric = editingMetric || {}
                       setEditingMetric({ ...currentMetric, sleep_time: e.target.value })
                     }}
-                    placeholder="e.g., 7h 30m"
+                    placeholder="Enter minutes (e.g., 480 for 8 hours)"
                   />
                 </div>
               )}
-              {(!editingMetricType || editingMetricType === 'sleep') && (
+              {(!editingMetricType || editingMetricType === 'sleep_score') && (
                 <div className={styles.formGroup}>
-                  <label>Sleep Score</label>
+                  <label>Sleep Score (0-100)</label>
                   <input
                     type="number"
                     min="0"

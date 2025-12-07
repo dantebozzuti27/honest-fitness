@@ -145,9 +145,16 @@ export default async function handler(req, res) {
     }
 
     // Also fetch detailed sleep data (has actual durations)
-    // Note: This endpoint might require different scopes or might not be available for all dates
+    // Note: The detailed sleep endpoint returns individual sleep sessions, not daily summaries
+    // It might return empty if there are no sleep sessions for that date
+    // Try querying a 3-day range to catch sleep sessions that might span dates
+    const sleepStartDate = new Date(date)
+    sleepStartDate.setDate(sleepStartDate.getDate() - 1) // Start 1 day before
+    const sleepEndDate = new Date(date)
+    sleepEndDate.setDate(sleepEndDate.getDate() + 1) // End 1 day after
+    
     const sleepDetailedResponse = await fetch(
-      `https://api.ouraring.com/v2/usercollection/sleep?start_date=${date}&end_date=${date}`,
+      `https://api.ouraring.com/v2/usercollection/sleep?start_date=${sleepStartDate.toISOString().split('T')[0]}&end_date=${sleepEndDate.toISOString().split('T')[0]}`,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`
@@ -167,8 +174,14 @@ export default async function handler(req, res) {
     }
 
     // Fetch daily activity data
+    // Try a date range in case activity data is available for nearby dates
+    const activityStartDate = new Date(date)
+    activityStartDate.setDate(activityStartDate.getDate() - 1)
+    const activityEndDate = new Date(date)
+    activityEndDate.setDate(activityEndDate.getDate() + 1)
+    
     const activityResponse = await fetch(
-      `https://api.ouraring.com/v2/usercollection/daily_activity?start_date=${date}&end_date=${date}`,
+      `https://api.ouraring.com/v2/usercollection/daily_activity?start_date=${activityStartDate.toISOString().split('T')[0]}&end_date=${activityEndDate.toISOString().split('T')[0]}`,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`

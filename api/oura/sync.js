@@ -164,6 +164,30 @@ export default async function handler(req, res) {
     const dailySleep = sleepData?.data?.[0] || null
     const dailyActivity = activityData?.data?.[0] || null
 
+    console.log('Oura API Response Debug:', {
+      date,
+      readinessData: dailyReadiness ? {
+        hasScore: !!dailyReadiness.score,
+        scoreKeys: dailyReadiness.score ? Object.keys(dailyReadiness.score) : [],
+        hrvBalance: dailyReadiness.score?.hrv_balance,
+        restingHR: dailyReadiness.score?.resting_heart_rate,
+        bodyTemp: dailyReadiness.score?.body_temperature
+      } : 'No readiness data',
+      sleepData: dailySleep ? {
+        hasScore: !!dailySleep.score,
+        totalSleepDuration: dailySleep.total_sleep_duration,
+        efficiency: dailySleep.efficiency,
+        sleepKeys: Object.keys(dailySleep)
+      } : 'No sleep data',
+      activityData: dailyActivity ? {
+        steps: dailyActivity.steps,
+        totalCalories: dailyActivity.total_calories,
+        calories: dailyActivity.calories,
+        heartRate: dailyActivity.heart_rate,
+        activityKeys: Object.keys(dailyActivity)
+      } : 'No activity data'
+    })
+
     // Map Oura data to our health_metrics schema
     const ouraData = {
       date: date,
@@ -191,26 +215,33 @@ export default async function handler(req, res) {
       }
     }
 
+    console.log('Mapped Oura data:', ouraData)
+
     // Save to health_metrics
+    // Use != null to preserve 0 values (which are valid)
+    const dataToSave = {
+      user_id: userId,
+      date: date,
+      resting_heart_rate: ouraData.resting_heart_rate != null ? Number(ouraData.resting_heart_rate) : null,
+      hrv: ouraData.hrv != null ? Number(ouraData.hrv) : null,
+      body_temp: ouraData.body_temp != null ? Number(ouraData.body_temp) : null,
+      sleep_score: ouraData.sleep_score != null ? Number(ouraData.sleep_score) : null,
+      sleep_duration: ouraData.sleep_duration != null ? Number(ouraData.sleep_duration) : null,
+      deep_sleep: ouraData.deep_sleep != null ? Number(ouraData.deep_sleep) : null,
+      rem_sleep: ouraData.rem_sleep != null ? Number(ouraData.rem_sleep) : null,
+      light_sleep: ouraData.light_sleep != null ? Number(ouraData.light_sleep) : null,
+      calories_burned: ouraData.calories_burned != null ? Number(ouraData.calories_burned) : null,
+      steps: ouraData.steps != null ? parseInt(ouraData.steps) : null,
+      source_provider: 'oura',
+      source_data: ouraData.source_data,
+      updated_at: new Date().toISOString()
+    }
+
+    console.log('Saving to database:', dataToSave)
+
     const { data: result, error: saveError } = await supabase
       .from('health_metrics')
-      .upsert({
-        user_id: userId,
-        date: date,
-        resting_heart_rate: ouraData.resting_heart_rate ? Number(ouraData.resting_heart_rate) : null,
-        hrv: ouraData.hrv ? Number(ouraData.hrv) : null,
-        body_temp: ouraData.body_temp ? Number(ouraData.body_temp) : null,
-        sleep_score: ouraData.sleep_score ? Number(ouraData.sleep_score) : null,
-        sleep_duration: ouraData.sleep_duration ? Number(ouraData.sleep_duration) : null,
-        deep_sleep: ouraData.deep_sleep ? Number(ouraData.deep_sleep) : null,
-        rem_sleep: ouraData.rem_sleep ? Number(ouraData.rem_sleep) : null,
-        light_sleep: ouraData.light_sleep ? Number(ouraData.light_sleep) : null,
-        calories_burned: ouraData.calories_burned ? Number(ouraData.calories_burned) : null,
-        steps: ouraData.steps ? parseInt(ouraData.steps) : null,
-        source_provider: 'oura',
-        source_data: ouraData.source_data,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id,date' })
+      .upsert(dataToSave, { onConflict: 'user_id,date' })
       .select()
       .single()
 

@@ -251,9 +251,14 @@ export async function syncOuraData(userId, date = null) {
 
     const result = await response.json()
 
+    console.log('Oura sync response:', result)
+
     if (!result.success) {
       throw new Error(result.message || 'Oura sync failed')
     }
+
+    console.log('Oura sync successful, data received:', result.data)
+    console.log('Oura sync saved to DB:', result.saved)
 
     return {
       synced: true,

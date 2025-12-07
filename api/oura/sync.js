@@ -164,54 +164,85 @@ export default async function handler(req, res) {
     const dailySleep = sleepData?.data?.[0] || null
     const dailyActivity = activityData?.data?.[0] || null
 
-    console.log('Oura API Response Debug:', {
-      date,
-      readinessData: dailyReadiness ? {
-        hasScore: !!dailyReadiness.score,
-        scoreKeys: dailyReadiness.score ? Object.keys(dailyReadiness.score) : [],
-        hrvBalance: dailyReadiness.score?.hrv_balance,
-        restingHR: dailyReadiness.score?.resting_heart_rate,
-        bodyTemp: dailyReadiness.score?.body_temperature
-      } : 'No readiness data',
-      sleepData: dailySleep ? {
-        hasScore: !!dailySleep.score,
-        totalSleepDuration: dailySleep.total_sleep_duration,
-        efficiency: dailySleep.efficiency,
-        sleepKeys: Object.keys(dailySleep)
-      } : 'No sleep data',
-      activityData: dailyActivity ? {
-        steps: dailyActivity.steps,
-        totalCalories: dailyActivity.total_calories,
-        calories: dailyActivity.calories,
-        heartRate: dailyActivity.heart_rate,
-        activityKeys: Object.keys(dailyActivity)
-      } : 'No activity data'
+    // Log full response structure for debugging
+    console.log('Oura API Full Response:', {
+      readinessFull: dailyReadiness,
+      sleepFull: dailySleep,
+      activityFull: dailyActivity
     })
 
+    // Oura API v2 structure:
+    // - Readiness: score object may be empty, check contributors instead
+    // - Sleep: has 'score', 'contributors', 'day', 'timestamp' - sleep duration is in contributors
+    // - Activity: may not be available for all dates
+
+    // Extract from readiness contributors
+    const readinessContributors = dailyReadiness?.contributors || {}
+    const sleepContributors = dailySleep?.contributors || {}
+    
+    console.log('Contributors structure:', {
+      readinessContributorsKeys: Object.keys(readinessContributors),
+      readinessContributors: readinessContributors,
+      sleepContributorsKeys: Object.keys(sleepContributors),
+      sleepContributors: sleepContributors
+    })
+    
     // Map Oura data to our health_metrics schema
+    // Oura API v2 uses contributors object with different field names
     const ouraData = {
       date: date,
-      hrv: dailyReadiness?.score?.hrv_balance?.middle || dailyReadiness?.score?.hrv_balance?.average || null,
-      resting_heart_rate: dailyReadiness?.score?.resting_heart_rate || dailyActivity?.heart_rate?.resting || null,
-      body_temp: dailyReadiness?.score?.body_temperature?.deviation || null,
-      sleep_score: dailyReadiness?.score?.sleep_balance || dailySleep?.score || null,
-      sleep_duration: dailySleep?.total_sleep_duration ? Math.round(dailySleep.total_sleep_duration / 60) : null, // Convert seconds to minutes
-      deep_sleep: dailySleep?.sleep?.deep?.duration ? Math.round(dailySleep.sleep.deep.duration / 60) : null,
-      rem_sleep: dailySleep?.sleep?.rem?.duration ? Math.round(dailySleep.sleep.rem.duration / 60) : null,
-      light_sleep: dailySleep?.sleep?.light?.duration ? Math.round(dailySleep.sleep.light.duration / 60) : null,
+      // HRV from readiness contributors (may be in different format)
+      hrv: readinessContributors?.hrv_balance || 
+           readinessContributors?.hrv?.balance ||
+           dailyReadiness?.score?.hrv_balance?.middle || 
+           dailyReadiness?.score?.hrv_balance?.average || null,
+      // Resting HR from readiness contributors or score
+      resting_heart_rate: readinessContributors?.resting_heart_rate || 
+                          readinessContributors?.heart_rate?.resting ||
+                          dailyReadiness?.score?.resting_heart_rate || 
+                          dailyActivity?.heart_rate?.resting || null,
+      // Body temp from readiness contributors
+      body_temp: readinessContributors?.body_temperature || 
+                 readinessContributors?.temperature?.deviation ||
+                 dailyReadiness?.score?.body_temperature?.deviation || null,
+      // Sleep score from sleep data (score is a number, not an object)
+      sleep_score: typeof dailySleep?.score === 'number' ? dailySleep.score : 
+                   readinessContributors?.sleep_balance || 
+                   dailyReadiness?.score?.sleep_balance || null,
+      // Sleep duration from sleep contributors (in seconds, convert to minutes)
+      // Check multiple possible field names
+      sleep_duration: sleepContributors?.total_sleep_duration ? Math.round(sleepContributors.total_sleep_duration / 60) : 
+                      sleepContributors?.duration ? Math.round(sleepContributors.duration / 60) :
+                      dailySleep?.total_sleep_duration ? Math.round(dailySleep.total_sleep_duration / 60) : null,
+      // Sleep stages from sleep contributors (in seconds, convert to minutes)
+      deep_sleep: sleepContributors?.deep_sleep_duration ? Math.round(sleepContributors.deep_sleep_duration / 60) :
+                  sleepContributors?.deep?.duration ? Math.round(sleepContributors.deep.duration / 60) :
+                  dailySleep?.sleep?.deep?.duration ? Math.round(dailySleep.sleep.deep.duration / 60) : null,
+      rem_sleep: sleepContributors?.rem_sleep_duration ? Math.round(sleepContributors.rem_sleep_duration / 60) :
+                 sleepContributors?.rem?.duration ? Math.round(sleepContributors.rem.duration / 60) :
+                 dailySleep?.sleep?.rem?.duration ? Math.round(dailySleep.sleep.rem.duration / 60) : null,
+      light_sleep: sleepContributors?.light_sleep_duration ? Math.round(sleepContributors.light_sleep_duration / 60) :
+                   sleepContributors?.light?.duration ? Math.round(sleepContributors.light.duration / 60) :
+                   dailySleep?.sleep?.light?.duration ? Math.round(dailySleep.sleep.light.duration / 60) : null,
+      // Calories and steps from activity (may not be available)
       calories_burned: dailyActivity?.total_calories || dailyActivity?.calories?.total || null,
       steps: dailyActivity?.steps || null,
       source_provider: 'oura',
       source_data: {
-        readiness_score: dailyReadiness?.score?.score || null,
-        activity_score: dailyReadiness?.score?.activity_balance || null,
-        recovery_index: dailyReadiness?.score?.recovery_index || null,
-        sleep_efficiency: dailySleep?.efficiency || null,
-        sleep_latency: dailySleep?.sleep?.onset_latency || null,
+        // Store the actual score value (not the object)
+        readiness_score: typeof dailyReadiness?.score === 'number' ? dailyReadiness.score : 
+                        dailyReadiness?.score?.score || null,
+        activity_score: readinessContributors?.activity_balance || dailyReadiness?.score?.activity_balance || null,
+        recovery_index: readinessContributors?.recovery_index || dailyReadiness?.score?.recovery_index || null,
+        sleep_efficiency: sleepContributors?.sleep_efficiency || dailySleep?.efficiency || null,
+        sleep_latency: sleepContributors?.sleep_latency || dailySleep?.sleep?.onset_latency || null,
         active_calories: dailyActivity?.calories?.active || null,
         total_calories: dailyActivity?.calories?.total || null,
         average_heart_rate: dailyActivity?.heart_rate?.average || null,
-        max_heart_rate: dailyActivity?.heart_rate?.max || null
+        max_heart_rate: dailyActivity?.heart_rate?.max || null,
+        // Store contributors for debugging
+        readiness_contributors: readinessContributors,
+        sleep_contributors: sleepContributors
       }
     }
 

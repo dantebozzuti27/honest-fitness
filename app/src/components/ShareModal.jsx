@@ -133,27 +133,49 @@ export default function ShareModal({ type, data, onClose }) {
 
       const feedItem = {
         type,
-        date: type === 'workout' ? data.workout?.date : type === 'nutrition' ? data.nutrition?.date : data.health?.date || today,
+        date: type === 'workout' ? (data.workout?.date || today) : type === 'nutrition' ? (data.nutrition?.date || today) : (data.health?.date || today),
         title,
         subtitle,
-        data: data[type] || data,
+        data: type === 'workout' ? data.workout : type === 'nutrition' ? data.nutrition : data.health,
         shared: true,
         timestamp: new Date().toISOString()
       }
 
+      console.log('Sharing to feed:', feedItem)
+
       // Get existing shared items
       const existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-      existing.push(feedItem)
       
-      // Keep only last 50 items
-      const recent = existing.slice(-50)
-      localStorage.setItem('sharedToFeed', JSON.stringify(recent))
+      // Check if this exact item already exists (prevent duplicates)
+      const isDuplicate = existing.some(item => 
+        item.type === feedItem.type && 
+        item.date === feedItem.date && 
+        item.title === feedItem.title &&
+        item.timestamp === feedItem.timestamp
+      )
       
-      setSharedToFeed(true)
-      alert('Shared to feed!')
-      
-      // Trigger a custom event to refresh the feed
-      window.dispatchEvent(new CustomEvent('feedUpdated'))
+      if (!isDuplicate) {
+        existing.push(feedItem)
+        
+        // Keep only last 50 items
+        const recent = existing.slice(-50)
+        localStorage.setItem('sharedToFeed', JSON.stringify(recent))
+        console.log('Saved to localStorage, total items:', recent.length)
+        
+        setSharedToFeed(true)
+        
+        // Trigger a custom event to refresh the feed
+        window.dispatchEvent(new CustomEvent('feedUpdated'))
+        
+        // Also try to refresh if on Home page
+        if (window.location.pathname === '/') {
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('feedUpdated'))
+          }, 100)
+        }
+      } else {
+        console.log('Duplicate item, not adding to feed')
+      }
     } catch (error) {
       console.error('Error sharing to feed:', error)
       alert('Failed to share to feed')

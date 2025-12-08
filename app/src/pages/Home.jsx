@@ -206,22 +206,31 @@ export default function Home() {
       // Load shared feed items from localStorage
       try {
         const sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-        console.log('Shared items from localStorage:', sharedItems)
-        sharedItems.forEach(item => {
-          // Use timestamp if available, otherwise use date
-          const itemDate = item.timestamp ? new Date(item.timestamp).toISOString().split('T')[0] : item.date
-          logs.push({
-            type: item.type,
-            date: itemDate || today,
-            title: item.title,
-            subtitle: item.subtitle,
-            data: item.data,
-            shared: true,
-            timestamp: item.timestamp || new Date(itemDate + 'T12:00').toISOString()
+        console.log('Shared items from localStorage:', sharedItems.length, 'items')
+        console.log('Shared items data:', sharedItems)
+        
+        if (sharedItems.length > 0) {
+          sharedItems.forEach((item, index) => {
+            // Use timestamp if available, otherwise use date
+            const itemDate = item.timestamp ? new Date(item.timestamp).toISOString().split('T')[0] : (item.date || today)
+            const logEntry = {
+              type: item.type || 'workout',
+              date: itemDate,
+              title: item.title || 'Shared Item',
+              subtitle: item.subtitle || '',
+              data: item.data || {},
+              shared: true,
+              timestamp: item.timestamp || new Date(itemDate + 'T12:00').toISOString()
+            }
+            console.log(`Adding shared item ${index + 1}:`, logEntry)
+            logs.push(logEntry)
           })
-        })
+        } else {
+          console.log('No shared items found in localStorage')
+        }
       } catch (e) {
         console.error('Error loading shared items:', e)
+        console.error('Error stack:', e.stack)
       }
 
       // Sort by timestamp/date (newest first) and limit to 20
@@ -232,9 +241,17 @@ export default function Home() {
       })
       const sortedLogs = logs.slice(0, 20)
       console.log('Total logs found:', logs.length)
-      console.log('Sorted logs:', sortedLogs)
+      console.log('Shared logs count:', logs.filter(l => l.shared).length)
+      console.log('Sorted logs:', sortedLogs.map(l => ({ type: l.type, title: l.title, shared: l.shared, date: l.date })))
       console.log('Setting recentLogs state with', sortedLogs.length, 'items')
       setRecentLogs(sortedLogs)
+      
+      // Force a re-render by updating state
+      if (sortedLogs.length > 0) {
+        setTimeout(() => {
+          console.log('Feed state check - recentLogs has', recentLogs.length, 'items')
+        }, 500)
+      }
       
       // Force a re-render check
       setTimeout(() => {

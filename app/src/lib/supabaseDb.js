@@ -279,6 +279,11 @@ export async function savePausedWorkoutToSupabase(workoutState, userId) {
     .eq('user_id', userId)
     .single()
 
+  // If table doesn't exist, silently fail (migration not run)
+  if (checkError && (checkError.code === 'PGRST205' || checkError.message?.includes('Could not find the table'))) {
+    safeLogDebug('paused_workouts table does not exist yet - migration not run')
+    return null
+  }
   if (checkError && checkError.code !== 'PGRST116') {
     throw checkError
   }
@@ -311,37 +316,65 @@ export async function savePausedWorkoutToSupabase(workoutState, userId) {
  * Get paused workout for a user
  */
 export async function getPausedWorkoutFromSupabase(userId) {
-  const { data, error } = await supabase
-    .from('paused_workouts')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
+  try {
+    const { data, error } = await supabase
+      .from('paused_workouts')
+      .select('*')
+      .eq('user_id', userId)
+      .single()
 
-  if (error && error.code === 'PGRST116') {
-    // No paused workout found
-    return null
-  }
-  if (error) throw error
-
-  if (data) {
-    return {
-      ...data,
-      exercises: JSON.parse(data.exercises || '[]')
+    if (error && error.code === 'PGRST116') {
+      // No paused workout found
+      return null
     }
+    // If table doesn't exist (migration not run), return null gracefully
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('paused_workouts table does not exist yet - migration not run')
+      return null
+    }
+    if (error) throw error
+
+    if (data) {
+      return {
+        ...data,
+        exercises: JSON.parse(data.exercises || '[]')
+      }
+    }
+    return null
+  } catch (error) {
+    // If table doesn't exist, return null gracefully
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('paused_workouts table does not exist yet - migration not run')
+      return null
+    }
+    throw error
   }
-  return null
 }
 
 /**
  * Delete paused workout (called when workout is finished or resumed)
  */
 export async function deletePausedWorkoutFromSupabase(userId) {
-  const { error } = await supabase
-    .from('paused_workouts')
-    .delete()
-    .eq('user_id', userId)
+  try {
+    const { error } = await supabase
+      .from('paused_workouts')
+      .delete()
+      .eq('user_id', userId)
 
-  if (error) throw error
+    // If table doesn't exist, silently succeed (migration not run)
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('paused_workouts table does not exist yet - migration not run')
+      return
+    }
+    if (error) throw error
+  } catch (error) {
+    // If table doesn't exist, silently succeed
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('paused_workouts table does not exist yet - migration not run')
+      return
+    }
+    throw error
+  }
 }
 
 export async function getWorkoutsByDateFromSupabase(userId, date) {

@@ -24,6 +24,7 @@ export default function Home() {
   const [profilePicture, setProfilePicture] = useState(null)
 
   const loadRecentLogs = async (userId) => {
+    console.log('🔵 loadRecentLogs called for user:', userId)
     try {
       const logs = []
       const today = getTodayEST()
@@ -32,6 +33,7 @@ export default function Home() {
       // Load shared feed items from localStorage FIRST (so they appear at top)
       try {
         const sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+        console.log('🔵 Found', sharedItems.length, 'shared items in localStorage')
         
         if (sharedItems.length > 0) {
           sharedItems.forEach((item) => {
@@ -63,10 +65,13 @@ export default function Home() {
                   }))
                 }
               }
-              // Ensure exercises array exists
+              // Ensure exercises array exists (for workouts)
               if (!workoutData.exercises) {
                 workoutData.exercises = []
               }
+            } else if (item.type !== 'workout') {
+              // For non-workout items, use data as-is
+              workoutData = item.data || {}
             }
             
             const logEntry = {
@@ -78,6 +83,7 @@ export default function Home() {
               shared: true,
               timestamp: item.timestamp || new Date(itemDate + 'T12:00').toISOString()
             }
+            console.log('🔵 Adding shared item:', logEntry.type, logEntry.date, 'shared:', logEntry.shared, 'hasData:', !!logEntry.data)
             // Add shared item to logs
             logs.push(logEntry)
           })
@@ -204,7 +210,11 @@ export default function Home() {
         return dateB - dateA
       })
       const sortedLogs = logs.slice(0, 20)
+      console.log('🔵 FINAL: Loaded', sortedLogs.length, 'total items')
+      console.log('🔵 FINAL: Shared items:', sortedLogs.filter(l => l.shared).length)
+      console.log('🔵 FINAL: Shared items details:', sortedLogs.filter(l => l.shared).map(l => ({ type: l.type, date: l.date, hasData: !!l.data })))
       setRecentLogs(sortedLogs)
+      console.log('🔵 State updated with', sortedLogs.length, 'items')
       
     } catch (e) {
       logError('Error loading recent logs', e)
@@ -268,7 +278,9 @@ export default function Home() {
 
           // Load recent logs for feed - await this so feed loads
           if (mounted) {
+            console.log('🔵 About to call loadRecentLogs for user:', user.id)
             await loadRecentLogs(user.id)
+            console.log('🔵 loadRecentLogs completed')
           }
         } catch (e) {
           // Silently fail - data will load on retry
@@ -309,8 +321,12 @@ export default function Home() {
     
     // Listen for feed updates
     const handleFeedUpdate = () => {
+      console.log('🔵 feedUpdated event received, mounted:', mounted, 'user:', !!user)
       if (mounted && user) {
+        console.log('🔵 Reloading feed for user:', user.id)
         loadRecentLogs(user.id)
+      } else {
+        console.log('🔵 NOT reloading - mounted:', mounted, 'user:', !!user)
       }
     }
     window.addEventListener('feedUpdated', handleFeedUpdate)
@@ -381,9 +397,12 @@ export default function Home() {
             </div>
           ) : (
             <div className={styles.feedList}>
+              {console.log('🔵 RENDERING: recentLogs.length =', recentLogs.length, 'loading =', loading)}
               {recentLogs.map((log, index) => {
+                console.log('🔵 RENDERING item:', index, log.type, 'shared:', log.shared, 'hasData:', !!log.data)
                 // Show ShareCard for shared workouts, nutrition, and health items
                 if (log.shared && (log.type === 'workout' || log.type === 'nutrition' || log.type === 'health')) {
+                  console.log('🔵 RENDERING ShareCard for', log.type)
                   return (
                     <div key={`${log.type}-${log.date}-${index}-shared`} className={styles.feedCardItem}>
                       <ShareCard 

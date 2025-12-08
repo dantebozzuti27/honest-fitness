@@ -731,7 +731,7 @@ export default function ActiveWorkout() {
           const stackMembers = stackGroup ? exercises.filter(ex => ex.stacked && ex.stackGroup === stackGroup) : []
           const stackIndex = stackMembers.findIndex(ex => ex.id === exercise.id)
           
-          // Find existing stacks that this exercise could join
+          // Find existing stacks that this exercise could join (always define as array)
           const existingStacks = exercises
             .filter(ex => ex.stacked && ex.stackGroup && ex.id !== exercise.id)
             .map(ex => ({
@@ -741,7 +741,7 @@ export default function ActiveWorkout() {
             }))
             .filter((stack, index, self) => 
               index === self.findIndex(s => s.group === stack.group)
-            )
+            ) || [] // Ensure it's always an array
           
           return (
             <ExerciseCard
@@ -753,7 +753,7 @@ export default function ActiveWorkout() {
               stackGroup={stackGroup}
               stackMembers={stackMembers}
               stackIndex={stackIndex}
-              existingStacks={existingStacks}
+              existingStacks={existingStacks || []}
               onToggle={() => toggleExpanded(exercise.id)}
               onUpdateSet={(setIdx, field, value) => updateSet(exercise.id, setIdx, field, value)}
               onAddSet={() => addSet(exercise.id)}

@@ -417,6 +417,8 @@ export default function ActiveWorkout() {
       moodAfter: feedback.moodAfter,
       notes: feedback.notes,
       dayOfWeek: new Date().getDay(),
+      // IMPORTANT: Include ALL exercises from the workout, don't filter any out
+      // Only filter sets to show valid ones, but keep all exercises
       exercises: exercises.map(ex => ({
         name: ex.name,
         category: ex.category || 'Strength',
@@ -431,12 +433,14 @@ export default function ActiveWorkout() {
           const hasTime = s.time != null && s.time !== ''
           return hasWeight || hasReps || hasTime
         })
-      })).filter(ex => ex.sets.length > 0)
+      }))
+      // REMOVED: .filter(ex => ex.sets.length > 0) - this was removing exercises!
     }
     
-    // ONLY save workout if user has exercises with actual data
+    // ONLY save workout if user has at least one exercise
+    // Note: Exercises can have no sets, that's okay - we show all exercises
     if (workout.exercises.length === 0) {
-      alert('Cannot save workout with no exercises. Please add at least one exercise with sets.')
+      alert('Cannot save workout with no exercises. Please add at least one exercise.')
       return
     }
     

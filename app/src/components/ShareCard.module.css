@@ -236,11 +236,17 @@
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: break-word;
   line-height: 1.2;
   margin-bottom: 3px;
-  flex-shrink: 0;
+  flex-shrink: 1;
   text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 2.4em;
 }
 
 .setsReps {
@@ -330,7 +336,14 @@
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 2.2em;
+  min-width: 0;
 }
 
 .mealCalories {

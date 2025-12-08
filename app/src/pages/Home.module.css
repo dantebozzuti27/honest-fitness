@@ -39,7 +39,13 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 2.4em;
 }
 
 .logoContainer {
@@ -194,6 +200,15 @@
   line-height: 1.3;
   margin-top: 2px;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 2.6em;
+  min-width: 0;
 }
 
 .feedItemSubtitle {
@@ -203,6 +218,15 @@
   line-height: 1.3;
   margin-top: 2px;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 2.6em;
+  min-width: 0;
 }
 
 .emptyFeed {

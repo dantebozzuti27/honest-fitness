@@ -43,6 +43,7 @@ export default function Health() {
   const [syncError, setSyncError] = useState(null)
   const [showLogModal, setShowLogModal] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
+  const [selectedMetricForShare, setSelectedMetricForShare] = useState(null)
   const { toast, showToast, hideToast } = useToast()
 
   const loadHealthGoals = async () => {
@@ -1243,7 +1244,17 @@ export default function Health() {
                                 Tap to log
                               </div>
                             )}
-                            <div className={styles.historyTableCol}>
+                            <div className={`${styles.historyTableCol} ${styles.actionsCol}`}>
+                              <button
+                                className={styles.shareBtn}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedMetricForShare(metric)
+                                  setShowShareModal(true)
+                                }}
+                              >
+                                Share
+                              </button>
                               <button
                                 className={styles.deleteBtn}
                                 onClick={async (e) => {
@@ -1617,7 +1628,8 @@ export default function Health() {
       )}
 
       {showShareModal && (() => {
-        const todayMetric = metrics.find(m => m.date === getTodayEST()) || {
+        // Use selected metric from history, or fallback to today's metric
+        const metricToShare = selectedMetricForShare || metrics.find(m => m.date === getTodayEST()) || {
           date: getTodayEST(),
           steps: null,
           hrv: null,
@@ -1629,8 +1641,11 @@ export default function Health() {
         return (
           <ShareModal
             type="health"
-            data={{ health: todayMetric }}
-            onClose={() => setShowShareModal(false)}
+            data={{ health: metricToShare }}
+            onClose={() => {
+              setShowShareModal(false)
+              setSelectedMetricForShare(null)
+            }}
           />
         )
       })()}

@@ -41,8 +41,8 @@ export default function ShareCard({ type, data }) {
       })) || []
     })
     
-    // Get valid exercises with actual data
-    // IMPORTANT: Check for null/undefined, not falsy values (0 is valid!)
+    // IMPORTANT: Show ALL exercises from the workout, don't filter any out
+    // Only filter sets to show valid ones, but keep all exercises
     const validExercises = []
     if (workout?.exercises && Array.isArray(workout.exercises)) {
       workout.exercises.forEach((ex, exIdx) => {
@@ -62,14 +62,12 @@ export default function ShareCard({ type, data }) {
           return hasWeight || hasReps || hasTime
         })
         
-        if (validSets.length > 0) {
-          validExercises.push({
-            ...ex,
-            sets: validSets
-          })
-        } else {
-          console.warn(`ShareCard: Exercise "${ex.name}" has no valid sets`, ex)
-        }
+        // ALWAYS include the exercise, even if it has no valid sets
+        // This ensures ALL exercises from the logged workout are shown
+        validExercises.push({
+          ...ex,
+          sets: validSets // Use filtered sets, but keep the exercise
+        })
       })
     } else {
       console.warn('ShareCard: workout.exercises is missing or not an array', workout)
@@ -149,28 +147,60 @@ export default function ShareCard({ type, data }) {
                 // ex.sets is already filtered to only valid sets (from line 42)
                 const sets = ex.sets || []
                 const setCount = sets.length
+                const isCardio = ex.category === 'Cardio' || ex.category === 'cardio'
                 
-                // Get display value - prefer reps, then time, then weight
+                // For cardio exercises, show only time (sum all set times)
+                // For other exercises, show sets × reps/weight
                 let displayValue = null
                 let displayLabel = ''
+                let displayText = ''
                 
-                if (sets.length > 0) {
+                if (isCardio && sets.length > 0) {
+                  // Sum all time values for cardio
+                  const totalTime = sets.reduce((sum, s) => {
+                    const time = s.time != null && s.time !== '' ? Number(s.time) : 0
+                    return sum + time
+                  }, 0)
+                  
+                  if (totalTime > 0) {
+                    // Format time: convert seconds to MM:SS if > 60 seconds
+                    if (totalTime >= 60) {
+                      const minutes = Math.floor(totalTime / 60)
+                      const seconds = totalTime % 60
+                      displayText = `${minutes}:${String(seconds).padStart(2, '0')}`
+                    } else {
+                      displayText = `${totalTime}s`
+                    }
+                  } else {
+                    displayText = 'No time'
+                  }
+                } else if (sets.length > 0) {
+                  // For non-cardio, show sets × reps/weight
                   const firstSet = sets[0]
                   if (firstSet.reps != null && firstSet.reps !== '') {
                     displayValue = firstSet.reps
                     displayLabel = 'reps'
+                    displayText = `${setCount} × ${displayValue} ${displayLabel}`
                   } else if (firstSet.time != null && firstSet.time !== '') {
                     displayValue = Math.round(firstSet.time)
                     displayLabel = 'sec'
+                    displayText = `${setCount} × ${displayValue} ${displayLabel}`
                   } else if (firstSet.weight != null && firstSet.weight !== '') {
                     displayValue = firstSet.weight
                     displayLabel = 'lbs'
+                    displayText = `${setCount} × ${displayValue} ${displayLabel}`
+                  } else {
+                    displayText = `${setCount} sets`
                   }
+                } else {
+                  displayText = 'No sets'
                 }
                 
-                // Always show exercise if it has sets (even if we can't format the value)
                 // Calculate actual item height based on content
-                const actualItemHeight = (itemPadding * 2) + itemGap + (exerciseNameSize * 1.2) + (setsRepsSize * 1.2)
+                // Account for potential text wrapping in exercise name
+                const nameLines = Math.ceil((ex.name || 'Exercise').length / (optimalColumns === 2 ? 12 : optimalColumns === 3 ? 8 : 6))
+                const nameHeight = exerciseNameSize * 1.2 * Math.max(1, nameLines)
+                const actualItemHeight = (itemPadding * 2) + itemGap + nameHeight + (setsRepsSize * 1.2)
                 
                 return (
                   <div 
@@ -188,21 +218,12 @@ export default function ShareCard({ type, data }) {
                     >
                       {ex.name || 'Exercise'}
                     </div>
-                    {setCount > 0 && displayValue != null ? (
-                      <div 
-                        className={styles.setsReps}
-                        style={{ fontSize: `${setsRepsSize}px` }}
-                      >
-                        {setCount} × {displayValue} {displayLabel}
-                      </div>
-                    ) : (
-                      <div 
-                        className={styles.setsReps}
-                        style={{ fontSize: `${setsRepsSize}px` }}
-                      >
-                        {setCount} sets
-                      </div>
-                    )}
+                    <div 
+                      className={styles.setsReps}
+                      style={{ fontSize: `${setsRepsSize}px` }}
+                    >
+                      {displayText}
+                    </div>
                   </div>
                 )
               })}

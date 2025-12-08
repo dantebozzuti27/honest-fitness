@@ -1190,9 +1190,35 @@ h1 {
   align-items: center;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   padding: 0;
+  line-height: 1.2;
+}
+
+.historyTableCol:not(.actionsCol) > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 2.4em;
+}
+
+.historyTableCol.actionsCol {
+  overflow: visible;
+}
+
+.historyTableCol.actionsCol > * {
+  display: block;
+  -webkit-line-clamp: none;
+  -webkit-box-orient: horizontal;
+  max-height: none;
+  white-space: normal;
 }
 
 .historyTableEmpty {

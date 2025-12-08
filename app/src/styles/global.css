@@ -238,17 +238,60 @@ table {
   table-layout: auto;
 }
 
-/* Ensure text doesn't overflow containers */
-p, span, div, h1, h2, h3, h4, h5, h6 {
+/* Ensure text doesn't overflow containers - GLOBAL AUTO-FIT */
+p, span, div, h1, h2, h3, h4, h5, h6, label, button, a {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* All text elements should auto-fit */
+* {
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
 
-/* Responsive containers */
-.container, [class*="container"] {
+/* Override nowrap where it causes issues - allow wrapping */
+[class*="name"],
+[class*="title"],
+[class*="label"],
+[class*="text"] {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+/* Tables and lists should handle overflow */
+td, th, li {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+/* Responsive containers - prevent all overflow */
+.container, [class*="container"], [class*="card"], [class*="item"], [class*="cell"] {
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+/* All flex containers should prevent overflow */
+[class*="flex"], [class*="grid"] {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* All children of flex/grid should respect container bounds */
+[class*="flex"] > *, [class*="grid"] > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* Smooth scrolling */
@@ -323,6 +366,41 @@ p, span, div, h1, h2, h3, h4, h5, h6 {
 ::selection {
   background: var(--accent-glow);
   color: var(--text-primary);
+}
+
+/* GLOBAL AUTO-FIT: Prevent all text overflow */
+/* Ensure all elements respect container bounds */
+* {
+  box-sizing: border-box;
+}
+
+/* All flex/grid children should respect container bounds */
+[class*="flex"] > *,
+[class*="grid"] > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Text elements should wrap by default */
+[class*="name"]:not([class*="nowrap"]):not([class*="mono"]),
+[class*="title"]:not([class*="nowrap"]):not([class*="mono"]),
+[class*="label"]:not([class*="nowrap"]):not([class*="mono"]) {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+/* Long text should use multi-line ellipsis */
+[class*="name"]:not([class*="nowrap"]):not([class*="mono"]),
+[class*="title"]:not([class*="nowrap"]):not([class*="mono"]) {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Scrollbar */

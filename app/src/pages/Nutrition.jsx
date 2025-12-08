@@ -73,6 +73,7 @@ export default function Nutrition() {
   const [goalsStartDate, setGoalsStartDate] = useState(getTodayEST())
   const [goalsEndDate, setGoalsEndDate] = useState(getTodayEST())
   const [showShareModal, setShowShareModal] = useState(false)
+  const [selectedNutritionForShare, setSelectedNutritionForShare] = useState(null)
   const fastingTimerRef = useRef(null)
 
   useEffect(() => {
@@ -1111,7 +1112,46 @@ export default function Nutrition() {
                         setSelectedDate(date)
                         setActiveTab('Today')
                       }}>{Math.round(data.macros?.fat || 0)}g</div>
-                      <div className={styles.historyTableCol}>
+                      <div className={`${styles.historyTableCol} ${styles.actionsCol}`}>
+                        <button
+                          className={styles.shareBtn}
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            // Load full meal data for the selected date
+                            try {
+                              const { getMealsFromSupabase } = await import('../lib/nutritionDb')
+                              const dayData = await getMealsFromSupabase(user.id, date)
+                              setSelectedNutritionForShare({
+                                date,
+                                calories: data.calories || 0,
+                                protein: data.macros?.protein || 0,
+                                carbs: data.macros?.carbs || 0,
+                                fat: data.macros?.fat || 0,
+                                meals: dayData.meals || [],
+                                water: data.water || 0,
+                                targetCalories: targetCalories,
+                                targetMacros: targetMacros
+                              })
+                              setShowShareModal(true)
+                            } catch (error) {
+                              logError('Error loading nutrition data for sharing', error)
+                              // Fallback to basic data
+                              setSelectedNutritionForShare({
+                                date,
+                                calories: data.calories || 0,
+                                protein: data.macros?.protein || 0,
+                                carbs: data.macros?.carbs || 0,
+                                fat: data.macros?.fat || 0,
+                                meals: [],
+                                targetCalories: targetCalories,
+                                targetMacros: targetMacros
+                              })
+                              setShowShareModal(true)
+                            }
+                          }}
+                        >
+                          Share
+                        </button>
                         <button
                           className={styles.deleteBtn}
                           onClick={async (e) => {
@@ -1614,24 +1654,32 @@ export default function Nutrition() {
       )}
 
       {/* Share Modal */}
-      {showShareModal && (
-        <ShareModal
-          type="nutrition"
-          data={{
-            nutrition: {
-              date: selectedDate,
-              calories: currentCalories,
-              protein: currentMacros.protein,
-              carbs: currentMacros.carbs,
-              fat: currentMacros.fat,
-              meals: meals,
-              targetCalories: targetCalories,
-              targetMacros: targetMacros
-            }
-          }}
-          onClose={() => setShowShareModal(false)}
-        />
-      )}
+      {showShareModal && (() => {
+        // Use selected nutrition from history, or fallback to current date
+        const nutritionToShare = selectedNutritionForShare || {
+          date: selectedDate,
+          calories: currentCalories,
+          protein: currentMacros.protein,
+          carbs: currentMacros.carbs,
+          fat: currentMacros.fat,
+          meals: meals,
+          targetCalories: targetCalories,
+          targetMacros: targetMacros
+        }
+        
+        return (
+          <ShareModal
+            type="nutrition"
+            data={{
+              nutrition: nutritionToShare
+            }}
+            onClose={() => {
+              setShowShareModal(false)
+              setSelectedNutritionForShare(null)
+            }}
+          />
+        )
+      })()}
 
     </div>
   )

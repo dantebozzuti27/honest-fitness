@@ -20,6 +20,7 @@ import { getAllConnectedAccounts, getFitbitDaily, getMostRecentFitbitData } from
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
+import { formatGoalName } from '../utils/formatUtils'
 import BodyHeatmap from '../components/BodyHeatmap'
 // All charts are now BarChart only
 import BarChart from '../components/BarChart'
@@ -557,7 +558,7 @@ export default function Analytics() {
                   <div key={goal.id} className={styles.goalItem}>
                     <div className={styles.goalInfo}>
                       <span className={styles.goalName}>
-                        {goal.custom_name || goal.type}
+                        {formatGoalName(goal)}
                       </span>
                       <span className={styles.goalProgress}>
                         {Math.round(progress)}%

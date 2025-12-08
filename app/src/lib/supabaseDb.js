@@ -220,32 +220,7 @@ export async function getWorkoutsFromSupabase(userId) {
     return hasValidExercise
   })
   
-  // Deduplicate by date (keep most recent) and auto-delete duplicates/invalid data
-  const deduplicated = []
-  const seenDates = new Set()
-  const workoutsToDelete = []
-  
-  for (const workout of validWorkouts) {
-    if (!seenDates.has(workout.date)) {
-      seenDates.add(workout.date)
-      deduplicated.push(workout)
-    } else {
-      // Found duplicate - mark for deletion (keep the one we already added)
-      workoutsToDelete.push(workout.id)
-    }
-  }
-  
-  // Auto-delete duplicates in background (don't wait for it)
-  if (workoutsToDelete.length > 0) {
-    workoutsToDelete.forEach(workoutId => {
-      deleteWorkoutFromSupabase(workoutId, userId).catch(err => {
-        // Silently fail - cleanup is best effort
-        safeLogDebug('Auto-cleanup: Failed to delete duplicate workout', workoutId)
-      })
-    })
-  }
-  
-  // Also auto-delete invalid workouts in background
+  // Auto-delete invalid workouts in background (don't wait for it)
   const invalidWorkouts = (data || []).filter(workout => {
     if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
       return true
@@ -266,7 +241,8 @@ export async function getWorkoutsFromSupabase(userId) {
     })
   }
   
-  return deduplicated
+  // Return all valid workouts (users can have multiple workouts per day)
+  return validWorkouts
 }
 
 export async function getWorkoutDatesFromSupabase(userId) {
@@ -697,6 +673,18 @@ export async function getScheduledWorkoutsFromSupabase(userId) {
     .order('date', { ascending: true })
 
   if (error) throw error
+  return data
+}
+
+export async function getScheduledWorkoutByDateFromSupabase(userId, date) {
+  const { data, error } = await supabase
+    .from('scheduled_workouts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', date)
+    .single()
+
+  if (error && error.code !== 'PGRST116') throw error // PGRST116 is "not found" which is OK
   return data
 }
 

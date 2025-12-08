@@ -6,6 +6,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
+import { formatGoalName } from '../utils/formatUtils'
 import { logError, logDebug } from '../utils/logger'
 import { getSystemFoods, getFoodCategories, getFavoriteFoods, getRecentFoods } from '../lib/foodLibrary'
 
@@ -39,8 +40,8 @@ export default function Nutrition() {
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
   const [activeTab, setActiveTab] = useState('Today')
-  const [targetCalories, setTargetCalories] = useState(2000)
-  const [targetMacros, setTargetMacros] = useState({ protein: 150, carbs: 200, fat: 67 })
+  const [targetCalories, setTargetCalories] = useState(null)
+  const [targetMacros, setTargetMacros] = useState(null)
   const [currentCalories, setCurrentCalories] = useState(0)
   const [currentMacros, setCurrentMacros] = useState({ protein: 0, carbs: 0, fat: 0 })
   const [meals, setMeals] = useState([])
@@ -250,33 +251,46 @@ export default function Nutrition() {
       const { getNutritionSettingsFromSupabase } = await import('../lib/nutritionDb')
       const settings = await getNutritionSettingsFromSupabase(user.id)
       if (settings) {
-        setTargetCalories(settings.targetCalories || 2000)
-        setTargetMacros(settings.targetMacros || { protein: 150, carbs: 200, fat: 67 })
+        // Only set if user has explicitly configured these
+        if (settings.targetCalories) {
+          setTargetCalories(settings.targetCalories)
+        }
+        if (settings.targetMacros) {
+          setTargetMacros(settings.targetMacros)
+        }
         setFavorites(settings.favorites || [])
         setFastingEnabled(settings.fastingEnabled || false)
         if (settings.fastingStartTime) {
           setFastingStartTime(new Date(settings.fastingStartTime))
         }
       } else {
-        // Settings not found, use defaults
+        // Settings not found, check localStorage but don't auto-create defaults
         const saved = localStorage.getItem(`ghostMode_${user.id}`)
         if (saved) {
           const data = JSON.parse(saved)
-          setTargetCalories(data.targetCalories || 2000)
-          setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
+          // Only use values if they were explicitly set (not defaults)
+          if (data.targetCalories && data.targetCalories !== 2000) {
+            setTargetCalories(data.targetCalories)
+          }
+          if (data.targetMacros && (data.targetMacros.protein !== 150 || data.targetMacros.carbs !== 200 || data.targetMacros.fat !== 67)) {
+            setTargetMacros(data.targetMacros)
+          }
           setFavorites(data.favorites || [])
           setFastingEnabled(data.fastingEnabled || false)
           if (data.fastingStartTime) {
             setFastingStartTime(new Date(data.fastingStartTime))
           }
-          const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
-          await saveNutritionSettingsToSupabase(user.id, {
-            targetCalories: data.targetCalories || 2000,
-            targetMacros: data.targetMacros || { protein: 150, carbs: 200, fat: 67 },
-            favorites: data.favorites || [],
-            fastingEnabled: data.fastingEnabled || false,
-            fastingStartTime: data.fastingStartTime || null
-          })
+          // Only save to Supabase if there are actual user settings (not defaults)
+          if (data.targetCalories || data.targetMacros || data.favorites?.length > 0 || data.fastingEnabled) {
+            const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+            await saveNutritionSettingsToSupabase(user.id, {
+              targetCalories: data.targetCalories || null,
+              targetMacros: data.targetMacros || null,
+              favorites: data.favorites || [],
+              fastingEnabled: data.fastingEnabled || false,
+              fastingStartTime: data.fastingStartTime || null
+            })
+          }
         }
       }
     } catch (error) {
@@ -284,8 +298,13 @@ export default function Nutrition() {
       const saved = localStorage.getItem(`ghostMode_${user.id}`)
       if (saved) {
         const data = JSON.parse(saved)
-        setTargetCalories(data.targetCalories || 2000)
-        setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
+        // Only use values if they were explicitly set (not defaults)
+        if (data.targetCalories && data.targetCalories !== 2000) {
+          setTargetCalories(data.targetCalories)
+        }
+        if (data.targetMacros && (data.targetMacros.protein !== 150 || data.targetMacros.carbs !== 200 || data.targetMacros.fat !== 67)) {
+          setTargetMacros(data.targetMacros)
+        }
         setFavorites(data.favorites || [])
         setFastingEnabled(data.fastingEnabled || false)
         if (data.fastingStartTime) {
@@ -802,11 +821,13 @@ export default function Nutrition() {
                   <input
                     type="number"
                     className={styles.calorieInput}
-                    value={targetCalories}
+                    value={targetCalories || ''}
                     onChange={(e) => {
-                      setTargetCalories(parseInt(e.target.value) || 2000)
+                      const value = e.target.value ? parseInt(e.target.value) : null
+                      setTargetCalories(value)
                       saveData()
                     }}
+                    placeholder="Set target"
                     min="1000"
                     max="5000"
                   />
@@ -818,61 +839,65 @@ export default function Nutrition() {
                     {currentCalories}
                   </div>
                 </div>
-                <div className={styles.progressBar}>
-                  <div
-                    className={styles.progressFill}
-                    style={{ width: `${Math.min(100, (currentCalories / targetCalories) * 100)}%` }}
-                  />
-                </div>
+                {targetCalories && (
+                  <div className={styles.progressBar}>
+                    <div
+                      className={styles.progressFill}
+                      style={{ width: `${Math.min(100, (currentCalories / targetCalories) * 100)}%` }}
+                    />
+                  </div>
+                )}
               </div>
 
-              <div className={styles.macroProgress}>
-                <div className={styles.macroItem}>
-                  <div className={styles.macroHeader}>
-                    <span>Protein</span>
-                    <span>{Math.round(currentMacros.protein)} / {targetMacros.protein}g</span>
+              {targetMacros && (
+                <div className={styles.macroProgress}>
+                  <div className={styles.macroItem}>
+                    <div className={styles.macroHeader}>
+                      <span>Protein</span>
+                      <span>{Math.round(currentMacros.protein)} / {targetMacros.protein}g</span>
+                    </div>
+                    <div className={styles.macroBar}>
+                      <div
+                        className={styles.macroFill}
+                        style={{
+                          width: `${Math.min(100, (currentMacros.protein / targetMacros.protein) * 100)}%`,
+                          background: '#4CAF50'
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className={styles.macroBar}>
-                    <div
-                      className={styles.macroFill}
-                      style={{
-                        width: `${Math.min(100, (currentMacros.protein / targetMacros.protein) * 100)}%`,
-                        background: '#4CAF50'
-                      }}
-                    />
+                  <div className={styles.macroItem}>
+                    <div className={styles.macroHeader}>
+                      <span>Carbs</span>
+                      <span>{Math.round(currentMacros.carbs)} / {targetMacros.carbs}g</span>
+                    </div>
+                    <div className={styles.macroBar}>
+                      <div
+                        className={styles.macroFill}
+                        style={{
+                          width: `${Math.min(100, (currentMacros.carbs / targetMacros.carbs) * 100)}%`,
+                          background: '#2196F3'
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.macroItem}>
+                    <div className={styles.macroHeader}>
+                      <span>Fat</span>
+                      <span>{Math.round(currentMacros.fat)} / {targetMacros.fat}g</span>
+                    </div>
+                    <div className={styles.macroBar}>
+                      <div
+                        className={styles.macroFill}
+                        style={{
+                          width: `${Math.min(100, (currentMacros.fat / targetMacros.fat) * 100)}%`,
+                          background: '#FF9800'
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
-                <div className={styles.macroItem}>
-                  <div className={styles.macroHeader}>
-                    <span>Carbs</span>
-                    <span>{Math.round(currentMacros.carbs)} / {targetMacros.carbs}g</span>
-                  </div>
-                  <div className={styles.macroBar}>
-                    <div
-                      className={styles.macroFill}
-                      style={{
-                        width: `${Math.min(100, (currentMacros.carbs / targetMacros.carbs) * 100)}%`,
-                        background: '#2196F3'
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className={styles.macroItem}>
-                  <div className={styles.macroHeader}>
-                    <span>Fat</span>
-                    <span>{Math.round(currentMacros.fat)} / {targetMacros.fat}g</span>
-                  </div>
-                  <div className={styles.macroBar}>
-                    <div
-                      className={styles.macroFill}
-                      style={{
-                        width: `${Math.min(100, (currentMacros.fat / targetMacros.fat) * 100)}%`,
-                        background: '#FF9800'
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+              )}
 
               <div className={styles.waterSection}>
                 <div className={styles.waterHeader}>
@@ -971,7 +996,7 @@ export default function Nutrition() {
                       <div key={goal.id} className={styles.goalCard}>
                         <div className={styles.goalHeader}>
                           <span className={styles.goalName}>
-                            {goal.custom_name || goal.type}
+                            {formatGoalName(goal)}
                           </span>
                           <span className={styles.goalProgress}>{Math.round(progress)}%</span>
                         </div>

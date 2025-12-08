@@ -75,48 +75,74 @@ export default function ShareCard({ type, data }) {
     
     const totalExercises = validExercises.length
     
-    // Calculate optimal layout to fit all exercises without scrolling
-    // Card height: ~500-600px, header: ~60px, date+stat+count: ~120px, padding: ~24px
-    // Available for grid: ~300-400px
-    // Calculate optimal columns to minimize rows while fitting width
-    let optimalColumns = 2
-    if (totalExercises > 18) {
-      optimalColumns = 5 // 20 exercises = 4 rows
-    } else if (totalExercises > 15) {
-      optimalColumns = 4 // 16 exercises = 4 rows
-    } else if (totalExercises > 12) {
-      optimalColumns = 4 // 13-15 exercises = 3-4 rows
-    } else if (totalExercises > 9) {
-      optimalColumns = 3 // 10-12 exercises = 3-4 rows
-    } else if (totalExercises > 6) {
-      optimalColumns = 3 // 7-9 exercises = 2-3 rows
-    } else {
-      optimalColumns = 2 // 1-6 exercises = 1-3 rows
-    }
+    // Find the longest exercise name to determine minimum column width
+    const longestName = validExercises.reduce((max, ex) => {
+      const nameLength = (ex.name || 'Exercise').length
+      return Math.max(max, nameLength)
+    }, 0)
+    
+    // Card dimensions: ~500px width, ~600px height
+    // Header: ~60px, date+stat+count: ~120px, padding: ~32px
+    // Available for grid: ~388px height, ~468px width
+    const cardWidth = 500
+    const cardHeight = 600
+    const headerHeight = 60
+    const topSectionHeight = 120
+    const padding = 32
+    const availableWidth = cardWidth - padding
+    const availableHeightForGrid = cardHeight - headerHeight - topSectionHeight - padding
+    
+    // Calculate minimum column width needed for longest name (no wrapping)
+    // Estimate: ~6px per character at 10px font size, plus padding
+    const minCharWidth = 5.5 // pixels per character at base font size
+    const minNameWidth = longestName * minCharWidth + 16 // 16px for padding
+    const maxColumnsByWidth = Math.floor(availableWidth / minNameWidth)
+    
+    // Calculate optimal columns to fit all exercises without scrolling
+    // Start with width-based limit, then adjust for height
+    let optimalColumns = Math.min(maxColumnsByWidth, Math.max(2, Math.ceil(Math.sqrt(totalExercises))))
+    
+    // Ensure we have at least 2 columns and at most 5
+    optimalColumns = Math.max(2, Math.min(5, optimalColumns))
     
     const rows = Math.ceil(totalExercises / optimalColumns)
     
-    // Calculate scale factor based on number of rows
-    // More rows = smaller items to fit everything
-    // Available height: ~350px, need to fit all rows
-    const estimatedAvailableHeight = 350
-    const maxRowHeight = estimatedAvailableHeight / Math.max(rows, 1)
-    
-    // Base item height estimate: padding(12px) + gap(3px) + name(12px) + setsReps(10px) = ~37px
-    // Plus grid gap between rows: ~6px
-    const baseItemHeight = 37
+    // Calculate if we can fit all rows in available height
+    // Each row needs: item height + gap
+    const baseItemHeight = 40 // padding(8px*2) + name(12px) + setsReps(10px) + gap(2px)
     const gridGapBetweenRows = 6
-    const maxItemHeight = maxRowHeight - gridGapBetweenRows
+    const totalHeightNeeded = (rows * baseItemHeight) + ((rows - 1) * gridGapBetweenRows)
     
-    // Scale factor: if we need items smaller than base, scale down
-    const scaleFactor = Math.min(1, maxItemHeight / baseItemHeight)
+    // If we need more height than available, reduce columns to fit more rows
+    if (totalHeightNeeded > availableHeightForGrid && optimalColumns > 2) {
+      // Try reducing columns to fit height
+      for (let cols = optimalColumns - 1; cols >= 2; cols--) {
+        const testRows = Math.ceil(totalExercises / cols)
+        const testHeight = (testRows * baseItemHeight) + ((testRows - 1) * gridGapBetweenRows)
+        if (testHeight <= availableHeightForGrid) {
+          optimalColumns = cols
+          break
+        }
+      }
+    }
     
-    // Calculate sizes with minimums to ensure readability
-    const exerciseNameSize = Math.max(6, Math.floor(10 * scaleFactor))
-    const setsRepsSize = Math.max(5, Math.floor(9 * scaleFactor))
-    const itemPadding = Math.max(3, Math.floor(6 * scaleFactor))
-    const itemGap = Math.max(2, Math.floor(3 * scaleFactor))
-    const gridGap = Math.max(3, Math.floor(6 * scaleFactor))
+    // Recalculate rows with final column count
+    const finalRows = Math.ceil(totalExercises / optimalColumns)
+    const finalHeightNeeded = (finalRows * baseItemHeight) + ((finalRows - 1) * gridGapBetweenRows)
+    
+    // Calculate scale factor if we need to shrink to fit height
+    let scaleFactor = 1
+    if (finalHeightNeeded > availableHeightForGrid) {
+      const maxItemHeight = (availableHeightForGrid - ((finalRows - 1) * gridGapBetweenRows)) / finalRows
+      scaleFactor = Math.max(0.7, maxItemHeight / baseItemHeight)
+    }
+    
+    // Calculate sizes with scale factor, ensuring readability
+    const exerciseNameSize = Math.max(7, Math.floor(10 * scaleFactor))
+    const setsRepsSize = Math.max(6, Math.floor(9 * scaleFactor))
+    const itemPadding = Math.max(4, Math.floor(8 * scaleFactor))
+    const itemGap = Math.max(2, Math.floor(2 * scaleFactor))
+    const gridGap = Math.max(4, Math.floor(6 * scaleFactor))
     
     return (
       <div className={styles.card} ref={cardRef}>
@@ -140,7 +166,9 @@ export default function ShareCard({ type, data }) {
               className={styles.exercisesGrid}
               style={{
                 gap: `${gridGap}px`,
-                gridTemplateColumns: `repeat(${optimalColumns}, 1fr)`
+                gridTemplateColumns: `repeat(${optimalColumns}, 1fr)`,
+                maxHeight: `${availableHeightForGrid}px`,
+                overflow: 'hidden'
               }}
             >
               {validExercises.map((ex, idx) => {
@@ -196,10 +224,8 @@ export default function ShareCard({ type, data }) {
                   displayText = 'No sets'
                 }
                 
-                // Calculate actual item height based on content
-                // Account for potential text wrapping in exercise name
-                const nameLines = Math.ceil((ex.name || 'Exercise').length / (optimalColumns === 2 ? 12 : optimalColumns === 3 ? 8 : 6))
-                const nameHeight = exerciseNameSize * 1.2 * Math.max(1, nameLines)
+                // Calculate actual item height (no wrapping, single line)
+                const nameHeight = exerciseNameSize * 1.2
                 const actualItemHeight = (itemPadding * 2) + itemGap + nameHeight + (setsRepsSize * 1.2)
                 
                 return (
@@ -209,12 +235,17 @@ export default function ShareCard({ type, data }) {
                     style={{
                       padding: `${itemPadding}px ${itemPadding + 2}px`,
                       gap: `${itemGap}px`,
-                      minHeight: `${Math.max(25, actualItemHeight)}px`
+                      minHeight: `${Math.max(30, actualItemHeight)}px`,
+                      height: `${actualItemHeight}px`
                     }}
                   >
                     <div 
                       className={styles.exerciseName}
-                      style={{ fontSize: `${exerciseNameSize}px` }}
+                      style={{ 
+                        fontSize: `${exerciseNameSize}px`,
+                        maxWidth: '100%'
+                      }}
+                      title={ex.name || 'Exercise'}
                     >
                       {ex.name || 'Exercise'}
                     </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getAllTemplates, scheduleWorkout, getScheduledWorkout } from '../db'
-import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan, deleteWorkoutFromSupabase } from '../lib/supabaseDb'
+import { getAllTemplates } from '../db'
+import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan, deleteWorkoutFromSupabase, scheduleWorkoutSupabase, getScheduledWorkoutByDateFromSupabase } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
 import SideMenu from '../components/SideMenu'
@@ -120,8 +120,10 @@ export default function Calendar() {
       setScheduledInfo(null)
     } else {
       setSelectedWorkout(null)
-      const scheduled = await getScheduledWorkout(day.date)
-      setScheduledInfo(scheduled)
+      if (user) {
+        const scheduled = await getScheduledWorkoutByDateFromSupabase(user.id, day.date)
+        setScheduledInfo(scheduled)
+      }
     }
   }
 
@@ -141,10 +143,11 @@ export default function Calendar() {
   }
 
   const handleSchedule = async (templateId) => {
-    await scheduleWorkout(selectedDate, templateId)
+    if (!user) return
+    await scheduleWorkoutSupabase(user.id, selectedDate, templateId)
     setScheduledDates(prev => ({ ...prev, [selectedDate]: templateId }))
     setShowScheduler(false)
-    const scheduled = await getScheduledWorkout(selectedDate)
+    const scheduled = await getScheduledWorkoutByDateFromSupabase(user.id, selectedDate)
     setScheduledInfo(scheduled)
   }
 
@@ -342,7 +345,7 @@ export default function Calendar() {
                   <>
                     <p className={styles.scheduledLabel}>Scheduled:</p>
                     <p className={styles.scheduledName}>
-                      {scheduledInfo.templateId === 'freestyle' ? 'Freestyle' : templates.find(t => t.id === scheduledInfo.templateId)?.name || 'Workout'}
+                      {scheduledInfo.template_id === 'freestyle' ? 'Freestyle' : templates.find(t => t.id === scheduledInfo.template_id)?.name || 'Workout'}
                     </p>
                   </>
                 ) : (

@@ -6,6 +6,7 @@ import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetr
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { formatGoalName } from '../utils/formatUtils'
 import { logError } from '../utils/logger'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -575,7 +576,7 @@ export default function Fitness() {
                       <div className={styles.goalHeader}>
                         <div className={styles.goalNameContainer}>
                           <span className={styles.goalName}>
-                            {goal.custom_name || goal.type}
+                            {formatGoalName(goal)}
                           </span>
                         </div>
                         <span className={styles.goalProgress}>{Math.round(progress)}%</span>

@@ -12,6 +12,7 @@ import { getWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { formatGoalName } from '../utils/formatUtils'
 import { logError } from '../utils/logger'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
@@ -344,7 +345,7 @@ export default function Goals() {
                     <div className={styles.goalHeader}>
                       <div>
                         <h3 className={styles.goalName}>
-                          {goal.custom_name || getGoalTypes(goal.category).find(t => t.type === goal.type)?.label || goal.type}
+                          {formatGoalName(goal, getGoalTypes)}
                         </h3>
                         <span className={styles.goalCategory}>{goal.category.charAt(0).toUpperCase() + goal.category.slice(1)}</span>
                       </div>
@@ -398,7 +399,7 @@ export default function Goals() {
               {pastGoals.slice(0, 10).map(goal => (
                 <div key={goal.id} className={styles.pastGoalCard}>
                   <span className={styles.pastGoalName}>
-                    {goal.custom_name || goal.type}
+                    {formatGoalName(goal, getGoalTypes)}
                   </span>
                   <span className={styles.pastGoalStatus}>{goal.status}</span>
                 </div>

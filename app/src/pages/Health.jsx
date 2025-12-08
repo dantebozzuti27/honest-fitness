@@ -9,6 +9,7 @@ import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, syncOuraData, mergeWearableDataToMetrics } from '../lib/wearables'
 import { supabase } from '../lib/supabase'
 import { getTodayEST } from '../utils/dateUtils'
+import { formatGoalName } from '../utils/formatUtils'
 import { logError, logDebug } from '../utils/logger'
 
 // Ensure logDebug is always available (fallback for build issues)
@@ -1342,7 +1343,7 @@ export default function Health() {
                       <div key={goal.id} className={styles.goalCard}>
                         <div className={styles.goalHeader}>
                           <span className={styles.goalName}>
-                            {goal.custom_name || goal.type}
+                            {formatGoalName(goal)}
                           </span>
                           <span className={styles.goalProgress}>{Math.round(progress)}%</span>
                         </div>

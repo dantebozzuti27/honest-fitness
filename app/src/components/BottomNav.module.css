@@ -8,14 +8,14 @@
   justify-content: space-around;
   background: var(--gradient-secondary);
   border-top: 1px solid var(--border);
-  padding: var(--space-md);
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-md));
+  padding: var(--space-sm) var(--space-xs);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-sm));
   z-index: 999;
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  height: calc(96px + env(safe-area-inset-bottom, 0px));
-  min-height: 96px;
+  min-height: 70px;
+  max-height: 90vh;
 }
 
 .navButton {
@@ -23,18 +23,19 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: var(--space-sm) var(--space-md);
+  gap: 4px;
+  padding: var(--space-xs) var(--space-sm);
   background: transparent;
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-base);
-  min-width: 72px;
-  min-height: 72px;
+  min-width: 0;
+  min-height: 0;
   flex: 1;
   border-radius: var(--radius-md);
   touch-action: manipulation;
+  max-width: 100%;
 }
 
 .navButton:hover {
@@ -47,8 +48,8 @@
 }
 
 .navIcon {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -61,23 +62,27 @@
 }
 
 .navLabel {
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: -0.01em;
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .plusButton {
   flex: 0 0 auto;
-  width: 72px;
-  height: 72px;
-  min-width: 72px;
-  min-height: 72px;
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  min-height: 56px;
   border-radius: 50%;
   background: var(--accent);
   color: #000;
   box-shadow: var(--shadow-lg);
-  margin: 0 var(--space-sm);
+  margin: 0 var(--space-xs);
   padding: 0;
   touch-action: manipulation;
 }
@@ -93,7 +98,7 @@
 }
 
 .plusIcon {
-  font-size: 36px;
+  font-size: 28px;
   font-weight: 300;
   line-height: 1;
   display: flex;
@@ -222,4 +227,61 @@
   to { opacity: 1; }
 }
 
+/* Mobile optimizations */
+@media (max-width: 480px) {
+  .bottomNav {
+    padding: var(--space-xs) 4px;
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-xs));
+    min-height: 64px;
+  }
+
+  .navButton {
+    gap: 2px;
+    padding: var(--space-xs) 2px;
+  }
+
+  .navIcon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .navLabel {
+    font-size: 10px;
+  }
+
+  .plusButton {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    margin: 0 4px;
+  }
+
+  .plusIcon {
+    font-size: 24px;
+  }
+}
+
+/* Very small screens */
+@media (max-width: 360px) {
+  .navLabel {
+    font-size: 9px;
+  }
+
+  .navIcon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .plusButton {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .plusIcon {
+    font-size: 22px;
+  }
+}
 

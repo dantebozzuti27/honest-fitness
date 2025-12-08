@@ -295,23 +295,28 @@ export default function Fitness() {
                         <button
                           className={styles.backBtn}
                           onClick={() => setShowTemplateSelection(false)}
+                          aria-label="Back"
                         >
-                          ← Back
+                          ←
                         </button>
-                        <h3>Choose Template</h3>
+                        <h3 className={styles.modalTitle}>Choose Template</h3>
                         <button
                           className={styles.closeModalBtn}
                           onClick={() => {
                             setShowWorkoutStartModal(false)
                             setShowTemplateSelection(false)
                           }}
+                          aria-label="Close"
                         >
                           ✕
                         </button>
                       </div>
                       <div className={styles.templateSelectionList}>
                         {templates.length === 0 ? (
-                          <p className={styles.emptyText}>No templates available. Create one in the Templates tab.</p>
+                          <div className={styles.emptyState}>
+                            <p className={styles.emptyText}>No templates available</p>
+                            <p className={styles.emptySubtext}>Create one in the Templates tab</p>
+                          </div>
                         ) : (
                           templates.map(template => (
                             <button
@@ -323,8 +328,10 @@ export default function Fitness() {
                                 startWorkout(template.id, false)
                               }}
                             >
-                              <span className={styles.templateName}>{template.name}</span>
-                              <span className={styles.templateCount}>{template.exercises?.length || 0} exercises</span>
+                              <div className={styles.templateSelectionContent}>
+                                <span className={styles.templateSelectionName}>{template.name}</span>
+                                <span className={styles.templateSelectionCount}>{template.exercises?.length || 0} exercises</span>
+                              </div>
                             </button>
                           ))
                         )}

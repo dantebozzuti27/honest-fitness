@@ -46,9 +46,49 @@ export default function ShareCard({ type, data }) {
     }
     
     const totalExercises = validExercises.length
-    // Adjust display based on workout length - show fewer exercises if very long
-    const maxExercisesToShow = totalExercises > 8 ? 6 : totalExercises > 5 ? 7 : totalExercises
-    const isLongWorkout = totalExercises > 5
+    
+    // Calculate optimal layout to fit all exercises without scrolling
+    // Card height: ~500-600px, header: ~60px, date+stat+count: ~120px, padding: ~24px
+    // Available for grid: ~300-400px
+    // Calculate optimal columns to minimize rows while fitting width
+    let optimalColumns = 2
+    if (totalExercises > 18) {
+      optimalColumns = 5 // 20 exercises = 4 rows
+    } else if (totalExercises > 15) {
+      optimalColumns = 4 // 16 exercises = 4 rows
+    } else if (totalExercises > 12) {
+      optimalColumns = 4 // 13-15 exercises = 3-4 rows
+    } else if (totalExercises > 9) {
+      optimalColumns = 3 // 10-12 exercises = 3-4 rows
+    } else if (totalExercises > 6) {
+      optimalColumns = 3 // 7-9 exercises = 2-3 rows
+    } else {
+      optimalColumns = 2 // 1-6 exercises = 1-3 rows
+    }
+    
+    const rows = Math.ceil(totalExercises / optimalColumns)
+    
+    // Calculate scale factor based on number of rows
+    // More rows = smaller items to fit everything
+    // Available height: ~350px, need to fit all rows
+    const estimatedAvailableHeight = 350
+    const maxRowHeight = estimatedAvailableHeight / Math.max(rows, 1)
+    
+    // Base item height estimate: padding(12px) + gap(3px) + name(12px) + setsReps(10px) = ~37px
+    // Plus grid gap between rows: ~6px
+    const baseItemHeight = 37
+    const gridGapBetweenRows = 6
+    const maxItemHeight = maxRowHeight - gridGapBetweenRows
+    
+    // Scale factor: if we need items smaller than base, scale down
+    const scaleFactor = Math.min(1, maxItemHeight / baseItemHeight)
+    
+    // Calculate sizes with minimums to ensure readability
+    const exerciseNameSize = Math.max(6, Math.floor(10 * scaleFactor))
+    const setsRepsSize = Math.max(5, Math.floor(9 * scaleFactor))
+    const itemPadding = Math.max(3, Math.floor(6 * scaleFactor))
+    const itemGap = Math.max(2, Math.floor(3 * scaleFactor))
+    const gridGap = Math.max(3, Math.floor(6 * scaleFactor))
     
     return (
       <div className={styles.card} ref={cardRef}>
@@ -57,98 +97,58 @@ export default function ShareCard({ type, data }) {
           <div className={styles.cardType}>WORKOUT</div>
         </div>
         <div className={styles.cardContent}>
+          <div className={styles.cardDate}>{formatDate(workout?.date)}</div>
           <div className={styles.mainStat}>
             <div className={styles.statValue}>{formatDuration(workout?.duration)}</div>
             <div className={styles.statLabel}>Duration</div>
           </div>
           {totalExercises > 0 && (
-            <div className={styles.statsGrid}>
-              <div className={styles.statItem}>
-                <div className={styles.statValueSmall}>{totalExercises}</div>
-                <div className={styles.statLabelSmall}>Exercises</div>
-              </div>
-              {workout?.perceivedEffort && workout.perceivedEffort > 0 && (
-                <div className={styles.statItem}>
-                  <div className={styles.statValueSmall}>{workout.perceivedEffort}/10</div>
-                  <div className={styles.statLabelSmall}>RPE</div>
-                </div>
-              )}
+            <div className={styles.exerciseCount}>
+              {totalExercises} {totalExercises === 1 ? 'Exercise' : 'Exercises'}
             </div>
           )}
           {validExercises.length > 0 && (
-            <div className={styles.exercisesList}>
-              {validExercises.slice(0, maxExercisesToShow).map((ex, idx) => {
+            <div 
+              className={styles.exercisesGrid}
+              style={{
+                gap: `${gridGap}px`,
+                gridTemplateColumns: `repeat(${optimalColumns}, 1fr)`
+              }}
+            >
+              {validExercises.map((ex, idx) => {
                 const sets = ex.sets || []
+                const validSets = sets.filter(s => s.reps && s.reps > 0)
+                const setCount = validSets.length
+                const reps = validSets.length > 0 ? validSets[0].reps : null
                 
-                // Calculate exercise-specific stats
-                let exerciseReps = 0
-                let exerciseVolume = 0
-                let exerciseMaxWeight = 0
-                
-                sets.forEach(set => {
-                  const weight = Number(set.weight) || 0
-                  const reps = Number(set.reps) || 0
-                  
-                  if (reps > 0) {
-                    exerciseReps += reps
-                    exerciseVolume += weight * reps
-                  }
-                  
-                  if (weight > exerciseMaxWeight) {
-                    exerciseMaxWeight = weight
-                  }
-                })
-                
-                const setsInfo = sets.map((set, setIdx) => {
-                  const parts = []
-                  if (set.weight) parts.push(`${set.weight}lbs`)
-                  if (set.reps) parts.push(`${set.reps}`)
-                  if (set.time) {
-                    const mins = Math.floor(set.time / 60)
-                    const secs = set.time % 60
-                    parts.push(`${mins}:${String(secs).padStart(2, '0')}`)
-                  }
-                  return parts.length > 0 ? parts.join('×') : null
-                }).filter(Boolean)
-                
-                // Show all sets but limit display based on workout length
-                const maxSetsToShow = isLongWorkout ? 2 : 4
+                if (!setCount || !reps) return null
                 
                 return (
-                  <div key={idx} className={styles.exerciseItem}>
-                    <div className={styles.exerciseHeader}>
-                      <span className={styles.exerciseName}>{ex.name}</span>
-                      <div className={styles.exerciseStats}>
-                        {sets.length > 0 && (
-                          <span className={styles.exerciseSetCount}>{sets.length}s</span>
-                        )}
-                        {exerciseReps > 0 && (
-                          <span className={styles.exerciseReps}>{exerciseReps}r</span>
-                        )}
-                        {exerciseMaxWeight > 0 && (
-                          <span className={styles.exerciseMax}>{exerciseMaxWeight}lbs</span>
-                        )}
-                      </div>
+                  <div 
+                    key={idx} 
+                    className={styles.exerciseItem}
+                    style={{
+                      padding: `${itemPadding}px ${itemPadding + 2}px`,
+                      gap: `${itemGap}px`
+                    }}
+                  >
+                    <div 
+                      className={styles.exerciseName}
+                      style={{ fontSize: `${exerciseNameSize}px` }}
+                    >
+                      {ex.name}
                     </div>
-                    {setsInfo.length > 0 && (
-                      <div className={styles.exerciseSets}>
-                        {setsInfo.slice(0, maxSetsToShow).map((info, i) => (
-                          <span key={i} className={styles.setInfo}>{info}</span>
-                        ))}
-                        {setsInfo.length > maxSetsToShow && (
-                          <span className={styles.moreSets}>+{setsInfo.length - maxSetsToShow}</span>
-                        )}
-                      </div>
-                    )}
+                    <div 
+                      className={styles.setsReps}
+                      style={{ fontSize: `${setsRepsSize}px` }}
+                    >
+                      {setCount} × {reps}
+                    </div>
                   </div>
                 )
               })}
-              {totalExercises > maxExercisesToShow && (
-                <div className={styles.moreExercises}>+{totalExercises - maxExercisesToShow} more</div>
-              )}
             </div>
           )}
-          <div className={styles.cardDate}>{formatDate(workout?.date)}</div>
         </div>
       </div>
     )

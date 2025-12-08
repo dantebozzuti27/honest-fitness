@@ -8,7 +8,7 @@ import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, syncOuraData, mergeWearableDataToMetrics } from '../lib/wearables'
 import { supabase } from '../lib/supabase'
-import { getTodayEST } from '../utils/dateUtils'
+import { getTodayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { logError, logDebug } from '../utils/logger'
 

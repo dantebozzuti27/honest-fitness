@@ -422,7 +422,15 @@ export default function ActiveWorkout() {
         category: ex.category || 'Strength',
         bodyPart: ex.bodyPart || 'Other',
         equipment: ex.equipment || '',
-        sets: ex.sets.filter(s => s.weight || s.reps || s.time)
+        // Filter sets: include if weight, reps, or time is not null/undefined/empty string
+        // NOTE: 0 is a valid value, so check for != null and != '' (matches ShareCard logic)
+        sets: ex.sets.filter(s => {
+          if (!s) return false
+          const hasWeight = s.weight != null && s.weight !== ''
+          const hasReps = s.reps != null && s.reps !== ''
+          const hasTime = s.time != null && s.time !== ''
+          return hasWeight || hasReps || hasTime
+        })
       })).filter(ex => ex.sets.length > 0)
     }
     
@@ -445,6 +453,15 @@ export default function ActiveWorkout() {
     }
     
     // Store workout for sharing
+    // DEBUG: Log the exact workout data being shared
+    console.log('ActiveWorkout: Workout data for sharing:', {
+      exerciseCount: workout.exercises.length,
+      exercises: workout.exercises.map(ex => ({
+        name: ex.name,
+        setCount: ex.sets.length,
+        sets: ex.sets
+      }))
+    })
     setSavedWorkout(workout)
     setShowShareModal(true)
   }
@@ -583,6 +600,25 @@ export default function ActiveWorkout() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Share Modal */}
+      {showShareModal && savedWorkout && (
+        <ShareModal
+          type="workout"
+          data={{
+            workout: {
+              date: savedWorkout.date,
+              duration: savedWorkout.duration || 0,
+              exercises: savedWorkout.exercises || [],
+              templateName: savedWorkout.templateName || 'Freestyle Workout',
+              perceivedEffort: savedWorkout.perceivedEffort,
+              moodAfter: savedWorkout.moodAfter,
+              notes: savedWorkout.notes
+            }
+          }}
+          onClose={handleShareClose}
+        />
       )}
     </div>
   )

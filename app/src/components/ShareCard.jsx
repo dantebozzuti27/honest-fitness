@@ -31,18 +31,48 @@ export default function ShareCard({ type, data }) {
   const renderWorkoutCard = () => {
     const { workout } = data
     
+    // DEBUG: Log the exact data received
+    console.log('ShareCard: Received workout data:', {
+      exerciseCount: workout?.exercises?.length || 0,
+      exercises: workout?.exercises?.map(ex => ({
+        name: ex.name,
+        setCount: ex.sets?.length || 0,
+        sets: ex.sets
+      })) || []
+    })
+    
     // Get valid exercises with actual data
+    // IMPORTANT: Check for null/undefined, not falsy values (0 is valid!)
     const validExercises = []
-    if (workout?.exercises) {
-      workout.exercises.forEach(ex => {
-        const validSets = (ex.sets || []).filter(s => s.weight || s.reps || s.time)
+    if (workout?.exercises && Array.isArray(workout.exercises)) {
+      workout.exercises.forEach((ex, exIdx) => {
+        if (!ex || !ex.name) {
+          console.warn(`ShareCard: Exercise at index ${exIdx} is missing name`, ex)
+          return
+        }
+        
+        const sets = ex.sets || []
+        // Filter sets: include if weight, reps, or time is not null/undefined/empty string
+        // NOTE: 0 is a valid value, so check for != null and != ''
+        const validSets = sets.filter(s => {
+          if (!s) return false
+          const hasWeight = s.weight != null && s.weight !== ''
+          const hasReps = s.reps != null && s.reps !== ''
+          const hasTime = s.time != null && s.time !== ''
+          return hasWeight || hasReps || hasTime
+        })
+        
         if (validSets.length > 0) {
           validExercises.push({
             ...ex,
             sets: validSets
           })
+        } else {
+          console.warn(`ShareCard: Exercise "${ex.name}" has no valid sets`, ex)
         }
       })
+    } else {
+      console.warn('ShareCard: workout.exercises is missing or not an array', workout)
     }
     
     const totalExercises = validExercises.length

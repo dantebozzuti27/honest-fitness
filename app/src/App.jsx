@@ -81,8 +81,10 @@ export default function App() {
       }
     }
 
-    // Delay check slightly to ensure app renders first
-    const timeoutId = setTimeout(checkOnboarding, 100)
+    // Delay check slightly to ensure app renders first (longer on mobile)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    const delay = isMobile ? 500 : 100
+    const timeoutId = setTimeout(checkOnboarding, delay)
     return () => clearTimeout(timeoutId)
   }, [user])
   

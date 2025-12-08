@@ -23,6 +23,195 @@ export default function Home() {
   const [recentLogs, setRecentLogs] = useState([])
   const [profilePicture, setProfilePicture] = useState(null)
 
+  const loadRecentLogs = async (userId) => {
+    try {
+      const logs = []
+      const today = getTodayEST()
+      const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+      // Load shared feed items from localStorage FIRST (so they appear at top)
+      try {
+        const sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+        
+        if (sharedItems.length > 0) {
+          sharedItems.forEach((item) => {
+            // Use timestamp if available, otherwise use date
+            const itemDate = item.timestamp ? new Date(item.timestamp).toISOString().split('T')[0] : (item.date || today)
+            
+            // Ensure workout data has correct structure for ShareCard
+            let workoutData = item.data || {}
+            if (item.type === 'workout' && workoutData) {
+              // If workout has workout_exercises (from Supabase), transform it
+              if (workoutData.workout_exercises && !workoutData.exercises) {
+                workoutData = {
+                  ...workoutData,
+                  exercises: (workoutData.workout_exercises || []).map(ex => ({
+                    id: ex.id,
+                    name: ex.exercise_name || ex.name,
+                    category: ex.category,
+                    bodyPart: ex.body_part || ex.bodyPart,
+                    equipment: ex.equipment,
+                    stacked: ex.stacked || false,
+                    stackGroup: ex.stack_group || ex.stackGroup || null,
+                    sets: (ex.workout_sets || ex.sets || []).map(set => ({
+                      weight: set.weight,
+                      reps: set.reps,
+                      time: set.time,
+                      speed: set.speed,
+                      incline: set.incline
+                    }))
+                  }))
+                }
+              }
+              // Ensure exercises array exists
+              if (!workoutData.exercises) {
+                workoutData.exercises = []
+              }
+            }
+            
+            const logEntry = {
+              type: item.type || 'workout',
+              date: itemDate,
+              title: item.title || 'Shared Item',
+              subtitle: item.subtitle || '',
+              data: workoutData,
+              shared: true,
+              timestamp: item.timestamp || new Date(itemDate + 'T12:00').toISOString()
+            }
+            // Add shared item to logs
+            logs.push(logEntry)
+          })
+        }
+      } catch (e) {
+        logError('Error loading shared items', e)
+      }
+
+      // Fetch recent workouts (non-shared, for regular feed items)
+      try {
+        const workouts = await getWorkoutsFromSupabase(userId)
+        if (workouts && workouts.length > 0) {
+          workouts.slice(0, 10).forEach(workout => {
+            // Only add if not already in shared items (avoid duplicates)
+            const isShared = logs.some(log => 
+              log.type === 'workout' && 
+              log.date === workout.date && 
+              log.shared
+            )
+            
+            if (!isShared) {
+              // Transform workout data to match ShareCard format
+              const transformedWorkout = {
+                ...workout,
+                id: workout.id,
+                date: workout.date,
+                duration: workout.duration || 0,
+                templateName: workout.template_name || 'Freestyle Workout',
+                exercises: (workout.workout_exercises || []).map(ex => ({
+                  id: ex.id,
+                  name: ex.exercise_name,
+                  category: ex.category,
+                  bodyPart: ex.body_part,
+                  equipment: ex.equipment,
+                  stacked: ex.stacked || false,
+                  stackGroup: ex.stack_group || null,
+                  sets: (ex.workout_sets || []).map(set => ({
+                    weight: set.weight,
+                    reps: set.reps,
+                    time: set.time,
+                    speed: set.speed,
+                    incline: set.incline
+                  }))
+                }))
+              }
+              
+              logs.push({
+                type: 'workout',
+                date: workout.date,
+                title: workout.template_name || 'Freestyle Workout',
+                subtitle: `${Math.floor((workout.duration || 0) / 60)}:${String((workout.duration || 0) % 60).padStart(2, '0')}`,
+                data: transformedWorkout,
+                shared: false,
+                timestamp: workout.created_at ? new Date(workout.created_at).toISOString() : new Date(workout.date + 'T12:00').toISOString()
+              })
+            }
+          })
+        }
+      } catch (e) {
+        logError('Error loading workouts for feed', e)
+      }
+
+      // Fetch recent meals
+      try {
+        const nutritionData = await getNutritionRangeFromSupabase(userId, startDate, today)
+        if (nutritionData && nutritionData.length > 0) {
+          nutritionData.forEach(day => {
+            if (day.meals && day.meals.length > 0) {
+              day.meals.forEach(meal => {
+                logs.push({
+                  type: 'meal',
+                  date: day.date,
+                  title: meal.name || 'Meal',
+                  subtitle: `${meal.calories || 0} calories`,
+                  data: meal,
+                  shared: false,
+                  timestamp: meal.created_at ? new Date(meal.created_at).toISOString() : new Date(day.date + 'T12:00').toISOString()
+                })
+              })
+            }
+          })
+        }
+      } catch (e) {
+        logError('Error loading meals for feed', e)
+      }
+
+      // Fetch recent health metrics
+      try {
+        const metrics = await getMetricsFromSupabase(userId, startDate, today)
+        if (metrics && metrics.length > 0) {
+          metrics.forEach(metric => {
+            if (metric.steps || metric.weight || metric.hrv || metric.sleep_time) {
+              const parts = []
+              if (metric.steps) parts.push(`${metric.steps.toLocaleString()} steps`)
+              if (metric.weight) parts.push(`${metric.weight}lbs`)
+              if (metric.hrv) parts.push(`HRV: ${Math.round(metric.hrv)}ms`)
+              if (metric.sleep_time) {
+                const h = Math.floor(metric.sleep_time / 60)
+                const m = Math.round(metric.sleep_time % 60)
+                parts.push(`Sleep: ${h}:${m.toString().padStart(2, '0')}`)
+              }
+              if (parts.length > 0) {
+                logs.push({
+                  type: 'health',
+                  date: metric.date,
+                  title: 'Health Metrics',
+                  subtitle: parts.join(' • '),
+                  data: metric,
+                  shared: false,
+                  timestamp: metric.created_at ? new Date(metric.created_at).toISOString() : new Date(metric.date + 'T12:00').toISOString()
+                })
+              }
+            }
+          })
+        }
+      } catch (e) {
+        logError('Error loading health metrics for feed', e)
+      }
+
+      // Sort by timestamp/date (newest first) and limit to 20
+      logs.sort((a, b) => {
+        const dateA = a.timestamp ? new Date(a.timestamp) : new Date(a.date + 'T' + (a.data?.time || '12:00'))
+        const dateB = b.timestamp ? new Date(b.timestamp) : new Date(b.date + 'T' + (b.data?.time || '12:00'))
+        return dateB - dateA
+      })
+      const sortedLogs = logs.slice(0, 20)
+      setRecentLogs(sortedLogs)
+      
+    } catch (e) {
+      logError('Error loading recent logs', e)
+      setRecentLogs([])
+    }
+  }
+
   useEffect(() => {
     let mounted = true
     
@@ -133,155 +322,6 @@ export default function Home() {
     }
   }, [user, navigate])
 
-  const loadRecentLogs = async (userId) => {
-    try {
-      const logs = []
-      const today = getTodayEST()
-      const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-
-      // Fetch recent workouts
-      try {
-        const workouts = await getWorkoutsFromSupabase(userId)
-        if (workouts && workouts.length > 0) {
-          workouts.slice(0, 10).forEach(workout => {
-            // Transform workout data to match ShareCard format
-            const transformedWorkout = {
-              ...workout,
-              id: workout.id,
-              date: workout.date,
-              duration: workout.duration || 0,
-              templateName: workout.template_name || 'Freestyle Workout',
-              exercises: (workout.workout_exercises || []).map(ex => ({
-                id: ex.id,
-                name: ex.exercise_name,
-                category: ex.category,
-                bodyPart: ex.body_part,
-                equipment: ex.equipment,
-                stacked: ex.stacked || false,
-                stackGroup: ex.stack_group || null,
-                sets: (ex.workout_sets || []).map(set => ({
-                  weight: set.weight,
-                  reps: set.reps,
-                  time: set.time,
-                  speed: set.speed,
-                  incline: set.incline
-                }))
-              }))
-            }
-            
-            logs.push({
-              type: 'workout',
-              date: workout.date,
-              title: workout.template_name || 'Freestyle Workout',
-              // Duration is in seconds, format as MM:SS
-              subtitle: `${Math.floor((workout.duration || 0) / 60)}:${String((workout.duration || 0) % 60).padStart(2, '0')}`,
-              data: transformedWorkout,
-              timestamp: workout.created_at ? new Date(workout.created_at).toISOString() : new Date(workout.date + 'T12:00').toISOString()
-            })
-          })
-        }
-      } catch (e) {
-        logError('Error loading workouts for feed', e)
-      }
-
-      // Fetch recent meals
-      try {
-        const nutritionData = await getNutritionRangeFromSupabase(userId, startDate, today)
-        if (nutritionData && nutritionData.length > 0) {
-          nutritionData.forEach(day => {
-            if (day.meals && day.meals.length > 0) {
-              day.meals.forEach(meal => {
-                logs.push({
-                  type: 'meal',
-                  date: day.date,
-                  title: meal.name || 'Meal',
-                  subtitle: `${meal.calories || 0} calories`,
-                  data: meal,
-                  timestamp: meal.created_at ? new Date(meal.created_at).toISOString() : new Date(day.date + 'T12:00').toISOString()
-                })
-              })
-            }
-          })
-        }
-      } catch (e) {
-        logError('Error loading meals for feed', e)
-      }
-
-      // Fetch recent health metrics
-      try {
-        const metrics = await getMetricsFromSupabase(userId, startDate, today)
-        if (metrics && metrics.length > 0) {
-          metrics.forEach(metric => {
-            if (metric.steps || metric.weight || metric.hrv || metric.sleep_time) {
-              const parts = []
-              if (metric.steps) parts.push(`${metric.steps.toLocaleString()} steps`)
-              if (metric.weight) parts.push(`${metric.weight}lbs`)
-              if (metric.hrv) parts.push(`HRV: ${Math.round(metric.hrv)}ms`)
-              if (metric.sleep_time) {
-                const h = Math.floor(metric.sleep_time / 60)
-                const m = Math.round(metric.sleep_time % 60)
-                parts.push(`Sleep: ${h}:${m.toString().padStart(2, '0')}`)
-              }
-              if (parts.length > 0) {
-                logs.push({
-                  type: 'health',
-                  date: metric.date,
-                  title: 'Health Metrics',
-                  subtitle: parts.join(' • '),
-                  data: metric,
-                  timestamp: metric.created_at ? new Date(metric.created_at).toISOString() : new Date(metric.date + 'T12:00').toISOString()
-                })
-              }
-            }
-          })
-        }
-      } catch (e) {
-        logError('Error loading health metrics for feed', e)
-      }
-
-      // Load shared feed items from localStorage
-      try {
-        const sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-        // Load shared items from localStorage
-        
-        if (sharedItems.length > 0) {
-          sharedItems.forEach((item, index) => {
-            // Use timestamp if available, otherwise use date
-            const itemDate = item.timestamp ? new Date(item.timestamp).toISOString().split('T')[0] : (item.date || today)
-            const logEntry = {
-              type: item.type || 'workout',
-              date: itemDate,
-              title: item.title || 'Shared Item',
-              subtitle: item.subtitle || '',
-              data: item.data || {},
-              shared: true,
-              timestamp: item.timestamp || new Date(itemDate + 'T12:00').toISOString()
-            }
-            // Add shared item to logs
-            logs.push(logEntry)
-          })
-        } else {
-          // No shared items found
-        }
-      } catch (e) {
-        logError('Error loading shared items', e)
-      }
-
-      // Sort by timestamp/date (newest first) and limit to 20
-      logs.sort((a, b) => {
-        const dateA = a.timestamp ? new Date(a.timestamp) : new Date(a.date + 'T' + (a.data?.time || '12:00'))
-        const dateB = b.timestamp ? new Date(b.timestamp) : new Date(b.date + 'T' + (b.data?.time || '12:00'))
-        return dateB - dateA
-      })
-      const sortedLogs = logs.slice(0, 20)
-      // Process and sort logs
-      setRecentLogs(sortedLogs)
-      
-    } catch (e) {
-      logError('Error loading recent logs', e)
-      setRecentLogs([])
-    }
-  }
 
   if (loading) {
     return (

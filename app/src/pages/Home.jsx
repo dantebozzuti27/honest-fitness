@@ -8,6 +8,7 @@ import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
+import { logError } from '../utils/logger'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import ShareCard from '../components/ShareCard'
@@ -141,67 +142,101 @@ export default function Home() {
       // Fetch recent workouts
       try {
         const workouts = await getWorkoutsFromSupabase(userId)
-        workouts.slice(0, 10).forEach(workout => {
-          logs.push({
-            type: 'workout',
-            date: workout.date,
-            title: workout.template_name || 'Freestyle Workout',
-            // Duration is in seconds, format as MM:SS
-            subtitle: `${Math.floor((workout.duration || 0) / 60)}:${String((workout.duration || 0) % 60).padStart(2, '0')}`,
-            data: workout
+        if (workouts && workouts.length > 0) {
+          workouts.slice(0, 10).forEach(workout => {
+            // Transform workout data to match ShareCard format
+            const transformedWorkout = {
+              ...workout,
+              id: workout.id,
+              date: workout.date,
+              duration: workout.duration || 0,
+              templateName: workout.template_name || 'Freestyle Workout',
+              exercises: (workout.workout_exercises || []).map(ex => ({
+                id: ex.id,
+                name: ex.exercise_name,
+                category: ex.category,
+                bodyPart: ex.body_part,
+                equipment: ex.equipment,
+                stacked: ex.stacked || false,
+                stackGroup: ex.stack_group || null,
+                sets: (ex.workout_sets || []).map(set => ({
+                  weight: set.weight,
+                  reps: set.reps,
+                  time: set.time,
+                  speed: set.speed,
+                  incline: set.incline
+                }))
+              }))
+            }
+            
+            logs.push({
+              type: 'workout',
+              date: workout.date,
+              title: workout.template_name || 'Freestyle Workout',
+              // Duration is in seconds, format as MM:SS
+              subtitle: `${Math.floor((workout.duration || 0) / 60)}:${String((workout.duration || 0) % 60).padStart(2, '0')}`,
+              data: transformedWorkout,
+              timestamp: workout.created_at ? new Date(workout.created_at).toISOString() : new Date(workout.date + 'T12:00').toISOString()
+            })
           })
-        })
+        }
       } catch (e) {
-        // Silently fail
+        logError('Error loading workouts for feed', e)
       }
 
       // Fetch recent meals
       try {
         const nutritionData = await getNutritionRangeFromSupabase(userId, startDate, today)
-        nutritionData.forEach(day => {
-          if (day.meals && day.meals.length > 0) {
-            day.meals.forEach(meal => {
-              logs.push({
-                type: 'meal',
-                date: day.date,
-                title: meal.name,
-                subtitle: `${meal.calories || 0} calories`,
-                data: meal
+        if (nutritionData && nutritionData.length > 0) {
+          nutritionData.forEach(day => {
+            if (day.meals && day.meals.length > 0) {
+              day.meals.forEach(meal => {
+                logs.push({
+                  type: 'meal',
+                  date: day.date,
+                  title: meal.name || 'Meal',
+                  subtitle: `${meal.calories || 0} calories`,
+                  data: meal,
+                  timestamp: meal.created_at ? new Date(meal.created_at).toISOString() : new Date(day.date + 'T12:00').toISOString()
+                })
               })
-            })
-          }
-        })
+            }
+          })
+        }
       } catch (e) {
-        // Silently fail
+        logError('Error loading meals for feed', e)
       }
 
       // Fetch recent health metrics
       try {
         const metrics = await getMetricsFromSupabase(userId, startDate, today)
-        metrics.forEach(metric => {
-          if (metric.steps || metric.weight || metric.hrv || metric.sleep_time) {
-            const parts = []
-            if (metric.steps) parts.push(`${metric.steps.toLocaleString()} steps`)
-            if (metric.weight) parts.push(`${metric.weight}lbs`)
-            if (metric.hrv) parts.push(`HRV: ${Math.round(metric.hrv)}ms`)
-            if (metric.sleep_time) {
-              const h = Math.floor(metric.sleep_time / 60)
-              const m = Math.round(metric.sleep_time % 60)
-              parts.push(`Sleep: ${h}:${m.toString().padStart(2, '0')}`)
+        if (metrics && metrics.length > 0) {
+          metrics.forEach(metric => {
+            if (metric.steps || metric.weight || metric.hrv || metric.sleep_time) {
+              const parts = []
+              if (metric.steps) parts.push(`${metric.steps.toLocaleString()} steps`)
+              if (metric.weight) parts.push(`${metric.weight}lbs`)
+              if (metric.hrv) parts.push(`HRV: ${Math.round(metric.hrv)}ms`)
+              if (metric.sleep_time) {
+                const h = Math.floor(metric.sleep_time / 60)
+                const m = Math.round(metric.sleep_time % 60)
+                parts.push(`Sleep: ${h}:${m.toString().padStart(2, '0')}`)
+              }
+              if (parts.length > 0) {
+                logs.push({
+                  type: 'health',
+                  date: metric.date,
+                  title: 'Health Metrics',
+                  subtitle: parts.join(' • '),
+                  data: metric,
+                  timestamp: metric.created_at ? new Date(metric.created_at).toISOString() : new Date(metric.date + 'T12:00').toISOString()
+                })
+              }
             }
-            if (parts.length > 0) {
-              logs.push({
-                type: 'health',
-                date: metric.date,
-                title: 'Health Metrics',
-                subtitle: parts.join(' • '),
-                data: metric
-              })
-            }
-          }
-        })
+          })
+        }
       } catch (e) {
-        // Silently fail
+        logError('Error loading health metrics for feed', e)
       }
 
       // Load shared feed items from localStorage

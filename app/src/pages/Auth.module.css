@@ -116,3 +116,43 @@
   cursor: pointer;
 }
 
+.consentSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.checkboxLabel input[type="checkbox"] {
+  margin-top: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.checkboxLabel span {
+  line-height: 1.4;
+}
+
+.link {
+  color: var(--accent);
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+.link:hover {
+  opacity: 0.8;
+}
+

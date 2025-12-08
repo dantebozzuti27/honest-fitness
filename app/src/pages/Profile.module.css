@@ -325,6 +325,123 @@
   transform: scale(0.98);
 }
 
+.deleteBtn {
+  padding: 14px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--danger);
+  border: 2px solid var(--danger);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.deleteBtn:hover {
+  background: rgba(255, 69, 58, 0.1);
+}
+
+.deleteBtn:active {
+  transform: scale(0.98);
+}
+
+.deleteBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.deleteConfirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--bg-secondary);
+  border: 2px solid var(--danger);
+  border-radius: var(--radius-lg);
+}
+
+.deleteWarning {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.deleteInstruction {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.deleteInput {
+  padding: 12px 14px;
+  font-size: 15px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+.deleteInput:focus {
+  border-color: var(--danger);
+  outline: none;
+}
+
+.deleteActions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.deleteConfirmBtn {
+  flex: 1;
+  min-width: 150px;
+  padding: 14px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  background: var(--danger);
+  color: white;
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.deleteConfirmBtn:hover:not(:disabled) {
+  background: #ff3b30;
+  transform: scale(1.02);
+}
+
+.deleteConfirmBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.deleteCancelBtn {
+  flex: 1;
+  min-width: 150px;
+  padding: 14px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.deleteCancelBtn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.deleteCancelBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Mobile Optimizations */
 @media (max-width: 480px) {
   .header h1 {

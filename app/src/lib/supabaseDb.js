@@ -837,6 +837,11 @@ export async function saveUserPreferences(userId, prefs) {
     upsertData.profile_picture = prefs.profilePicture || null
   }
   
+  // Only include onboarding_completed if provided (column may not exist yet)
+  if (prefs.onboarding_completed !== undefined) {
+    upsertData.onboarding_completed = prefs.onboarding_completed || false
+  }
+  
   const { data, error } = await supabase
     .from('user_preferences')
     .upsert(upsertData, { onConflict: 'user_id' })

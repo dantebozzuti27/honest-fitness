@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Icon Preview</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a1a;
+      color: #fff;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      font-size: 32px;
+    }
+    .category {
+      margin-bottom: 60px;
+    }
+    .category h2 {
+      font-size: 24px;
+      margin-bottom: 30px;
+      color: #fff;
+      border-bottom: 2px solid #333;
+      padding-bottom: 10px;
+    }
+    .icon-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 30px;
+    }
+    .icon-card {
+      background: #2a2a2a;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 30px;
+      text-align: center;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .icon-card:hover {
+      transform: translateY(-4px);
+      border-color: #666;
+    }
+    .icon-card.selected {
+      border-color: #4CAF50;
+      background: #2a3a2a;
+    }
+    .icon-preview {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 20px;
+      color: #fff;
+      stroke: currentColor;
+    }
+    .icon-name {
+      font-size: 14px;
+      color: #aaa;
+      margin-bottom: 10px;
+    }
+    .icon-code {
+      font-size: 11px;
+      color: #666;
+      font-family: 'Courier New', monospace;
+      background: #1a1a1a;
+      padding: 8px;
+      border-radius: 4px;
+      overflow-x: auto;
+      text-align: left;
+    }
+    .current-badge {
+      display: inline-block;
+      background: #4CAF50;
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Fitness & Nutrition Icon Preview</h1>
+    
+    <div class="category">
+      <h2>Fitness Icons</h2>
+      <div class="icon-grid">
+        <div class="icon-card selected">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="10" width="12" height="4" rx="1"/>
+            <rect x="1" y="8" width="5" height="8" rx="1"/>
+            <rect x="2" y="9" width="3" height="6" rx="0.5"/>
+            <rect x="3" y="10" width="2" height="4" rx="0.5"/>
+            <rect x="18" y="8" width="5" height="8" rx="1"/>
+            <rect x="19" y="9" width="3" height="6" rx="0.5"/>
+            <rect x="20" y="10" width="2" height="4" rx="0.5"/>
+            <line x1="3" y1="8" x2="3" y2="16"/>
+            <line x1="4.5" y1="8" x2="4.5" y2="16"/>
+            <line x1="19.5" y1="8" x2="19.5" y2="16"/>
+            <line x1="21" y1="8" x2="21" y2="16"/>
+          </svg>
+          <div class="icon-name">Dumbbell (Three Plates)</div>
+          <span class="current-badge">NEW</span>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+          <div class="icon-name">Activity Graph</div>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+          <div class="icon-name">Strength</div>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>
+          <div class="icon-name">Workout Timer</div>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 3h12l-1 7H7z"/>
+            <path d="M6 10l-2 8h16l-2-8"/>
+            <path d="M10 18v-8M14 18v-8"/>
+          </svg>
+          <div class="icon-name">Weight</div>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <div class="icon-name">Layers/Stack</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="category">
+      <h2>Nutrition Icons</h2>
+      <div class="icon-grid">
+        <div class="icon-card selected">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 2v20M7 2h1.5v5.5M7 7.5h1.5"/>
+            <path d="M17 2v7.5c0 1.5-1 3-2.5 3S12 11 12 9.5V2h5z"/>
+            <path d="M14.5 13.5v8"/>
+          </svg>
+          <div class="icon-name">Fork & Knife (Clean)</div>
+          <span class="current-badge">NEW</span>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C8 2 6 4 6 8c0 6 3 10 6 14 3-4 6-8 6-14 0-4-2-6-6-6z"/>
+            <path d="M12 2v6M10 4h4"/>
+          </svg>
+          <div class="icon-name">Leaf</div>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M8 12h8M12 8v8"/>
+          </svg>
+          <div class="icon-name">Plus Circle</div>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <div class="icon-name">Layers</div>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+          <div class="icon-name">Target</div>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+            <path d="M6 14h12"/>
+          </svg>
+          <div class="icon-name">Plate</div>
+        </div>
+        
+        <div class="icon-card">
+          <svg class="icon-preview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+          <div class="icon-name">Chart</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
 import { getUserPreferences, saveUserPreferences } from '../lib/supabaseDb'
+import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
 import HomeButton from '../components/HomeButton'
 import styles from './Profile.module.css'
@@ -18,6 +19,9 @@ export default function Profile() {
   const [profilePicture, setProfilePicture] = useState(null)
   const [profilePictureUrl, setProfilePictureUrl] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
   useEffect(() => {
     if (user) {
@@ -139,6 +143,51 @@ export default function Profile() {
     navigate('/auth')
   }
 
+  const handleDeleteAccount = async () => {
+    if (!user) return
+
+    if (!showDeleteConfirm) {
+      setShowDeleteConfirm(true)
+      return
+    }
+
+    if (deleteConfirmText !== 'DELETE') {
+      alert('Please type "DELETE" to confirm account deletion')
+      return
+    }
+
+    const finalConfirm = confirm(
+      '⚠️ FINAL WARNING: This will permanently delete ALL your data including:\n\n' +
+      '• All workouts and exercise history\n' +
+      '• All health metrics and nutrition data\n' +
+      '• All goals and preferences\n' +
+      '• All connected accounts\n\n' +
+      'This action CANNOT be undone. Are you absolutely sure?'
+    )
+
+    if (!finalConfirm) {
+      setShowDeleteConfirm(false)
+      setDeleteConfirmText('')
+      return
+    }
+
+    setDeleting(true)
+    try {
+      await deleteUserAccount(user.id)
+      
+      // Sign out and redirect
+      await signOut()
+      alert('Your account and all data have been permanently deleted.')
+      navigate('/auth')
+    } catch (error) {
+      console.error('Account deletion error:', error)
+      alert(`Failed to delete account: ${error.message || 'Please try again or contact support.'}`)
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+      setDeleteConfirmText('')
+    }
+  }
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -248,12 +297,62 @@ export default function Profile() {
         </div>
 
         <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>Account</h2>
           <button
             className={styles.logoutBtn}
             onClick={handleLogout}
           >
             Sign Out
           </button>
+        </div>
+
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>Danger Zone</h2>
+          {!showDeleteConfirm ? (
+            <button
+              className={styles.deleteBtn}
+              onClick={handleDeleteAccount}
+              disabled={deleting}
+            >
+              Delete Account
+            </button>
+          ) : (
+            <div className={styles.deleteConfirm}>
+              <p className={styles.deleteWarning}>
+                ⚠️ This will permanently delete ALL your data. This action cannot be undone.
+              </p>
+              <p className={styles.deleteInstruction}>
+                Type <strong>DELETE</strong> to confirm:
+              </p>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="Type DELETE"
+                className={styles.deleteInput}
+                autoFocus
+              />
+              <div className={styles.deleteActions}>
+                <button
+                  className={styles.deleteConfirmBtn}
+                  onClick={handleDeleteAccount}
+                  disabled={deleting || deleteConfirmText !== 'DELETE'}
+                >
+                  {deleting ? 'Deleting...' : 'Permanently Delete Account'}
+                </button>
+                <button
+                  className={styles.deleteCancelBtn}
+                  onClick={() => {
+                    setShowDeleteConfirm(false)
+                    setDeleteConfirmText('')
+                  }}
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

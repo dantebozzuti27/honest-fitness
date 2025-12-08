@@ -5,10 +5,22 @@
 export function FitnessIcon({ size = 20 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      {/* Dumbbell icon */}
-      <path d="M6.5 6.5h11v11h-11z" />
-      <path d="M6.5 6.5l-3-3M17.5 6.5l3-3M6.5 17.5l-3 3M17.5 17.5l3 3" />
-      <path d="M12 8v8M8 12h8" />
+      {/* Dumbbell with three segmented plates on each side */}
+      {/* Center bar */}
+      <rect x="6" y="10" width="12" height="4" rx="1"/>
+      {/* Left side plates - three decreasing sizes */}
+      <rect x="1" y="8" width="5" height="8" rx="1"/>
+      <rect x="2" y="9" width="3" height="6" rx="0.5"/>
+      <rect x="3" y="10" width="2" height="4" rx="0.5"/>
+      {/* Right side plates - three decreasing sizes */}
+      <rect x="18" y="8" width="5" height="8" rx="1"/>
+      <rect x="19" y="9" width="3" height="6" rx="0.5"/>
+      <rect x="20" y="10" width="2" height="4" rx="0.5"/>
+      {/* Separator lines */}
+      <line x1="3" y1="8" x2="3" y2="16"/>
+      <line x1="4.5" y1="8" x2="4.5" y2="16"/>
+      <line x1="19.5" y1="8" x2="19.5" y2="16"/>
+      <line x1="21" y1="8" x2="21" y2="16"/>
     </svg>
   )
 }
@@ -16,9 +28,10 @@ export function FitnessIcon({ size = 20 }) {
 export function NutritionIcon({ size = 20 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      {/* Apple icon */}
-      <path d="M17.5 8.5c-.5-2.5-2-4.5-4.5-5-1.5-.3-3 .2-4 1.2-1-1-2.5-1.5-4-1.2-2.5.5-4 2.5-4.5 5-1 4.5 1.5 7.5 3.5 9.5 1.5 1.5 3.5 2.5 5.5 2.5s4-1 5.5-2.5c2-2 4.5-5 3.5-9.5z" />
-      <path d="M12 2c.5 1.5 1.5 2.5 3 3" />
+      {/* Clean fork and knife */}
+      <path d="M7 2v20M7 2h1.5v5.5M7 7.5h1.5"/>
+      <path d="M17 2v7.5c0 1.5-1 3-2.5 3S12 11 12 9.5V2h5z"/>
+      <path d="M14.5 13.5v8"/>
     </svg>
   )
 }

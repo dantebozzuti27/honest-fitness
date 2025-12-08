@@ -41,11 +41,10 @@ export default async function handler(req, res) {
     const tokenData = await tokenResponse.json()
 
     // Update tokens in Supabase
-    // Use service role key to bypass RLS (server-side operation)
+    // SECURITY: Only use service role key (no fallback to anon key)
     const { createClient } = await import('@supabase/supabase-js')
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    // Prefer service role key for server-side operations, fallback to anon key
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     
     if (!supabaseUrl || !supabaseKey) {
       return res.status(500).json({ 

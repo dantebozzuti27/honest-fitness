@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import styles from './Auth.module.css'
 
@@ -13,6 +13,8 @@ export default function Auth() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [consentPrivacy, setConsentPrivacy] = useState(false)
+  const [consentTerms, setConsentTerms] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -26,6 +28,11 @@ export default function Auth() {
 
     if (password.length < 6) {
       setError('Password must be at least 6 characters')
+      return
+    }
+
+    if (isSignUp && (!consentPrivacy || !consentTerms)) {
+      setError('You must accept the Privacy Policy and Terms of Service to create an account')
       return
     }
 
@@ -85,6 +92,39 @@ export default function Auth() {
                 placeholder="••••••••"
                 required
               />
+            </div>
+          )}
+
+          {isSignUp && (
+            <div className={styles.consentSection}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={consentPrivacy}
+                  onChange={(e) => setConsentPrivacy(e.target.checked)}
+                  required
+                />
+                <span>
+                  I agree to the{' '}
+                  <Link to="/privacy" target="_blank" className={styles.link}>
+                    Privacy Policy
+                  </Link>
+                </span>
+              </label>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={consentTerms}
+                  onChange={(e) => setConsentTerms(e.target.checked)}
+                  required
+                />
+                <span>
+                  I agree to the{' '}
+                  <Link to="/terms" target="_blank" className={styles.link}>
+                    Terms of Service
+                  </Link>
+                </span>
+              </label>
             </div>
           )}
 

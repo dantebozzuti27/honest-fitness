@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import { getTodayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug } from '../utils/logger'
+import { checkRateLimit, getRemainingRequests } from './rateLimiter'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -231,6 +232,13 @@ export async function syncOuraData(userId, date = null) {
     throw new Error('Oura account not connected')
   }
 
+  // Rate limiting: max 10 syncs per minute per user
+  const rateLimitKey = `oura_sync_${userId}`
+  if (!checkRateLimit(rateLimitKey, 'sync')) {
+    const remaining = getRemainingRequests(rateLimitKey, 'sync')
+    throw new Error(`Rate limit exceeded. Please wait before syncing again. (${remaining} requests remaining)`)
+  }
+
   try {
     // Use serverless function to proxy Oura API calls (avoids CORS)
     const response = await fetch('/api/oura/sync', {
@@ -455,6 +463,13 @@ async function refreshFitbitToken(userId, account) {
 export async function syncFitbitData(userId, date = null) {
   const targetDate = date || getTodayEST()
   
+  // Rate limiting: max 10 syncs per minute per user
+  const rateLimitKey = `fitbit_sync_${userId}`
+  if (!checkRateLimit(rateLimitKey, 'sync')) {
+    const remaining = getRemainingRequests(rateLimitKey, 'sync')
+    throw new Error(`Rate limit exceeded. Please wait before syncing again. (${remaining} requests remaining)`)
+  }
+
   try {
     // Get auth token
     const { data: { session } } = await supabase.auth.getSession()

@@ -105,13 +105,16 @@ h1 {
   border-collapse: collapse;
   background: var(--bg-secondary);
   border-radius: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
   border: none;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   margin-left: calc(-1 * var(--space-md));
   margin-right: calc(-1 * var(--space-md));
   width: calc(100% + 2 * var(--space-md));
+  display: block;
 }
 
 .historyTableHeader {
@@ -126,6 +129,7 @@ h1 {
   color: var(--text-primary);
   align-items: center;
   min-height: 44px;
+  min-width: 600px;
 }
 
 .historyTableBody {
@@ -145,6 +149,7 @@ h1 {
   color: var(--text-primary);
   align-items: center;
   min-height: 44px;
+  min-width: 600px;
 }
 
 .historyTableRow:hover {
@@ -690,15 +695,32 @@ h1 {
     font-size: 16px;
   }
   
+  .historyTable {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
   .historyTableHeader,
   .historyTableRow {
     padding: 10px 12px;
     font-size: 11px;
     gap: 6px;
+    min-width: 500px;
   }
   
   .historyTableCol {
     font-size: 11px;
+  }
+  
+  .historyTableCol.actionsCol {
+    gap: 6px;
+  }
+  
+  .shareBtn,
+  .deleteBtn {
+    padding: 5px 8px;
+    font-size: 10px;
+    min-width: 45px;
   }
   
   .shareBtn,

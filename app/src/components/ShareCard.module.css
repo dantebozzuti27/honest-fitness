@@ -240,14 +240,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  word-wrap: normal;
-  word-break: normal;
   line-height: 1.2;
   margin-bottom: 3px;
   flex-shrink: 1;
   text-align: center;
   width: 100%;
   min-width: 0;
+  /* Ensure truncation works properly */
+  word-break: normal;
+  word-wrap: normal;
+}
+
+.stackLabel {
+  font-size: 7px;
+  color: var(--accent);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: center;
+  line-height: 1;
+  margin-bottom: 2px;
+  opacity: 0.9;
 }
 
 .setsReps {

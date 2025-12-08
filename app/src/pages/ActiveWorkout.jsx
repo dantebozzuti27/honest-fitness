@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getTemplate, getAllExercises, saveWorkout } from '../db'
-import { saveWorkoutToSupabase } from '../lib/supabaseDb'
+import { saveWorkoutToSupabase, savePausedWorkoutToSupabase, getPausedWorkoutFromSupabase, deletePausedWorkoutFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { useAuth } from '../context/AuthContext'
+import { logError } from '../utils/logger'
 import { getAutoAdjustmentFactor, applyAutoAdjustment, getWorkoutRecommendation } from '../lib/autoAdjust'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
@@ -31,6 +32,9 @@ export default function ActiveWorkout() {
   const [adjustmentInfo, setAdjustmentInfo] = useState(null)
   const [showShareModal, setShowShareModal] = useState(false)
   const [savedWorkout, setSavedWorkout] = useState(null)
+  const [isPaused, setIsPaused] = useState(false)
+  const [pausedTime, setPausedTime] = useState(0) // Accumulated paused time
+  const pauseStartTime = useRef(null)
   const workoutTimerRef = useRef(null)
   const restTimerRef = useRef(null)
   const workoutStartTimeRef = useRef(null)
@@ -43,8 +47,37 @@ export default function ActiveWorkout() {
       // Exercises loaded from database
       setAllExercises(allEx)
       
-      if (templateId) {
-        const template = await getTemplate(templateId)
+      // Check for paused workout first
+      let hasResumedPaused = false
+      if (user) {
+        try {
+          const paused = await getPausedWorkoutFromSupabase(user.id)
+          if (paused) {
+            const shouldResume = confirm('You have a paused workout. Would you like to resume it?')
+            if (shouldResume) {
+              setExercises(paused.exercises || [])
+              setWorkoutTime(paused.workout_time || 0)
+              setRestTime(paused.rest_time || 0)
+              setIsResting(paused.is_resting || false)
+              workoutStartTimeRef.current = Date.now() - ((paused.workout_time || 0) * 1000)
+              localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
+              // Delete paused workout since we're resuming
+              await deletePausedWorkoutFromSupabase(user.id)
+              hasResumedPaused = true
+            } else {
+              // User chose not to resume, delete paused workout
+              await deletePausedWorkoutFromSupabase(user.id)
+            }
+          }
+        } catch (error) {
+          logError('Error loading paused workout', error)
+        }
+      }
+
+      // Only load template/random/AI workout if we didn't resume a paused workout
+      if (!hasResumedPaused) {
+        if (templateId) {
+          const template = await getTemplate(templateId)
         if (template) {
           const workoutExercises = template.exercises.map((name, idx) => {
             const exerciseData = allEx.find(e => e.name === name)
@@ -144,6 +177,7 @@ export default function ActiveWorkout() {
         }))
         setExercises(workoutExercises)
       }
+      }
     }
     load()
     
@@ -185,13 +219,15 @@ export default function ActiveWorkout() {
       }
     }
     
-    // Update timer every second
-    workoutTimerRef.current = setInterval(() => {
-      if (workoutStartTimeRef.current) {
-        const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current) / 1000)
-        setWorkoutTime(elapsed)
-      }
-    }, 1000)
+    // Update timer every second (only when not paused)
+    if (workoutStartTimeRef.current) {
+      workoutTimerRef.current = setInterval(() => {
+        if (workoutStartTimeRef.current && !isPaused) {
+          const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedTime) / 1000)
+          setWorkoutTime(elapsed)
+        }
+      }, 1000)
+    }
     
     // Handle visibility change to recalculate time
     const handleVisibilityChange = () => {
@@ -221,7 +257,7 @@ export default function ActiveWorkout() {
       clearInterval(restTimerRef.current)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [templateId, randomWorkout])
+  }, [templateId, randomWorkout, user])
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60)
@@ -409,6 +445,15 @@ export default function ActiveWorkout() {
     localStorage.removeItem('restStartTime')
     localStorage.removeItem('restDuration')
     
+    // Delete paused workout if it exists
+    if (user) {
+      try {
+        await deletePausedWorkoutFromSupabase(user.id)
+      } catch (error) {
+        // Silently fail
+      }
+    }
+    
     const workout = {
       date: getTodayEST(),
       duration: workoutTime,
@@ -424,6 +469,8 @@ export default function ActiveWorkout() {
         category: ex.category || 'Strength',
         bodyPart: ex.bodyPart || 'Other',
         equipment: ex.equipment || '',
+        stacked: ex.stacked || false,
+        stackGroup: ex.stackGroup || null,
         // Filter sets: include if weight, reps, or time is not null/undefined/empty string
         // NOTE: 0 is a valid value, so check for != null and != '' (matches ShareCard logic)
         sets: ex.sets.filter(s => {
@@ -476,6 +523,92 @@ export default function ActiveWorkout() {
     navigate('/')
   }
 
+  // Pause workout functionality
+  const pauseWorkout = async () => {
+    if (!isPaused) {
+      // Pause: stop timer, save state
+      setIsPaused(true)
+      pauseStartTime.current = Date.now()
+      clearInterval(workoutTimerRef.current)
+      clearInterval(restTimerRef.current)
+      
+      // Save paused workout state
+      if (user) {
+        try {
+          await savePausedWorkoutToSupabase({
+            exercises,
+            workoutTime,
+            restTime,
+            isResting,
+            templateId,
+            date: getTodayEST()
+          }, user.id)
+        } catch (error) {
+          logError('Error saving paused workout', error)
+          // Also save to localStorage as backup
+          localStorage.setItem(`pausedWorkout_${user.id}`, JSON.stringify({
+            exercises,
+            workoutTime,
+            restTime,
+            isResting,
+            templateId,
+            date: getTodayEST()
+          }))
+        }
+      } else {
+        // Not logged in, save to localStorage
+        localStorage.setItem('pausedWorkout', JSON.stringify({
+          exercises,
+          workoutTime,
+          restTime,
+          isResting,
+          templateId,
+          date: getTodayEST()
+        }))
+      }
+    }
+  }
+
+  const resumeWorkout = () => {
+    if (isPaused) {
+      // Resume: adjust start time by paused duration
+      const pauseDuration = pauseStartTime.current ? Date.now() - pauseStartTime.current : 0
+      setPausedTime(prev => prev + pauseDuration)
+      setIsPaused(false)
+      pauseStartTime.current = null
+      
+      // Timer will automatically restart via the interval that checks !isPaused
+    }
+  }
+
+  // Exercise stacking (superset) functionality
+  const toggleExerciseStack = (exerciseId) => {
+    setExercises(prev => prev.map(ex => {
+      if (ex.id === exerciseId) {
+        return { ...ex, stacked: !ex.stacked, stackGroup: ex.stacked ? null : (ex.stackGroup || Date.now()) }
+      }
+      return ex
+    }))
+  }
+
+  const addToStack = (exerciseId, targetStackGroup) => {
+    setExercises(prev => prev.map(ex => {
+      if (ex.id === exerciseId) {
+        return { ...ex, stacked: true, stackGroup: targetStackGroup }
+      }
+      return ex
+    }))
+  }
+
+  const removeFromStack = (exerciseId) => {
+    setExercises(prev => prev.map(ex => {
+      if (ex.id === exerciseId) {
+        return { ...ex, stacked: false, stackGroup: null }
+      }
+      return ex
+    }))
+  }
+
   return (
     <div className={styles.container}>
       {showTimesUp && (
@@ -509,28 +642,42 @@ export default function ActiveWorkout() {
       </header>
 
       <div className={styles.content}>
-        {exercises.map((exercise, idx) => (
-          <ExerciseCard
-            key={exercise.id}
-            exercise={exercise}
-            index={idx}
-            total={exercises.length}
-            onToggle={() => toggleExpanded(exercise.id)}
-            onUpdateSet={(setIdx, field, value) => updateSet(exercise.id, setIdx, field, value)}
-            onAddSet={() => addSet(exercise.id)}
-            onRemoveSet={() => removeSet(exercise.id)}
-            onRemove={() => removeExercise(exercise.id)}
-            onMove={(dir) => moveExercise(exercise.id, dir)}
-            onStartRest={startRest}
-            onComplete={() => completeExercise(exercise.id)}
-            isDragging={draggedId === exercise.id}
-            onDragStart={(e) => handleDragStart(e, exercise.id)}
-            onDragOver={(e) => handleDragOver(e, exercise.id)}
-            onDragEnter={handleDragEnter}
-            onDragEnd={handleDragEnd}
-            onDrop={(e) => handleDrop(e, exercise.id)}
-          />
-        ))}
+        {exercises.map((exercise, idx) => {
+          // Find other exercises in the same stack group
+          const stackGroup = exercise.stacked ? exercise.stackGroup : null
+          const stackMembers = stackGroup ? exercises.filter(ex => ex.stacked && ex.stackGroup === stackGroup) : []
+          const stackIndex = stackMembers.findIndex(ex => ex.id === exercise.id)
+          
+          return (
+            <ExerciseCard
+              key={exercise.id}
+              exercise={exercise}
+              index={idx}
+              total={exercises.length}
+              stacked={exercise.stacked}
+              stackGroup={stackGroup}
+              stackMembers={stackMembers}
+              stackIndex={stackIndex}
+              onToggle={() => toggleExpanded(exercise.id)}
+              onUpdateSet={(setIdx, field, value) => updateSet(exercise.id, setIdx, field, value)}
+              onAddSet={() => addSet(exercise.id)}
+              onRemoveSet={() => removeSet(exercise.id)}
+              onRemove={() => removeExercise(exercise.id)}
+              onMove={(dir) => moveExercise(exercise.id, dir)}
+              onStartRest={startRest}
+              onComplete={() => completeExercise(exercise.id)}
+              onToggleStack={() => toggleExerciseStack(exercise.id)}
+              onAddToStack={(targetGroup) => addToStack(exercise.id, targetGroup)}
+              onRemoveFromStack={() => removeFromStack(exercise.id)}
+              isDragging={draggedId === exercise.id}
+              onDragStart={(e) => handleDragStart(e, exercise.id)}
+              onDragOver={(e) => handleDragOver(e, exercise.id)}
+              onDragEnter={handleDragEnter}
+              onDragEnd={handleDragEnd}
+              onDrop={(e) => handleDrop(e, exercise.id)}
+            />
+          )
+        })}
         
         <button className={styles.addExerciseBtn} onClick={() => setShowPicker(true)}>
           + Add Exercise

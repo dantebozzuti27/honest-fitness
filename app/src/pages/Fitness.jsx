@@ -505,11 +505,13 @@ export default function Fitness() {
                     .map(workout => (
                       <div key={workout.id} className={styles.historyTableRow}>
                         <div className={styles.historyTableCol}>
-                          {new Date(workout.date + 'T12:00:00').toLocaleDateString('en-US', { 
-                            month: 'short', 
-                            day: 'numeric',
-                            year: 'numeric'
-                          })}
+                          {(() => {
+                            const date = new Date(workout.date + 'T12:00:00')
+                            const month = String(date.getMonth() + 1).padStart(2, '0')
+                            const day = String(date.getDate()).padStart(2, '0')
+                            const year = date.getFullYear()
+                            return `${month}-${day}-${year}`
+                          })()}
                         </div>
                         <div className={styles.historyTableCol}>
                           {workout.duration 
@@ -648,6 +650,9 @@ export default function Fitness() {
         // Transform workout data from database format to ShareCard format
         const exercises = (selectedWorkoutForShare.workout_exercises || []).map(ex => ({
           name: ex.exercise_name,
+          category: ex.category,
+          stacked: ex.stacked || false,
+          stackGroup: ex.stack_group || null,
           sets: (ex.workout_sets || []).map(set => ({
             weight: set.weight,
             reps: set.reps,

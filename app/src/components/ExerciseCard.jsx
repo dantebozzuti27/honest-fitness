@@ -13,6 +13,13 @@ export default function ExerciseCard({
   onMove,
   onStartRest,
   onComplete,
+  stacked,
+  stackGroup,
+  stackMembers,
+  stackIndex,
+  onToggleStack,
+  onAddToStack,
+  onRemoveFromStack,
   isDragging,
   onDragStart,
   onDragOver,
@@ -35,7 +42,7 @@ export default function ExerciseCard({
 
   return (
     <div 
-      className={`${styles.card} ${exercise.expanded ? styles.expanded : ''} ${exercise.completed ? styles.completed : ''} ${isDragging ? styles.dragging : ''}`}
+      className={`${styles.card} ${exercise.expanded ? styles.expanded : ''} ${exercise.completed ? styles.completed : ''} ${isDragging ? styles.dragging : ''} ${stacked ? styles.stacked : ''}`}
       draggable
       onDragStart={(e) => {
         if (onDragStart) {
@@ -51,6 +58,11 @@ export default function ExerciseCard({
       }}
       onDrop={onDrop}
     >
+      {stacked && stackMembers && stackMembers.length > 1 && (
+        <div className={styles.stackBadge}>
+          {stackMembers.length === 2 ? 'Superset' : 'Circuit'} {stackIndex + 1}/{stackMembers.length}
+        </div>
+      )}
       <div 
         className={styles.dragHandle}
         onMouseDown={(e) => {
@@ -78,6 +90,26 @@ export default function ExerciseCard({
               <button onClick={onRemoveSet} disabled={exercise.sets.length <= 1}>−</button>
               <span>{exercise.sets.length} sets</span>
               <button onClick={onAddSet}>+</button>
+            </div>
+            <div className={styles.stackControls}>
+              {onToggleStack && (
+                <button 
+                  className={`${styles.stackBtn} ${stacked ? styles.stackedActive : ''}`}
+                  onClick={onToggleStack}
+                  title={stacked ? `Remove from ${stackMembers?.length === 2 ? 'superset' : 'circuit'}` : 'Add to stack'}
+                >
+                  {stacked ? '🔗 Stacked' : '🔗 Stack'}
+                </button>
+              )}
+              {stacked && stackMembers && stackMembers.length > 1 && (
+                <div className={styles.stackInfo}>
+                  {stackMembers.map((member, idx) => (
+                    <span key={member.id} className={idx === stackIndex ? styles.activeStackMember : ''}>
+                      {member.name}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div className={styles.moveControls}>
               <button onClick={() => onMove('up')} disabled={index === 0}>↑</button>

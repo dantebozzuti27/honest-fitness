@@ -49,6 +49,26 @@
   border-color: var(--accent-dim);
 }
 
+.card.stacked {
+  border-left: 3px solid var(--accent);
+  background: var(--bg-tertiary);
+}
+
+.stackBadge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  background: rgba(var(--accent-rgb, 255, 255, 255), 0.1);
+  border-radius: 4px;
+  z-index: 5;
+}
+
 .card.completed .header {
   background: var(--accent-dim);
 }
@@ -89,6 +109,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
@@ -138,6 +160,61 @@
 
 .removeBtn {
   color: var(--danger) !important;
+}
+
+.stackControls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.stackBtn {
+  font-size: 12px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stackBtn:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.stackBtn.stackedActive {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+}
+
+.stackInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.stackInfo span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.stackInfo .activeStackMember {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .sets {

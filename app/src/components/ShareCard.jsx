@@ -20,12 +20,10 @@ export default function ShareCard({ type, data }) {
   const formatDate = (dateStr) => {
     if (!dateStr) return ''
     const date = new Date(dateStr + 'T12:00:00')
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    })
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const year = date.getFullYear()
+    return `${month}-${day}-${year}`
   }
 
   const renderWorkoutCard = () => {
@@ -66,7 +64,9 @@ export default function ShareCard({ type, data }) {
         // This ensures ALL exercises from the logged workout are shown
         validExercises.push({
           ...ex,
-          sets: validSets // Use filtered sets, but keep the exercise
+          sets: validSets, // Use filtered sets, but keep the exercise
+          stacked: ex.stacked || false,
+          stackGroup: ex.stackGroup || null
         })
       })
     } else {
@@ -74,12 +74,6 @@ export default function ShareCard({ type, data }) {
     }
     
     const totalExercises = validExercises.length
-    
-    // Find the longest exercise name to determine minimum column width
-    const longestName = validExercises.reduce((max, ex) => {
-      const nameLength = (ex.name || 'Exercise').length
-      return Math.max(max, nameLength)
-    }, 0)
     
     // Card dimensions: ~500px width, ~600px height
     // Header: ~60px, date+stat+count: ~120px, padding: ~32px
@@ -89,27 +83,25 @@ export default function ShareCard({ type, data }) {
     const headerHeight = 60
     const topSectionHeight = 120
     const padding = 32
-    const availableWidth = cardWidth - padding
-    const availableHeightForGrid = cardHeight - headerHeight - topSectionHeight - padding
+    const availableWidth = cardWidth - padding * 2
+    const availableHeightForGrid = cardHeight - headerHeight - topSectionHeight - padding * 2
     
-    // Calculate minimum column width needed for longest name (no wrapping)
-    // Estimate: ~6px per character at 10px font size, plus padding
-    const minCharWidth = 5.5 // pixels per character at base font size
-    const minNameWidth = longestName * minCharWidth + 16 // 16px for padding
-    const maxColumnsByWidth = Math.floor(availableWidth / minNameWidth)
+    // Use CSS Grid with auto-fit and minmax for responsive columns
+    // Minimum column width: 100px (enough for most exercise names with truncation)
+    // Maximum: 1fr (equal distribution)
+    const minColumnWidth = 100
+    const maxColumnsByWidth = Math.floor(availableWidth / minColumnWidth)
     
-    // Calculate optimal columns to fit all exercises without scrolling
-    // Start with width-based limit, then adjust for height
-    let optimalColumns = Math.min(maxColumnsByWidth, Math.max(2, Math.ceil(Math.sqrt(totalExercises))))
-    
-    // Ensure we have at least 2 columns and at most 5
+    // Calculate optimal columns to fit all exercises
+    // Start with a reasonable default based on exercise count
+    let optimalColumns = Math.max(2, Math.min(maxColumnsByWidth, Math.ceil(Math.sqrt(totalExercises))))
     optimalColumns = Math.max(2, Math.min(5, optimalColumns))
     
     const rows = Math.ceil(totalExercises / optimalColumns)
     
     // Calculate if we can fit all rows in available height
-    // Each row needs: item height + gap
-    const baseItemHeight = 40 // padding(8px*2) + name(12px) + setsReps(10px) + gap(2px)
+    // Base item height: padding(8px*2) + name(12px*1.2) + setsReps(10px*1.2) + gap(2px) = ~40px
+    const baseItemHeight = 40
     const gridGapBetweenRows = 6
     const totalHeightNeeded = (rows * baseItemHeight) + ((rows - 1) * gridGapBetweenRows)
     
@@ -131,16 +123,17 @@ export default function ShareCard({ type, data }) {
     const finalHeightNeeded = (finalRows * baseItemHeight) + ((finalRows - 1) * gridGapBetweenRows)
     
     // Calculate scale factor if we need to shrink to fit height
+    // Minimum font sizes: 10px for names, 8px for sets/reps (readable minimums)
     let scaleFactor = 1
     if (finalHeightNeeded > availableHeightForGrid) {
       const maxItemHeight = (availableHeightForGrid - ((finalRows - 1) * gridGapBetweenRows)) / finalRows
-      scaleFactor = Math.max(0.7, maxItemHeight / baseItemHeight)
+      scaleFactor = Math.max(0.8, maxItemHeight / baseItemHeight) // Don't go below 80% scale
     }
     
-    // Calculate sizes with scale factor, ensuring readability
-    const exerciseNameSize = Math.max(7, Math.floor(10 * scaleFactor))
-    const setsRepsSize = Math.max(6, Math.floor(9 * scaleFactor))
-    const itemPadding = Math.max(4, Math.floor(8 * scaleFactor))
+    // Calculate sizes with scale factor, ensuring minimum readability
+    const exerciseNameSize = Math.max(10, Math.floor(12 * scaleFactor)) // Min 10px
+    const setsRepsSize = Math.max(8, Math.floor(10 * scaleFactor)) // Min 8px
+    const itemPadding = Math.max(6, Math.floor(8 * scaleFactor))
     const itemGap = Math.max(2, Math.floor(2 * scaleFactor))
     const gridGap = Math.max(4, Math.floor(6 * scaleFactor))
     
@@ -177,6 +170,22 @@ export default function ShareCard({ type, data }) {
                 const setCount = sets.length
                 const isCardio = ex.category === 'Cardio' || ex.category === 'cardio'
                 
+                // Determine if this exercise is part of a stack (superset or circuit)
+                const isStacked = ex.stacked && ex.stackGroup
+                let stackLabel = null
+                if (isStacked) {
+                  // Find all exercises in the same stack group
+                  const stackMembers = validExercises.filter(e => 
+                    e.stacked && e.stackGroup === ex.stackGroup
+                  )
+                  const stackIndex = stackMembers.findIndex(e => e.name === ex.name)
+                  if (stackMembers.length === 2) {
+                    stackLabel = `Superset ${stackIndex + 1}/2`
+                  } else if (stackMembers.length >= 3) {
+                    stackLabel = `Circuit ${stackIndex + 1}/${stackMembers.length}`
+                  }
+                }
+                
                 // For cardio exercises, show only time (sum all set times)
                 // For other exercises, show sets × reps/weight
                 let displayValue = null
@@ -184,35 +193,41 @@ export default function ShareCard({ type, data }) {
                 let displayText = ''
                 
                 if (isCardio && sets.length > 0) {
-                  // Sum all time values for cardio
-                  const totalTime = sets.reduce((sum, s) => {
+                  // Sum all time values for cardio (time is stored in seconds)
+                  const totalTimeSeconds = sets.reduce((sum, s) => {
                     const time = s.time != null && s.time !== '' ? Number(s.time) : 0
                     return sum + time
                   }, 0)
                   
-                  if (totalTime > 0) {
-                    // Format time: convert seconds to MM:SS if > 60 seconds
-                    if (totalTime >= 60) {
-                      const minutes = Math.floor(totalTime / 60)
-                      const seconds = totalTime % 60
-                      displayText = `${minutes}:${String(seconds).padStart(2, '0')}`
-                    } else {
-                      displayText = `${totalTime}s`
-                    }
+                  if (totalTimeSeconds > 0) {
+                    // Convert seconds to minutes (round to 1 decimal place)
+                    const totalMinutes = (totalTimeSeconds / 60).toFixed(1)
+                    displayText = `${totalMinutes} min`
                   } else {
                     displayText = 'No time'
                   }
                 } else if (sets.length > 0) {
                   // For non-cardio, show sets × reps/weight
                   const firstSet = sets[0]
+                  const isRecovery = ex.category === 'Recovery' || ex.category === 'recovery'
+                  
                   if (firstSet.reps != null && firstSet.reps !== '') {
                     displayValue = firstSet.reps
                     displayLabel = 'reps'
                     displayText = `${setCount} × ${displayValue} ${displayLabel}`
                   } else if (firstSet.time != null && firstSet.time !== '') {
-                    displayValue = Math.round(firstSet.time)
-                    displayLabel = 'sec'
-                    displayText = `${setCount} × ${displayValue} ${displayLabel}`
+                    // For recovery exercises or any timed exercises, show minutes
+                    const timeSeconds = Number(firstSet.time)
+                    if (isRecovery || timeSeconds >= 60) {
+                      const minutes = (timeSeconds / 60).toFixed(1)
+                      displayLabel = 'min'
+                      displayText = `${setCount} × ${minutes} ${displayLabel}`
+                    } else {
+                      // For very short times (< 60s), show seconds
+                      displayValue = Math.round(timeSeconds)
+                      displayLabel = 'sec'
+                      displayText = `${setCount} × ${displayValue} ${displayLabel}`
+                    }
                   } else if (firstSet.weight != null && firstSet.weight !== '') {
                     displayValue = firstSet.weight
                     displayLabel = 'lbs'
@@ -225,8 +240,10 @@ export default function ShareCard({ type, data }) {
                 }
                 
                 // Calculate actual item height (no wrapping, single line)
+                // Add extra height if there's a stack label
+                const stackLabelHeight = stackLabel ? exerciseNameSize * 0.7 + itemGap : 0
                 const nameHeight = exerciseNameSize * 1.2
-                const actualItemHeight = (itemPadding * 2) + itemGap + nameHeight + (setsRepsSize * 1.2)
+                const actualItemHeight = (itemPadding * 2) + itemGap + stackLabelHeight + nameHeight + (setsRepsSize * 1.2)
                 
                 return (
                   <div 
@@ -239,8 +256,16 @@ export default function ShareCard({ type, data }) {
                       height: `${actualItemHeight}px`
                     }}
                   >
+                    {stackLabel && (
+                      <div 
+                        className={styles.stackLabel}
+                        style={{ fontSize: `${Math.max(5, Math.floor(exerciseNameSize * 0.7))}px` }}
+                      >
+                        {stackLabel}
+                      </div>
+                    )}
                     <div 
-                      className={styles.exerciseName}
+                      className={`${styles.exerciseName} truncate`}
                       style={{ 
                         fontSize: `${exerciseNameSize}px`,
                         maxWidth: '100%'

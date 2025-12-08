@@ -158,7 +158,9 @@ export async function saveWorkoutToSupabase(workout, userId) {
         exercise_type: exerciseType,
         exercise_library_id: exerciseLibraryId,
         distance: ex.distance || null,
-        distance_unit: ex.distanceUnit || 'km'
+        distance_unit: ex.distanceUnit || 'km',
+        stacked: ex.stacked || false,
+        stack_group: ex.stackGroup || null
       })
       .select()
       .single()
@@ -249,6 +251,97 @@ export async function getWorkoutDatesFromSupabase(userId) {
   // Use getWorkoutsFromSupabase to get filtered workouts (no dummy data)
   const workouts = await getWorkoutsFromSupabase(userId)
   return [...new Set(workouts.map(w => w.date))]
+}
+
+// ============ PAUSED WORKOUTS ============
+
+/**
+ * Save a paused workout (draft) to Supabase
+ * This allows users to pause and resume workouts later
+ */
+export async function savePausedWorkoutToSupabase(workoutState, userId) {
+  const pausedWorkout = {
+    user_id: userId,
+    date: workoutState.date || getTodayEST(),
+    exercises: JSON.stringify(workoutState.exercises || []),
+    workout_time: workoutState.workoutTime || 0,
+    rest_time: workoutState.restTime || 0,
+    is_resting: workoutState.isResting || false,
+    template_id: workoutState.templateId || null,
+    paused_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+
+  // Check if paused workout already exists for this user
+  const { data: existing, error: checkError } = await supabase
+    .from('paused_workouts')
+    .select('id')
+    .eq('user_id', userId)
+    .single()
+
+  if (checkError && checkError.code !== 'PGRST116') {
+    throw checkError
+  }
+
+  if (existing) {
+    // Update existing paused workout
+    const { data, error } = await supabase
+      .from('paused_workouts')
+      .update(pausedWorkout)
+      .eq('user_id', userId)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  } else {
+    // Insert new paused workout
+    const { data, error } = await supabase
+      .from('paused_workouts')
+      .insert(pausedWorkout)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  }
+}
+
+/**
+ * Get paused workout for a user
+ */
+export async function getPausedWorkoutFromSupabase(userId) {
+  const { data, error } = await supabase
+    .from('paused_workouts')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+
+  if (error && error.code === 'PGRST116') {
+    // No paused workout found
+    return null
+  }
+  if (error) throw error
+
+  if (data) {
+    return {
+      ...data,
+      exercises: JSON.parse(data.exercises || '[]')
+    }
+  }
+  return null
+}
+
+/**
+ * Delete paused workout (called when workout is finished or resumed)
+ */
+export async function deletePausedWorkoutFromSupabase(userId) {
+  const { error } = await supabase
+    .from('paused_workouts')
+    .delete()
+    .eq('user_id', userId)
+
+  if (error) throw error
 }
 
 export async function getWorkoutsByDateFromSupabase(userId, date) {
@@ -373,7 +466,9 @@ export async function updateWorkoutInSupabase(workoutId, workout, userId) {
         exercise_type: exerciseType,
         exercise_library_id: exerciseLibraryId,
         distance: ex.distance || null,
-        distance_unit: ex.distanceUnit || 'km'
+        distance_unit: ex.distanceUnit || 'km',
+        stacked: ex.stacked || false,
+        stack_group: ex.stackGroup || null
       })
       .select()
       .single()

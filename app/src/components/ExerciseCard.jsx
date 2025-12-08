@@ -93,21 +93,74 @@ export default function ExerciseCard({
             </div>
             <div className={styles.stackControls}>
               {onToggleStack && (
-                <button 
-                  className={`${styles.stackBtn} ${stacked ? styles.stackedActive : ''}`}
-                  onClick={onToggleStack}
-                  title={stacked ? `Remove from ${stackMembers?.length === 2 ? 'superset' : 'circuit'}` : 'Add to stack'}
-                >
-                  {stacked ? '🔗 Stacked' : '🔗 Stack'}
-                </button>
+                <>
+                  <button 
+                    className={`${styles.stackBtn} ${stacked ? styles.stackedActive : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onToggleStack()
+                    }}
+                    title={stacked 
+                      ? `Remove from ${stackMembers?.length === 2 ? 'superset' : stackMembers?.length >= 3 ? 'circuit' : 'stack'}` 
+                      : 'Click to stack this exercise. Stack 2 exercises for a superset, 3+ for a circuit.'}
+                    aria-label={stacked ? 'Remove from stack' : 'Add to stack'}
+                  >
+                    {stacked ? (
+                      <span className={styles.stackBtnContent}>
+                        <span className={styles.stackIcon}>🔗</span>
+                        <span className={styles.stackLabel}>
+                          {stackMembers?.length === 2 ? 'Superset' : stackMembers?.length >= 3 ? 'Circuit' : 'Stacked'}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className={styles.stackBtnContent}>
+                        <span className={styles.stackIcon}>🔗</span>
+                        <span className={styles.stackLabel}>Stack</span>
+                      </span>
+                    )}
+                  </button>
+                  
+                  {/* Show existing stacks to join */}
+                  {!stacked && existingStacks.length > 0 && (
+                    <div className={styles.joinStackSection}>
+                      <div className={styles.joinStackLabel}>Or join existing:</div>
+                      <div className={styles.joinStackButtons}>
+                        {existingStacks.map((stack) => (
+                          <button
+                            key={stack.group}
+                            className={styles.joinStackBtn}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (onAddToStack) {
+                                onAddToStack(stack.group)
+                              }
+                            }}
+                            title={`Join ${stack.members.length === 1 ? 'this exercise' : stack.members.length === 2 ? 'superset' : 'circuit'}: ${stack.names.join(', ')}`}
+                          >
+                            {stack.members.length === 2 ? 'Superset' : 'Circuit'} ({stack.members.length})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
               {stacked && stackMembers && stackMembers.length > 1 && (
                 <div className={styles.stackInfo}>
-                  {stackMembers.map((member, idx) => (
-                    <span key={member.id} className={idx === stackIndex ? styles.activeStackMember : ''}>
-                      {member.name}
-                    </span>
-                  ))}
+                  <div className={styles.stackInfoLabel}>
+                    {stackMembers.length === 2 ? 'Superset' : 'Circuit'} ({stackIndex + 1}/{stackMembers.length}):
+                  </div>
+                  <div className={styles.stackMembers}>
+                    {stackMembers.map((member, idx) => (
+                      <span 
+                        key={member.id} 
+                        className={`${styles.stackMember} ${idx === stackIndex ? styles.activeStackMember : ''}`}
+                        title={member.name}
+                      >
+                        {member.name.length > 15 ? member.name.substring(0, 15) + '...' : member.name}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

@@ -15,8 +15,13 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
 
   useEffect(() => {
     async function load() {
-      const exercises = await getAllExercises()
-      setAllExercises(exercises)
+      try {
+        const exercises = await getAllExercises()
+        setAllExercises(Array.isArray(exercises) ? exercises : [])
+      } catch (error) {
+        // Error loading exercises - silently fail, will retry
+        setAllExercises([])
+      }
     }
     load()
   }, [])
@@ -234,9 +239,9 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
 
         {showPicker && (
           <ExercisePicker
+            exercises={Array.isArray(allExercises) ? allExercises : []}
             onSelect={handleAddExercise}
             onClose={() => setShowPicker(false)}
-            allExercises={allExercises}
           />
         )}
       </div>

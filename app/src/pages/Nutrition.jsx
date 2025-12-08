@@ -523,11 +523,37 @@ export default function Nutrition() {
   }
 
   const toggleFavorite = (meal) => {
-    const isFavorite = favorites.some(f => f.id === meal.id)
+    // Check if meal is already a favorite by matching key properties
+    const mealKey = meal.name || meal.description || (meal.foods && meal.foods[0]) || ''
+    const isFavorite = favorites.some(f => {
+      const favKey = f.name || f.description || (f.foods && f.foods[0]) || ''
+      return favKey === mealKey && 
+             Math.abs((f.calories || 0) - (meal.calories || 0)) < 10 // Allow small calorie differences
+    })
+    
     if (isFavorite) {
-      setFavorites(favorites.filter(f => f.id !== meal.id))
+      // Remove favorite by matching key
+      const updatedFavorites = favorites.filter(f => {
+        const favKey = f.name || f.description || (f.foods && f.foods[0]) || ''
+        return !(favKey === mealKey && 
+                Math.abs((f.calories || 0) - (meal.calories || 0)) < 10)
+      })
+      setFavorites(updatedFavorites)
+      showToast('Removed from favorites', 'success')
     } else {
-      setFavorites([...favorites, { ...meal, id: Date.now() }])
+      // Add favorite with all meal data
+      const favoriteMeal = {
+        id: meal.id || Date.now().toString(),
+        name: meal.name || meal.description || (meal.foods && meal.foods[0]) || 'Favorite Meal',
+        description: meal.description || meal.name || '',
+        calories: meal.calories || 0,
+        macros: meal.macros || { protein: 0, carbs: 0, fat: 0 },
+        foods: meal.foods || [],
+        mealType: meal.mealType || 'Snacks',
+        timestamp: new Date().toISOString()
+      }
+      setFavorites([...favorites, favoriteMeal])
+      showToast('Added to favorites', 'success')
     }
     saveData()
   }
@@ -1554,6 +1580,48 @@ export default function Nutrition() {
                 }}>✕</button>
               </div>
               <div className={styles.editForm}>
+                {/* Favorites Section */}
+                {favorites.length > 0 && (
+                  <div className={styles.favoritesSection}>
+                    <label className={styles.favoritesLabel}>Favorite Meals</label>
+                    <div className={styles.favoritesGrid}>
+                      {favorites.map((fav, idx) => (
+                        <button
+                          key={fav.id || idx}
+                          type="button"
+                          className={styles.favoriteMealBtn}
+                          onClick={() => {
+                            // Populate form with favorite meal data
+                            setManualEntry({
+                              name: fav.name || fav.description || '',
+                              calories: fav.calories || '',
+                              protein: fav.macros?.protein || '',
+                              carbs: fav.macros?.carbs || '',
+                              fat: fav.macros?.fat || ''
+                            })
+                            showToast('Favorite meal loaded. Click Save to add it.', 'success')
+                          }}
+                          title={`${fav.name || fav.description || 'Favorite'} - ${fav.calories || 0} cal`}
+                        >
+                          <div className={styles.favoriteMealName}>
+                            {fav.name || fav.description || 'Favorite Meal'}
+                          </div>
+                          <div className={styles.favoriteMealInfo}>
+                            <span>{fav.calories || 0} cal</span>
+                            {fav.macros && (
+                              <>
+                                {fav.macros.protein > 0 && <span>P: {Math.round(fav.macros.protein)}g</span>}
+                                {fav.macros.carbs > 0 && <span>C: {Math.round(fav.macros.carbs)}g</span>}
+                                {fav.macros.fat > 0 && <span>F: {Math.round(fav.macros.fat)}g</span>}
+                              </>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
                 <div className={styles.formGroup}>
                   <label>Food Name (optional)</label>
                   <input
@@ -1725,8 +1793,9 @@ function MealCard({ meal, onRemove, onToggleFavorite, isFavorite }) {
             className={`${styles.favoriteBtn} ${isFavorite ? styles.favoriteActive : ''}`}
             onClick={() => onToggleFavorite(meal)}
             title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
           >
-            {isFavorite ? '*' : '+'}
+            {isFavorite ? '★' : '☆'}
           </button>
           <button
             className={styles.removeBtn}

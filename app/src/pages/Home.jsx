@@ -10,6 +10,7 @@ import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
+import ShareCard from '../components/ShareCard'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -206,8 +207,7 @@ export default function Home() {
       // Load shared feed items from localStorage
       try {
         const sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-        console.log('Shared items from localStorage:', sharedItems.length, 'items')
-        console.log('Shared items data:', sharedItems)
+        // Load shared items from localStorage
         
         if (sharedItems.length > 0) {
           sharedItems.forEach((item, index) => {
@@ -222,15 +222,14 @@ export default function Home() {
               shared: true,
               timestamp: item.timestamp || new Date(itemDate + 'T12:00').toISOString()
             }
-            console.log(`Adding shared item ${index + 1}:`, logEntry)
+            // Add shared item to logs
             logs.push(logEntry)
           })
         } else {
-          console.log('No shared items found in localStorage')
+          // No shared items found
         }
       } catch (e) {
-        console.error('Error loading shared items:', e)
-        console.error('Error stack:', e.stack)
+        logError('Error loading shared items', e)
       }
 
       // Sort by timestamp/date (newest first) and limit to 20
@@ -240,26 +239,11 @@ export default function Home() {
         return dateB - dateA
       })
       const sortedLogs = logs.slice(0, 20)
-      console.log('Total logs found:', logs.length)
-      console.log('Shared logs count:', logs.filter(l => l.shared).length)
-      console.log('Sorted logs:', sortedLogs.map(l => ({ type: l.type, title: l.title, shared: l.shared, date: l.date })))
-      console.log('Setting recentLogs state with', sortedLogs.length, 'items')
+      // Process and sort logs
       setRecentLogs(sortedLogs)
       
-      // Force a re-render by updating state
-      if (sortedLogs.length > 0) {
-        setTimeout(() => {
-          console.log('Feed state check - recentLogs has', recentLogs.length, 'items')
-        }, 500)
-      }
-      
-      // Force a re-render check
-      setTimeout(() => {
-        console.log('State check - recentLogs should have', sortedLogs.length, 'items')
-      }, 100)
     } catch (e) {
-      console.error('Error loading recent logs:', e)
-      console.error('Error stack:', e.stack)
+      logError('Error loading recent logs', e)
       setRecentLogs([])
     }
   }
@@ -322,28 +306,49 @@ export default function Home() {
             </div>
           ) : (
             <div className={styles.feedList}>
-              {recentLogs.map((log, index) => (
-                <div key={`${log.type}-${log.date}-${index}-${log.shared ? 'shared' : ''}`} className={styles.feedItem}>
-                  <div className={styles.feedItemIcon}>
-                    {profilePicture ? (
-                      <img src={profilePicture} alt="Profile" />
-                    ) : (
-                      log.type === 'workout' ? 'W' : log.type === 'meal' ? 'M' : 'H'
-                    )}
-                  </div>
-                  <div className={styles.feedItemContent}>
-                    <div className={styles.feedItemHeader}>
-                      <span className={styles.feedItemType}>{getTypeLabel(log.type)}</span>
-                      <span className={styles.feedItemDate}>· {formatDate(log.date)}</span>
-                      {log.shared && <span className={styles.feedItemShared}>· Shared</span>}
+              {recentLogs.map((log, index) => {
+                // Show ShareCard for shared workouts, nutrition, and health items
+                if (log.shared && (log.type === 'workout' || log.type === 'nutrition' || log.type === 'health')) {
+                  return (
+                    <div key={`${log.type}-${log.date}-${index}-shared`} className={styles.feedCardItem}>
+                      <ShareCard 
+                        type={log.type} 
+                        data={
+                          log.type === 'workout' 
+                            ? { workout: log.data }
+                            : log.type === 'nutrition'
+                            ? { nutrition: log.data }
+                            : { health: log.data }
+                        } 
+                      />
                     </div>
-                    <div className={styles.feedItemTitle}>{log.title}</div>
-                    {log.subtitle && (
-                      <div className={styles.feedItemSubtitle}>{log.subtitle}</div>
-                    )}
+                  )
+                }
+                
+                // Show regular feed item for non-shared items
+                return (
+                  <div key={`${log.type}-${log.date}-${index}-${log.shared ? 'shared' : ''}`} className={styles.feedItem}>
+                    <div className={styles.feedItemIcon}>
+                      {profilePicture ? (
+                        <img src={profilePicture} alt="Profile" />
+                      ) : (
+                        log.type === 'workout' ? 'W' : log.type === 'meal' ? 'M' : 'H'
+                      )}
+                    </div>
+                    <div className={styles.feedItemContent}>
+                      <div className={styles.feedItemHeader}>
+                        <span className={styles.feedItemType}>{getTypeLabel(log.type)}</span>
+                        <span className={styles.feedItemDate}>· {formatDate(log.date)}</span>
+                        {log.shared && <span className={styles.feedItemShared}>· Shared</span>}
+                      </div>
+                      <div className={styles.feedItemTitle}>{log.title}</div>
+                      {log.subtitle && (
+                        <div className={styles.feedItemSubtitle}>{log.subtitle}</div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

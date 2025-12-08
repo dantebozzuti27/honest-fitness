@@ -21,6 +21,7 @@ import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutr
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
+import { formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
 import BodyHeatmap from '../components/BodyHeatmap'
 // All charts are now BarChart only
 import BarChart from '../components/BarChart'

@@ -17,14 +17,7 @@ export default function ShareCard({ type, data }) {
     return `${mins}m`
   }
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return ''
-    const date = new Date(dateStr + 'T12:00:00')
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    const year = date.getFullYear()
-    return `${month}-${day}-${year}`
-  }
+  const formatDate = formatDateMMDDYYYY
 
   const renderWorkoutCard = () => {
     const { workout } = data
@@ -76,15 +69,15 @@ export default function ShareCard({ type, data }) {
     const totalExercises = validExercises.length
     
     // Card dimensions: ~500px width, ~600px height
-    // Header: ~60px, date+stat+count: ~120px, padding: ~32px
-    // Available for grid: ~388px height, ~468px width
+    // Header: ~60px, stat+count: ~80px, padding: ~32px
+    // Available for grid: ~428px height, ~468px width (more space since date moved to header)
     const cardWidth = 500
     const cardHeight = 600
     const headerHeight = 60
-    const topSectionHeight = 120
+    const topSectionHeight = 80 // Reduced since date is in header now
     const padding = 32
     const availableWidth = cardWidth - padding * 2
-    const availableHeightForGrid = cardHeight - headerHeight - topSectionHeight - padding * 2
+    const availableHeightForGrid = cardHeight - headerHeight - topSectionHeight - padding - 16 // Extra 16px for bottom padding
     
     // Use CSS Grid with auto-fit and minmax for responsive columns
     // Minimum column width: 100px (enough for most exercise names with truncation)
@@ -141,10 +134,12 @@ export default function ShareCard({ type, data }) {
       <div className={styles.card} ref={cardRef}>
         <div className={styles.cardHeader}>
           <div className={styles.logo}>ECHELON</div>
-          <div className={styles.cardType}>WORKOUT</div>
+          <div className={styles.headerRight}>
+            <div className={styles.cardType}>WORKOUT</div>
+            <div className={styles.cardDateHeader}>{formatDate(workout?.date)}</div>
+          </div>
         </div>
         <div className={styles.cardContent}>
-          <div className={styles.cardDate}>{formatDate(workout?.date)}</div>
           <div className={styles.mainStat}>
             <div className={styles.statValue}>{formatDuration(workout?.duration)}</div>
             <div className={styles.statLabel}>Duration</div>
@@ -160,7 +155,7 @@ export default function ShareCard({ type, data }) {
               style={{
                 gap: `${gridGap}px`,
                 gridTemplateColumns: `repeat(${optimalColumns}, 1fr)`,
-                maxHeight: `${availableHeightForGrid}px`,
+                height: `${availableHeightForGrid}px`,
                 overflow: 'hidden'
               }}
             >
@@ -239,21 +234,13 @@ export default function ShareCard({ type, data }) {
                   displayText = 'No sets'
                 }
                 
-                // Calculate actual item height (no wrapping, single line)
-                // Add extra height if there's a stack label
-                const stackLabelHeight = stackLabel ? exerciseNameSize * 0.7 + itemGap : 0
-                const nameHeight = exerciseNameSize * 1.2
-                const actualItemHeight = (itemPadding * 2) + itemGap + stackLabelHeight + nameHeight + (setsRepsSize * 1.2)
-                
                 return (
                   <div 
                     key={`${ex.id || ex.name || idx}-${idx}`}
                     className={styles.exerciseItem}
                     style={{
                       padding: `${itemPadding}px ${itemPadding + 2}px`,
-                      gap: `${itemGap}px`,
-                      minHeight: `${Math.max(30, actualItemHeight)}px`,
-                      height: `${actualItemHeight}px`
+                      gap: `${itemGap}px`
                     }}
                   >
                     {stackLabel && (
@@ -320,7 +307,10 @@ export default function ShareCard({ type, data }) {
       <div className={styles.card} ref={cardRef}>
         <div className={styles.cardHeader}>
           <div className={styles.logo}>ECHELON</div>
-          <div className={styles.cardType}>NUTRITION</div>
+          <div className={styles.headerRight}>
+            <div className={styles.cardType}>NUTRITION</div>
+            <div className={styles.cardDateHeader}>{formatDate(nutrition?.date)}</div>
+          </div>
         </div>
         <div className={styles.cardContent}>
           <div className={styles.mainStat}>
@@ -359,7 +349,6 @@ export default function ShareCard({ type, data }) {
               ))}
             </div>
           )}
-          <div className={styles.cardDate}>{formatDate(nutrition?.date)}</div>
         </div>
       </div>
     )
@@ -373,7 +362,10 @@ export default function ShareCard({ type, data }) {
       <div className={styles.card} ref={cardRef}>
         <div className={styles.cardHeader}>
           <div className={styles.logo}>ECHELON</div>
-          <div className={styles.cardType}>HEALTH</div>
+          <div className={styles.headerRight}>
+            <div className={styles.cardType}>HEALTH</div>
+            <div className={styles.cardDateHeader}>{formatDate(health?.date)}</div>
+          </div>
         </div>
         <div className={styles.cardContent}>
           <div className={styles.healthStatsGrid}>
@@ -410,7 +402,6 @@ export default function ShareCard({ type, data }) {
               </div>
             )}
           </div>
-          <div className={styles.cardDate}>{formatDate(health?.date)}</div>
         </div>
       </div>
     )

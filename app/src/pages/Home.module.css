@@ -118,6 +118,16 @@
   width: 100%;
   max-width: 100%;
   margin: 0;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.feedCardItem {
+  width: 100%;
+  max-width: 100%;
+  padding: 0 16px;
+  display: flex;
+  justify-content: center;
 }
 
 .feedItem {

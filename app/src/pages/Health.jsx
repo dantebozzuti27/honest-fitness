@@ -1205,11 +1205,7 @@ export default function Health() {
                             }}
                           >
                             <div className={styles.historyTableCol}>
-                              {new Date(metric.date + 'T12:00:00').toLocaleDateString('en-US', { 
-                                month: 'short', 
-                                day: 'numeric',
-                                year: metric.date !== getTodayEST() ? 'numeric' : undefined
-                              })}
+                              {formatDateShort(metric.date, metric.date !== getTodayEST())}
                             </div>
                             <div className={styles.historyTableCol}>
                               {metric.weight ? `${metric.weight} lbs` : '-'}

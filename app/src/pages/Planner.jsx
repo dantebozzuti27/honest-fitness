@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getUserPreferences, saveUserPreferences, generateWorkoutPlan, getWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { getAllTemplates } from '../db'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
+import { logError } from '../utils/logger'
 import styles from './Planner.module.css'
 
 const GOALS = [
@@ -147,8 +150,8 @@ export default function Planner() {
         setActiveTab(0)
         setStep(1)
       } catch (e) {
-        alert('Failed to generate plan. Please try again.')
-        alert('Failed to generate plan')
+        logError('Error generating plan', e)
+        showToast('Failed to generate plan. Please try again.', 'error')
       }
       setGenerating(false)
     }
@@ -189,7 +192,8 @@ export default function Planner() {
       })
       setCurrentPlan(null)
     } catch (e) {
-      alert('Failed to delete plan. Please try again.')
+      logError('Error deleting plan', e)
+      showToast('Failed to delete plan. Please try again.', 'error')
     }
   }
 
@@ -256,7 +260,16 @@ export default function Planner() {
   }
 
   return (
-    <div className={styles.container}>
+    <>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          duration={toast.duration}
+          onClose={hideToast}
+        />
+      )}
+      <div className={styles.container}>
       <header className={styles.header}>
         <button className={styles.backBtn} onClick={() => navigate('/')}>
           ← Back
@@ -514,5 +527,6 @@ export default function Planner() {
         </div>
       )}
     </div>
+    </>
   )
 }

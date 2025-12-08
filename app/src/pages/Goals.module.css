@@ -106,7 +106,7 @@
 }
 
 .categoryTab.active {
-  color: #000;
+  color: var(--accent);
   border-bottom-color: var(--accent);
 }
 

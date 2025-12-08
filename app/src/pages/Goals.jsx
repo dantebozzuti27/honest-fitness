@@ -13,7 +13,10 @@ import { getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
+import { formatDateShort } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import styles from './Goals.module.css'
@@ -106,16 +109,20 @@ export default function Goals() {
     }
   }
 
+  const [isCreating, setIsCreating] = useState(false)
+
   const handleCreateGoal = async () => {
-    if (!user) return
+    if (!user || isCreating) return
     if (!newGoal.type) {
-      alert('Please select a goal type')
+      showToast('Please select a goal type', 'error')
       return
     }
     if (!newGoal.targetValue) {
-      alert('Please enter a target value')
+      showToast('Please enter a target value', 'error')
       return
     }
+    
+    setIsCreating(true)
 
     try {
       const goalData = {
@@ -144,7 +151,8 @@ export default function Goals() {
         description: ''
       })
     } catch (error) {
-      alert('Failed to create goal. Please try again.')
+      logError('Error creating goal', error)
+      showToast('Failed to create goal. Please try again.', 'error')
     }
   }
 
@@ -264,27 +272,41 @@ export default function Goals() {
     }
   }
 
-  const handleArchiveGoal = async (goalId) => {
-    if (!user) return
-    if (!confirm('Archive this goal?')) return
+  const [isArchiving, setIsArchiving] = useState(null)
+  const [isDeleting, setIsDeleting] = useState(null)
+  const { toast, showToast, hideToast } = useToast()
 
+  const handleArchiveGoal = async (goalId) => {
+    if (!user || isArchiving) return
+    if (!window.confirm('Archive this goal?')) return
+
+    setIsArchiving(goalId)
     try {
       await archiveGoal(user.id, goalId)
       await loadGoals()
+      showToast('Goal archived successfully', 'success')
     } catch (error) {
-      alert('Failed to archive goal. Please try again.')
+      logError('Error archiving goal', error)
+      showToast('Failed to archive goal. Please try again.', 'error')
+    } finally {
+      setIsArchiving(null)
     }
   }
 
   const handleDeleteGoal = async (goalId) => {
-    if (!user) return
-    if (!confirm('Delete this goal permanently?')) return
+    if (!user || isDeleting) return
+    if (!window.confirm('Delete this goal permanently?')) return
 
+    setIsDeleting(goalId)
     try {
       await deleteGoalFromSupabase(user.id, goalId)
       await loadGoals()
+      showToast('Goal deleted successfully', 'success')
     } catch (error) {
-      alert('Failed to delete goal. Please try again.')
+      logError('Error deleting goal', error)
+      showToast('Failed to delete goal. Please try again.', 'error')
+    } finally {
+      setIsDeleting(null)
     }
   }
 
@@ -297,6 +319,15 @@ export default function Goals() {
   }
 
   return (
+    <>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          duration={toast.duration}
+          onClose={hideToast}
+        />
+      )}
     <div className={styles.container}>
       <header className={styles.header}>
         <SideMenu />
@@ -379,9 +410,9 @@ export default function Goals() {
                       <p className={styles.goalDescription}>{goal.description}</p>
                     )}
                     <div className={styles.goalDates}>
-                      <span>Start: {new Date(goal.start_date).toLocaleDateString()}</span>
+                      <span>Start: {formatDateShort(goal.start_date, true)}</span>
                       {goal.end_date && (
-                        <span>End: {new Date(goal.end_date).toLocaleDateString()}</span>
+                        <span>End: {formatDateShort(goal.end_date, true)}</span>
                       )}
                     </div>
                   </div>

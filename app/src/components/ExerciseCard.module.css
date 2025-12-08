@@ -196,19 +196,103 @@
 .stackInfo {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 10px;
-  color: var(--text-muted);
-  max-width: 100%;
-  overflow: hidden;
+  gap: 4px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  margin-top: 8px;
 }
 
-.stackInfo span {
+.stackInfoLabel {
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+
+.stackMembers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.stackMember {
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 2px 4px;
-  border-radius: 3px;
+  max-width: 120px;
+}
+
+.stackMember.activeStackMember {
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-weight: 600;
+}
+
+.stackBtnContent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stackIcon {
+  font-size: 14px;
+}
+
+.stackLabel {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.joinStackSection {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.joinStackLabel {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.joinStackButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.joinStackBtn {
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.joinStackBtn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent-dim);
+  transform: translateY(-1px);
+}
+
+.joinStackBtn:active {
+  transform: translateY(0);
 }
 
 .stackInfo .activeStackMember {

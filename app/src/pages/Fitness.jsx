@@ -7,6 +7,7 @@ import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
+import { formatDateMMDDYYYY } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -37,6 +38,7 @@ export default function Fitness() {
   const [showWorkoutStartModal, setShowWorkoutStartModal] = useState(false)
   const [showTemplateSelection, setShowTemplateSelection] = useState(false)
   const [todaysScheduledWorkout, setTodaysScheduledWorkout] = useState(null)
+  const [isGeneratingWorkout, setIsGeneratingWorkout] = useState(false)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -95,7 +97,7 @@ export default function Fitness() {
           // Load today's scheduled workout
           const today = getTodayEST()
           const scheduled = await getScheduledWorkoutsFromSupabase(user.id)
-          const todaysScheduled = scheduled?.find(s => s.date === today)
+          const todaysScheduled = Array.isArray(scheduled) ? scheduled.find(s => s && s.date === today) : null
           if (todaysScheduled) {
             setTodaysScheduledWorkout(todaysScheduled)
           }
@@ -147,11 +149,8 @@ export default function Fitness() {
   }, [user])
 
   const startWorkout = async (templateId, random = false) => {
-    if (templateId === null && !random) {
-      // Show modal to choose workout type
-      setShowWorkoutStartModal(true)
-      return
-    }
+    // Navigate to active workout page
+    // templateId can be null for freestyle workouts
     navigate('/workout/active', { state: { templateId, randomWorkout: random } })
   }
 
@@ -466,7 +465,7 @@ export default function Fitness() {
                 className={styles.freestyleBtn}
                 onClick={() => {
                   setActiveTab('Workout')
-                  startWorkout(null, false)
+                  startWorkout(null, false, true) // forceNavigate = true
                 }}
               >
                 Freestyle Workout
@@ -493,7 +492,6 @@ export default function Fitness() {
                 <div className={styles.historyTableCol}>Date</div>
                 <div className={styles.historyTableCol}>Duration</div>
                 <div className={styles.historyTableCol}>Exercises</div>
-                <div className={styles.historyTableCol}>Calories</div>
                 <div className={styles.historyTableCol}>Actions</div>
               </div>
               <div className={styles.historyTableBody}>
@@ -505,13 +503,7 @@ export default function Fitness() {
                     .map(workout => (
                       <div key={workout.id} className={styles.historyTableRow}>
                         <div className={styles.historyTableCol}>
-                          {(() => {
-                            const date = new Date(workout.date + 'T12:00:00')
-                            const month = String(date.getMonth() + 1).padStart(2, '0')
-                            const day = String(date.getDate()).padStart(2, '0')
-                            const year = date.getFullYear()
-                            return `${month}-${day}-${year}`
-                          })()}
+                          {formatDateMMDDYYYY(workout.date)}
                         </div>
                         <div className={styles.historyTableCol}>
                           {workout.duration 
@@ -520,9 +512,6 @@ export default function Fitness() {
                         </div>
                         <div className={styles.historyTableCol}>
                           {workout.workout_exercises?.length || 0}
-                        </div>
-                        <div className={styles.historyTableCol}>
-                          {workout.calories_burned || workout.calories || 'N/A'}
                         </div>
                         <div className={`${styles.historyTableCol} ${styles.actionsCol}`}>
                           <button

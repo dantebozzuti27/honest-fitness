@@ -990,6 +990,74 @@ h1 {
   gap: 8px;
 }
 
+/* Favorites Section in Modal */
+.favoritesSection {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.favoritesLabel {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.favoritesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.favoriteMealBtn {
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.favoriteMealBtn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.favoriteMealBtn:active {
+  transform: translateY(0);
+}
+
+.favoriteMealName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.favoriteMealInfo {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.favoriteMealInfo span {
+  white-space: nowrap;
+}
+
 .favoriteBtn {
   width: 28px;
   height: 28px;
@@ -1135,6 +1203,7 @@ h1 {
 
 .historyTable {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   background: var(--bg-secondary);
   border-radius: 0;
@@ -1142,12 +1211,15 @@ h1 {
   border: none;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
+  margin-left: calc(-1 * var(--space-md));
+  margin-right: calc(-1 * var(--space-md));
+  width: calc(100% + 2 * var(--space-md));
 }
 
 .historyTableHeader {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr 0.8fr;
-  gap: 8px;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1.5fr;
+  gap: 12px;
   padding: var(--space-sm) var(--space-md);
   background: var(--bg-tertiary);
   border-bottom: 2px solid var(--border);
@@ -1165,8 +1237,8 @@ h1 {
 
 .historyTableRow {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr 0.8fr;
-  gap: 8px;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1.5fr;
+  gap: 12px;
   padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--border);
   cursor: pointer;
@@ -1190,27 +1262,21 @@ h1 {
   align-items: center;
   min-width: 0;
   overflow: hidden;
-  padding: 0;
+  padding: 0 4px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
-.historyTableCol:not(.actionsCol) > * {
-  min-width: 0;
-  max-width: 100%;
+.historyTableCol:not(.actionsCol) {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: normal;
-  word-wrap: break-word;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  max-height: 2.4em;
+  white-space: nowrap;
 }
 
 .historyTableCol.actionsCol {
   overflow: visible;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .historyTableCol.actionsCol > * {

@@ -101,6 +101,7 @@ h1 {
 
 .historyTable {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   background: var(--bg-secondary);
   border-radius: 0;
@@ -108,12 +109,15 @@ h1 {
   border: none;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
+  margin-left: calc(-1 * var(--space-md));
+  margin-right: calc(-1 * var(--space-md));
+  width: calc(100% + 2 * var(--space-md));
 }
 
 .historyTableHeader {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1.8fr;
-  gap: 8px;
+  grid-template-columns: 2fr 1.2fr 1fr 2fr;
+  gap: 12px;
   padding: var(--space-sm) var(--space-md);
   background: var(--bg-tertiary);
   border-bottom: 2px solid var(--border);
@@ -131,8 +135,8 @@ h1 {
 
 .historyTableRow {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1.8fr;
-  gap: 8px;
+  grid-template-columns: 2fr 1.2fr 1fr 2fr;
+  gap: 12px;
   padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--border);
   cursor: pointer;
@@ -156,23 +160,15 @@ h1 {
   align-items: center;
   min-width: 0;
   overflow: hidden;
-  padding: 0;
+  padding: 0 4px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
-.historyTableCol:not(.actionsCol) > * {
-  min-width: 0;
-  max-width: 100%;
+.historyTableCol:not(.actionsCol) {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: normal;
-  word-wrap: break-word;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  max-height: 2.4em;
+  white-space: nowrap;
 }
 
 .historyTableCol.actionsCol {
@@ -180,10 +176,11 @@ h1 {
   align-items: center;
   gap: var(--space-xs);
   flex-wrap: nowrap;
-  white-space: normal;
-  justify-content: flex-start;
+  white-space: nowrap;
+  justify-content: flex-end;
   overflow: visible;
   min-width: auto;
+  flex-shrink: 0;
 }
 
 .historyTableCol.actionsCol > * {

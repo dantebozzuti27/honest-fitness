@@ -1,8 +1,15 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { debounce } from '../utils/debounce'
 import styles from './ExercisePicker.module.css'
 
-export default function ExercisePicker({ exercises, onSelect, onClose }) {
+export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const debouncedSetSearch = useRef(debounce((value) => setDebouncedSearch(value), 300)).current
+
+  useEffect(() => {
+    debouncedSetSearch(search)
+  }, [search, debouncedSetSearch])
   const [bodyPartFilter, setBodyPartFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [equipmentFilter, setEquipmentFilter] = useState('all')
@@ -11,29 +18,34 @@ export default function ExercisePicker({ exercises, onSelect, onClose }) {
   const [customCategory, setCustomCategory] = useState('Strength')
 
   const bodyParts = useMemo(() => {
+    if (!exercises || !Array.isArray(exercises)) return []
     const parts = [...new Set(exercises.map(e => e.bodyPart).filter(Boolean))]
     return parts.sort()
   }, [exercises])
 
   const categories = useMemo(() => {
+    if (!exercises || !Array.isArray(exercises)) return []
     const cats = [...new Set(exercises.map(e => e.category).filter(Boolean))]
     return cats.sort()
   }, [exercises])
 
   const equipments = useMemo(() => {
+    if (!exercises || !Array.isArray(exercises)) return []
     const equips = [...new Set(exercises.map(e => e.equipment).filter(Boolean))]
     return equips.sort()
   }, [exercises])
 
   const filtered = useMemo(() => {
+    if (!exercises || !Array.isArray(exercises)) return []
     return exercises.filter(ex => {
-      const matchesSearch = ex.name.toLowerCase().includes(search.toLowerCase())
+      if (!ex || !ex.name) return false
+      const matchesSearch = ex.name.toLowerCase().includes(debouncedSearch.toLowerCase())
       const matchesBodyPart = bodyPartFilter === 'all' || ex.bodyPart === bodyPartFilter
       const matchesCategory = categoryFilter === 'all' || ex.category === categoryFilter
       const matchesEquipment = equipmentFilter === 'all' || ex.equipment === equipmentFilter
       return matchesSearch && matchesBodyPart && matchesCategory && matchesEquipment
     })
-  }, [exercises, search, bodyPartFilter, categoryFilter, equipmentFilter])
+  }, [exercises, debouncedSearch, bodyPartFilter, categoryFilter, equipmentFilter])
 
   const grouped = useMemo(() => {
     const groups = {}

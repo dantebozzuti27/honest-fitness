@@ -6,15 +6,19 @@ import { getTodayEST } from '../utils/dateUtils'
 import { useAuth } from '../context/AuthContext'
 import { logError } from '../utils/logger'
 import { getAutoAdjustmentFactor, applyAutoAdjustment, getWorkoutRecommendation } from '../lib/autoAdjust'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import ShareModal from '../components/ShareModal'
+import { shareWorkoutToFeed } from '../utils/shareUtils'
 import styles from './ActiveWorkout.module.css'
 
 export default function ActiveWorkout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const templateId = location.state?.templateId
   const randomWorkout = location.state?.randomWorkout
   const aiWorkout = location.state?.aiWorkout
@@ -42,44 +46,50 @@ export default function ActiveWorkout() {
   const restDurationRef = useRef(0)
 
   useEffect(() => {
+    let mounted = true
+    
     async function load() {
-      const allEx = await getAllExercises()
-      // Exercises loaded from database
-      setAllExercises(allEx)
-      
-      // Check for paused workout first
-      let hasResumedPaused = false
-      if (user) {
-        try {
-          const paused = await getPausedWorkoutFromSupabase(user.id)
-          if (paused) {
-            const shouldResume = confirm('You have a paused workout. Would you like to resume it?')
-            if (shouldResume) {
-              setExercises(paused.exercises || [])
-              setWorkoutTime(paused.workout_time || 0)
-              setRestTime(paused.rest_time || 0)
-              setIsResting(paused.is_resting || false)
-              workoutStartTimeRef.current = Date.now() - ((paused.workout_time || 0) * 1000)
-              localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
-              // Delete paused workout since we're resuming
-              await deletePausedWorkoutFromSupabase(user.id)
-              hasResumedPaused = true
-            } else {
-              // User chose not to resume, delete paused workout
-              await deletePausedWorkoutFromSupabase(user.id)
+      try {
+        const allEx = await getAllExercises()
+        if (!mounted) return
+        // Exercises loaded from database
+        setAllExercises(Array.isArray(allEx) ? allEx : [])
+        
+        // Check for paused workout first
+        let hasResumedPaused = false
+        if (user) {
+          try {
+            const paused = await getPausedWorkoutFromSupabase(user.id)
+            if (!mounted) return
+            if (paused) {
+              const shouldResume = window.confirm('You have a paused workout. Would you like to resume it?')
+              if (shouldResume) {
+                setExercises(Array.isArray(paused.exercises) ? paused.exercises : [])
+                setWorkoutTime(paused.workout_time || 0)
+                setRestTime(paused.rest_time || 0)
+                setIsResting(paused.is_resting || false)
+                workoutStartTimeRef.current = Date.now() - ((paused.workout_time || 0) * 1000)
+                localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
+                // Delete paused workout since we're resuming
+                await deletePausedWorkoutFromSupabase(user.id)
+                hasResumedPaused = true
+              } else {
+                // User chose not to resume, delete paused workout
+                await deletePausedWorkoutFromSupabase(user.id)
+              }
             }
+          } catch (error) {
+            logError('Error loading paused workout', error)
           }
-        } catch (error) {
-          logError('Error loading paused workout', error)
         }
-      }
 
-      // Only load template/random/AI workout if we didn't resume a paused workout
-      if (!hasResumedPaused) {
-        if (templateId) {
-          const template = await getTemplate(templateId)
-        if (template) {
-          const workoutExercises = template.exercises.map((name, idx) => {
+        // Only load template/random/AI workout if we didn't resume a paused workout
+        if (!hasResumedPaused && mounted) {
+          if (templateId) {
+            const template = await getTemplate(templateId)
+            if (!mounted) return
+            if (template && Array.isArray(template.exercises)) {
+              const workoutExercises = template.exercises.map((name, idx) => {
             const exerciseData = allEx.find(e => e.name === name)
             if (!exerciseData) {
               // Exercise not found, will use default structure
@@ -253,11 +263,12 @@ export default function ActiveWorkout() {
     document.addEventListener('visibilitychange', handleVisibilityChange)
     
     return () => {
+      mounted = false
       clearInterval(workoutTimerRef.current)
       clearInterval(restTimerRef.current)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [templateId, randomWorkout, user])
+  }, [templateId, randomWorkout, user, isPaused])
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60)
@@ -368,6 +379,24 @@ export default function ActiveWorkout() {
   const completeExercise = (id) => {
     setExercises(prev => {
       const idx = prev.findIndex(ex => ex.id === id)
+      const currentExercise = prev[idx]
+      
+      // If exercise is stacked, move to next exercise in stack instead of next sequential
+      if (currentExercise?.stacked && currentExercise?.stackGroup) {
+        const stackMembers = prev.filter(ex => ex.stacked && ex.stackGroup === currentExercise.stackGroup)
+        const currentStackIndex = stackMembers.findIndex(ex => ex.id === id)
+        const nextStackIndex = (currentStackIndex + 1) % stackMembers.length
+        const nextStackExercise = stackMembers[nextStackIndex]
+        const nextStackGlobalIndex = prev.findIndex(ex => ex.id === nextStackExercise.id)
+        
+        return prev.map((ex, i) => ({
+          ...ex,
+          completed: ex.id === id ? true : ex.completed,
+          expanded: i === nextStackGlobalIndex // expand next exercise in stack
+        }))
+      }
+      
+      // Normal flow - expand next sequential exercise
       const newArr = prev.map((ex, i) => ({
         ...ex,
         completed: ex.id === id ? true : ex.completed,
@@ -487,34 +516,48 @@ export default function ActiveWorkout() {
     // ONLY save workout if user has at least one exercise
     // Note: Exercises can have no sets, that's okay - we show all exercises
     if (workout.exercises.length === 0) {
-      alert('Cannot save workout with no exercises. Please add at least one exercise.')
+      showToast('Cannot save workout with no exercises. Please add at least one exercise.', 'error')
       return
     }
     
-    // Save to local IndexedDB
-    await saveWorkout(workout)
-    
-    // Save to Supabase if logged in
-    if (user) {
-      try {
-        await saveWorkoutToSupabase(workout, user.id)
-      } catch (err) {
-        // Error saving, will retry
+    setIsSaving(true)
+    try {
+      // Save to local IndexedDB
+      await saveWorkout(workout)
+      
+      // Save to Supabase if logged in
+      if (user) {
+        try {
+          await saveWorkoutToSupabase(workout, user.id)
+          showToast('Workout saved successfully!', 'success')
+        } catch (err) {
+          logError('Error saving workout to Supabase', err)
+          showToast('Workout saved locally. Syncing to cloud failed - will retry later.', 'warning')
+        }
+      } else {
+        showToast('Workout saved locally!', 'success')
       }
+      
+      // Automatically share workout to feed
+      try {
+        const shared = shareWorkoutToFeed(workout)
+        if (shared) {
+          // Feed will update automatically via the 'feedUpdated' event
+        }
+      } catch (err) {
+        logError('Error sharing workout to feed', err)
+        // Don't show error to user - feed sharing is non-critical
+      }
+      
+      // Store workout for sharing (manual share/download)
+      setSavedWorkout(workout)
+      setShowShareModal(true)
+    } catch (err) {
+      logError('Error saving workout', err)
+      showToast('Failed to save workout. Please try again.', 'error')
+    } finally {
+      setIsSaving(false)
     }
-    
-    // Store workout for sharing
-    // DEBUG: Log the exact workout data being shared
-    console.log('ActiveWorkout: Workout data for sharing:', {
-      exerciseCount: workout.exercises.length,
-      exercises: workout.exercises.map(ex => ({
-        name: ex.name,
-        setCount: ex.sets.length,
-        sets: ex.sets
-      }))
-    })
-    setSavedWorkout(workout)
-    setShowShareModal(true)
   }
   
   const handleShareClose = () => {
@@ -581,23 +624,49 @@ export default function ActiveWorkout() {
     }
   }
 
-  // Exercise stacking (superset) functionality
+  // Exercise stacking (superset/circuit) functionality
   const toggleExerciseStack = (exerciseId) => {
-    setExercises(prev => prev.map(ex => {
-      if (ex.id === exerciseId) {
-        return { ...ex, stacked: !ex.stacked, stackGroup: ex.stacked ? null : (ex.stackGroup || Date.now()) }
+    setExercises(prev => {
+      const exercise = prev.find(ex => ex.id === exerciseId)
+      if (!exercise) return prev
+      
+      // If already stacked, remove from stack
+      if (exercise.stacked) {
+        const updated = prev.map(ex => {
+          if (ex.id === exerciseId) {
+            return { ...ex, stacked: false, stackGroup: null }
+          }
+          return ex
+        })
+        showToast('Removed from stack', 'success')
+        return updated
       }
-      return ex
-    }))
+      
+      // Create new stack
+      const newStackGroup = Date.now()
+      const updated = prev.map(ex => {
+        if (ex.id === exerciseId) {
+          return { ...ex, stacked: true, stackGroup: newStackGroup }
+        }
+        return ex
+      })
+      showToast('Exercise added to stack. Stack another exercise to create a superset/circuit.', 'success')
+      return updated
+    })
   }
 
   const addToStack = (exerciseId, targetStackGroup) => {
-    setExercises(prev => prev.map(ex => {
-      if (ex.id === exerciseId) {
-        return { ...ex, stacked: true, stackGroup: targetStackGroup }
-      }
-      return ex
-    }))
+    setExercises(prev => {
+      const stackSize = prev.filter(ex => ex.stacked && ex.stackGroup === targetStackGroup).length + 1
+      const label = stackSize === 2 ? 'Superset' : 'Circuit'
+      showToast(`Added to ${label.toLowerCase()}`, 'success')
+      return prev.map(ex => {
+        if (ex.id === exerciseId) {
+          return { ...ex, stacked: true, stackGroup: targetStackGroup }
+        }
+        return ex
+      })
+    })
   }
 
   const removeFromStack = (exerciseId) => {
@@ -607,6 +676,7 @@ export default function ActiveWorkout() {
       }
       return ex
     }))
+    showToast('Removed from stack', 'success')
   }
 
   return (
@@ -642,11 +712,33 @@ export default function ActiveWorkout() {
       </header>
 
       <div className={styles.content}>
+        {/* Stacking Helper Info */}
+        {exercises.length >= 2 && exercises.some(ex => !ex.stacked) && (
+          <div className={styles.stackHelper}>
+            <span className={styles.stackHelperIcon}>💡</span>
+            <span className={styles.stackHelperText}>
+              Tip: Click "Stack" on exercises to create supersets (2 exercises) or circuits (3+ exercises)
+            </span>
+          </div>
+        )}
+        
         {exercises.map((exercise, idx) => {
           // Find other exercises in the same stack group
           const stackGroup = exercise.stacked ? exercise.stackGroup : null
           const stackMembers = stackGroup ? exercises.filter(ex => ex.stacked && ex.stackGroup === stackGroup) : []
           const stackIndex = stackMembers.findIndex(ex => ex.id === exercise.id)
+          
+          // Find existing stacks that this exercise could join
+          const existingStacks = exercises
+            .filter(ex => ex.stacked && ex.stackGroup && ex.id !== exercise.id)
+            .map(ex => ({
+              group: ex.stackGroup,
+              members: exercises.filter(e => e.stacked && e.stackGroup === ex.stackGroup),
+              names: exercises.filter(e => e.stacked && e.stackGroup === ex.stackGroup).map(e => e.name)
+            }))
+            .filter((stack, index, self) => 
+              index === self.findIndex(s => s.group === stack.group)
+            )
           
           return (
             <ExerciseCard
@@ -658,6 +750,7 @@ export default function ActiveWorkout() {
               stackGroup={stackGroup}
               stackMembers={stackMembers}
               stackIndex={stackIndex}
+              existingStacks={existingStacks}
               onToggle={() => toggleExpanded(exercise.id)}
               onUpdateSet={(setIdx, field, value) => updateSet(exercise.id, setIdx, field, value)}
               onAddSet={() => addSet(exercise.id)}
@@ -769,6 +862,16 @@ export default function ActiveWorkout() {
             }
           }}
           onClose={handleShareClose}
+        />
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          duration={toast.duration}
+          onClose={hideToast}
         />
       )}
     </div>

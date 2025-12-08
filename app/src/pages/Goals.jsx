@@ -44,6 +44,7 @@ const NUTRITION_GOAL_TYPES = [
 export default function Goals() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [activeCategory, setActiveCategory] = useState('fitness')
   const [goals, setGoals] = useState({ fitness: [], health: [], nutrition: [] })
   const [allGoals, setAllGoals] = useState([])
@@ -63,6 +64,9 @@ export default function Goals() {
     description: ''
   })
   const [loading, setLoading] = useState(true)
+  const [isCreating, setIsCreating] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(null)
+  const [isDeleting, setIsDeleting] = useState(null)
 
   useEffect(() => {
     if (user) {
@@ -108,8 +112,6 @@ export default function Goals() {
         return []
     }
   }
-
-  const [isCreating, setIsCreating] = useState(false)
 
   const handleCreateGoal = async () => {
     if (!user || isCreating) return
@@ -271,10 +273,6 @@ export default function Goals() {
       setAnalyzing(false)
     }
   }
-
-  const [isArchiving, setIsArchiving] = useState(null)
-  const [isDeleting, setIsDeleting] = useState(null)
-  const { toast, showToast, hideToast } = useToast()
 
   const handleArchiveGoal = async (goalId) => {
     if (!user || isArchiving) return

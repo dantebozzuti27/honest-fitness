@@ -188,6 +188,9 @@ export default function ActiveWorkout() {
         setExercises(workoutExercises)
       }
       }
+      } catch (error) {
+        logError('Error loading workout', error)
+      }
     }
     load()
     

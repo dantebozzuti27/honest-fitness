@@ -195,7 +195,8 @@
   min-height: 0;
   overflow: hidden;
   align-content: start;
-  grid-auto-rows: auto;
+  grid-auto-rows: min-content;
+  align-items: start;
 }
 
 .mealsList {
@@ -220,12 +221,13 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius-xs);
   border: 1px solid var(--border);
-  flex-shrink: 1;
+  flex-shrink: 0;
   min-height: 0;
   overflow: hidden;
   justify-content: center;
   align-items: center;
-  height: 100%;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .exerciseName {

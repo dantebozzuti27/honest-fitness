@@ -8,18 +8,56 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
+    let mounted = true
+    
+    // Set a timeout to stop loading even if Supabase fails
+    const timeoutId = setTimeout(() => {
+      if (mounted && loading) {
+        console.warn('AuthContext: Loading timeout, proceeding without auth')
+        setLoading(false)
+      }
+    }, 5000) // 5 second timeout
+    
+    // Get initial session with error handling
+    supabase.auth.getSession()
+      .then(({ data: { session }, error }) => {
+        if (!mounted) return
+        if (error) {
+          console.warn('AuthContext: Session error (non-critical):', error)
+        }
+        setUser(session?.user ?? null)
+        setLoading(false)
+        clearTimeout(timeoutId)
+      })
+      .catch((error) => {
+        if (!mounted) return
+        console.warn('AuthContext: Session fetch failed (non-critical):', error)
+        setUser(null)
+        setLoading(false)
+        clearTimeout(timeoutId)
+      })
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-    })
+    let subscription = null
+    try {
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (mounted) {
+          setUser(session?.user ?? null)
+          setLoading(false)
+        }
+      })
+      subscription = data?.subscription
+    } catch (error) {
+      console.warn('AuthContext: Failed to set up auth listener (non-critical):', error)
+    }
 
-    return () => subscription.unsubscribe()
+    return () => {
+      mounted = false
+      clearTimeout(timeoutId)
+      if (subscription) {
+        subscription.unsubscribe()
+      }
+    }
   }, [])
 
   const signUp = async (email, password) => {

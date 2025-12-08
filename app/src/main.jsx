@@ -6,70 +6,85 @@ import ErrorBoundary from './components/ErrorBoundary'
 import App from './App'
 import './styles/global.css'
 
-// Register Service Worker for PWA (non-blocking, fail-safe with error recovery)
+// CRITICAL: Unregister ALL service workers immediately to prevent blank screens
+// This ensures the app always loads fresh
 if ('serviceWorker' in navigator) {
+  // Immediately unregister all service workers on page load
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    registrations.forEach((registration) => {
+      registration.unregister().catch(() => {})
+    })
+    // Clear all caches
+    if ('caches' in window) {
+      caches.keys().then((cacheNames) => {
+        cacheNames.forEach((cacheName) => {
+          caches.delete(cacheName).catch(() => {})
+        })
+      })
+    }
+  }).catch(() => {})
+  
+  // Also unregister on page load event
   window.addEventListener('load', () => {
-    // Delay registration to ensure app loads first
-    setTimeout(() => {
-      navigator.serviceWorker.register('/sw.js')
-        .then((registration) => {
-          console.log('Service Worker registered:', registration.scope)
-          
-          // Check for updates periodically
-          registration.addEventListener('updatefound', () => {
-            const newWorker = registration.installing
-            if (newWorker) {
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'activated') {
-                  console.log('Service Worker updated and activated')
-                }
-              })
-            }
-          })
-        })
-        .catch((error) => {
-          // Silently fail - app should work without service worker
-          console.warn('Service Worker registration failed (non-critical):', error)
-        })
-      
-      // Safety: If service worker causes issues, unregister it
-      // Check for service worker errors after a delay
-      setTimeout(() => {
-        navigator.serviceWorker.getRegistrations().then((registrations) => {
-          registrations.forEach((registration) => {
-            // If service worker is in a bad state, unregister it
-            if (registration.active && registration.active.state === 'redundant') {
-              console.warn('Service Worker is redundant, unregistering...')
-              registration.unregister().catch(() => {})
-            }
-          })
-        }).catch(() => {})
-      }, 5000)
-    }, 1000)
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => {
+        registration.unregister().catch(() => {})
+      })
+    }).catch(() => {})
   })
   
-  // Emergency recovery: If page fails to load, unregister service worker
-  window.addEventListener('error', (event) => {
-    if (event.message && event.message.includes('service-worker')) {
+  // Emergency: Unregister if page doesn't render within 3 seconds
+  setTimeout(() => {
+    const root = document.getElementById('root')
+    if (root && root.children.length === 0) {
+      console.warn('Page not rendering, unregistering service workers...')
       navigator.serviceWorker.getRegistrations().then((registrations) => {
         registrations.forEach((registration) => {
-          registration.unregister().catch(() => {})
+          registration.unregister().then(() => {
+            window.location.reload()
+          }).catch(() => {})
         })
       }).catch(() => {})
     }
-  }, true)
+  }, 3000)
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <BrowserRouter>
-        <AuthProvider>
-          <ErrorBoundary>
-            <App />
-          </ErrorBoundary>
-        </AuthProvider>
-      </BrowserRouter>
-    </ErrorBoundary>
-  </React.StrictMode>
-)
+// Ensure root element exists before rendering
+const rootElement = document.getElementById('root')
+if (!rootElement) {
+  console.error('Root element not found!')
+  document.body.innerHTML = '<div style="padding: 20px; color: white; background: black;">Error: Root element not found. Please refresh the page.</div>'
+} else {
+  // Add a fallback background immediately
+  rootElement.style.minHeight = '100vh'
+  rootElement.style.background = '#000000'
+  rootElement.style.color = '#ffffff'
+  
+  try {
+    ReactDOM.createRoot(rootElement).render(
+      <React.StrictMode>
+        <ErrorBoundary>
+          <BrowserRouter>
+            <AuthProvider>
+              <ErrorBoundary>
+                <App />
+              </ErrorBoundary>
+            </AuthProvider>
+          </BrowserRouter>
+        </ErrorBoundary>
+      </React.StrictMode>
+    )
+  } catch (error) {
+    console.error('Failed to render app:', error)
+    rootElement.innerHTML = `
+      <div style="padding: 40px; text-align: center; color: white; background: black; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <h1 style="color: #ff453a; margin-bottom: 20px;">⚠️ Error Loading App</h1>
+        <p style="margin-bottom: 30px; color: #a1a1a6;">Something went wrong. Please try:</p>
+        <button onclick="window.location.reload()" style="padding: 16px 32px; background: white; color: black; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600;">
+          Refresh Page
+        </button>
+        <p style="margin-top: 30px; color: #6e6e73; font-size: 12px;">If this persists, try clearing your browser cache</p>
+      </div>
+    `
+  }
+}

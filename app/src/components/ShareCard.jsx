@@ -116,34 +116,63 @@ export default function ShareCard({ type, data }) {
               }}
             >
               {validExercises.map((ex, idx) => {
+                // ex.sets is already filtered to only valid sets (from line 42)
                 const sets = ex.sets || []
-                const validSets = sets.filter(s => s.reps && s.reps > 0)
-                const setCount = validSets.length
-                const reps = validSets.length > 0 ? validSets[0].reps : null
+                const setCount = sets.length
                 
-                if (!setCount || !reps) return null
+                // Get display value - prefer reps, then time, then weight
+                let displayValue = null
+                let displayLabel = ''
+                
+                if (sets.length > 0) {
+                  const firstSet = sets[0]
+                  if (firstSet.reps != null && firstSet.reps !== '') {
+                    displayValue = firstSet.reps
+                    displayLabel = 'reps'
+                  } else if (firstSet.time != null && firstSet.time !== '') {
+                    displayValue = Math.round(firstSet.time)
+                    displayLabel = 'sec'
+                  } else if (firstSet.weight != null && firstSet.weight !== '') {
+                    displayValue = firstSet.weight
+                    displayLabel = 'lbs'
+                  }
+                }
+                
+                // Always show exercise if it has sets (even if we can't format the value)
+                // Calculate actual item height based on content
+                const actualItemHeight = (itemPadding * 2) + itemGap + (exerciseNameSize * 1.2) + (setsRepsSize * 1.2)
                 
                 return (
                   <div 
-                    key={idx} 
+                    key={`${ex.id || ex.name || idx}-${idx}`}
                     className={styles.exerciseItem}
                     style={{
                       padding: `${itemPadding}px ${itemPadding + 2}px`,
-                      gap: `${itemGap}px`
+                      gap: `${itemGap}px`,
+                      minHeight: `${Math.max(25, actualItemHeight)}px`
                     }}
                   >
                     <div 
                       className={styles.exerciseName}
                       style={{ fontSize: `${exerciseNameSize}px` }}
                     >
-                      {ex.name}
+                      {ex.name || 'Exercise'}
                     </div>
-                    <div 
-                      className={styles.setsReps}
-                      style={{ fontSize: `${setsRepsSize}px` }}
-                    >
-                      {setCount} × {reps}
-                    </div>
+                    {setCount > 0 && displayValue != null ? (
+                      <div 
+                        className={styles.setsReps}
+                        style={{ fontSize: `${setsRepsSize}px` }}
+                      >
+                        {setCount} × {displayValue} {displayLabel}
+                      </div>
+                    ) : (
+                      <div 
+                        className={styles.setsReps}
+                        style={{ fontSize: `${setsRepsSize}px` }}
+                      >
+                        {setCount} sets
+                      </div>
+                    )}
                   </div>
                 )
               })}

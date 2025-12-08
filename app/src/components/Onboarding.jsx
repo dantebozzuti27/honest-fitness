@@ -52,6 +52,9 @@ export default function Onboarding({ onComplete }) {
 
   if (!user) return null
 
+  // Ensure document.body exists before creating portal
+  if (typeof document === 'undefined' || !document.body) return null
+
   return createPortal(
     <div className={styles.overlay}>
       <div className={styles.modal}>

@@ -12,6 +12,7 @@ import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import BottomNav from './components/BottomNav'
 import Onboarding from './components/Onboarding'
+import ErrorBoundary from './components/ErrorBoundary'
 
 // Lazy load heavy components for code splitting
 const Fitness = lazy(() => import('./pages/Fitness'))
@@ -52,29 +53,37 @@ function ProtectedRoute({ children }) {
 export default function App() {
   const { user } = useAuth()
   const [showOnboarding, setShowOnboarding] = useState(false)
-  const [checkingOnboarding, setCheckingOnboarding] = useState(true)
+  const [checkingOnboarding, setCheckingOnboarding] = useState(false)
   
-  // Check if user needs onboarding
+  // Check if user needs onboarding (non-blocking, runs after initial render)
   useEffect(() => {
     if (!user) {
-      setCheckingOnboarding(false)
+      setShowOnboarding(false)
       return
     }
 
+    // Set checking to true briefly, then check
+    setCheckingOnboarding(true)
+    
     const checkOnboarding = async () => {
       try {
         const prefs = await getUserPreferences(user.id)
+        // Safely check onboarding_completed (column may not exist yet)
         const completed = prefs?.onboarding_completed === true
         setShowOnboarding(!completed)
       } catch (error) {
-        // If error, assume not completed (show onboarding)
-        setShowOnboarding(true)
+        // If error (e.g., column doesn't exist), don't show onboarding
+        // User can complete it later when the migration is run
+        console.warn('Could not check onboarding status:', error)
+        setShowOnboarding(false)
       } finally {
         setCheckingOnboarding(false)
       }
     }
 
-    checkOnboarding()
+    // Delay check slightly to ensure app renders first
+    const timeoutId = setTimeout(checkOnboarding, 100)
+    return () => clearTimeout(timeoutId)
   }, [user])
   
   // Start token refresh interval when user is logged in
@@ -169,9 +178,11 @@ export default function App() {
       </Suspense>
       {/* BottomNav appears on all pages except auth */}
       {user && <BottomNav />}
-      {/* Show onboarding for new users */}
+      {/* Show onboarding for new users (non-blocking, fail-safe) */}
       {user && !checkingOnboarding && showOnboarding && (
-        <Onboarding onComplete={() => setShowOnboarding(false)} />
+        <ErrorBoundary>
+          <Onboarding onComplete={() => setShowOnboarding(false)} />
+        </ErrorBoundary>
       )}
     </>
   )

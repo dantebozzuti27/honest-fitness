@@ -30,12 +30,10 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-base);
-  min-width: 0;
-  min-height: 0;
   flex: 1;
   border-radius: var(--radius-md);
   touch-action: manipulation;
-  max-width: 100%;
+  min-width: 44px;
 }
 
 .navButton:hover {
@@ -121,7 +119,7 @@
 
 .quickLogMenu {
   position: fixed;
-  bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-secondary);
@@ -230,19 +228,20 @@
 /* Mobile optimizations */
 @media (max-width: 480px) {
   .bottomNav {
-    padding: var(--space-xs) 4px;
-    padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-xs));
-    min-height: 64px;
+    padding: var(--space-sm) var(--space-xs);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-sm));
+    min-height: 72px;
   }
 
   .navButton {
-    gap: 2px;
-    padding: var(--space-xs) 2px;
+    gap: 3px;
+    padding: var(--space-xs);
+    min-width: 40px;
   }
 
   .navIcon {
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
   }
 
   .navLabel {
@@ -250,38 +249,56 @@
   }
 
   .plusButton {
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
-    min-height: 48px;
-    margin: 0 4px;
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+    margin: 0 var(--space-xs);
   }
 
   .plusIcon {
-    font-size: 24px;
+    font-size: 26px;
+  }
+
+  .quickLogMenu {
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   }
 }
 
 /* Very small screens */
 @media (max-width: 360px) {
+  .bottomNav {
+    padding: var(--space-xs);
+    min-height: 68px;
+  }
+
+  .navButton {
+    min-width: 36px;
+    padding: 4px;
+  }
+
   .navLabel {
     font-size: 9px;
   }
 
   .navIcon {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
   }
 
   .plusButton {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
   }
 
   .plusIcon {
-    font-size: 22px;
+    font-size: 24px;
+  }
+
+  .quickLogMenu {
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   }
 }
 

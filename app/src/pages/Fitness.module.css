@@ -434,14 +434,21 @@ h1 {
 }
 
 @media (max-width: 480px) {
+  .workoutStartModal {
+    max-width: 100%;
+    margin: var(--space-md);
+    max-height: 85vh;
+  }
+
   .templateSelectionList {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: var(--space-sm);
+    max-height: 50vh;
   }
 
   .templateSelectionBtn {
-    min-height: 90px;
-    padding: var(--space-sm);
+    min-height: 100px;
+    padding: var(--space-md);
   }
 
   .templateSelectionName {
@@ -449,11 +456,22 @@ h1 {
   }
 
   .templateSelectionCount {
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   .modalTitle {
     font-size: var(--text-lg);
+  }
+
+  .modalHeader {
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm);
+  }
+
+  .backBtn {
+    min-width: 40px;
+    min-height: 40px;
+    padding: var(--space-xs) var(--space-sm);
   }
 }
 

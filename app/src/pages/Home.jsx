@@ -31,188 +31,65 @@ export default function Home() {
   const loadRecentLogs = async (userId) => {
     try {
       const logs = []
-      const today = getTodayEST()
-      const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      
+      if (!userId) {
+        setRecentLogs([])
+        setLoading(false)
+        return
+      }
 
-      // Load shared feed items from database (social feed with friends)
+      // SIMPLIFIED: Just get workouts from feed - that's all we need
       try {
-        let sharedItems = []
+        const feedItems = await getSocialFeedItems(userId, feedFilter, 100)
         
-        // Try database first (social feed)
-        if (userId) {
-          try {
-            sharedItems = await getSocialFeedItems(userId, feedFilter, 50)
-          } catch (dbError) {
-            // If database fails, fallback to localStorage
-            // Silently ignore PGRST205 errors (table doesn't exist)
-            if (dbError.code !== 'PGRST205' && !dbError.message?.includes('Could not find the table')) {
-              logError('Error loading feed from database, using localStorage', dbError)
-            }
-            sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-          }
-        } else {
-          // Not logged in, use localStorage
-          try {
-            sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-          } catch (parseError) {
-            logError('Error parsing localStorage feed data', parseError)
-            sharedItems = []
-            // Clear corrupted data
-            localStorage.removeItem('sharedToFeed')
-          }
-        }
-        
-        if (sharedItems && sharedItems.length > 0) {
-          sharedItems.forEach((item) => {
-            // Use created_at timestamp if available, otherwise use date
-            const itemDate = item.created_at 
-              ? new Date(item.created_at).toISOString().split('T')[0] 
-              : (item.timestamp ? new Date(item.timestamp).toISOString().split('T')[0] : (item.date || today))
-            
-            // Get user profile info if available
+        if (feedItems && feedItems.length > 0) {
+          feedItems.forEach((item) => {
+            // Get user profile info
             const userProfile = item.user_profiles || null
             const authorName = userProfile?.display_name || userProfile?.username || 'User'
             const authorId = item.user_id
             const isOwnPost = authorId === userId
             
-            // Ensure workout data has correct structure for ShareCard
-            let workoutData = item.data || {}
+            // Use created_at timestamp if available
+            const itemDate = item.created_at 
+              ? new Date(item.created_at).toISOString().split('T')[0] 
+              : (item.date || getTodayEST())
             
-            // If data is a string (JSONB from database), parse it
-            if (typeof workoutData === 'string') {
-              try {
-                workoutData = JSON.parse(workoutData)
-              } catch (e) {
-                logError('Error parsing feed item data', e)
-                workoutData = {}
-              }
-            }
-            
-            if (item.type === 'workout' && workoutData) {
-              // If workout has workout_exercises (from Supabase), transform it
-              if (workoutData.workout_exercises && !workoutData.exercises) {
-                workoutData = {
-                  ...workoutData,
-                  exercises: (workoutData.workout_exercises || []).map(ex => ({
-                    id: ex.id,
-                    name: ex.exercise_name || ex.name,
-                    category: ex.category,
-                    bodyPart: ex.body_part || ex.bodyPart,
-                    equipment: ex.equipment,
-                    stacked: ex.stacked || false,
-                    stackGroup: ex.stack_group || ex.stackGroup || null,
-                    sets: (ex.workout_sets || ex.sets || []).map(set => ({
-                      weight: set.weight,
-                      reps: set.reps,
-                      time: set.time,
-                      speed: set.speed,
-                      incline: set.incline
-                    }))
-                  }))
-                }
-              }
-              // Ensure exercises array exists (for workouts)
-              if (!workoutData.exercises) {
-                workoutData.exercises = []
-              }
-            } else if (item.type !== 'workout') {
-              // For non-workout items, use data as-is
-              workoutData = item.data || {}
-            }
-            
+            // ShareCard expects data in format: { workout: {...} }
+            // item.data already has this structure from getSocialFeedItems
             const logEntry = {
               type: item.type || 'workout',
               date: itemDate,
-              title: item.title || 'Shared Item',
+              title: item.title || 'Workout',
               subtitle: item.subtitle || '',
-              data: workoutData, // This is already the workout/nutrition/health object
+              data: item.data || { workout: {} }, // Already in correct format: { workout: {...} }
               shared: true,
-              timestamp: item.created_at || item.timestamp || new Date(itemDate + 'T12:00').toISOString(),
+              timestamp: item.created_at || new Date(itemDate + 'T12:00').toISOString(),
               authorId: authorId,
               authorName: authorName,
               authorProfile: userProfile,
               isOwnPost: isOwnPost
             }
-            // Add shared item to logs
             logs.push(logEntry)
           })
         }
       } catch (e) {
-        logError('Error loading shared items', e)
+        logError('Error loading feed items', e)
       }
-
-      // All workouts are now automatically shared via getSocialFeedItems
-      // No need to load workouts separately - they're all in the feed now
-
-      // Fetch recent meals
-      try {
-        const nutritionData = await getNutritionRangeFromSupabase(userId, startDate, today)
-        if (nutritionData && nutritionData.length > 0) {
-          nutritionData.forEach(day => {
-            if (day.meals && day.meals.length > 0) {
-              day.meals.forEach(meal => {
-                logs.push({
-                  type: 'meal',
-                  date: day.date,
-                  title: meal.name || 'Meal',
-                  subtitle: `${meal.calories || 0} calories`,
-                  data: meal,
-                  shared: false,
-                  timestamp: meal.created_at ? new Date(meal.created_at).toISOString() : new Date(day.date + 'T12:00').toISOString()
-                })
-              })
-            }
-          })
-        }
-      } catch (e) {
-        logError('Error loading meals for feed', e)
-      }
-
-      // Fetch recent health metrics
-      try {
-        const metrics = await getMetricsFromSupabase(userId, startDate, today)
-        if (metrics && metrics.length > 0) {
-          metrics.forEach(metric => {
-            if (metric.steps || metric.weight || metric.hrv || metric.sleep_time) {
-              const parts = []
-              if (metric.steps) parts.push(`${metric.steps.toLocaleString()} steps`)
-              if (metric.weight) parts.push(`${metric.weight}lbs`)
-              if (metric.hrv) parts.push(`HRV: ${Math.round(metric.hrv)}ms`)
-              if (metric.sleep_time) {
-                const h = Math.floor(metric.sleep_time / 60)
-                const m = Math.round(metric.sleep_time % 60)
-                parts.push(`Sleep: ${h}:${m.toString().padStart(2, '0')}`)
-              }
-              if (parts.length > 0) {
-                logs.push({
-                  type: 'health',
-                  date: metric.date,
-                  title: 'Health Metrics',
-                  subtitle: parts.join(' • '),
-                  data: metric,
-                  shared: false,
-                  timestamp: metric.created_at ? new Date(metric.created_at).toISOString() : new Date(metric.date + 'T12:00').toISOString()
-                })
-              }
-            }
-          })
-        }
-      } catch (e) {
-        logError('Error loading health metrics for feed', e)
-      }
-
-      // Sort by timestamp/date (newest first) and limit to 20
+      
+      // Sort by timestamp (newest first) - should already be sorted but ensure it
       logs.sort((a, b) => {
-        const dateA = a.timestamp ? new Date(a.timestamp) : new Date(a.date + 'T' + (a.data?.time || '12:00'))
-        const dateB = b.timestamp ? new Date(b.timestamp) : new Date(b.date + 'T' + (b.data?.time || '12:00'))
+        const dateA = new Date(a.timestamp || a.date)
+        const dateB = new Date(b.timestamp || b.date)
         return dateB - dateA
       })
-      const sortedLogs = logs.slice(0, 20)
-      setRecentLogs(sortedLogs)
       
-    } catch (e) {
-      logError('Error loading recent logs', e)
+      setRecentLogs(logs)
+      setLoading(false)
+    } catch (error) {
+      logError('Error in loadRecentLogs', error)
       setRecentLogs([])
+      setLoading(false)
     }
   }
 
@@ -442,76 +319,43 @@ export default function Home() {
           ) : (
             <div className={styles.feedList}>
               {recentLogs.map((log, index) => {
-                // Show ShareCard for shared workouts, nutrition, and health items
-                if (log.shared && (log.type === 'workout' || log.type === 'nutrition' || log.type === 'health')) {
-                  // Ensure data exists and has the correct structure
-                  if (!log.data) {
-                    return null
-                  }
-                  
+                // ALL items in feed are workouts displayed as ShareCards (Twitter-like)
+                if (log.type === 'workout' && log.data) {
                   return (
-                    <div key={`${log.type}-${log.date}-${index}-shared`} className={styles.feedCardItem}>
-                      {/* Show author for all posts (including own) */}
-                      {(log.authorName || log.isOwnPost) && (
-                        <div className={styles.feedAuthor}>
-                          {log.authorProfile?.profile_picture ? (
-                            <img 
-                              src={log.authorProfile.profile_picture} 
-                              alt={log.authorName || 'You'}
-                              className={styles.authorAvatar}
-                            />
-                          ) : (
-                            <div className={styles.authorAvatarPlaceholder}>
-                              {(log.authorName || 'You')[0].toUpperCase()}
-                            </div>
-                          )}
-                          <div className={styles.authorInfo}>
-                            <span className={styles.authorName}>
-                              {log.isOwnPost ? 'You' : (log.authorName || 'User')}
-                            </span>
-                            <span className={styles.authorTimestamp}>
-                              {formatDate(log.date)} · {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}
-                            </span>
+                    <div key={`workout-${log.date}-${index}-${log.authorId || 'unknown'}`} className={styles.feedCardItem}>
+                      {/* Show author header (Twitter-style) */}
+                      <div className={styles.feedAuthor}>
+                        {log.authorProfile?.profile_picture ? (
+                          <img 
+                            src={log.authorProfile.profile_picture} 
+                            alt={log.authorName || 'You'}
+                            className={styles.authorAvatar}
+                          />
+                        ) : (
+                          <div className={styles.authorAvatarPlaceholder}>
+                            {(log.authorName || 'You')[0].toUpperCase()}
                           </div>
+                        )}
+                        <div className={styles.authorInfo}>
+                          <span className={styles.authorName}>
+                            {log.isOwnPost ? 'You' : (log.authorName || 'User')}
+                          </span>
+                          <span className={styles.authorTimestamp}>
+                            {formatDate(log.date)} · {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}
+                          </span>
                         </div>
-                      )}
+                      </div>
+                      {/* Show ShareCard for workout */}
                       <ShareCard 
-                        type={log.type} 
-                        data={
-                          log.type === 'workout' 
-                            ? { workout: log.data }
-                            : log.type === 'nutrition'
-                            ? { nutrition: log.data }
-                            : { health: log.data }
-                        } 
+                        type="workout" 
+                        data={log.data}
                       />
                     </div>
                   )
                 }
                 
-                // Show regular feed item for non-shared items
-                return (
-                  <div key={`${log.type}-${log.date}-${index}-${log.shared ? 'shared' : ''}`} className={styles.feedItem}>
-                    <div className={styles.feedItemIcon}>
-                      {profilePicture ? (
-                        <img src={profilePicture} alt="Profile" />
-                      ) : (
-                        log.type === 'workout' ? 'W' : log.type === 'meal' ? 'M' : 'H'
-                      )}
-                    </div>
-                    <div className={styles.feedItemContent}>
-                      <div className={styles.feedItemHeader}>
-                        <span className={styles.feedItemType}>{getTypeLabel(log.type)}</span>
-                        <span className={styles.feedItemDate}>· {formatDate(log.date)}</span>
-                        {log.shared && <span className={styles.feedItemShared}>· Shared</span>}
-                      </div>
-                      <div className={styles.feedItemTitle}>{log.title}</div>
-                      {log.subtitle && (
-                        <div className={styles.feedItemSubtitle}>{log.subtitle}</div>
-                      )}
-                    </div>
-                  </div>
-                )
+                // Fallback for any non-workout items (shouldn't happen, but just in case)
+                return null
               })}
             </div>
           )}

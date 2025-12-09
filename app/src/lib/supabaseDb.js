@@ -1266,159 +1266,158 @@ export async function getFeedItemsFromSupabase(userId, limit = 50) {
 }
 
 /**
- * Get feed items including friends (for social feed)
- * Now includes ALL workouts from workouts table + feed_items
- * Uses RLS policies to automatically filter by visibility
+ * Get feed items - SIMPLIFIED: Just get ALL workouts from database
+ * Display them in Twitter-like feed format
  */
-export async function getSocialFeedItems(userId, filter = 'all', limit = 50) {
+export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
   try {
-    const feedItems = []
-    
-    // 1. Get feed items from feed_items table
-    try {
-      let query = supabase
-        .from('feed_items')
-        .select(`
+    // Build query to get ALL workouts with exercises and sets
+    let workoutQuery = supabase
+      .from('workouts')
+      .select(`
+        *,
+        workout_exercises (
           *,
-          user_profiles!feed_items_user_id_fkey(
-            user_id,
-            username,
-            display_name,
-            profile_picture
-          )
-        `)
-        .eq('shared', true)
-        .order('created_at', { ascending: false })
-        .limit(limit * 2) // Get more to account for workouts
+          workout_sets (*)
+        )
+      `)
+      .order('created_at', { ascending: false })
+      .limit(limit)
 
-      // Filter by visibility - RLS policies handle friends visibility
-      if (filter === 'me') {
-        query = query.eq('user_id', userId)
-      } else if (filter === 'friends') {
-        // RLS policy will handle showing only friends' posts
-        query = query.neq('user_id', userId) // Exclude own posts
-      }
-      // 'all' shows everything (own + friends + public) - RLS handles this
-
-      const { data, error } = await query
-
-      if (!error && data) {
-        feedItems.push(...data)
-      }
-    } catch (feedError) {
-      // Silently fail if feed_items table doesn't exist
-      if (feedError.code !== 'PGRST205' && !feedError.message?.includes('Could not find the table')) {
-        safeLogDebug('Error loading feed_items', feedError)
-      }
-    }
-
-    // 2. Get ALL workouts from workouts table (they're all public by default)
-    try {
-      let workoutQuery = supabase
-        .from('workouts')
-        .select(`
-          *,
-          workout_exercises (
-            *,
-            workout_sets (*)
-          )
-        `)
-        .order('created_at', { ascending: false })
-        .limit(limit * 2)
-
-      // Apply filter
-      if (filter === 'me') {
-        workoutQuery = workoutQuery.eq('user_id', userId)
-      } else if (filter === 'friends') {
-        // For friends filter, we need to get friend IDs first
-        // RLS will handle this, but we can also filter client-side
-        workoutQuery = workoutQuery.neq('user_id', userId)
-      }
-      // 'all' shows all workouts
-
-      const { data: workouts, error: workoutError } = await workoutQuery
-
-      if (!workoutError && workouts && workouts.length > 0) {
-        // Get unique user IDs from workouts (with null check)
-        const userIds = [...new Set(workouts.map(w => w?.user_id).filter(id => id != null))]
+    // Apply filter
+    if (filter === 'me') {
+      workoutQuery = workoutQuery.eq('user_id', userId)
+    } else if (filter === 'friends') {
+      // Get friend IDs first
+      try {
+        const { data: friends } = await supabase
+          .from('friends')
+          .select('friend_id')
+          .eq('user_id', userId)
+          .eq('status', 'accepted')
         
-        // Fetch user profiles for all users
-        let userProfiles = {}
-        try {
-          const { data: profiles } = await supabase
-            .from('user_profiles')
-            .select('user_id, username, display_name, profile_picture')
-            .in('user_id', userIds)
-          
-          if (profiles) {
-            profiles.forEach(profile => {
-              userProfiles[profile.user_id] = profile
-            })
-          }
-        } catch (profileError) {
-          safeLogDebug('Error loading user profiles for workouts', profileError)
+        const friendIds = friends?.map(f => f.friend_id) || []
+        if (friendIds.length > 0) {
+          workoutQuery = workoutQuery.in('user_id', friendIds)
+        } else {
+          // No friends, return empty
+          return []
         }
-
-        // Create Set for O(1) duplicate checking (optimize from O(n²) to O(n))
-        const feedItemKeys = new Set()
-        feedItems.forEach(item => {
-          if (item.type === 'workout' && item.user_id && item.date && item.created_at) {
-            const key = `${item.user_id}_${item.date}_${new Date(item.created_at).getTime()}`
-            feedItemKeys.add(key)
-          }
-        })
-        
-        // Transform workouts to feed item format
-        workouts.forEach(workout => {
-          if (!workout || !workout.user_id || !workout.date || !workout.created_at) {
-            return // Skip invalid workouts
-          }
-          
-          const minutes = Math.floor((workout.duration || 0) / 60)
-          const seconds = (workout.duration || 0) % 60
-          
-          // O(1) duplicate check using Set
-          const workoutKey = `${workout.user_id}_${workout.date}_${new Date(workout.created_at).getTime()}`
-          const existsInFeed = feedItemKeys.has(workoutKey)
-          
-          if (!existsInFeed) {
-            const feedItem = {
-              id: `workout_${workout.id}`,
-              user_id: workout.user_id,
-              type: 'workout',
-              date: workout.date,
-              title: workout.template_name || 'Freestyle Workout',
-              subtitle: `${minutes}:${String(seconds).padStart(2, '0')}`,
-              data: workout,
-              shared: true,
-              visibility: 'public',
-              created_at: workout.created_at,
-              user_profiles: userProfiles[workout.user_id] || null
-            }
-            feedItems.push(feedItem)
-            feedItemKeys.add(workoutKey) // Add to set to prevent duplicates in same batch
-          }
-        })
+      } catch (friendError) {
+        safeLogDebug('Error loading friends for feed', friendError)
+        return []
       }
-    } catch (workoutError) {
-      safeLogDebug('Error loading workouts for feed', workoutError)
+    }
+    // 'all' shows all workouts
+
+    const { data: workouts, error: workoutError } = await workoutQuery
+
+    if (workoutError) {
+      logError('Error loading workouts for feed', workoutError)
+      return []
     }
 
-    // Sort by created_at (newest first) and limit
-    feedItems.sort((a, b) => {
-      const dateA = new Date(a.created_at || a.timestamp || 0)
-      const dateB = new Date(b.created_at || b.timestamp || 0)
-      return dateB - dateA
-    })
+    if (!workouts || workouts.length === 0) {
+      return []
+    }
 
-    return feedItems.slice(0, limit)
+    // Get unique user IDs from workouts
+    const userIds = [...new Set(workouts.map(w => w?.user_id).filter(id => id != null))]
+    
+    // Fetch user profiles for all users
+    let userProfiles = {}
+    if (userIds.length > 0) {
+      try {
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('user_id, username, display_name, profile_picture')
+          .in('user_id', userIds)
+        
+        if (profiles) {
+          profiles.forEach(profile => {
+            userProfiles[profile.user_id] = profile
+          })
+        }
+      } catch (profileError) {
+        safeLogDebug('Error loading user profiles for workouts', profileError)
+      }
+    }
+    
+    // Transform workouts to feed item format
+    const feedItems = workouts
+      .filter(workout => {
+        // Only include workouts with valid data
+        if (!workout || !workout.user_id || !workout.date || !workout.created_at) {
+          return false
+        }
+        // Must have exercises with sets
+        if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
+          return false
+        }
+        // Must have at least one exercise with valid sets
+        return workout.workout_exercises.some(ex => 
+          ex.workout_sets && ex.workout_sets.length > 0 && 
+          ex.workout_sets.some(s => s.weight || s.reps || s.time)
+        )
+      })
+      .map(workout => {
+        // Transform workout_exercises to exercises format for ShareCard
+        const exercises = (workout.workout_exercises || []).map(ex => ({
+          id: ex.id,
+          name: ex.exercise_name || ex.name,
+          category: ex.category,
+          bodyPart: ex.body_part || ex.bodyPart,
+          equipment: ex.equipment,
+          stacked: ex.stacked || false,
+          stackGroup: ex.stack_group || ex.stackGroup || null,
+          sets: (ex.workout_sets || []).map(set => ({
+            weight: set.weight,
+            reps: set.reps,
+            time: set.time,
+            speed: set.speed,
+            incline: set.incline
+          }))
+        }))
+
+        const minutes = Math.floor((workout.duration || 0) / 60)
+        const seconds = (workout.duration || 0) % 60
+
+        return {
+          id: `workout_${workout.id}`,
+          user_id: workout.user_id,
+          type: 'workout',
+          date: workout.date,
+          title: workout.template_name || 'Freestyle Workout',
+          subtitle: `${minutes}:${String(seconds).padStart(2, '0')}`,
+          data: {
+            workout: {
+              id: workout.id,
+              date: workout.date,
+              duration: workout.duration || 0,
+              exercises: exercises,
+              templateName: workout.template_name || 'Freestyle Workout',
+              perceivedEffort: workout.perceived_effort,
+              moodAfter: workout.mood_after,
+              notes: workout.notes
+            }
+          },
+          shared: true,
+          visibility: 'public',
+          created_at: workout.created_at,
+          user_profiles: userProfiles[workout.user_id] || null
+        }
+      })
+
+    // Already sorted by created_at DESC from query, just return
+    return feedItems
   } catch (error) {
+    logError('Error in getSocialFeedItems', error)
     // If table doesn't exist, return empty array
     if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
       safeLogDebug('Tables do not exist yet - migration not run')
       return []
     }
-    throw error
+    return []
   }
 }
 

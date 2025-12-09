@@ -2042,26 +2042,40 @@ h1 {
   }
   
   .historyTable {
-    overflow-x: visible;
+    overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    margin-left: 0;
+    margin-right: 0;
+    width: 100%;
+    max-width: 100vw;
+    padding-left: 0;
+    padding-right: 0;
   }
   
   .historyTableHeader,
   .historyTableRow {
     width: 100%;
-    grid-template-columns: minmax(60px, 2fr) minmax(40px, 1fr) minmax(40px, 1fr) minmax(40px, 1fr) minmax(40px, 1fr) minmax(80px, 1.5fr);
+    min-width: 100%;
+    grid-template-columns: minmax(50px, 1.5fr) minmax(35px, 0.9fr) minmax(35px, 0.9fr) minmax(35px, 0.9fr) minmax(35px, 0.9fr) minmax(70px, 1.3fr);
+    gap: clamp(2px, 1vw, 8px);
+    padding: var(--space-xs) clamp(4px, 1.5vw, var(--space-sm));
+  }
+  
+  .historyTableCol {
+    font-size: clamp(8px, 1.8vw, 10px);
+    padding: 0 clamp(1px, 0.5vw, 3px);
   }
   
   .historyTableCol.actionsCol {
-    gap: clamp(2px, 1vw, 6px);
+    gap: clamp(2px, 1vw, 4px);
     flex-shrink: 0;
   }
   
   .deleteBtn {
-    padding: clamp(3px, 1vw, 6px) clamp(6px, 1.5vw, 10px);
-    font-size: clamp(8px, 1.8vw, 11px);
-    min-width: clamp(35px, 10vw, 50px);
-    min-height: clamp(24px, 6vw, 32px);
+    padding: clamp(2px, 0.8vw, 5px) clamp(4px, 1.2vw, 8px);
+    font-size: clamp(7px, 1.6vw, 10px);
+    min-width: clamp(30px, 8vw, 45px);
+    min-height: clamp(20px, 5vw, 28px);
   }
   
   .mealCard {

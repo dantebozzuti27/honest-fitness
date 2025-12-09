@@ -240,14 +240,23 @@ export default function Home() {
   }
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString)
+    if (!dateString) return ''
+    // Parse YYYY-MM-DD date string in local timezone (not UTC)
+    const [year, month, day] = dateString.split('-').map(Number)
+    const date = new Date(year, month - 1, day)
+    
     const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
     const yesterday = new Date(today)
     yesterday.setDate(yesterday.getDate() - 1)
+    
+    const compareDate = new Date(date)
+    compareDate.setHours(0, 0, 0, 0)
 
-    if (date.toDateString() === today.toDateString()) {
+    if (compareDate.getTime() === today.getTime()) {
       return 'Today'
-    } else if (date.toDateString() === yesterday.toDateString()) {
+    } else if (compareDate.getTime() === yesterday.getTime()) {
       return 'Yesterday'
     } else {
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })

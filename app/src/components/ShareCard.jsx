@@ -59,21 +59,21 @@ export default function ShareCard({ type, data }) {
     
     const totalExercises = validExercises.length
     
-    // Card dimensions: ~500px width, ~600px height
-    // Header: ~60px, stat+count: ~80px, padding: ~32px
-    // Available for grid: ~428px height, ~468px width (more space since date moved to header)
-    const cardWidth = 500
-    const cardHeight = 600
-    const headerHeight = 60
-    const topSectionHeight = 80 // Reduced since date is in header now
-    const padding = 32
+    // Card dimensions: 300px x 300px (square, smaller)
+    // Header: ~40px, stat+count: ~50px, padding: ~20px
+    // Available for grid: ~190px height, ~260px width
+    const cardWidth = 300
+    const cardHeight = 300
+    const headerHeight = 40
+    const topSectionHeight = 50 // Reduced since date is in header now
+    const padding = 20
     const availableWidth = cardWidth - padding * 2
-    const availableHeightForGrid = cardHeight - headerHeight - topSectionHeight - padding - 16 // Extra 16px for bottom padding
+    const availableHeightForGrid = cardHeight - headerHeight - topSectionHeight - padding - 10 // Extra 10px for bottom padding
     
     // Use CSS Grid with auto-fit and minmax for responsive columns
-    // Minimum column width: 100px (enough for most exercise names with truncation)
+    // Minimum column width: 70px (reduced for smaller card)
     // Maximum: 1fr (equal distribution)
-    const minColumnWidth = 100
+    const minColumnWidth = 70
     const maxColumnsByWidth = Math.floor(availableWidth / minColumnWidth)
     
     // Calculate optimal columns to fit all exercises
@@ -84,9 +84,9 @@ export default function ShareCard({ type, data }) {
     const rows = Math.ceil(totalExercises / optimalColumns)
     
     // Calculate if we can fit all rows in available height
-    // Base item height: padding(8px*2) + name(12px*1.2) + setsReps(10px*1.2) + gap(2px) = ~40px
-    const baseItemHeight = 40
-    const gridGapBetweenRows = 6
+    // Base item height: padding(6px*2) + name(10px*1.2) + setsReps(8px*1.2) + gap(2px) = ~30px (reduced for smaller card)
+    const baseItemHeight = 30
+    const gridGapBetweenRows = 4
     const totalHeightNeeded = (rows * baseItemHeight) + ((rows - 1) * gridGapBetweenRows)
     
     // If we need more height than available, reduce columns to fit more rows
@@ -115,8 +115,8 @@ export default function ShareCard({ type, data }) {
     }
     
     // Calculate sizes with scale factor, ensuring minimum readability
-    const exerciseNameSize = Math.max(10, Math.floor(12 * scaleFactor)) // Min 10px
-    const setsRepsSize = Math.max(8, Math.floor(10 * scaleFactor)) // Min 8px
+    const exerciseNameSize = Math.max(8, Math.floor(10 * scaleFactor)) // Min 8px (reduced for smaller card)
+    const setsRepsSize = Math.max(7, Math.floor(8 * scaleFactor)) // Min 7px (reduced for smaller card)
     const itemPadding = Math.max(6, Math.floor(8 * scaleFactor))
     const itemGap = Math.max(2, Math.floor(2 * scaleFactor))
     const gridGap = Math.max(4, Math.floor(6 * scaleFactor))

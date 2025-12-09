@@ -1150,7 +1150,8 @@ export async function saveFeedItemToSupabase(feedItem, userId) {
         title: feedItem.title,
         subtitle: feedItem.subtitle || null,
         data: feedItem.data,
-        shared: feedItem.shared !== false // Default to true
+        shared: feedItem.shared !== false, // Default to true
+        visibility: feedItem.visibility || 'public' // Default to public
       })
       .select()
       .single()
@@ -1168,7 +1169,7 @@ export async function saveFeedItemToSupabase(feedItem, userId) {
 }
 
 /**
- * Get feed items for a user
+ * Get feed items for a user (own items only)
  */
 export async function getFeedItemsFromSupabase(userId, limit = 50) {
   try {
@@ -1179,6 +1180,55 @@ export async function getFeedItemsFromSupabase(userId, limit = 50) {
       .eq('shared', true)
       .order('created_at', { ascending: false })
       .limit(limit)
+
+    // If table doesn't exist (migration not run), return empty array gracefully
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('feed_items table does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    // If table doesn't exist, return empty array
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('feed_items table does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+/**
+ * Get feed items including friends (for social feed)
+ * Uses RLS policies to automatically filter by visibility
+ */
+export async function getSocialFeedItems(userId, filter = 'all', limit = 50) {
+  try {
+    let query = supabase
+      .from('feed_items')
+      .select(`
+        *,
+        user_profiles!feed_items_user_id_fkey(
+          user_id,
+          username,
+          display_name,
+          profile_picture
+        )
+      `)
+      .eq('shared', true)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    // Filter by visibility - RLS policies handle friends visibility
+    if (filter === 'me') {
+      query = query.eq('user_id', userId)
+    } else if (filter === 'friends') {
+      // RLS policy will handle showing only friends' posts
+      query = query.neq('user_id', userId) // Exclude own posts
+    }
+    // 'all' shows everything (own + friends + public) - RLS handles this
+
+    const { data, error } = await query
 
     // If table doesn't exist (migration not run), return empty array gracefully
     if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {

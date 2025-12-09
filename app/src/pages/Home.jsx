@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences, getFeedItemsFromSupabase } from '../lib/supabaseDb'
+import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences, getSocialFeedItems } from '../lib/supabaseDb'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
@@ -10,6 +10,7 @@ import { logError } from '../utils/logger'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import ShareCard from '../components/ShareCard'
+import AddFriend from '../components/AddFriend'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -20,6 +21,8 @@ export default function Home() {
   const [fitbitSteps, setFitbitSteps] = useState(null)
   const [recentLogs, setRecentLogs] = useState([])
   const [profilePicture, setProfilePicture] = useState(null)
+  const [feedFilter, setFeedFilter] = useState('all') // 'all', 'me', 'friends'
+  const [showAddFriend, setShowAddFriend] = useState(false)
 
   const loadRecentLogs = async (userId) => {
     try {
@@ -27,14 +30,14 @@ export default function Home() {
       const today = getTodayEST()
       const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
-      // Load shared feed items from database FIRST (so they appear at top)
+      // Load shared feed items from database (social feed with friends)
       try {
         let sharedItems = []
         
-        // Try database first
+        // Try database first (social feed)
         if (userId) {
           try {
-            sharedItems = await getFeedItemsFromSupabase(userId, 50)
+            sharedItems = await getSocialFeedItems(userId, feedFilter, 50)
           } catch (dbError) {
             // If database fails, fallback to localStorage
             // Silently ignore PGRST205 errors (table doesn't exist)
@@ -54,6 +57,12 @@ export default function Home() {
             const itemDate = item.created_at 
               ? new Date(item.created_at).toISOString().split('T')[0] 
               : (item.timestamp ? new Date(item.timestamp).toISOString().split('T')[0] : (item.date || today))
+            
+            // Get user profile info if available
+            const userProfile = item.user_profiles || null
+            const authorName = userProfile?.display_name || userProfile?.username || 'User'
+            const authorId = item.user_id
+            const isOwnPost = authorId === userId
             
             // Ensure workout data has correct structure for ShareCard
             let workoutData = item.data || {}
@@ -107,7 +116,11 @@ export default function Home() {
               subtitle: item.subtitle || '',
               data: workoutData, // This is already the workout/nutrition/health object
               shared: true,
-              timestamp: item.created_at || item.timestamp || new Date(itemDate + 'T12:00').toISOString()
+              timestamp: item.created_at || item.timestamp || new Date(itemDate + 'T12:00').toISOString(),
+              authorId: authorId,
+              authorName: authorName,
+              authorProfile: userProfile,
+              isOwnPost: isOwnPost
             }
             // Add shared item to logs
             logs.push(logEntry)
@@ -346,7 +359,7 @@ export default function Home() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('feedUpdated', handleFeedUpdate)
     }
-  }, [user, navigate])
+  }, [user, navigate, feedFilter]) // Add feedFilter to dependencies
 
 
   if (loading) {
@@ -394,7 +407,38 @@ export default function Home() {
       <div className={styles.content}>
         {/* Recent Activity Feed */}
         <div className={styles.feed}>
-          <h2 className={styles.feedTitle}>Recent Activity</h2>
+          <div className={styles.feedHeader}>
+            <h2 className={styles.feedTitle}>Recent Activity</h2>
+            <button 
+              className={styles.addFriendBtn}
+              onClick={() => setShowAddFriend(true)}
+              aria-label="Add Friend"
+            >
+              + Add Friend
+            </button>
+          </div>
+          
+          {/* Feed Filters */}
+          <div className={styles.feedFilters}>
+            <button
+              className={`${styles.filterBtn} ${feedFilter === 'all' ? styles.active : ''}`}
+              onClick={() => setFeedFilter('all')}
+            >
+              All
+            </button>
+            <button
+              className={`${styles.filterBtn} ${feedFilter === 'me' ? styles.active : ''}`}
+              onClick={() => setFeedFilter('me')}
+            >
+              Me
+            </button>
+            <button
+              className={`${styles.filterBtn} ${feedFilter === 'friends' ? styles.active : ''}`}
+              onClick={() => setFeedFilter('friends')}
+            >
+              Friends
+            </button>
+          </div>
           {loading ? (
             <div className={styles.emptyFeed}>
               <p>Loading...</p>
@@ -417,6 +461,22 @@ export default function Home() {
                   
                   return (
                     <div key={`${log.type}-${log.date}-${index}-shared`} className={styles.feedCardItem}>
+                      {!log.isOwnPost && log.authorName && (
+                        <div className={styles.feedAuthor}>
+                          {log.authorProfile?.profile_picture ? (
+                            <img 
+                              src={log.authorProfile.profile_picture} 
+                              alt={log.authorName}
+                              className={styles.authorAvatar}
+                            />
+                          ) : (
+                            <div className={styles.authorAvatarPlaceholder}>
+                              {log.authorName[0].toUpperCase()}
+                            </div>
+                          )}
+                          <span className={styles.authorName}>{log.authorName}</span>
+                        </div>
+                      )}
                       <ShareCard 
                         type={log.type} 
                         data={
@@ -460,6 +520,17 @@ export default function Home() {
         </div>
       </div>
 
+      {showAddFriend && (
+        <AddFriend 
+          onClose={() => setShowAddFriend(false)}
+          onFriendAdded={() => {
+            setShowAddFriend(false)
+            if (user) {
+              loadRecentLogs(user.id)
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

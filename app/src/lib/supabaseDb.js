@@ -1271,6 +1271,8 @@ export async function getFeedItemsFromSupabase(userId, limit = 50) {
  */
 export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
   try {
+    console.log('[FEED DEBUG] getSocialFeedItems called:', { userId, filter, limit })
+    
     // Build query to get ALL workouts with exercises and sets
     let workoutQuery = supabase
       .from('workouts')
@@ -1287,6 +1289,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
     // Apply filter
     if (filter === 'me') {
       workoutQuery = workoutQuery.eq('user_id', userId)
+      console.log('[FEED DEBUG] Filter: me - showing only user workouts')
     } else if (filter === 'friends') {
       // Get friend IDs first
       try {
@@ -1308,18 +1311,34 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
         return []
       }
     }
-    // 'all' shows all workouts
+    // 'all' shows all workouts - but for now, default to user's workouts
+    // When RLS is properly configured for public workouts, 'all' can show everyone's
+    if (filter === 'all') {
+      // For now, show user's workouts when filter is 'all' (until RLS is configured)
+      workoutQuery = workoutQuery.eq('user_id', userId)
+      console.log('[FEED DEBUG] Filter: all - showing user workouts')
+    }
 
     const { data: workouts, error: workoutError } = await workoutQuery
 
+    console.log('[FEED DEBUG] Workouts query result:', { 
+      count: workouts?.length || 0, 
+      error: workoutError?.message,
+      sample: workouts?.[0] 
+    })
+
     if (workoutError) {
+      console.error('[FEED DEBUG] Workout query error:', workoutError)
       logError('Error loading workouts for feed', workoutError)
       return []
     }
 
     if (!workouts || workouts.length === 0) {
+      console.log('[FEED DEBUG] No workouts found in database')
       return []
     }
+
+    console.log('[FEED DEBUG] Found workouts:', workouts.length)
 
     // Get unique user IDs from workouts
     const userIds = [...new Set(workouts.map(w => w?.user_id).filter(id => id != null))]
@@ -1348,17 +1367,23 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
       .filter(workout => {
         // Only include workouts with valid data
         if (!workout || !workout.user_id || !workout.date || !workout.created_at) {
+          console.log('[FEED DEBUG] Filtered out workout - missing basic fields:', workout?.id)
           return false
         }
         // Must have exercises with sets
         if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
+          console.log('[FEED DEBUG] Filtered out workout - no exercises:', workout.id)
           return false
         }
         // Must have at least one exercise with valid sets
-        return workout.workout_exercises.some(ex => 
+        const hasValidSets = workout.workout_exercises.some(ex => 
           ex.workout_sets && ex.workout_sets.length > 0 && 
           ex.workout_sets.some(s => s.weight || s.reps || s.time)
         )
+        if (!hasValidSets) {
+          console.log('[FEED DEBUG] Filtered out workout - no valid sets:', workout.id)
+        }
+        return hasValidSets
       })
       .map(workout => {
         // Transform workout_exercises to exercises format for ShareCard
@@ -1408,6 +1433,11 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
         }
       })
 
+    console.log('[FEED DEBUG] Final feedItems count:', feedItems.length)
+    if (feedItems.length > 0) {
+      console.log('[FEED DEBUG] Sample feedItem:', feedItems[0])
+    }
+    
     // Already sorted by created_at DESC from query, just return
     return feedItems
   } catch (error) {

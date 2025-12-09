@@ -27,6 +27,14 @@ export default function Home() {
   const [showAddFriend, setShowAddFriend] = useState(false)
   const [showFriendRequests, setShowFriendRequests] = useState(false)
   const [pendingRequestCount, setPendingRequestCount] = useState(0)
+  
+  // Reload feed when filter changes
+  useEffect(() => {
+    if (user) {
+      console.log('[FEED DEBUG] Filter changed, reloading feed:', feedFilter)
+      loadRecentLogs(user.id)
+    }
+  }, [feedFilter, user])
 
   const loadRecentLogs = async (userId) => {
     try {
@@ -40,9 +48,12 @@ export default function Home() {
 
       // SIMPLIFIED: Just get workouts from feed - that's all we need
       try {
+        console.log('[FEED DEBUG] Loading feed with filter:', feedFilter, 'userId:', userId)
         const feedItems = await getSocialFeedItems(userId, feedFilter, 100)
+        console.log('[FEED DEBUG] Received feedItems:', feedItems?.length || 0)
         
         if (feedItems && feedItems.length > 0) {
+          console.log('[FEED DEBUG] Processing', feedItems.length, 'feed items')
           feedItems.forEach((item) => {
             // Get user profile info
             const userProfile = item.user_profiles || null
@@ -83,6 +94,11 @@ export default function Home() {
         const dateB = new Date(b.timestamp || b.date)
         return dateB - dateA
       })
+      
+      console.log('[FEED DEBUG] Final logs count:', logs.length)
+      if (logs.length > 0) {
+        console.log('[FEED DEBUG] Sample log entry:', logs[0])
+      }
       
       setRecentLogs(logs)
       setLoading(false)

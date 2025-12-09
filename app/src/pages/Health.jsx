@@ -109,9 +109,15 @@ export default function Health() {
     
     setLoading(true)
     try {
-      // Load readiness score
-      const readinessData = await getReadinessScore(user.id)
-      setReadiness(readinessData)
+      // Load readiness score (gracefully handle errors)
+      try {
+        const readinessData = await getReadinessScore(user.id)
+        setReadiness(readinessData)
+      } catch (error) {
+        // Silently fail - readiness is optional
+        logError('Error loading readiness score', error)
+        setReadiness(null)
+      }
 
       // Load workouts
       const allWorkouts = await getWorkoutsFromSupabase(user.id)
@@ -216,7 +222,7 @@ export default function Health() {
       // Load metrics from health_metrics table (includes Fitbit, Oura, and manual data)
       const allMetrics = await getAllMetricsFromSupabase(user.id)
       
-      console.log('Loaded metrics from database:', allMetrics?.length || 0, 'records')
+      safeLogDebug('Loaded metrics from database', { count: allMetrics?.length || 0 })
       
       // Transform health_metrics data to match UI expectations
       // health_metrics uses: sleep_duration, calories_burned
@@ -251,10 +257,10 @@ export default function Health() {
         }
       })
       
-      console.log('Transformed metrics:', transformedMetrics.length)
+      safeLogDebug('Transformed metrics', { count: transformedMetrics.length })
       const today = getTodayEST()
       const todayMetric = transformedMetrics.find(m => m.date === today)
-      console.log('Today metric:', todayMetric)
+      safeLogDebug('Today metric', todayMetric)
       
       // Sort by date descending (newest first)
       transformedMetrics.sort((a, b) => {

@@ -247,7 +247,15 @@ function shareWorkoutToFeedLocalStorage(workout) {
       timestamp: new Date().toISOString()
     }
 
-    const existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+    let existing = []
+    try {
+      existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+    } catch (parseError) {
+      console.error('Error parsing localStorage feed data', parseError)
+      localStorage.removeItem('sharedToFeed')
+      existing = []
+    }
+    
     const now = new Date()
     const itemTime = new Date(feedItem.timestamp)
     const isDuplicate = existing.some(item => {

@@ -61,7 +61,10 @@ export function connectFitbit(userId) {
   
   const authUrl = getFitbitAuthUrl(userId)
   if (import.meta.env.DEV) {
-    console.log('Redirecting to Fitbit OAuth:', authUrl)
+    // Debug logging only in development
+    if (import.meta.env.DEV) {
+      console.log('Redirecting to Fitbit OAuth:', authUrl)
+    }
   }
   
   // Use window.location.assign for better error handling

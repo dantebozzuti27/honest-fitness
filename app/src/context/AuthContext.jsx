@@ -60,12 +60,29 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  const signUp = async (email, password) => {
+  const signUp = async (email, password, username, phoneNumber) => {
+    // Sign up user
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
     })
     if (error) throw error
+    
+    // Create user profile with username and phone number
+    if (data.user) {
+      try {
+        const { getOrCreateUserProfile } = await import('../lib/friendsDb')
+        await getOrCreateUserProfile(data.user.id, {
+          username,
+          phone_number: phoneNumber,
+          display_name: username // Default display name to username
+        })
+      } catch (profileError) {
+        // Log error but don't fail signup - profile can be created later
+        console.error('Error creating user profile:', profileError)
+      }
+    }
+    
     return data
   }
 

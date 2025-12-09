@@ -64,6 +64,12 @@
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
+.helperText {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: -4px;
+}
+
 .error {
   color: var(--danger);
   font-size: 13px;

@@ -38,12 +38,14 @@ export default function ActiveWorkout() {
   const [savedWorkout, setSavedWorkout] = useState(null)
   const [isPaused, setIsPaused] = useState(false)
   const [pausedTime, setPausedTime] = useState(0) // Accumulated paused time
+  const [isSaving, setIsSaving] = useState(false)
   const pauseStartTime = useRef(null)
   const workoutTimerRef = useRef(null)
   const restTimerRef = useRef(null)
   const workoutStartTimeRef = useRef(null)
   const restStartTimeRef = useRef(null)
   const restDurationRef = useRef(0)
+  const timeoutRefs = useRef([]) // Track all timeouts for cleanup
 
   useEffect(() => {
     let mounted = true
@@ -223,7 +225,8 @@ export default function ActiveWorkout() {
               clearInterval(restTimerRef.current)
               setIsResting(false)
               setShowTimesUp(true)
-              setTimeout(() => setShowTimesUp(false), 2000)
+              const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
+              timeoutRefs.current.push(timeoutId)
               localStorage.removeItem('restStartTime')
               localStorage.removeItem('restDuration')
             }
@@ -259,7 +262,8 @@ export default function ActiveWorkout() {
           if (remaining <= 0 && isResting) {
             setIsResting(false)
             setShowTimesUp(true)
-            setTimeout(() => setShowTimesUp(false), 2000)
+            const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
+            timeoutRefs.current.push(timeoutId)
             localStorage.removeItem('restStartTime')
             localStorage.removeItem('restDuration')
           }
@@ -272,6 +276,9 @@ export default function ActiveWorkout() {
       mounted = false
       clearInterval(workoutTimerRef.current)
       clearInterval(restTimerRef.current)
+      // Clear all timeouts
+      timeoutRefs.current.forEach(timeoutId => clearTimeout(timeoutId))
+      timeoutRefs.current = []
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [templateId, randomWorkout, user, isPaused])
@@ -295,14 +302,15 @@ export default function ActiveWorkout() {
         const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
         const remaining = Math.max(0, restDurationRef.current - elapsed)
         setRestTime(remaining)
-        if (remaining <= 0) {
-          clearInterval(restTimerRef.current)
-          setIsResting(false)
-          setShowTimesUp(true)
-          setTimeout(() => setShowTimesUp(false), 2000)
-          localStorage.removeItem('restStartTime')
-          localStorage.removeItem('restDuration')
-        }
+          if (remaining <= 0) {
+            clearInterval(restTimerRef.current)
+            setIsResting(false)
+            setShowTimesUp(true)
+            const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
+            timeoutRefs.current.push(timeoutId)
+            localStorage.removeItem('restStartTime')
+            localStorage.removeItem('restDuration')
+          }
       }
     }, 1000)
   }

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
 import { getUserPreferences, saveUserPreferences } from '../lib/supabaseDb'
+import { getUserProfile, updateUserProfile, getOrCreateUserProfile, getFriends, getFriendCount, getPendingFriendRequests } from '../lib/friendsDb'
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
 import HomeButton from '../components/HomeButton'
@@ -16,26 +17,52 @@ export default function Profile() {
   const [connectedAccounts, setConnectedAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [username, setUsername] = useState('')
+  const [phoneNumber, setPhoneNumber] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [bio, setBio] = useState('')
   const [profilePicture, setProfilePicture] = useState(null)
   const [profilePictureUrl, setProfilePictureUrl] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [friends, setFriends] = useState([])
+  const [friendCount, setFriendCount] = useState(0)
+  const [pendingRequests, setPendingRequests] = useState(0)
+  const [loadingSocial, setLoadingSocial] = useState(true)
 
   useEffect(() => {
     if (user) {
       loadConnectedAccounts()
       loadProfile()
+      loadSocialData()
     }
   }, [user])
 
   const loadProfile = async () => {
     if (!user) return
     try {
+      // Load user profile (username, phone, etc.)
+      let profile = await getUserProfile(user.id)
+      if (!profile) {
+        // Create profile if it doesn't exist
+        profile = await getOrCreateUserProfile(user.id, {
+          username: user.email?.split('@')[0] || `user_${user.id.slice(0, 8)}`,
+          phone_number: ''
+        })
+      }
+      
+      if (profile) {
+        setUsername(profile.username || '')
+        setPhoneNumber(profile.phone_number || '')
+        setDisplayName(profile.display_name || '')
+        setBio(profile.bio || '')
+        setProfilePictureUrl(profile.profile_picture || null)
+      }
+      
+      // Also load preferences for other settings
       const prefs = await getUserPreferences(user.id)
-      if (prefs) {
-        setUsername(prefs.username || '')
+      if (prefs && !profile?.profile_picture) {
         setProfilePictureUrl(prefs.profile_picture || null)
       }
     } catch (error) {
@@ -72,30 +99,75 @@ export default function Profile() {
 
   const handleSaveProfile = async () => {
     if (!user) return
+    
+    // Validate required fields
+    if (!username.trim()) {
+      alert('Username is required')
+      return
+    }
+    
+    if (!phoneNumber.trim()) {
+      alert('Phone number is required')
+      return
+    }
+    
+    // Validate username format
+    const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/
+    if (!usernameRegex.test(username.trim())) {
+      alert('Username must be 3-20 characters and contain only letters, numbers, underscores, or hyphens')
+      return
+    }
+    
+    // Validate phone number
+    const digitsOnly = phoneNumber.replace(/\D/g, '')
+    if (digitsOnly.length < 10) {
+      alert('Please enter a valid phone number')
+      return
+    }
+    
     setSaving(true)
     try {
+      // Update user profile (username, phone, display_name, bio, profile_picture)
+      await updateUserProfile(user.id, {
+        username: username.trim().toLowerCase(),
+        phone_number: phoneNumber.trim(),
+        display_name: displayName.trim() || null,
+        bio: bio.trim() || null,
+        profile_picture: profilePicture || profilePictureUrl || null
+      })
+      
+      // Also save profile picture to preferences for backward compatibility
       const prefs = await getUserPreferences(user.id) || {}
-      
-      // Build complete updates object with all existing preferences
-      const updates = {
-        planName: prefs.planName || null,
-        fitnessGoal: prefs.fitnessGoal || null,
-        experienceLevel: prefs.experienceLevel || null,
-        availableDays: prefs.availableDays || null,
-        sessionDuration: prefs.sessionDuration || null,
-        equipmentAvailable: prefs.equipmentAvailable || null,
-        injuries: prefs.injuries || null,
-        username: username || null,
+      await saveUserPreferences(user.id, {
+        ...prefs,
         profilePicture: profilePicture || profilePictureUrl || null
-      }
+      })
       
-      await saveUserPreferences(user.id, updates)
       alert('Profile updated successfully!')
     } catch (error) {
       console.error('Profile save error:', error)
       alert(`Failed to update profile: ${error.message || 'Please try again.'}`)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const loadSocialData = async () => {
+    if (!user) return
+    setLoadingSocial(true)
+    try {
+      const [friendsList, count, pending] = await Promise.all([
+        getFriends(user.id),
+        getFriendCount(user.id),
+        getPendingFriendRequests(user.id)
+      ])
+      setFriends(friendsList || [])
+      setFriendCount(count || 0)
+      setPendingRequests(pending?.length || 0)
+    } catch (error) {
+      // Silently fail
+    } finally {
+      setLoadingSocial(false)
     }
   }
 
@@ -221,15 +293,60 @@ export default function Profile() {
                 Upload Photo
               </label>
             </div>
-            <div className={styles.usernameSection}>
-              <label className={styles.label}>Username</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
-                className={styles.usernameInput}
-              />
+            <div className={styles.profileForm}>
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Username *</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="username"
+                  className={styles.input}
+                  minLength={3}
+                  maxLength={20}
+                  pattern="[a-zA-Z0-9_-]+"
+                  required
+                />
+                <small className={styles.helperText}>3-20 characters, letters, numbers, _, or -</small>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Phone Number *</label>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="+1 (555) 123-4567"
+                  className={styles.input}
+                  required
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Display Name</label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your display name"
+                  className={styles.input}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Bio</label>
+                <textarea
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  placeholder="Tell us about yourself..."
+                  className={styles.textarea}
+                  rows={3}
+                  maxLength={500}
+                />
+              </div>
+
+              <div className={styles.userEmail}>{user.email}</div>
+
               <button
                 className={styles.saveBtn}
                 onClick={handleSaveProfile}
@@ -238,9 +355,74 @@ export default function Profile() {
                 {saving ? 'Saving...' : 'Save Profile'}
               </button>
             </div>
-            <div className={styles.userEmail}>{user.email}</div>
           </div>
         )}
+
+        {/* Social Section */}
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>Social</h2>
+          {loadingSocial ? (
+            <div className={styles.loading}>Loading...</div>
+          ) : (
+            <>
+              <div className={styles.socialStats}>
+                <div className={styles.statItem}>
+                  <div className={styles.statValue}>{friendCount}</div>
+                  <div className={styles.statLabel}>Friends</div>
+                </div>
+                {pendingRequests > 0 && (
+                  <div className={styles.statItem}>
+                    <div className={styles.statValue}>{pendingRequests}</div>
+                    <div className={styles.statLabel}>Pending Requests</div>
+                  </div>
+                )}
+              </div>
+              
+              {friends.length > 0 && (
+                <div className={styles.friendsList}>
+                  <h3 className={styles.friendsTitle}>Friends</h3>
+                  <div className={styles.friendsGrid}>
+                    {friends.slice(0, 12).map((friend) => (
+                      <div key={friend.user_id || friend.friend_id} className={styles.friendCard}>
+                        {friend.profile_picture ? (
+                          <img 
+                            src={friend.profile_picture} 
+                            alt={friend.display_name || friend.username || 'Friend'}
+                            className={styles.friendAvatar}
+                          />
+                        ) : (
+                          <div className={styles.friendAvatarPlaceholder}>
+                            {(friend.display_name || friend.username || 'F')[0].toUpperCase()}
+                          </div>
+                        )}
+                        <div className={styles.friendName}>
+                          {friend.display_name || friend.username || 'Friend'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {friends.length > 12 && (
+                    <div className={styles.moreFriends}>
+                      +{friends.length - 12} more
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {friends.length === 0 && (
+                <div className={styles.emptyState}>
+                  <p className={styles.emptyText}>No friends yet</p>
+                  <button
+                    className={styles.actionBtn}
+                    onClick={() => navigate('/')}
+                  >
+                    Find Friends
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
 
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Data</h2>

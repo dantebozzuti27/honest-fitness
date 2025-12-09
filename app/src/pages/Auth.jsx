@@ -10,6 +10,8 @@ export default function Auth() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [username, setUsername] = useState('')
+  const [phoneNumber, setPhoneNumber] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -36,11 +38,40 @@ export default function Auth() {
       return
     }
 
+    if (isSignUp && !username.trim()) {
+      setError('Username is required')
+      return
+    }
+
+    if (isSignUp && !phoneNumber.trim()) {
+      setError('Phone number is required')
+      return
+    }
+
+    // Validate username format (alphanumeric, underscore, hyphen, 3-20 chars)
+    if (isSignUp && username.trim()) {
+      const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/
+      if (!usernameRegex.test(username.trim())) {
+        setError('Username must be 3-20 characters and contain only letters, numbers, underscores, or hyphens')
+        return
+      }
+    }
+
+    // Validate phone number format (basic validation)
+    if (isSignUp && phoneNumber.trim()) {
+      const phoneRegex = /^[\d\s\-\+\(\)]{10,}$/
+      const digitsOnly = phoneNumber.replace(/\D/g, '')
+      if (digitsOnly.length < 10) {
+        setError('Please enter a valid phone number')
+        return
+      }
+    }
+
     setLoading(true)
 
     try {
       if (isSignUp) {
-        await signUp(email, password)
+        await signUp(email, password, username.trim().toLowerCase(), phoneNumber.trim())
         setMessage('Check your email to confirm your account!')
       } else {
         await signIn(email, password)
@@ -83,16 +114,44 @@ export default function Auth() {
           </div>
 
           {isSignUp && (
-            <div className={styles.inputGroup}>
-              <label>Confirm Password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
-            </div>
+            <>
+              <div className={styles.inputGroup}>
+                <label>Username</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="username"
+                  required
+                  minLength={3}
+                  maxLength={20}
+                  pattern="[a-zA-Z0-9_-]+"
+                />
+                <small className={styles.helperText}>3-20 characters, letters, numbers, _, or -</small>
+              </div>
+
+              <div className={styles.inputGroup}>
+                <label>Phone Number</label>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="+1 (555) 123-4567"
+                  required
+                />
+              </div>
+
+              <div className={styles.inputGroup}>
+                <label>Confirm Password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+            </>
           )}
 
           {isSignUp && (
@@ -138,7 +197,13 @@ export default function Auth() {
 
         <p className={styles.toggle}>
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-          <button onClick={() => { setIsSignUp(!isSignUp); setError(''); setMessage(''); }}>
+          <button onClick={() => { 
+            setIsSignUp(!isSignUp)
+            setError('')
+            setMessage('')
+            setUsername('')
+            setPhoneNumber('')
+          }}>
             {isSignUp ? 'Sign In' : 'Sign Up'}
           </button>
         </p>

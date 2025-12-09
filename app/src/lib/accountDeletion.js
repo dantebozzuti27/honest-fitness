@@ -55,27 +55,44 @@ export async function deleteUserAccount(userId) {
     }
 
     if (workouts && workouts.length > 0) {
-      // Delete workout sets
-      for (const workout of workouts) {
-        const { data: exercises } = await supabase
-          .from('workout_exercises')
-          .select('id')
-          .eq('workout_id', workout.id)
+      // Get all exercise IDs first (batch operation)
+      const workoutIds = workouts.map(w => w.id)
+      const { data: allExercises, error: exercisesFetchError } = await supabase
+        .from('workout_exercises')
+        .select('id')
+        .in('workout_id', workoutIds)
 
-        if (exercises) {
-          for (const exercise of exercises) {
-            await supabase
-              .from('workout_sets')
-              .delete()
-              .eq('workout_exercise_id', exercise.id)
-          }
+      if (exercisesFetchError) {
+        logError('Error fetching exercises for deletion', exercisesFetchError)
+        throw new Error(`Failed to fetch exercises: ${exercisesFetchError.message}`)
+      }
+
+      // Batch delete all sets (if exercises exist)
+      if (allExercises && allExercises.length > 0) {
+        const exerciseIds = allExercises.map(ex => ex.id)
+        const { error: setsError } = await supabase
+          .from('workout_sets')
+          .delete()
+          .in('workout_exercise_id', exerciseIds)
+
+        if (setsError) {
+          logError('Error deleting workout_sets', setsError)
+          throw new Error(`Failed to delete workout sets: ${setsError.message}`)
         }
+      }
 
-        // Delete workout exercises
-        await supabase
+      // Batch delete all exercises
+      if (allExercises && allExercises.length > 0) {
+        const exerciseIds = allExercises.map(ex => ex.id)
+        const { error: exercisesError } = await supabase
           .from('workout_exercises')
           .delete()
-          .eq('workout_id', workout.id)
+          .in('id', exerciseIds)
+
+        if (exercisesError) {
+          logError('Error deleting workout_exercises', exercisesError)
+          throw new Error(`Failed to delete workout exercises: ${exercisesError.message}`)
+        }
       }
 
       // Delete workouts
@@ -145,11 +162,76 @@ export async function deleteUserAccount(userId) {
       // Don't throw - food preferences might not exist
     }
 
-    // 9. Delete workout templates (if they exist in a templates table)
-    // Note: Templates might be stored in user_preferences or a separate table
-    // This is a placeholder - adjust based on your actual schema
+    // 9. Delete feed items
+    const { error: feedItemsError } = await supabase
+      .from('feed_items')
+      .delete()
+      .eq('user_id', userId)
 
-    // 10. Finally, delete the auth user (this will cascade delete remaining data)
+    if (feedItemsError) {
+      logError('Error deleting feed_items', feedItemsError)
+      // Don't throw - feed items might not exist
+    }
+
+    // 10. Delete user profile
+    const { error: profileError } = await supabase
+      .from('user_profiles')
+      .delete()
+      .eq('user_id', userId)
+
+    if (profileError) {
+      logError('Error deleting user_profiles', profileError)
+      // Don't throw - profile might not exist
+    }
+
+    // 11. Delete friends relationships (both directions)
+    const { error: friendsError1 } = await supabase
+      .from('friends')
+      .delete()
+      .eq('user_id', userId)
+
+    if (friendsError1) {
+      logError('Error deleting friends (user_id)', friendsError1)
+    }
+
+    const { error: friendsError2 } = await supabase
+      .from('friends')
+      .delete()
+      .eq('friend_id', userId)
+
+    if (friendsError2) {
+      logError('Error deleting friends (friend_id)', friendsError2)
+    }
+
+    // 12. Delete nutrition data (if nutrition table exists)
+    try {
+      const { error: nutritionError } = await supabase
+        .from('nutrition')
+        .delete()
+        .eq('user_id', userId)
+
+      if (nutritionError && nutritionError.code !== 'PGRST205') {
+        logError('Error deleting nutrition', nutritionError)
+      }
+    } catch (e) {
+      // Table might not exist
+    }
+
+    // 13. Delete paused workouts
+    try {
+      const { error: pausedError } = await supabase
+        .from('paused_workouts')
+        .delete()
+        .eq('user_id', userId)
+
+      if (pausedError && pausedError.code !== 'PGRST205') {
+        logError('Error deleting paused_workouts', pausedError)
+      }
+    } catch (e) {
+      // Table might not exist
+    }
+
+    // 14. Finally, delete the auth user (this will cascade delete remaining data)
     // Note: This requires admin privileges, so we'll use the Supabase admin API
     // For now, we'll delete all data and let the user know they need to contact support
     // OR we can create a serverless function to handle auth user deletion

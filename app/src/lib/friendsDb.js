@@ -83,6 +83,7 @@ export async function getOrCreateUserProfile(userId, initialData = {}) {
       .insert({
         user_id: userId,
         username: initialData.username || null,
+        phone_number: initialData.phone_number || initialData.phoneNumber || null,
         display_name: initialData.display_name || null,
         bio: initialData.bio || null,
         profile_picture: initialData.profile_picture || null
@@ -132,11 +133,17 @@ export async function sendFriendRequest(userId, friendId) {
       throw new Error('Cannot send friend request to yourself')
     }
     
-    // Check if relationship already exists
+    // Validate UUIDs to prevent injection
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(userId) || !uuidRegex.test(friendId)) {
+      throw new Error('Invalid user ID format')
+    }
+    
+    // Check if relationship already exists (using safe query builder)
     const { data: existing, error: checkError } = await supabase
       .from('friends')
       .select('*')
-      .or(`and(user_id.eq.${userId},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${userId})`)
+      .or(`and(user_id.eq."${userId}",friend_id.eq."${friendId}"),and(user_id.eq."${friendId}",friend_id.eq."${userId}")`)
       .maybeSingle()
     
     if (checkError && checkError.code !== 'PGRST116') throw checkError
@@ -178,11 +185,17 @@ export async function sendFriendRequest(userId, friendId) {
  */
 export async function acceptFriendRequest(userId, friendId) {
   try {
-    // Update both directions of the relationship
+    // Validate UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(userId) || !uuidRegex.test(friendId)) {
+      throw new Error('Invalid user ID format')
+    }
+    
+    // Update both directions of the relationship (using safe query builder)
     const { data, error } = await supabase
       .from('friends')
       .update({ status: 'accepted', updated_at: new Date().toISOString() })
-      .or(`and(user_id.eq.${userId},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${userId})`)
+      .or(`and(user_id.eq."${userId}",friend_id.eq."${friendId}"),and(user_id.eq."${friendId}",friend_id.eq."${userId}")`)
       .select()
     
     if (error) throw error
@@ -198,10 +211,16 @@ export async function acceptFriendRequest(userId, friendId) {
  */
 export async function declineFriendRequest(userId, friendId) {
   try {
+    // Validate UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(userId) || !uuidRegex.test(friendId)) {
+      throw new Error('Invalid user ID format')
+    }
+    
     const { error } = await supabase
       .from('friends')
       .delete()
-      .or(`and(user_id.eq.${userId},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${userId})`)
+      .or(`and(user_id.eq."${userId}",friend_id.eq."${friendId}"),and(user_id.eq."${friendId}",friend_id.eq."${userId}")`)
     
     if (error) throw error
   } catch (error) {
@@ -227,11 +246,17 @@ export async function unfriendUser(userId, friendId) {
  */
 export async function blockUser(userId, blockedUserId) {
   try {
-    // Delete existing relationship if any
+    // Validate UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(userId) || !uuidRegex.test(blockedUserId)) {
+      throw new Error('Invalid user ID format')
+    }
+    
+    // Delete existing relationship if any (using safe query builder)
     await supabase
       .from('friends')
       .delete()
-      .or(`and(user_id.eq.${userId},friend_id.eq.${blockedUserId}),and(user_id.eq.${blockedUserId},friend_id.eq.${userId})`)
+      .or(`and(user_id.eq."${userId}",friend_id.eq."${blockedUserId}"),and(user_id.eq."${blockedUserId}",friend_id.eq."${userId}")`)
     
     // Create blocked relationship
     const { data, error } = await supabase
@@ -260,10 +285,7 @@ export async function getFriends(userId) {
   try {
     const { data, error } = await supabase
       .from('friends')
-      .select(`
-        friend_id,
-        user_profiles!friends_friend_id_fkey(*)
-      `)
+      .select('friend_id')
       .eq('user_id', userId)
       .eq('status', 'accepted')
     
@@ -272,38 +294,33 @@ export async function getFriends(userId) {
     // Also get friends where user is the friend_id
     const { data: reverseData, error: reverseError } = await supabase
       .from('friends')
-      .select(`
-        user_id,
-        user_profiles!friends_user_id_fkey(*)
-      `)
+      .select('user_id')
       .eq('friend_id', userId)
       .eq('status', 'accepted')
     
     if (reverseError) throw reverseError
     
-    // Combine and deduplicate
-    const friends = []
+    // Collect all friend IDs
     const friendIds = new Set()
-    
     if (data) {
-      data.forEach(f => {
-        if (f.user_profiles && !friendIds.has(f.friend_id)) {
-          friends.push({ ...f.user_profiles, friend_id: f.friend_id })
-          friendIds.add(f.friend_id)
-        }
-      })
+      data.forEach(f => friendIds.add(f.friend_id))
     }
-    
     if (reverseData) {
-      reverseData.forEach(f => {
-        if (f.user_profiles && !friendIds.has(f.user_id)) {
-          friends.push({ ...f.user_profiles, friend_id: f.user_id })
-          friendIds.add(f.user_id)
-        }
-      })
+      reverseData.forEach(f => friendIds.add(f.user_id))
     }
     
-    return friends
+    // Fetch user profiles for all friends
+    if (friendIds.size > 0) {
+      const { data: profiles, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .in('user_id', Array.from(friendIds))
+      
+      if (profileError) throw profileError
+      return profiles || []
+    }
+    
+    return []
   } catch (error) {
     logError('Error getting friends', error)
     return []
@@ -320,14 +337,35 @@ export async function getPendingFriendRequests(userId) {
       .select(`
         user_id,
         requested_by,
-        created_at,
-        user_profiles!friends_user_id_fkey(*)
+        created_at
       `)
       .eq('friend_id', userId)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
     
     if (error) throw error
+    
+    // Fetch user profiles separately
+    if (data && data.length > 0) {
+      const userIds = data.map(r => r.user_id)
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .in('user_id', userIds)
+      
+      const profileMap = {}
+      if (profiles) {
+        profiles.forEach(p => {
+          profileMap[p.user_id] = p
+        })
+      }
+      
+      return data.map(request => ({
+        ...request,
+        user_profiles: profileMap[request.user_id] || null
+      }))
+    }
+    
     return data || []
   } catch (error) {
     logError('Error getting pending friend requests', error)
@@ -345,8 +383,7 @@ export async function getSentFriendRequests(userId) {
       .select(`
         friend_id,
         requested_by,
-        created_at,
-        user_profiles!friends_friend_id_fkey(*)
+        created_at
       `)
       .eq('user_id', userId)
       .eq('status', 'pending')
@@ -354,6 +391,28 @@ export async function getSentFriendRequests(userId) {
       .order('created_at', { ascending: false })
     
     if (error) throw error
+    
+    // Fetch user profiles separately
+    if (data && data.length > 0) {
+      const friendIds = data.map(r => r.friend_id)
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .in('user_id', friendIds)
+      
+      const profileMap = {}
+      if (profiles) {
+        profiles.forEach(p => {
+          profileMap[p.user_id] = p
+        })
+      }
+      
+      return data.map(request => ({
+        ...request,
+        user_profiles: profileMap[request.friend_id] || null
+      }))
+    }
+    
     return data || []
   } catch (error) {
     logError('Error getting sent friend requests', error)
@@ -366,10 +425,16 @@ export async function getSentFriendRequests(userId) {
  */
 export async function getFriendshipStatus(userId, otherUserId) {
   try {
+    // Validate UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(userId) || !uuidRegex.test(otherUserId)) {
+      return null
+    }
+    
     const { data, error } = await supabase
       .from('friends')
       .select('*')
-      .or(`and(user_id.eq.${userId},friend_id.eq.${otherUserId}),and(user_id.eq.${otherUserId},friend_id.eq.${userId})`)
+      .or(`and(user_id.eq."${userId}",friend_id.eq."${otherUserId}"),and(user_id.eq."${otherUserId}",friend_id.eq."${userId}")`)
       .maybeSingle()
     
     if (error && error.code !== 'PGRST116') throw error

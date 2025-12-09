@@ -60,7 +60,10 @@ export function connectOura(userId) {
   
   const authUrl = getOuraAuthUrl(userId)
   if (import.meta.env.DEV) {
-    console.log('Redirecting to Oura OAuth:', authUrl)
+    // Debug logging only in development
+    if (import.meta.env.DEV) {
+      console.log('Redirecting to Oura OAuth:', authUrl)
+    }
   }
   
   // Use window.location.assign for better error handling

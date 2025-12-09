@@ -319,7 +319,7 @@ export async function saveFitbitDaily(userId, date, data) {
     .maybeSingle()
   
   if (error) {
-    console.error('Error saving Fitbit daily data to health_metrics:', error)
+      logError('Error saving Fitbit daily data to health_metrics', error)
     throw error
   }
   
@@ -359,7 +359,7 @@ export async function getFitbitDaily(userId, date) {
     .maybeSingle()
   
   if (error) {
-    console.error('Error getting Fitbit daily data from health_metrics:', error)
+      logError('Error getting Fitbit daily data from health_metrics', error)
     // Try deprecated table as fallback
     const { data: legacyData, error: legacyError } = await supabase
       .from('fitbit_daily')
@@ -369,7 +369,7 @@ export async function getFitbitDaily(userId, date) {
       .maybeSingle()
     
     if (legacyError) {
-      console.error('Error getting Fitbit daily data from fitbit_daily:', legacyError)
+      logError('Error getting Fitbit daily data from fitbit_daily', legacyError)
       return null
     }
     return legacyData
@@ -448,7 +448,7 @@ async function refreshFitbitToken(userId, account) {
       
       return tokenData.access_token
     } catch (error) {
-      console.error('Error refreshing Fitbit token:', error)
+      logError('Error refreshing Fitbit token', error)
       throw new Error('Token refresh failed. Please reconnect your Fitbit account.')
     }
   }

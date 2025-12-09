@@ -81,23 +81,28 @@ export default function GhostMode() {
         // Fallback to localStorage for migration
         const saved = localStorage.getItem(`ghostMode_${user.id}`)
         if (saved) {
-          const data = JSON.parse(saved)
-          setTargetCalories(data.targetCalories || 2000)
-          setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
-          setFavorites(data.favorites || [])
-          setFastingEnabled(data.fastingEnabled || false)
-          if (data.fastingStartTime) {
-            setFastingStartTime(new Date(data.fastingStartTime))
+          try {
+            const data = JSON.parse(saved)
+            setTargetCalories(data.targetCalories || 2000)
+            setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
+            setFavorites(data.favorites || [])
+            setFastingEnabled(data.fastingEnabled || false)
+            if (data.fastingStartTime) {
+              setFastingStartTime(new Date(data.fastingStartTime))
+            }
+            // Migrate to Supabase
+            const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+            await saveNutritionSettingsToSupabase(user.id, {
+              targetCalories: data.targetCalories || 2000,
+              targetMacros: data.targetMacros || { protein: 150, carbs: 200, fat: 67 },
+              favorites: data.favorites || [],
+              fastingEnabled: data.fastingEnabled || false,
+              fastingStartTime: data.fastingStartTime || null
+            })
+          } catch (parseError) {
+            logError('Error parsing localStorage ghostMode data', parseError)
+            localStorage.removeItem(`ghostMode_${user.id}`)
           }
-          // Migrate to Supabase
-          const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
-          await saveNutritionSettingsToSupabase(user.id, {
-            targetCalories: data.targetCalories || 2000,
-            targetMacros: data.targetMacros || { protein: 150, carbs: 200, fat: 67 },
-            favorites: data.favorites || [],
-            fastingEnabled: data.fastingEnabled || false,
-            fastingStartTime: data.fastingStartTime || null
-          })
         }
       }
     } catch (error) {
@@ -105,8 +110,9 @@ export default function GhostMode() {
       // Fallback to localStorage
       const saved = localStorage.getItem(`ghostMode_${user.id}`)
       if (saved) {
-        const data = JSON.parse(saved)
-        setTargetCalories(data.targetCalories || 2000)
+        try {
+          const data = JSON.parse(saved)
+          setTargetCalories(data.targetCalories || 2000)
         setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
         setFavorites(data.favorites || [])
         setFastingEnabled(data.fastingEnabled || false)
@@ -150,13 +156,18 @@ export default function GhostMode() {
       // Fallback to localStorage if Supabase fails
       const saved = localStorage.getItem(`ghostMode_${user.id}`)
       if (saved) {
-        const data = JSON.parse(saved)
-        const dayData = data.historyData?.[date] || { meals: [], calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, water: 0 }
-        setMeals(dayData.meals || [])
-        setCurrentCalories(dayData.calories || 0)
-        setCurrentMacros(dayData.macros || { protein: 0, carbs: 0, fat: 0 })
-        setWaterIntake(dayData.water || 0)
-        setHistoryData(data.historyData || {})
+        try {
+          const data = JSON.parse(saved)
+          const dayData = data.historyData?.[date] || { meals: [], calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, water: 0 }
+          setMeals(dayData.meals || [])
+          setCurrentCalories(dayData.calories || 0)
+          setCurrentMacros(dayData.macros || { protein: 0, carbs: 0, fat: 0 })
+          setWaterIntake(dayData.water || 0)
+          setHistoryData(data.historyData || {})
+        } catch (parseError) {
+          logError('Error parsing localStorage ghostMode data', parseError)
+          localStorage.removeItem(`ghostMode_${user.id}`)
+        }
       }
     }
   }

@@ -263,24 +263,37 @@ function getReadinessZone(score) {
  * Save readiness score to database
  */
 export async function saveReadinessScore(userId, readinessData) {
-  const { data, error } = await supabase
-    .from('honest_readiness')
-    .upsert({
-      user_id: userId,
-      date: readinessData.date,
-      score: readinessData.score,
-      zone: readinessData.zone,
-      ac_ratio: readinessData.components.acRatio,
-      hrv_score: readinessData.components.hrvScore,
-      temp_score: readinessData.components.tempScore,
-      sleep_score: readinessData.components.sleepScore,
-      strain_score: readinessData.components.strainScore
-    }, { onConflict: 'user_id,date' })
-    .select()
-    .single()
-  
-  if (error) throw error
-  return data
+  try {
+    const { data, error } = await supabase
+      .from('honest_readiness')
+      .upsert({
+        user_id: userId,
+        date: readinessData.date,
+        score: readinessData.score,
+        zone: readinessData.zone,
+        ac_ratio: readinessData.components.acRatio,
+        hrv_score: readinessData.components.hrvScore,
+        temp_score: readinessData.components.tempScore,
+        sleep_score: readinessData.components.sleepScore,
+        strain_score: readinessData.components.strainScore
+      }, { onConflict: 'user_id,date' })
+      .select()
+      .single()
+    
+    // Handle PGRST116 error (table not found in schema cache) gracefully
+    if (error) {
+      if (error.code === 'PGRST116' || error.message?.includes('Could not find the table')) {
+        console.warn('honest_readiness table not available, skipping save:', error.message)
+        return null
+      }
+      throw error
+    }
+    return data
+  } catch (error) {
+    // Fallback for any other errors
+    console.warn('Error saving readiness score:', error)
+    return null
+  }
 }
 
 /**
@@ -289,30 +302,57 @@ export async function saveReadinessScore(userId, readinessData) {
 export async function getReadinessScore(userId, date = null) {
   const targetDate = date || getTodayEST()
   
-  const { data, error } = await supabase
-    .from('honest_readiness')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('date', targetDate)
-    .maybeSingle()
-  
-  if (error) throw error
-  return data
+  try {
+    const { data, error } = await supabase
+      .from('honest_readiness')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', targetDate)
+      .maybeSingle()
+    
+    // Handle PGRST116 error (table not found in schema cache) gracefully
+    if (error) {
+      // If table doesn't exist, return null instead of throwing
+      if (error.code === 'PGRST116' || error.message?.includes('Could not find the table')) {
+        console.warn('honest_readiness table not available:', error.message)
+        return null
+      }
+      throw error
+    }
+    return data
+  } catch (error) {
+    // Fallback for any other errors
+    console.warn('Error fetching readiness score:', error)
+    return null
+  }
 }
 
 /**
  * Get readiness scores for date range
  */
 export async function getReadinessScores(userId, startDate, endDate) {
-  const { data, error } = await supabase
-    .from('honest_readiness')
-    .select('*')
-    .eq('user_id', userId)
-    .gte('date', startDate)
-    .lte('date', endDate)
-    .order('date', { ascending: true })
-  
-  if (error) throw error
-  return data || []
+  try {
+    const { data, error } = await supabase
+      .from('honest_readiness')
+      .select('*')
+      .eq('user_id', userId)
+      .gte('date', startDate)
+      .lte('date', endDate)
+      .order('date', { ascending: true })
+    
+    // Handle PGRST116 error (table not found in schema cache) gracefully
+    if (error) {
+      if (error.code === 'PGRST116' || error.message?.includes('Could not find the table')) {
+        console.warn('honest_readiness table not available:', error.message)
+        return []
+      }
+      throw error
+    }
+    return data || []
+  } catch (error) {
+    // Fallback for any other errors
+    console.warn('Error fetching readiness scores:', error)
+    return []
+  }
 }
 

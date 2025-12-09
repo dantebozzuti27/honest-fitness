@@ -53,7 +53,11 @@ if ('serviceWorker' in navigator) {
 const rootElement = document.getElementById('root')
 if (!rootElement) {
   console.error('Root element not found!')
-  document.body.innerHTML = '<div style="padding: 20px; color: white; background: black;">Error: Root element not found. Please refresh the page.</div>'
+  // Use textContent instead of innerHTML for security
+  const errorDiv = document.createElement('div')
+  errorDiv.style.cssText = 'padding: 20px; color: white; background: black;'
+  errorDiv.textContent = 'Error: Root element not found. Please refresh the page.'
+  document.body.appendChild(errorDiv)
 } else {
   // Add a fallback background immediately
   rootElement.style.minHeight = '100vh'
@@ -76,15 +80,32 @@ if (!rootElement) {
     )
   } catch (error) {
     console.error('Failed to render app:', error)
-    rootElement.innerHTML = `
-      <div style="padding: 40px; text-align: center; color: white; background: black; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-        <h1 style="color: #ff453a; margin-bottom: 20px;">⚠️ Error Loading App</h1>
-        <p style="margin-bottom: 30px; color: #a1a1a6;">Something went wrong. Please try:</p>
-        <button onclick="window.location.reload()" style="padding: 16px 32px; background: white; color: black; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600;">
-          Refresh Page
-        </button>
-        <p style="margin-top: 30px; color: #6e6e73; font-size: 12px;">If this persists, try clearing your browser cache</p>
-      </div>
-    `
+    // Use createElement instead of innerHTML for security
+    rootElement.textContent = '' // Clear existing content
+    const container = document.createElement('div')
+    container.style.cssText = 'padding: 40px; text-align: center; color: white; background: black; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;'
+    
+    const h1 = document.createElement('h1')
+    h1.style.cssText = 'color: #ff453a; margin-bottom: 20px;'
+    h1.textContent = '⚠️ Error Loading App'
+    container.appendChild(h1)
+    
+    const p1 = document.createElement('p')
+    p1.style.cssText = 'margin-bottom: 30px; color: #a1a1a6;'
+    p1.textContent = 'Something went wrong. Please try:'
+    container.appendChild(p1)
+    
+    const button = document.createElement('button')
+    button.style.cssText = 'padding: 16px 32px; background: white; color: black; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600;'
+    button.textContent = 'Refresh Page'
+    button.onclick = () => window.location.reload()
+    container.appendChild(button)
+    
+    const p2 = document.createElement('p')
+    p2.style.cssText = 'margin-top: 30px; color: #6e6e73; font-size: 12px;'
+    p2.textContent = 'If this persists, try clearing your browser cache'
+    container.appendChild(p2)
+    
+    rootElement.appendChild(container)
   }
 }

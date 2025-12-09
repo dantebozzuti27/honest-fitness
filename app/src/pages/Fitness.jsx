@@ -651,8 +651,9 @@ export default function Fitness() {
           }))
         }))
         
-        // DEBUG: Log the exact workout data being shared
-        console.log('Fitness: Workout data for sharing:', {
+        // DEBUG: Log the exact workout data being shared (only in development)
+        if (import.meta.env.DEV) {
+          console.log('Fitness: Workout data for sharing:', {
           exerciseCount: exercises.length,
           exercises: exercises.map(ex => ({
             name: ex.name,

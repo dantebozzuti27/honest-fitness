@@ -173,16 +173,22 @@ export default function ShareModal({ type, data, onClose }) {
         }
       } else {
         // Fallback to localStorage if database unavailable
-        const existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-        const feedItemWithTimestamp = {
-          ...feedItem,
-          timestamp: new Date().toISOString()
+        try {
+          const existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+          const feedItemWithTimestamp = {
+            ...feedItem,
+            timestamp: new Date().toISOString()
+          }
+          existing.push(feedItemWithTimestamp)
+          const recent = existing.slice(-50)
+          localStorage.setItem('sharedToFeed', JSON.stringify(recent))
+          setSharedToFeed(true)
+          window.dispatchEvent(new CustomEvent('feedUpdated'))
+        } catch (parseError) {
+          console.error('Error parsing localStorage feed data', parseError)
+          localStorage.removeItem('sharedToFeed')
+          setSharedToFeed(false)
         }
-        existing.push(feedItemWithTimestamp)
-        const recent = existing.slice(-50)
-        localStorage.setItem('sharedToFeed', JSON.stringify(recent))
-        setSharedToFeed(true)
-        window.dispatchEvent(new CustomEvent('feedUpdated'))
       }
     } catch (error) {
       // Silently ignore PGRST205 errors (table doesn't exist)
@@ -231,11 +237,17 @@ export default function ShareModal({ type, data, onClose }) {
             timestamp: new Date().toISOString()
           }
           
-          const existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-          existing.push(feedItem)
-          const recent = existing.slice(-50)
-          localStorage.setItem('sharedToFeed', JSON.stringify(recent))
-          setSharedToFeed(true)
+          try {
+            const existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+            existing.push(feedItem)
+            const recent = existing.slice(-50)
+            localStorage.setItem('sharedToFeed', JSON.stringify(recent))
+            setSharedToFeed(true)
+          } catch (parseError) {
+            console.error('Error parsing localStorage feed data', parseError)
+            localStorage.removeItem('sharedToFeed')
+            setSharedToFeed(false)
+          }
           window.dispatchEvent(new CustomEvent('feedUpdated'))
         } catch (fallbackError) {
           console.error('Error in fallback to localStorage:', fallbackError)

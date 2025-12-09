@@ -11,6 +11,8 @@ import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import ShareCard from '../components/ShareCard'
 import AddFriend from '../components/AddFriend'
+import FriendRequests from '../components/FriendRequests'
+import { getPendingFriendRequests } from '../lib/friendsDb'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -23,6 +25,8 @@ export default function Home() {
   const [profilePicture, setProfilePicture] = useState(null)
   const [feedFilter, setFeedFilter] = useState('all') // 'all', 'me', 'friends'
   const [showAddFriend, setShowAddFriend] = useState(false)
+  const [showFriendRequests, setShowFriendRequests] = useState(false)
+  const [pendingRequestCount, setPendingRequestCount] = useState(0)
 
   const loadRecentLogs = async (userId) => {
     try {
@@ -48,7 +52,14 @@ export default function Home() {
           }
         } else {
           // Not logged in, use localStorage
-          sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+          try {
+            sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+          } catch (parseError) {
+            logError('Error parsing localStorage feed data', parseError)
+            sharedItems = []
+            // Clear corrupted data
+            localStorage.removeItem('sharedToFeed')
+          }
         }
         
         if (sharedItems && sharedItems.length > 0) {
@@ -130,59 +141,8 @@ export default function Home() {
         logError('Error loading shared items', e)
       }
 
-      // Fetch recent workouts (non-shared, for regular feed items)
-      try {
-        const workouts = await getWorkoutsFromSupabase(userId)
-        if (workouts && workouts.length > 0) {
-          workouts.slice(0, 10).forEach(workout => {
-            // Only add if not already in shared items (avoid duplicates)
-            const isShared = logs.some(log => 
-              log.type === 'workout' && 
-              log.date === workout.date && 
-              log.shared
-            )
-            
-            if (!isShared) {
-              // Transform workout data to match ShareCard format
-              const transformedWorkout = {
-                ...workout,
-                id: workout.id,
-                date: workout.date,
-                duration: workout.duration || 0,
-                templateName: workout.template_name || 'Freestyle Workout',
-                exercises: (workout.workout_exercises || []).map(ex => ({
-                  id: ex.id,
-                  name: ex.exercise_name,
-                  category: ex.category,
-                  bodyPart: ex.body_part,
-                  equipment: ex.equipment,
-                  stacked: ex.stacked || false,
-                  stackGroup: ex.stack_group || null,
-                  sets: (ex.workout_sets || []).map(set => ({
-                    weight: set.weight,
-                    reps: set.reps,
-                    time: set.time,
-                    speed: set.speed,
-                    incline: set.incline
-                  }))
-                }))
-              }
-              
-              logs.push({
-                type: 'workout',
-                date: workout.date,
-                title: workout.template_name || 'Freestyle Workout',
-                subtitle: `${Math.floor((workout.duration || 0) / 60)}:${String((workout.duration || 0) % 60).padStart(2, '0')}`,
-                data: transformedWorkout,
-                shared: false,
-                timestamp: workout.created_at ? new Date(workout.created_at).toISOString() : new Date(workout.date + 'T12:00').toISOString()
-              })
-            }
-          })
-        }
-      } catch (e) {
-        logError('Error loading workouts for feed', e)
-      }
+      // All workouts are now automatically shared via getSocialFeedItems
+      // No need to load workouts separately - they're all in the feed now
 
       // Fetch recent meals
       try {
@@ -350,9 +310,25 @@ export default function Home() {
     const handleFeedUpdate = () => {
       if (mounted && user) {
         loadRecentLogs(user.id)
+        loadPendingRequests()
       }
     }
     window.addEventListener('feedUpdated', handleFeedUpdate)
+    
+    // Load pending requests
+    const loadPendingRequests = async () => {
+      if (mounted && user) {
+        try {
+          const requests = await getPendingFriendRequests(user.id)
+          if (mounted) {
+            setPendingRequestCount(requests?.length || 0)
+          }
+        } catch (error) {
+          // Silently fail
+        }
+      }
+    }
+    loadPendingRequests()
     
     return () => {
       mounted = false
@@ -409,13 +385,27 @@ export default function Home() {
         <div className={styles.feed}>
           <div className={styles.feedHeader}>
             <h2 className={styles.feedTitle}>Recent Activity</h2>
-            <button 
-              className={styles.addFriendBtn}
-              onClick={() => setShowAddFriend(true)}
-              aria-label="Add Friend"
-            >
-              + Add Friend
-            </button>
+            <div className={styles.feedHeaderActions}>
+              {pendingRequestCount > 0 && (
+                <button 
+                  className={styles.friendRequestsBtn}
+                  onClick={() => setShowFriendRequests(true)}
+                  aria-label="Friend Requests"
+                >
+                  <span className={styles.friendRequestsIcon}>👥</span>
+                  {pendingRequestCount > 0 && (
+                    <span className={styles.friendRequestsBadge}>{pendingRequestCount}</span>
+                  )}
+                </button>
+              )}
+              <button 
+                className={styles.addFriendBtn}
+                onClick={() => setShowAddFriend(true)}
+                aria-label="Add Friend"
+              >
+                + Add Friend
+              </button>
+            </div>
           </div>
           
           {/* Feed Filters */}
@@ -461,20 +451,28 @@ export default function Home() {
                   
                   return (
                     <div key={`${log.type}-${log.date}-${index}-shared`} className={styles.feedCardItem}>
-                      {!log.isOwnPost && log.authorName && (
+                      {/* Show author for all posts (including own) */}
+                      {(log.authorName || log.isOwnPost) && (
                         <div className={styles.feedAuthor}>
                           {log.authorProfile?.profile_picture ? (
                             <img 
                               src={log.authorProfile.profile_picture} 
-                              alt={log.authorName}
+                              alt={log.authorName || 'You'}
                               className={styles.authorAvatar}
                             />
                           ) : (
                             <div className={styles.authorAvatarPlaceholder}>
-                              {log.authorName[0].toUpperCase()}
+                              {(log.authorName || 'You')[0].toUpperCase()}
                             </div>
                           )}
-                          <span className={styles.authorName}>{log.authorName}</span>
+                          <div className={styles.authorInfo}>
+                            <span className={styles.authorName}>
+                              {log.isOwnPost ? 'You' : (log.authorName || 'User')}
+                            </span>
+                            <span className={styles.authorTimestamp}>
+                              {formatDate(log.date)} · {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}
+                            </span>
+                          </div>
                         </div>
                       )}
                       <ShareCard 
@@ -527,6 +525,21 @@ export default function Home() {
             setShowAddFriend(false)
             if (user) {
               loadRecentLogs(user.id)
+            }
+          }}
+        />
+      )}
+
+      {showFriendRequests && (
+        <FriendRequests 
+          onClose={() => setShowFriendRequests(false)}
+          onRequestHandled={() => {
+            if (user) {
+              loadRecentLogs(user.id)
+              // Reload pending count
+              getPendingFriendRequests(user.id).then(requests => {
+                setPendingRequestCount(requests?.length || 0)
+              })
             }
           }}
         />

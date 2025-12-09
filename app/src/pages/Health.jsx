@@ -217,25 +217,6 @@ export default function Health() {
       const allMetrics = await getAllMetricsFromSupabase(user.id)
       
       console.log('Loaded metrics from database:', allMetrics?.length || 0, 'records')
-      if (allMetrics && allMetrics.length > 0) {
-        console.log('Sample metric (all fields):', JSON.stringify(allMetrics[0], null, 2))
-        const ouraMetrics = allMetrics.filter(m => m.source_provider === 'oura')
-        console.log('Oura metrics found:', ouraMetrics.length)
-        if (ouraMetrics.length > 0) {
-          const sampleOura = ouraMetrics[0]
-          console.log('Sample Oura metric (all fields):', JSON.stringify(sampleOura, null, 2))
-          console.log('Oura source_data:', sampleOura.source_data)
-          console.log('Oura fields:', {
-            steps: sampleOura.steps,
-            hrv: sampleOura.hrv,
-            sleep_duration: sampleOura.sleep_duration,
-            calories_burned: sampleOura.calories_burned,
-            resting_heart_rate: sampleOura.resting_heart_rate,
-            sleep_score: sampleOura.sleep_score,
-            body_temp: sampleOura.body_temp
-          })
-        }
-      }
       
       // Transform health_metrics data to match UI expectations
       // health_metrics uses: sleep_duration, calories_burned

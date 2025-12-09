@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { hasExercises } from '../db'
-import { initializeData } from '../utils/initData'
 import { useAuth } from '../context/AuthContext'
 import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences, getFeedItemsFromSupabase } from '../lib/supabaseDb'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
@@ -249,12 +247,7 @@ export default function Home() {
     let mounted = true
     
     async function init() {
-      // Initialize exercise data if not present (non-blocking)
-      hasExercises().then(hasData => {
-        if (!hasData && mounted) {
-          initializeData().catch(() => {}) // Don't block on this
-        }
-      })
+      // No seed data initialization needed
       
       // Get streak, Fitbit data, and recent logs if logged in
       if (user) {

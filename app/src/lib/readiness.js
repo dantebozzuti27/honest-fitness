@@ -294,9 +294,9 @@ export async function getReadinessScore(userId, date = null) {
     .select('*')
     .eq('user_id', userId)
     .eq('date', targetDate)
-    .single()
+    .maybeSingle()
   
-  if (error && error.code !== 'PGRST116') throw error
+  if (error) throw error
   return data
 }
 

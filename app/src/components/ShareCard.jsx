@@ -281,6 +281,7 @@ export default function ShareCard({ type, data }) {
                   } else if (firstSet.time != null && firstSet.time !== '') {
                     // For recovery exercises or any timed exercises, show minutes
                     const timeSeconds = Number(firstSet.time)
+                    let displayLabel = ''
                     if (isRecovery || timeSeconds >= 60) {
                       const minutes = (timeSeconds / 60).toFixed(1)
                       displayLabel = 'min'
@@ -293,7 +294,7 @@ export default function ShareCard({ type, data }) {
                     }
                   } else if (firstSet.weight != null && firstSet.weight !== '') {
                     const displayValue = firstSet.weight
-                    displayLabel = 'lbs'
+                    const displayLabel = 'lbs'
                     displayText = `${setCount} × ${displayValue} ${displayLabel}`
                   } else {
                     displayText = `${setCount} sets`

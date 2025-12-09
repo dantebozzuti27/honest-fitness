@@ -472,3 +472,22 @@ export async function getFriendCount(userId) {
   }
 }
 
+/**
+ * Generate invite link for user
+ */
+export function generateInviteLink(userId, username) {
+  const baseUrl = window.location.origin
+  // Use username if available, otherwise use userId
+  const identifier = username || userId
+  return `${baseUrl}/invite/${encodeURIComponent(identifier)}`
+}
+
+/**
+ * Get invite link text for sharing
+ */
+export function getInviteText(displayName, username) {
+  const name = displayName || username || 'me'
+  const link = generateInviteLink(null, username)
+  return `Join me on Echelon Fitness! Add me as a friend: ${link}`
+}
+

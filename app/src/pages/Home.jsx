@@ -5,7 +5,7 @@ import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreference
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
-import { getTodayEST } from '../utils/dateUtils'
+import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
@@ -66,14 +66,33 @@ export default function Home() {
               ? new Date(item.created_at).toISOString().split('T')[0] 
               : (item.date || getTodayEST())
             
-            // ShareCard expects data in format: { workout: {...} }
-            // item.data already has this structure from getSocialFeedItems
+            // ShareCard expects data in format: { workout: {...} }, { nutrition: {...} }, or { health: {...} }
+            // Ensure data is in correct format
+            let cardData = item.data
+            if (!cardData) {
+              // Fallback: create empty data structure based on type
+              if (item.type === 'nutrition') {
+                cardData = { nutrition: {} }
+              } else if (item.type === 'health') {
+                cardData = { health: {} }
+              } else {
+                cardData = { workout: {} }
+              }
+            } else if (item.type === 'nutrition' && !cardData.nutrition) {
+              // If data exists but not in correct format, wrap it
+              cardData = { nutrition: cardData }
+            } else if (item.type === 'health' && !cardData.health) {
+              cardData = { health: cardData }
+            } else if (item.type === 'workout' && !cardData.workout) {
+              cardData = { workout: cardData }
+            }
+            
             const logEntry = {
               type: item.type || 'workout',
               date: itemDate,
-              title: item.title || 'Workout',
+              title: item.title || (item.type === 'nutrition' ? 'Daily Nutrition' : item.type === 'health' ? 'Health Metrics' : 'Workout'),
               subtitle: item.subtitle || '',
-              data: item.data || { workout: {} }, // Already in correct format: { workout: {...} }
+              data: cardData,
               shared: true,
               timestamp: item.created_at || new Date(itemDate + 'T12:00').toISOString(),
               authorId: authorId,
@@ -139,9 +158,7 @@ export default function Home() {
             return getFitbitDaily(user.id, today).catch(() => null)
           }).then(fitbit => {
             if (!fitbit && mounted) {
-              return import('../utils/dateUtils').then(({ getYesterdayEST }) => {
-                return getFitbitDaily(user.id, getYesterdayEST()).catch(() => null)
-              })
+              return getFitbitDaily(user.id, getYesterdayEST()).catch(() => null)
             }
             return fitbit
           }).then(fitbit => {
@@ -344,10 +361,10 @@ export default function Home() {
           ) : (
             <div className={styles.feedList}>
               {recentLogs.map((log, index) => {
-                // ALL items in feed are workouts displayed as ShareCards (Twitter-like)
-                if (log.type === 'workout' && log.data) {
+                // Support all types: workout, nutrition, health
+                if (log.data && (log.type === 'workout' || log.type === 'nutrition' || log.type === 'health')) {
                   return (
-                    <div key={`workout-${log.date}-${index}-${log.authorId || 'unknown'}`} className={styles.feedCardItem}>
+                    <div key={`${log.type}-${log.date}-${index}-${log.authorId || 'unknown'}`} className={styles.feedCardItem}>
                       {/* Show author header (Twitter-style) */}
                       <div className={styles.feedAuthor}>
                         {log.authorProfile?.profile_picture ? (
@@ -370,16 +387,16 @@ export default function Home() {
                           </span>
                         </div>
                       </div>
-                      {/* Show ShareCard for workout */}
+                      {/* Show ShareCard for workout, nutrition, or health */}
                       <ShareCard 
-                        type="workout" 
+                        type={log.type} 
                         data={log.data}
                       />
                     </div>
                   )
                 }
                 
-                // Fallback for any non-workout items (shouldn't happen, but just in case)
+                // Fallback for any unsupported items
                 return null
               })}
             </div>

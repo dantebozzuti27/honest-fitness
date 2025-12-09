@@ -25,7 +25,7 @@ export default function ShareCard({ type, data }) {
     
     // IMPORTANT: Show ALL exercises from the workout, don't filter any out
     // Only filter sets to show valid ones, but keep all exercises
-    const validExercises = []
+    const rawExercises = []
     if (workout?.exercises && Array.isArray(workout.exercises)) {
       workout.exercises.forEach((ex, exIdx) => {
         if (!ex || !ex.name) {
@@ -46,7 +46,7 @@ export default function ShareCard({ type, data }) {
         
         // ALWAYS include the exercise, even if it has no valid sets
         // This ensures ALL exercises from the logged workout are shown
-        validExercises.push({
+        rawExercises.push({
           ...ex,
           sets: validSets, // Use filtered sets, but keep the exercise
           stacked: ex.stacked || false,
@@ -56,6 +56,69 @@ export default function ShareCard({ type, data }) {
     } else {
       console.warn('ShareCard: workout.exercises is missing or not an array', workout)
     }
+    
+    // Group stacked exercises together and merge them
+    const validExercises = []
+    const processedStackGroups = new Set()
+    
+    rawExercises.forEach((ex) => {
+      // Skip if already processed as part of a stack
+      if (ex.stacked && ex.stackGroup && processedStackGroups.has(ex.stackGroup)) {
+        return
+      }
+      
+      // If this exercise is stacked, find all exercises in the same stack group
+      if (ex.stacked && ex.stackGroup) {
+        const stackMembers = rawExercises.filter(e => 
+          e.stacked && e.stackGroup === ex.stackGroup
+        )
+        
+        if (stackMembers.length > 1) {
+          // Merge stacked exercises into one
+          processedStackGroups.add(ex.stackGroup)
+          
+          // Combine exercise names
+          const combinedName = stackMembers.map(e => e.name).join(' / ')
+          
+          // Create alternating sets: Set 1 of Ex1, Set 1 of Ex2, Set 2 of Ex1, Set 2 of Ex2, etc.
+          const maxSets = Math.max(...stackMembers.map(e => e.sets.length))
+          const mergedSets = []
+          
+          for (let setIndex = 0; setIndex < maxSets; setIndex++) {
+            stackMembers.forEach((member, memberIndex) => {
+              const set = member.sets[setIndex]
+              if (set) {
+                mergedSets.push({
+                  ...set,
+                  exerciseName: member.name,
+                  exerciseIndex: memberIndex
+                })
+              }
+            })
+          }
+          
+          // Determine stack type
+          const stackType = stackMembers.length === 2 ? 'Superset' : 'Circuit'
+          
+          validExercises.push({
+            id: `stack-${ex.stackGroup}`,
+            name: combinedName,
+            sets: mergedSets,
+            stacked: true,
+            stackGroup: ex.stackGroup,
+            stackMembers: stackMembers,
+            stackType: stackType,
+            category: stackMembers[0]?.category || ex.category
+          })
+        } else {
+          // Only one exercise in stack, treat as normal
+          validExercises.push(ex)
+        }
+      } else {
+        // Not stacked, add as normal
+        validExercises.push(ex)
+      }
+    })
     
     const totalExercises = validExercises.length
     
@@ -151,34 +214,48 @@ export default function ShareCard({ type, data }) {
               }}
             >
               {validExercises.map((ex, idx) => {
-                // ex.sets is already filtered to only valid sets (from line 42)
+                // ex.sets is already filtered to only valid sets
                 const sets = ex.sets || []
                 const setCount = sets.length
                 const isCardio = ex.category === 'Cardio' || ex.category === 'cardio'
+                const isStacked = ex.stacked && ex.stackGroup && ex.stackMembers
                 
-                // Determine if this exercise is part of a stack (superset or circuit)
-                const isStacked = ex.stacked && ex.stackGroup
-                let stackLabel = null
-                if (isStacked) {
-                  // Find all exercises in the same stack group
-                  const stackMembers = validExercises.filter(e => 
-                    e.stacked && e.stackGroup === ex.stackGroup
-                  )
-                  const stackIndex = stackMembers.findIndex(e => e.name === ex.name)
-                  if (stackMembers.length === 2) {
-                    stackLabel = `Superset ${stackIndex + 1}/2`
-                  } else if (stackMembers.length >= 3) {
-                    stackLabel = `Circuit ${stackIndex + 1}/${stackMembers.length}`
-                  }
-                }
-                
-                // For cardio exercises, show only time (sum all set times)
-                // For other exercises, show sets × reps/weight
-                let displayValue = null
-                let displayLabel = ''
+                // For stacked exercises, show alternating sets
                 let displayText = ''
                 
-                if (isCardio && sets.length > 0) {
+                if (isStacked && sets.length > 0) {
+                  // For stacked exercises, show alternating sets format
+                  // Group sets by round (each round has one set from each exercise in the stack)
+                  const roundCount = Math.ceil(sets.length / ex.stackMembers.length)
+                  const firstRoundSets = sets.slice(0, ex.stackMembers.length)
+                  
+                  // Build display text showing alternating pattern
+                  const parts = []
+                  firstRoundSets.forEach((set, idx) => {
+                    const member = ex.stackMembers[idx]
+                    if (!member) return
+                    
+                    if (set.reps != null && set.reps !== '') {
+                      const weight = set.weight ? `×${set.weight}` : ''
+                      parts.push(`${set.reps}${weight}`)
+                    } else if (set.time != null && set.time !== '') {
+                      const timeSeconds = Number(set.time)
+                      const minutes = (timeSeconds / 60).toFixed(1)
+                      parts.push(`${minutes}m`)
+                    } else if (set.weight != null && set.weight !== '') {
+                      parts.push(`${set.weight}lbs`)
+                    }
+                  })
+                  
+                  if (parts.length > 0) {
+                    displayText = parts.join(' / ')
+                    if (roundCount > 1) {
+                      displayText = `${roundCount}× (${displayText})`
+                    }
+                  } else {
+                    displayText = `${setCount} sets`
+                  }
+                } else if (isCardio && sets.length > 0) {
                   // Sum all time values for cardio (time is stored in seconds)
                   const totalTimeSeconds = sets.reduce((sum, s) => {
                     const time = s.time != null && s.time !== '' ? Number(s.time) : 0
@@ -198,8 +275,8 @@ export default function ShareCard({ type, data }) {
                   const isRecovery = ex.category === 'Recovery' || ex.category === 'recovery'
                   
                   if (firstSet.reps != null && firstSet.reps !== '') {
-                    displayValue = firstSet.reps
-                    displayLabel = 'reps'
+                    const displayValue = firstSet.reps
+                    const displayLabel = 'reps'
                     displayText = `${setCount} × ${displayValue} ${displayLabel}`
                   } else if (firstSet.time != null && firstSet.time !== '') {
                     // For recovery exercises or any timed exercises, show minutes
@@ -210,12 +287,12 @@ export default function ShareCard({ type, data }) {
                       displayText = `${setCount} × ${minutes} ${displayLabel}`
                     } else {
                       // For very short times (< 60s), show seconds
-                      displayValue = Math.round(timeSeconds)
+                      const displayValue = Math.round(timeSeconds)
                       displayLabel = 'sec'
                       displayText = `${setCount} × ${displayValue} ${displayLabel}`
                     }
                   } else if (firstSet.weight != null && firstSet.weight !== '') {
-                    displayValue = firstSet.weight
+                    const displayValue = firstSet.weight
                     displayLabel = 'lbs'
                     displayText = `${setCount} × ${displayValue} ${displayLabel}`
                   } else {
@@ -234,12 +311,12 @@ export default function ShareCard({ type, data }) {
                       gap: `${itemGap}px`
                     }}
                   >
-                    {stackLabel && (
+                    {isStacked && ex.stackType && (
                       <div 
                         className={styles.stackLabel}
                         style={{ fontSize: `${Math.max(5, Math.floor(exerciseNameSize * 0.7))}px` }}
                       >
-                        {stackLabel}
+                        {ex.stackType}
                       </div>
                     )}
                     <div 

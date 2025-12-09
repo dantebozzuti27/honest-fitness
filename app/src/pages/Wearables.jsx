@@ -10,7 +10,7 @@ import {
 } from '../lib/wearables'
 import { connectFitbit } from '../lib/fitbitAuth'
 import { connectOura } from '../lib/ouraAuth'
-import { getTodayEST } from '../utils/dateUtils'
+import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import styles from './Wearables.module.css'
 
 export default function Wearables() {
@@ -115,7 +115,6 @@ export default function Wearables() {
         const result = await syncFitbitData(user.id, today)
         
         // Also sync yesterday to ensure we have recent data
-        const { getYesterdayEST } = await import('../utils/dateUtils')
         const yesterday = getYesterdayEST()
         try {
           await syncFitbitData(user.id, yesterday)
@@ -140,7 +139,6 @@ export default function Wearables() {
         const result = await syncOuraData(user.id, today)
         
         // Also sync yesterday to ensure we have recent data
-        const { getYesterdayEST } = await import('../utils/dateUtils')
         const yesterday = getYesterdayEST()
         try {
           await syncOuraData(user.id, yesterday)

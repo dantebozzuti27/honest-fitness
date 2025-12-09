@@ -8,6 +8,7 @@ import { getUserProfile, updateUserProfile, getOrCreateUserProfile, getFriends, 
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
 import HomeButton from '../components/HomeButton'
+import InviteFriends from '../components/InviteFriends'
 import styles from './Profile.module.css'
 
 export default function Profile() {
@@ -30,6 +31,7 @@ export default function Profile() {
   const [friendCount, setFriendCount] = useState(0)
   const [pendingRequests, setPendingRequests] = useState(0)
   const [loadingSocial, setLoadingSocial] = useState(true)
+  const [showInviteFriends, setShowInviteFriends] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -412,13 +414,31 @@ export default function Profile() {
               {friends.length === 0 && (
                 <div className={styles.emptyState}>
                   <p className={styles.emptyText}>No friends yet</p>
-                  <button
-                    className={styles.actionBtn}
-                    onClick={() => navigate('/')}
-                  >
-                    Find Friends
-                  </button>
+                  <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <button
+                      className={styles.actionBtn}
+                      onClick={() => setShowInviteFriends(true)}
+                    >
+                      Invite Friends
+                    </button>
+                    <button
+                      className={styles.actionBtn}
+                      onClick={() => navigate('/')}
+                    >
+                      Find Friends
+                    </button>
+                  </div>
                 </div>
+              )}
+              
+              {friends.length > 0 && (
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => setShowInviteFriends(true)}
+                  style={{ marginTop: 'var(--space-md)', width: '100%' }}
+                >
+                  Invite Friends
+                </button>
               )}
             </>
           )}
@@ -537,6 +557,10 @@ export default function Profile() {
           )}
         </div>
       </div>
+
+      {showInviteFriends && (
+        <InviteFriends onClose={() => setShowInviteFriends(false)} />
+      )}
     </div>
   )
 }

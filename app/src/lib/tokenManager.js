@@ -101,7 +101,6 @@ export async function refreshTokenIfNeeded(userId, provider, account) {
       
       if (response.ok) {
         const tokenData = await response.json()
-        const { saveConnectedAccount } = await import('./wearables')
         await saveConnectedAccount(userId, 'fitbit', {
           access_token: tokenData.access_token,
           refresh_token: tokenData.refresh_token,
@@ -127,7 +126,6 @@ export async function refreshTokenIfNeeded(userId, provider, account) {
       
       if (response.ok) {
         const tokenData = await response.json()
-        const { saveConnectedAccount } = await import('./wearables')
         await saveConnectedAccount(userId, 'oura', {
           access_token: tokenData.access_token,
           refresh_token: tokenData.refresh_token,

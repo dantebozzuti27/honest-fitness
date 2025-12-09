@@ -221,14 +221,14 @@
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
-  margin-bottom: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   width: 100%;
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-base);
+  flex-shrink: 0;
 }
 
 .feedAuthor:hover {
@@ -297,7 +297,9 @@
   max-width: 100%;
   padding: 0 16px;
   display: flex;
+  flex-direction: column;
   justify-content: center;
+  gap: var(--space-sm);
 }
 
 .feedItem {
@@ -780,5 +782,72 @@
   .quickMenuItem {
     padding: var(--space-md);
     font-size: var(--text-sm);
+  }
+  
+  .feedCardItem {
+    height: calc(100vh - 200px);
+    height: calc(100dvh - 200px);
+    max-height: calc(100vh - 200px);
+    max-height: calc(100dvh - 200px);
+    padding: 0 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .feedAuthor {
+    height: 20%;
+    min-height: 60px;
+    max-height: 80px;
+    padding: 8px 12px;
+    margin-bottom: 0;
+    flex-shrink: 0;
+  }
+  
+  .feedCardItem > div:last-child {
+    height: 80%;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .feedCardItem :global(.shareCardContainer) {
+    height: 100%;
+    width: 100%;
+    max-width: 100%;
+  }
+  
+  .feedCardItem :global(.shareCardContainer) {
+    height: 100% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .feedCardItem :global(.card) {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    aspect-ratio: 1 / 1;
+  }
+  
+  .authorAvatar,
+  .authorAvatarPlaceholder {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+  
+  .authorName {
+    font-size: 13px;
+  }
+  
+  .authorTimestamp {
+    font-size: 11px;
   }
 }

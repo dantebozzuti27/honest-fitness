@@ -8,7 +8,7 @@ import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, syncOuraData, mergeWearableDataToMetrics } from '../lib/wearables'
 import { supabase } from '../lib/supabase'
-import { getTodayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
+import { getTodayEST, getYesterdayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { logError, logDebug } from '../utils/logger'
 
@@ -289,7 +289,6 @@ export default function Health() {
       
       // Also sync yesterday to ensure we have recent data
       try {
-        const { getYesterdayEST } = await import('../utils/dateUtils')
         const yesterday = getYesterdayEST()
         await syncFitbitData(user.id, yesterday)
       } catch (e) {

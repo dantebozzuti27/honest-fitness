@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { getOrCreateUserProfile } from '../lib/friendsDb'
 
 const AuthContext = createContext({})
 
@@ -71,7 +72,6 @@ export function AuthProvider({ children }) {
     // Create user profile with username and phone number
     if (data.user) {
       try {
-        const { getOrCreateUserProfile } = await import('../lib/friendsDb')
         await getOrCreateUserProfile(data.user.id, {
           username,
           phone_number: phoneNumber,

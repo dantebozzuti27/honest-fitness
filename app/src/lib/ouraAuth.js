@@ -2,6 +2,8 @@
  * Oura OAuth Helper Functions
  */
 
+import { getConnectedAccount } from './wearables'
+
 // Get Oura config from environment
 const OURA_CLIENT_ID = import.meta.env.VITE_OURA_CLIENT_ID || ''
 const OURA_REDIRECT_URI = import.meta.env.VITE_OURA_REDIRECT_URI || 
@@ -74,7 +76,6 @@ export function connectOura(userId) {
  * Check if Oura is connected
  */
 export async function isOuraConnected(userId) {
-  const { getConnectedAccount } = await import('./wearables')
   const account = await getConnectedAccount(userId, 'oura')
   return !!account
 }

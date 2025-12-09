@@ -5,6 +5,7 @@ import { getAllTemplates, saveMetrics, saveTemplate, deleteTemplate } from '../d
 import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
@@ -75,7 +76,6 @@ export default function Workout() {
           }
           
           // Load daily metrics from Supabase (try today first, then yesterday)
-          const { getTodayEST } = await import('../utils/dateUtils')
           const today = getTodayEST()
           const yesterday = getYesterdayEST()
           
@@ -89,7 +89,6 @@ export default function Workout() {
           // Also try to get Fitbit data directly
           if (!metricsData || metricsData.length === 0 || !metricsData[0].hrv) {
             try {
-              const { getFitbitDaily, getMostRecentFitbitData } = await import('../lib/wearables')
               let fitbitData = await getFitbitDaily(user.id, today)
               if (!fitbitData) {
                 fitbitData = await getFitbitDaily(user.id, yesterday)

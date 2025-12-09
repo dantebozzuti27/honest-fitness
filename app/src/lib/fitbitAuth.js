@@ -2,6 +2,8 @@
  * Fitbit OAuth Helper Functions
  */
 
+import { getConnectedAccount } from './wearables'
+
 // Get Fitbit config from environment
 const FITBIT_CLIENT_ID = import.meta.env.VITE_FITBIT_CLIENT_ID || ''
 const FITBIT_REDIRECT_URI = import.meta.env.VITE_FITBIT_REDIRECT_URI || 
@@ -75,7 +77,6 @@ export function connectFitbit(userId) {
  * Check if Fitbit is connected
  */
 export async function isFitbitConnected(userId) {
-  const { getConnectedAccount } = await import('./wearables')
   const account = await getConnectedAccount(userId, 'fitbit')
   return !!account
 }

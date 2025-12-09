@@ -1273,6 +1273,44 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
   try {
     console.log('[FEED DEBUG] getSocialFeedItems called:', { userId, filter, limit })
     
+    // First, get feed items (nutrition, health, and manually shared workouts)
+    let feedItemsQuery = supabase
+      .from('feed_items')
+      .select('*')
+      .eq('shared', true)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    
+    // Apply filter to feed items
+    if (filter === 'me') {
+      feedItemsQuery = feedItemsQuery.eq('user_id', userId)
+    } else if (filter === 'friends') {
+      try {
+        const { data: friends } = await supabase
+          .from('friends')
+          .select('friend_id')
+          .eq('user_id', userId)
+          .eq('status', 'accepted')
+        
+        const friendIds = friends?.map(f => f.friend_id) || []
+        if (friendIds.length > 0) {
+          feedItemsQuery = feedItemsQuery.in('user_id', friendIds)
+        } else {
+          // No friends for feed items, but continue to check workouts
+        }
+      } catch (friendError) {
+        safeLogDebug('Error loading friends for feed items', friendError)
+      }
+    } else if (filter === 'all') {
+      feedItemsQuery = feedItemsQuery.eq('user_id', userId)
+    }
+    
+    const { data: feedItems, error: feedItemsError } = await feedItemsQuery
+    
+    if (feedItemsError && feedItemsError.code !== 'PGRST205') {
+      console.error('[FEED DEBUG] Feed items query error:', feedItemsError)
+    }
+    
     // Build query to get ALL workouts with exercises and sets
     let workoutQuery = supabase
       .from('workouts')
@@ -1340,17 +1378,22 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
 
     console.log('[FEED DEBUG] Found workouts:', workouts.length)
 
-    // Get unique user IDs from workouts
-    const userIds = [...new Set(workouts.map(w => w?.user_id).filter(id => id != null))]
+    // Get unique user IDs from workouts and feed items
+    const allUserIds = [
+      ...new Set([
+        ...(workouts || []).map(w => w?.user_id),
+        ...(feedItems || []).map(f => f?.user_id)
+      ].filter(id => id != null))
+    ]
     
     // Fetch user profiles for all users
     let userProfiles = {}
-    if (userIds.length > 0) {
+    if (allUserIds.length > 0) {
       try {
         const { data: profiles } = await supabase
           .from('user_profiles')
           .select('user_id, username, display_name, profile_picture')
-          .in('user_id', userIds)
+          .in('user_id', allUserIds)
         
         if (profiles) {
           profiles.forEach(profile => {
@@ -1358,12 +1401,27 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
           })
         }
       } catch (profileError) {
-        safeLogDebug('Error loading user profiles for workouts', profileError)
+        safeLogDebug('Error loading user profiles', profileError)
       }
     }
     
+    // Transform feed items (nutrition, health, manually shared workouts)
+    const transformedFeedItems = (feedItems || []).map(item => ({
+      id: item.id,
+      user_id: item.user_id,
+      type: item.type,
+      date: item.date,
+      title: item.title,
+      subtitle: item.subtitle,
+      data: item.data || (item.type === 'workout' ? { workout: {} } : item.type === 'nutrition' ? { nutrition: {} } : { health: {} }),
+      shared: item.shared,
+      visibility: item.visibility || 'public',
+      created_at: item.created_at,
+      user_profiles: userProfiles[item.user_id] || null
+    }))
+    
     // Transform workouts to feed item format
-    const feedItems = workouts
+    const workoutFeedItems = workouts
       .filter(workout => {
         // Only include workouts with valid data
         if (!workout || !workout.user_id || !workout.date || !workout.created_at) {
@@ -1433,13 +1491,21 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
         }
       })
 
-    console.log('[FEED DEBUG] Final feedItems count:', feedItems.length)
-    if (feedItems.length > 0) {
-      console.log('[FEED DEBUG] Sample feedItem:', feedItems[0])
+    // Combine feed items and workout items, then sort by created_at
+    const allFeedItems = [...transformedFeedItems, ...workoutFeedItems]
+      .sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0
+        return bTime - aTime
+      })
+      .slice(0, limit)
+    
+    console.log('[FEED DEBUG] Final feedItems count:', allFeedItems.length)
+    if (allFeedItems.length > 0) {
+      console.log('[FEED DEBUG] Sample feedItem:', allFeedItems[0])
     }
     
-    // Already sorted by created_at DESC from query, just return
-    return feedItems
+    return allFeedItems
   } catch (error) {
     logError('Error in getSocialFeedItems', error)
     // If table doesn't exist, return empty array

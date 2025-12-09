@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { hasExercises } from '../db'
 import { initializeData } from '../utils/initData'
 import { useAuth } from '../context/AuthContext'
-import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences } from '../lib/supabaseDb'
+import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences, getFeedItemsFromSupabase } from '../lib/supabaseDb'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
@@ -24,24 +24,52 @@ export default function Home() {
   const [profilePicture, setProfilePicture] = useState(null)
 
   const loadRecentLogs = async (userId) => {
-    console.log('🔵 loadRecentLogs called for user:', userId)
     try {
       const logs = []
       const today = getTodayEST()
       const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
-      // Load shared feed items from localStorage FIRST (so they appear at top)
+      // Load shared feed items from database FIRST (so they appear at top)
       try {
-        const sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-        console.log('🔵 Found', sharedItems.length, 'shared items in localStorage')
+        let sharedItems = []
         
-        if (sharedItems.length > 0) {
+        // Try database first
+        if (userId) {
+          try {
+            sharedItems = await getFeedItemsFromSupabase(userId, 50)
+          } catch (dbError) {
+            // If database fails, fallback to localStorage
+            // Silently ignore PGRST205 errors (table doesn't exist)
+            if (dbError.code !== 'PGRST205' && !dbError.message?.includes('Could not find the table')) {
+              logError('Error loading feed from database, using localStorage', dbError)
+            }
+            sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+          }
+        } else {
+          // Not logged in, use localStorage
+          sharedItems = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
+        }
+        
+        if (sharedItems && sharedItems.length > 0) {
           sharedItems.forEach((item) => {
-            // Use timestamp if available, otherwise use date
-            const itemDate = item.timestamp ? new Date(item.timestamp).toISOString().split('T')[0] : (item.date || today)
+            // Use created_at timestamp if available, otherwise use date
+            const itemDate = item.created_at 
+              ? new Date(item.created_at).toISOString().split('T')[0] 
+              : (item.timestamp ? new Date(item.timestamp).toISOString().split('T')[0] : (item.date || today))
             
             // Ensure workout data has correct structure for ShareCard
             let workoutData = item.data || {}
+            
+            // If data is a string (JSONB from database), parse it
+            if (typeof workoutData === 'string') {
+              try {
+                workoutData = JSON.parse(workoutData)
+              } catch (e) {
+                logError('Error parsing feed item data', e)
+                workoutData = {}
+              }
+            }
+            
             if (item.type === 'workout' && workoutData) {
               // If workout has workout_exercises (from Supabase), transform it
               if (workoutData.workout_exercises && !workoutData.exercises) {
@@ -79,11 +107,10 @@ export default function Home() {
               date: itemDate,
               title: item.title || 'Shared Item',
               subtitle: item.subtitle || '',
-              data: workoutData,
+              data: workoutData, // This is already the workout/nutrition/health object
               shared: true,
-              timestamp: item.timestamp || new Date(itemDate + 'T12:00').toISOString()
+              timestamp: item.created_at || item.timestamp || new Date(itemDate + 'T12:00').toISOString()
             }
-            console.log('🔵 Adding shared item:', logEntry.type, logEntry.date, 'shared:', logEntry.shared, 'hasData:', !!logEntry.data)
             // Add shared item to logs
             logs.push(logEntry)
           })
@@ -210,11 +237,7 @@ export default function Home() {
         return dateB - dateA
       })
       const sortedLogs = logs.slice(0, 20)
-      console.log('🔵 FINAL: Loaded', sortedLogs.length, 'total items')
-      console.log('🔵 FINAL: Shared items:', sortedLogs.filter(l => l.shared).length)
-      console.log('🔵 FINAL: Shared items details:', sortedLogs.filter(l => l.shared).map(l => ({ type: l.type, date: l.date, hasData: !!l.data })))
       setRecentLogs(sortedLogs)
-      console.log('🔵 State updated with', sortedLogs.length, 'items')
       
     } catch (e) {
       logError('Error loading recent logs', e)
@@ -278,9 +301,7 @@ export default function Home() {
 
           // Load recent logs for feed - await this so feed loads
           if (mounted) {
-            console.log('🔵 About to call loadRecentLogs for user:', user.id)
             await loadRecentLogs(user.id)
-            console.log('🔵 loadRecentLogs completed')
           }
         } catch (e) {
           // Silently fail - data will load on retry
@@ -321,12 +342,8 @@ export default function Home() {
     
     // Listen for feed updates
     const handleFeedUpdate = () => {
-      console.log('🔵 feedUpdated event received, mounted:', mounted, 'user:', !!user)
       if (mounted && user) {
-        console.log('🔵 Reloading feed for user:', user.id)
         loadRecentLogs(user.id)
-      } else {
-        console.log('🔵 NOT reloading - mounted:', mounted, 'user:', !!user)
       }
     }
     window.addEventListener('feedUpdated', handleFeedUpdate)
@@ -397,12 +414,14 @@ export default function Home() {
             </div>
           ) : (
             <div className={styles.feedList}>
-              {console.log('🔵 RENDERING: recentLogs.length =', recentLogs.length, 'loading =', loading)}
               {recentLogs.map((log, index) => {
-                console.log('🔵 RENDERING item:', index, log.type, 'shared:', log.shared, 'hasData:', !!log.data)
                 // Show ShareCard for shared workouts, nutrition, and health items
                 if (log.shared && (log.type === 'workout' || log.type === 'nutrition' || log.type === 'health')) {
-                  console.log('🔵 RENDERING ShareCard for', log.type)
+                  // Ensure data exists and has the correct structure
+                  if (!log.data) {
+                    return null
+                  }
+                  
                   return (
                     <div key={`${log.type}-${log.date}-${index}-shared`} className={styles.feedCardItem}>
                       <ShareCard 

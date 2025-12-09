@@ -23,16 +23,6 @@ export default function ShareCard({ type, data }) {
   const renderWorkoutCard = () => {
     const { workout } = data
     
-    // DEBUG: Log the exact data received
-    console.log('ShareCard: Received workout data:', {
-      exerciseCount: workout?.exercises?.length || 0,
-      exercises: workout?.exercises?.map(ex => ({
-        name: ex.name,
-        setCount: ex.sets?.length || 0,
-        sets: ex.sets
-      })) || []
-    })
-    
     // IMPORTANT: Show ALL exercises from the workout, don't filter any out
     // Only filter sets to show valid ones, but keep all exercises
     const validExercises = []

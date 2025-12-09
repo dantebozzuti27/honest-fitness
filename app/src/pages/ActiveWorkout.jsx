@@ -79,7 +79,10 @@ export default function ActiveWorkout() {
               }
             }
           } catch (error) {
-            logError('Error loading paused workout', error)
+            // Silently ignore PGRST205 errors (table doesn't exist - migration not run)
+            if (error.code !== 'PGRST205' && !error.message?.includes('Could not find the table')) {
+              logError('Error loading paused workout', error)
+            }
           }
         }
 
@@ -543,9 +546,11 @@ export default function ActiveWorkout() {
       
       // Automatically share workout to feed
       try {
-        const shared = shareWorkoutToFeed(workout)
-        if (shared) {
-          // Feed will update automatically via the 'feedUpdated' event
+        if (user) {
+          const shared = await shareWorkoutToFeed(workout, user.id)
+          if (shared) {
+            // Feed will update automatically via the 'feedUpdated' event
+          }
         }
       } catch (err) {
         logError('Error sharing workout to feed', err)

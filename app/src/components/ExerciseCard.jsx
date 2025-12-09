@@ -17,6 +17,7 @@ export default function ExerciseCard({
   stackGroup,
   stackMembers,
   stackIndex,
+  existingStacks = [],
   onToggleStack,
   onAddToStack,
   onRemoveFromStack,

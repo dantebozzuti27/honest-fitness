@@ -1133,3 +1133,93 @@ export async function getDetailedBodyPartStats(userId) {
   
   return stats
 }
+
+// ============ FEED ITEMS ============
+
+/**
+ * Save a feed item to the database
+ */
+export async function saveFeedItemToSupabase(feedItem, userId) {
+  try {
+    const { data, error } = await supabase
+      .from('feed_items')
+      .insert({
+        user_id: userId,
+        type: feedItem.type,
+        date: feedItem.date,
+        title: feedItem.title,
+        subtitle: feedItem.subtitle || null,
+        data: feedItem.data,
+        shared: feedItem.shared !== false // Default to true
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  } catch (error) {
+    // If table doesn't exist (migration not run), return null gracefully
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('feed_items table does not exist yet - migration not run')
+      return null
+    }
+    throw error
+  }
+}
+
+/**
+ * Get feed items for a user
+ */
+export async function getFeedItemsFromSupabase(userId, limit = 50) {
+  try {
+    const { data, error } = await supabase
+      .from('feed_items')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('shared', true)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    // If table doesn't exist (migration not run), return empty array gracefully
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('feed_items table does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    // If table doesn't exist, return empty array
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('feed_items table does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+/**
+ * Delete a feed item
+ */
+export async function deleteFeedItemFromSupabase(feedItemId, userId) {
+  try {
+    const { error } = await supabase
+      .from('feed_items')
+      .delete()
+      .eq('id', feedItemId)
+      .eq('user_id', userId)
+
+    // If table doesn't exist, silently succeed
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('feed_items table does not exist yet - migration not run')
+      return
+    }
+    if (error) throw error
+  } catch (error) {
+    // If table doesn't exist, silently succeed
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('feed_items table does not exist yet - migration not run')
+      return
+    }
+    throw error
+  }
+}

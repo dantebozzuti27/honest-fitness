@@ -178,8 +178,57 @@ function generateShareText(type, data) {
 /**
  * Automatically share a workout to the feed
  * This is called when a workout is completed
+ * Now saves to database instead of localStorage
  */
-export function shareWorkoutToFeed(workout) {
+export async function shareWorkoutToFeed(workout, userId) {
+  try {
+    if (!userId) {
+      // Fallback to localStorage if not logged in
+      return shareWorkoutToFeedLocalStorage(workout)
+    }
+
+    const today = new Date().toISOString().split('T')[0]
+    const duration = workout.duration || 0
+    const minutes = Math.floor(duration / 60)
+    const seconds = duration % 60
+    const title = workout.templateName || 'Freestyle Workout'
+    const subtitle = `${minutes}:${String(seconds).padStart(2, '0')}`
+
+    const feedItem = {
+      type: 'workout',
+      date: workout.date || today,
+      title,
+      subtitle,
+      data: workout,
+      shared: true
+    }
+
+    // Save to database
+    const { saveFeedItemToSupabase } = await import('../lib/supabaseDb')
+    const saved = await saveFeedItemToSupabase(feedItem, userId)
+    
+    if (saved) {
+      // Trigger a custom event to refresh the feed
+      window.dispatchEvent(new CustomEvent('feedUpdated'))
+      return true
+    }
+    
+    // If database save failed (table doesn't exist), fallback to localStorage
+    return shareWorkoutToFeedLocalStorage(workout)
+  } catch (error) {
+    // Silently ignore PGRST205 errors (table doesn't exist)
+    if (error.code !== 'PGRST205' && !error.message?.includes('Could not find the table')) {
+      console.error('Error sharing workout to feed:', error)
+    }
+    // Fallback to localStorage on error
+    return shareWorkoutToFeedLocalStorage(workout)
+  }
+}
+
+/**
+ * Fallback: Share to localStorage (for offline or when database unavailable)
+ */
+function shareWorkoutToFeedLocalStorage(workout) {
   try {
     const today = new Date().toISOString().split('T')[0]
     const duration = workout.duration || 0
@@ -198,39 +247,28 @@ export function shareWorkoutToFeed(workout) {
       timestamp: new Date().toISOString()
     }
 
-    // Get existing shared items
     const existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
-    
-    // Check if this exact item already exists (prevent duplicates)
-    // Use a more lenient check - same type and date within the same hour
     const now = new Date()
     const itemTime = new Date(feedItem.timestamp)
     const isDuplicate = existing.some(item => {
       if (item.type !== feedItem.type || item.date !== feedItem.date) {
         return false
       }
-      // Check if timestamp is within the same hour (to allow multiple workouts per day)
       const itemTimestamp = new Date(item.timestamp)
       const timeDiff = Math.abs(itemTime - itemTimestamp)
-      return timeDiff < 60 * 60 * 1000 // Within 1 hour
+      return timeDiff < 60 * 60 * 1000
     })
     
     if (!isDuplicate) {
       existing.push(feedItem)
-      
-      // Keep only last 50 items
       const recent = existing.slice(-50)
       localStorage.setItem('sharedToFeed', JSON.stringify(recent))
-      
-      // Trigger a custom event to refresh the feed
       window.dispatchEvent(new CustomEvent('feedUpdated'))
-      
       return true
-    } else {
-      return false // Duplicate, not added
     }
+    return false
   } catch (error) {
-    console.error('Error sharing workout to feed:', error)
+    console.error('Error sharing workout to localStorage:', error)
     return false
   }
 }

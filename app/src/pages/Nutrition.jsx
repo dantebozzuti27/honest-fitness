@@ -1110,25 +1110,25 @@ export default function Nutrition() {
                   .sort((a, b) => b[0].localeCompare(a[0]))
                   .map(([date, data]) => (
                     <div key={date} className={styles.historyTableRow}>
-                      <div className={styles.historyTableCol} onClick={() => {
+                      <div className={styles.historyTableCol} data-label="Date" onClick={() => {
                         setSelectedDate(date)
                         setActiveTab('Today')
                       }}>
                         {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </div>
-                      <div className={styles.historyTableCol} onClick={() => {
+                      <div className={styles.historyTableCol} data-label="Calories" onClick={() => {
                         setSelectedDate(date)
                         setActiveTab('Today')
                       }}>{data.calories || 0}</div>
-                      <div className={styles.historyTableCol} onClick={() => {
+                      <div className={styles.historyTableCol} data-label="Protein" onClick={() => {
                         setSelectedDate(date)
                         setActiveTab('Today')
                       }}>{Math.round(data.macros?.protein || 0)}g</div>
-                      <div className={styles.historyTableCol} onClick={() => {
+                      <div className={styles.historyTableCol} data-label="Carbs" onClick={() => {
                         setSelectedDate(date)
                         setActiveTab('Today')
                       }}>{Math.round(data.macros?.carbs || 0)}g</div>
-                      <div className={styles.historyTableCol} onClick={() => {
+                      <div className={styles.historyTableCol} data-label="Fat" onClick={() => {
                         setSelectedDate(date)
                         setActiveTab('Today')
                       }}>{Math.round(data.macros?.fat || 0)}g</div>

@@ -509,15 +509,15 @@ export default function Fitness() {
                     .sort((a, b) => b.date.localeCompare(a.date))
                     .map(workout => (
                       <div key={workout.id} className={styles.historyTableRow}>
-                        <div className={styles.historyTableCol}>
+                        <div className={styles.historyTableCol} data-label="Date">
                           {formatDateMMDDYYYY(workout.date)}
                         </div>
-                        <div className={styles.historyTableCol}>
+                        <div className={styles.historyTableCol} data-label="Duration">
                           {workout.duration 
                             ? `${Math.floor((workout.duration || 0) / 60)}:${String((workout.duration || 0) % 60).padStart(2, '0')}`
                             : 'N/A'}
                         </div>
-                        <div className={styles.historyTableCol}>
+                        <div className={styles.historyTableCol} data-label="Exercises">
                           {workout.workout_exercises?.length || 0}
                         </div>
                         <div className={`${styles.historyTableCol} ${styles.actionsCol}`}>

@@ -1207,22 +1207,22 @@ export default function Health() {
                               setShowLogModal(true)
                             }}
                           >
-                            <div className={styles.historyTableCol}>
+                            <div className={styles.historyTableCol} data-label="Date">
                               {formatDateShort(metric.date, metric.date !== getTodayEST())}
                             </div>
-                            <div className={styles.historyTableCol}>
+                            <div className={styles.historyTableCol} data-label="Weight">
                               {metric.weight ? `${metric.weight} lbs` : '-'}
                             </div>
-                            <div className={styles.historyTableCol}>
+                            <div className={styles.historyTableCol} data-label="Steps">
                               {metric.steps ? metric.steps.toLocaleString() : '-'}
                             </div>
-                            <div className={styles.historyTableCol}>
+                            <div className={styles.historyTableCol} data-label="HRV">
                               {metric.hrv ? `${metric.hrv} ms` : '-'}
                             </div>
-                            <div className={styles.historyTableCol}>
+                            <div className={styles.historyTableCol} data-label="Calories">
                               {metric.calories_burned || metric.calories ? (metric.calories_burned || metric.calories).toLocaleString() : '-'}
                             </div>
-                            <div className={styles.historyTableCol}>
+                            <div className={styles.historyTableCol} data-label="Sleep">
                               {(() => {
                                 let sleepMinutes = metric.sleep_time != null ? Number(metric.sleep_time) : null
                                 if (sleepMinutes == null) return '-'

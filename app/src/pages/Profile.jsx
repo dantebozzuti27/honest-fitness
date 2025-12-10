@@ -32,6 +32,7 @@ export default function Profile() {
   const [pendingRequests, setPendingRequests] = useState(0)
   const [loadingSocial, setLoadingSocial] = useState(true)
   const [showInviteFriends, setShowInviteFriends] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -274,90 +275,146 @@ export default function Profile() {
 
       <div className={styles.content}>
         {user && (
-          <div className={styles.userInfo}>
-            <div className={styles.profilePictureSection}>
-              <div className={styles.profilePictureContainer}>
-                {profilePictureUrl ? (
-                  <img src={profilePictureUrl} alt="Profile" className={styles.profilePicture} />
-                ) : (
-                  <div className={styles.profilePicturePlaceholder}>
-                    {username ? username.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
+          <>
+            {/* Profile Header - Social Media Style */}
+            <div className={styles.profileHeader}>
+              <div className={styles.profilePictureSection}>
+                <div className={styles.profilePictureContainer}>
+                  {profilePictureUrl ? (
+                    <img src={profilePictureUrl} alt="Profile" className={styles.profilePicture} />
+                  ) : (
+                    <div className={styles.profilePicturePlaceholder}>
+                      {username ? username.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <label className={styles.uploadBtnOverlay}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleProfilePictureChange}
+                      style={{ display: 'none' }}
+                    />
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                  </label>
+                </div>
+              </div>
+              
+              <div className={styles.profileStats}>
+                <div className={styles.statItem}>
+                  <div className={styles.statValue}>{friendCount}</div>
+                  <div className={styles.statLabel}>Friends</div>
+                </div>
+                {pendingRequests > 0 && (
+                  <div className={styles.statItem}>
+                    <div className={styles.statValue}>{pendingRequests}</div>
+                    <div className={styles.statLabel}>Requests</div>
                   </div>
                 )}
               </div>
-              <label className={styles.uploadBtn}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleProfilePictureChange}
-                  style={{ display: 'none' }}
-                />
-                Upload Photo
-              </label>
             </div>
-            <div className={styles.profileForm}>
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Username *</label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="username"
-                  className={styles.input}
-                  minLength={3}
-                  maxLength={20}
-                  pattern="[a-zA-Z0-9_-]+"
-                  required
-                />
-                <small className={styles.helperText}>3-20 characters, letters, numbers, _, or -</small>
+
+            {/* Profile Info */}
+            <div className={styles.profileInfo}>
+              <div className={styles.profileNames}>
+                <h2 className={styles.displayName}>{displayName || username || 'User'}</h2>
+                <p className={styles.username}>@{username || 'username'}</p>
               </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Phone Number *</label>
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="+1 (555) 123-4567"
-                  className={styles.input}
-                  required
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Display Name</label>
-                <input
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Your display name"
-                  className={styles.input}
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Bio</label>
-                <textarea
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  placeholder="Tell us about yourself..."
-                  className={styles.textarea}
-                  rows={3}
-                  maxLength={500}
-                />
-              </div>
-
-              <div className={styles.userEmail}>{user.email}</div>
-
-              <button
-                className={styles.saveBtn}
-                onClick={handleSaveProfile}
-                disabled={saving}
-              >
-                {saving ? 'Saving...' : 'Save Profile'}
-              </button>
+              
+              {bio && (
+                <p className={styles.bio}>{bio}</p>
+              )}
+              
+              <p className={styles.userEmail}>{user.email}</p>
             </div>
-          </div>
+
+            {/* Edit Profile Button */}
+            <button
+              className={styles.editProfileBtn}
+              onClick={() => setShowEditModal(true)}
+            >
+              Edit Profile
+            </button>
+
+            {/* Edit Modal */}
+            {showEditModal && (
+              <div className={styles.editModalOverlay} onClick={() => setShowEditModal(false)}>
+                <div className={styles.editModal} onClick={(e) => e.stopPropagation()}>
+                  <div className={styles.editModalHeader}>
+                    <h3>Edit Profile</h3>
+                    <button className={styles.closeBtn} onClick={() => setShowEditModal(false)}>×</button>
+                  </div>
+                  
+                  <div className={styles.profileForm}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Username *</label>
+                      <input
+                        type="text"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder="username"
+                        className={styles.input}
+                        minLength={3}
+                        maxLength={20}
+                        pattern="[a-zA-Z0-9_-]+"
+                        required
+                      />
+                      <small className={styles.helperText}>3-20 characters, letters, numbers, _, or -</small>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Phone Number *</label>
+                      <input
+                        type="tel"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        placeholder="+1 (555) 123-4567"
+                        className={styles.input}
+                        required
+                      />
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Display Name</label>
+                      <input
+                        type="text"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder="Your display name"
+                        className={styles.input}
+                      />
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Bio</label>
+                      <textarea
+                        value={bio}
+                        onChange={(e) => setBio(e.target.value)}
+                        placeholder="Tell us about yourself..."
+                        className={styles.textarea}
+                        rows={3}
+                        maxLength={500}
+                      />
+                    </div>
+
+                    <button
+                      className={styles.saveBtn}
+                      onClick={async () => {
+                        await handleSaveProfile()
+                        setShowEditModal(false)
+                      }}
+                      disabled={saving}
+                    >
+                      {saving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Social Section */}

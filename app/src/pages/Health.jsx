@@ -1425,8 +1425,10 @@ export default function Health() {
                 </div>
                 <div className={styles.goalsList}>
                   {healthGoals.map(goal => {
-                    const progress = goal.target_value > 0 
-                      ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
+                    const currentValue = goal.current_value || 0
+                    const targetValue = goal.target_value || 0
+                    const progress = targetValue > 0 
+                      ? Math.min(100, (currentValue / targetValue) * 100) 
                       : 0
                     return (
                       <div key={goal.id} className={styles.goalCard}>
@@ -1440,7 +1442,7 @@ export default function Health() {
                           <div className={styles.goalBarFill} style={{ width: `${progress}%` }} />
                         </div>
                         <div className={styles.goalValues}>
-                          {goal.current_value} / {goal.target_value} {goal.unit}
+                          {currentValue.toFixed(1)} / {targetValue} {goal.unit || ''}
                         </div>
                       </div>
                     )

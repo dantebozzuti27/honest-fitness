@@ -856,7 +856,7 @@ export default function Nutrition() {
                         className={styles.macroFill}
                         style={{
                           width: `${Math.min(100, (currentMacros.protein / targetMacros.protein) * 100)}%`,
-                          background: '#4CAF50'
+                          background: 'linear-gradient(90deg, rgba(255, 255, 255, 0.9), rgba(200, 200, 200, 0.7))'
                         }}
                       />
                     </div>
@@ -871,7 +871,7 @@ export default function Nutrition() {
                         className={styles.macroFill}
                         style={{
                           width: `${Math.min(100, (currentMacros.carbs / targetMacros.carbs) * 100)}%`,
-                          background: '#2196F3'
+                          background: 'linear-gradient(90deg, rgba(255, 255, 255, 0.9), rgba(200, 200, 200, 0.7))'
                         }}
                       />
                     </div>
@@ -886,7 +886,7 @@ export default function Nutrition() {
                         className={styles.macroFill}
                         style={{
                           width: `${Math.min(100, (currentMacros.fat / targetMacros.fat) * 100)}%`,
-                          background: '#FF9800'
+                          background: 'linear-gradient(90deg, rgba(255, 255, 255, 0.9), rgba(200, 200, 200, 0.7))'
                         }}
                       />
                     </div>

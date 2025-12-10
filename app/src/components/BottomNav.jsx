@@ -132,10 +132,7 @@ export default function BottomNav() {
                   className={styles.quickLogOption}
                   onClick={() => handleQuickLog(option)}
                 >
-                  <div className={styles.quickLogOptionLabel}>{option.label}</div>
-                  {option.description && (
-                    <div className={styles.quickLogOptionDesc}>{option.description}</div>
-                  )}
+                  {option.label}
                 </button>
               ))}
             </div>

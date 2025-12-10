@@ -120,8 +120,9 @@
   --glass-modal-border: rgba(255, 255, 255, 0.2);
   --glass-modal-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(255, 255, 255, 0.1);
   
-  /* Overlays - Subtle backdrop */
-  --glass-overlay-bg: rgba(0, 0, 0, 0.5);
+  /* Overlays - Transparent glassy backdrop */
+  --glass-overlay-bg: rgba(0, 0, 0, 0.3);
+  --glass-overlay-blur: blur(40px) saturate(200%);
   
   /* Blur values - Apple uses very strong blur with high saturation */
   --glass-blur-strong: blur(60px) saturate(300%);

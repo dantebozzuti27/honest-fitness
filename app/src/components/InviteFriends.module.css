@@ -4,7 +4,9 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--glass-overlay-bg);
+  backdrop-filter: var(--glass-overlay-blur);
+  -webkit-backdrop-filter: var(--glass-overlay-blur);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -13,11 +15,15 @@
 }
 
 .modal {
-  background: var(--bg-secondary);
+  background: var(--glass-modal-bg);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
+  border: 1px solid var(--glass-modal-border);
   border-radius: var(--radius-lg);
   width: 100%;
   max-width: 500px;
   max-height: 90vh;
+  box-shadow: var(--glass-modal-shadow);
   overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   border: 1px solid var(--border);

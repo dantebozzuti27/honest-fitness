@@ -532,7 +532,9 @@ h1 {
   left: 0 !important;
   right: 0 !important;
   bottom: 0 !important;
-  background: rgba(0, 0, 0, 0.85) !important;
+  background: var(--glass-overlay-bg) !important;
+  backdrop-filter: var(--glass-overlay-blur) !important;
+  -webkit-backdrop-filter: var(--glass-overlay-blur) !important;
   z-index: 9999 !important;
   display: flex !important;
   align-items: center !important;

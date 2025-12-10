@@ -146,6 +146,26 @@ export default function Nutrition() {
       // Then load the updated goals
       const goals = await getActiveGoalsFromSupabase(user.id, 'nutrition')
       setNutritionGoals(goals)
+      
+      // Sync goals to targetCalories and targetMacros
+      const caloriesGoal = goals.find(g => g.type === 'calories' || g.type === 'calorie_intake')
+      const proteinGoal = goals.find(g => g.type === 'protein')
+      const carbsGoal = goals.find(g => g.type === 'carbs')
+      const fatGoal = goals.find(g => g.type === 'fat')
+      
+      // Update targetCalories from goals if a goal exists
+      if (caloriesGoal && caloriesGoal.target_value) {
+        setTargetCalories(Number(caloriesGoal.target_value))
+      }
+      
+      // Update targetMacros from goals if any macro goals exist
+      if (proteinGoal || carbsGoal || fatGoal) {
+        setTargetMacros({
+          protein: proteinGoal ? Number(proteinGoal.target_value) : (targetMacros?.protein || 0),
+          carbs: carbsGoal ? Number(carbsGoal.target_value) : (targetMacros?.carbs || 0),
+          fat: fatGoal ? Number(fatGoal.target_value) : (targetMacros?.fat || 0)
+        })
+      }
     } catch (error) {
       // Silently fail
     }
@@ -258,66 +278,16 @@ export default function Nutrition() {
       const { getNutritionSettingsFromSupabase } = await import('../lib/nutritionDb')
       const settings = await getNutritionSettingsFromSupabase(user.id)
       if (settings) {
-        // Only set if user has explicitly configured these
-        if (settings.targetCalories) {
-          setTargetCalories(settings.targetCalories)
-        }
-        if (settings.targetMacros) {
-          setTargetMacros(settings.targetMacros)
-        }
+        // Don't load targetCalories/targetMacros from settings - they come from goals
+        // Only load favorites and fasting settings
         setFavorites(settings.favorites || [])
         setFastingEnabled(settings.fastingEnabled || false)
         if (settings.fastingStartTime) {
           setFastingStartTime(new Date(settings.fastingStartTime))
         }
-      } else {
-        // Settings not found, check localStorage but don't auto-create defaults
-        const saved = localStorage.getItem(`ghostMode_${user.id}`)
-        if (saved) {
-          const data = JSON.parse(saved)
-          // Only use values if they were explicitly set (not defaults)
-          if (data.targetCalories && data.targetCalories !== 2000) {
-            setTargetCalories(data.targetCalories)
-          }
-          if (data.targetMacros && (data.targetMacros.protein !== 150 || data.targetMacros.carbs !== 200 || data.targetMacros.fat !== 67)) {
-            setTargetMacros(data.targetMacros)
-          }
-          setFavorites(data.favorites || [])
-          setFastingEnabled(data.fastingEnabled || false)
-          if (data.fastingStartTime) {
-            setFastingStartTime(new Date(data.fastingStartTime))
-          }
-          // Only save to Supabase if there are actual user settings (not defaults)
-          if (data.targetCalories || data.targetMacros || data.favorites?.length > 0 || data.fastingEnabled) {
-            const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
-            await saveNutritionSettingsToSupabase(user.id, {
-              targetCalories: data.targetCalories || null,
-              targetMacros: data.targetMacros || null,
-              favorites: data.favorites || [],
-              fastingEnabled: data.fastingEnabled || false,
-              fastingStartTime: data.fastingStartTime || null
-            })
-          }
-        }
       }
     } catch (error) {
       logError('Error loading settings', error)
-      const saved = localStorage.getItem(`ghostMode_${user.id}`)
-      if (saved) {
-        const data = JSON.parse(saved)
-        // Only use values if they were explicitly set (not defaults)
-        if (data.targetCalories && data.targetCalories !== 2000) {
-          setTargetCalories(data.targetCalories)
-        }
-        if (data.targetMacros && (data.targetMacros.protein !== 150 || data.targetMacros.carbs !== 200 || data.targetMacros.fat !== 67)) {
-          setTargetMacros(data.targetMacros)
-        }
-        setFavorites(data.favorites || [])
-        setFastingEnabled(data.fastingEnabled || false)
-        if (data.fastingStartTime) {
-          setFastingStartTime(new Date(data.fastingStartTime))
-        }
-      }
     }
   }
 
@@ -380,22 +350,14 @@ export default function Nutrition() {
     }
     try {
       const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+      // Don't save targetCalories/targetMacros - they come from goals
       await saveNutritionSettingsToSupabase(user.id, {
-        targetCalories,
-        targetMacros,
         favorites,
         fastingEnabled,
         fastingStartTime: fastingStartTime?.toISOString() || null
       })
     } catch (error) {
       logError('Error saving settings to Supabase', error)
-      localStorage.setItem(`ghostMode_${user.id}`, JSON.stringify({
-        targetCalories,
-        targetMacros,
-        favorites,
-        fastingEnabled,
-        fastingStartTime: fastingStartTime?.toISOString() || null
-      }))
     }
     setHistoryData(updatedHistory)
   }

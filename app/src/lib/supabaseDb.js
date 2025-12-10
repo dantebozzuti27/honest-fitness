@@ -1540,6 +1540,67 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
   }
 }
 
+// ============ ACTIVE WORKOUT SESSIONS ============
+
+/**
+ * Save or update active workout session (timer state)
+ */
+export async function saveActiveWorkoutSession(userId, sessionData) {
+  const { data, error } = await supabase
+    .from('active_workout_sessions')
+    .upsert({
+      user_id: userId,
+      workout_start_time: sessionData.workoutStartTime,
+      paused_time_ms: sessionData.pausedTimeMs || 0,
+      rest_start_time: sessionData.restStartTime || null,
+      rest_duration_seconds: sessionData.restDurationSeconds || null,
+      is_resting: sessionData.isResting || false,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'user_id'
+    })
+    .select()
+    .single()
+
+  if (error) {
+    logError('Error saving active workout session', error)
+    throw error
+  }
+  return data
+}
+
+/**
+ * Get active workout session for user
+ */
+export async function getActiveWorkoutSession(userId) {
+  const { data, error } = await supabase
+    .from('active_workout_sessions')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) {
+    logError('Error getting active workout session', error)
+    return null
+  }
+  return data
+}
+
+/**
+ * Delete active workout session (when workout is finished or cancelled)
+ */
+export async function deleteActiveWorkoutSession(userId) {
+  const { error } = await supabase
+    .from('active_workout_sessions')
+    .delete()
+    .eq('user_id', userId)
+
+  if (error) {
+    logError('Error deleting active workout session', error)
+    throw error
+  }
+}
+
 /**
  * Delete a feed item
  */

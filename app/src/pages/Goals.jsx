@@ -66,6 +66,8 @@ export default function Goals() {
   const [isCreating, setIsCreating] = useState(false)
   const [isArchiving, setIsArchiving] = useState(null)
   const [isDeleting, setIsDeleting] = useState(null)
+  const [editingGoal, setEditingGoal] = useState(null)
+  const [editGoal, setEditGoal] = useState(null)
 
   useEffect(() => {
     if (user) {
@@ -123,6 +125,13 @@ export default function Goals() {
       return
     }
     
+    // Show confirmation dialog
+    const goalTypeLabel = getGoalTypes(newGoal.category).find(t => t.type === newGoal.type)?.label || newGoal.type
+    const confirmMessage = `Create ${goalTypeLabel} goal with target of ${newGoal.targetValue} ${newGoal.unit || ''}?`
+    if (!window.confirm(confirmMessage)) {
+      return
+    }
+    
     setIsCreating(true)
 
     try {
@@ -151,10 +160,66 @@ export default function Goals() {
         endDate: '',
         description: ''
       })
+      showToast('Goal created successfully!', 'success')
     } catch (error) {
       logError('Error creating goal', error)
       showToast('Failed to create goal. Please try again.', 'error')
+    } finally {
+      setIsCreating(false)
     }
+  }
+
+  const handleEditGoal = (goal) => {
+    setEditingGoal(goal.id)
+    setEditGoal({
+      id: goal.id,
+      category: goal.category,
+      type: goal.type,
+      customName: goal.custom_name || '',
+      targetValue: goal.target_value.toString(),
+      unit: goal.unit || '',
+      startDate: goal.start_date,
+      endDate: goal.end_date || '',
+      description: goal.description || ''
+    })
+  }
+
+  const handleSaveEdit = async () => {
+    if (!user || !editingGoal || !editGoal) return
+    
+    if (!editGoal.targetValue) {
+      showToast('Please enter a target value', 'error')
+      return
+    }
+
+    try {
+      const goalData = {
+        id: editGoal.id,
+        category: editGoal.category,
+        type: editGoal.type,
+        customName: editGoal.customName || null,
+        targetValue: Number(editGoal.targetValue),
+        unit: editGoal.unit || '',
+        startDate: editGoal.startDate,
+        endDate: editGoal.endDate || null,
+        description: editGoal.description,
+        status: 'active'
+      }
+
+      await saveGoalToSupabase(user.id, goalData)
+      await loadGoals()
+      setEditingGoal(null)
+      setEditGoal(null)
+      showToast('Goal updated successfully!', 'success')
+    } catch (error) {
+      logError('Error updating goal', error)
+      showToast('Failed to update goal. Please try again.', 'error')
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setEditingGoal(null)
+    setEditGoal(null)
   }
 
   const handleAnalyzeGoals = async () => {
@@ -368,50 +433,109 @@ export default function Goals() {
                 const progress = goal.target_value > 0 
                   ? Math.min(100, (goal.current_value / goal.target_value) * 100) 
                   : 0
+                const isEditing = editingGoal === goal.id
+                
                 return (
                   <div key={goal.id} className={styles.goalCard}>
-                    <div className={styles.goalHeader}>
-                      <div>
-                        <h3 className={styles.goalName}>
-                          {formatGoalName(goal, getGoalTypes)}
-                        </h3>
-                        <span className={styles.goalCategory}>{goal.category.charAt(0).toUpperCase() + goal.category.slice(1)}</span>
+                    {isEditing ? (
+                      // Edit Mode
+                      <div className={styles.editGoalForm}>
+                        <div className={styles.formGroup}>
+                          <label>Target Value</label>
+                          <input
+                            type="number"
+                            value={editGoal?.targetValue || ''}
+                            onChange={(e) => setEditGoal({ ...editGoal, targetValue: e.target.value })}
+                            placeholder="Enter target value"
+                          />
+                        </div>
+                        <div className={styles.formGroup}>
+                          <label>Start Date</label>
+                          <input
+                            type="date"
+                            value={editGoal?.startDate || ''}
+                            onChange={(e) => setEditGoal({ ...editGoal, startDate: e.target.value })}
+                          />
+                        </div>
+                        <div className={styles.formGroup}>
+                          <label>End Date (optional)</label>
+                          <input
+                            type="date"
+                            value={editGoal?.endDate || ''}
+                            onChange={(e) => setEditGoal({ ...editGoal, endDate: e.target.value })}
+                          />
+                        </div>
+                        <div className={styles.formGroup}>
+                          <label>Description (optional)</label>
+                          <textarea
+                            value={editGoal?.description || ''}
+                            onChange={(e) => setEditGoal({ ...editGoal, description: e.target.value })}
+                            rows={3}
+                            placeholder="Add a description for this goal"
+                          />
+                        </div>
+                        <div className={styles.editActions}>
+                          <button className={styles.cancelBtn} onClick={handleCancelEdit}>
+                            Cancel
+                          </button>
+                          <button className={styles.saveBtn} onClick={handleSaveEdit}>
+                            Save
+                          </button>
+                        </div>
                       </div>
-                      <div className={styles.goalActions}>
-                        <button
-                          className={styles.archiveBtn}
-                          onClick={() => handleArchiveGoal(goal.id)}
-                        >
-                          Archive
-                        </button>
-                        <button
-                          className={styles.deleteBtn}
-                          onClick={() => handleDeleteGoal(goal.id)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                    <div className={styles.goalProgress}>
-                      <div className={styles.progressBar}>
-                        <div
-                          className={styles.progressFill}
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                      <div className={styles.progressText}>
-                        {goal.current_value} / {goal.target_value} {goal.unit} ({Math.round(progress)}%)
-                      </div>
-                    </div>
-                    {goal.description && (
-                      <p className={styles.goalDescription}>{goal.description}</p>
+                    ) : (
+                      // View Mode
+                      <>
+                        <div className={styles.goalHeader}>
+                          <div>
+                            <h3 className={styles.goalName}>
+                              {formatGoalName(goal, getGoalTypes)}
+                            </h3>
+                            <span className={styles.goalCategory}>{goal.category.charAt(0).toUpperCase() + goal.category.slice(1)}</span>
+                          </div>
+                          <div className={styles.goalActions}>
+                            <button
+                              className={styles.editBtn}
+                              onClick={() => handleEditGoal(goal)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className={styles.archiveBtn}
+                              onClick={() => handleArchiveGoal(goal.id)}
+                            >
+                              Archive
+                            </button>
+                            <button
+                              className={styles.deleteBtn}
+                              onClick={() => handleDeleteGoal(goal.id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                        <div className={styles.goalProgress}>
+                          <div className={styles.progressBar}>
+                            <div
+                              className={styles.progressFill}
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                          <div className={styles.progressText}>
+                            {goal.current_value} / {goal.target_value} {goal.unit} ({Math.round(progress)}%)
+                          </div>
+                        </div>
+                        {goal.description && (
+                          <p className={styles.goalDescription}>{goal.description}</p>
+                        )}
+                        <div className={styles.goalDates}>
+                          <span>Start: {formatDateShort(goal.start_date, true)}</span>
+                          {goal.end_date && (
+                            <span>End: {formatDateShort(goal.end_date, true)}</span>
+                          )}
+                        </div>
+                      </>
                     )}
-                    <div className={styles.goalDates}>
-                      <span>Start: {formatDateShort(goal.start_date, true)}</span>
-                      {goal.end_date && (
-                        <span>End: {formatDateShort(goal.end_date, true)}</span>
-                      )}
-                    </div>
                   </div>
                 )
               })

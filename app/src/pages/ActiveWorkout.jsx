@@ -1,7 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getTemplate, getAllExercises, saveWorkout } from '../db'
-import { saveWorkoutToSupabase, savePausedWorkoutToSupabase, getPausedWorkoutFromSupabase, deletePausedWorkoutFromSupabase } from '../lib/supabaseDb'
+import { 
+  saveWorkoutToSupabase, 
+  savePausedWorkoutToSupabase, 
+  getPausedWorkoutFromSupabase, 
+  deletePausedWorkoutFromSupabase,
+  saveActiveWorkoutSession,
+  getActiveWorkoutSession,
+  deleteActiveWorkoutSession
+} from '../lib/supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { useAuth } from '../context/AuthContext'
 import { logError } from '../utils/logger'
@@ -71,10 +79,23 @@ export default function ActiveWorkout() {
                 setRestTime(paused.rest_time || 0)
                 setIsResting(paused.is_resting || false)
                 workoutStartTimeRef.current = Date.now() - ((paused.workout_time || 0) * 1000)
-                localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
                 // Clear paused time since we're resuming fresh
                 setPausedTime(0)
-                localStorage.setItem('pausedTime', '0')
+                
+                // Save to database
+                if (user) {
+                  try {
+                    await saveActiveWorkoutSession(user.id, {
+                      workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+                      pausedTimeMs: 0,
+                      restStartTime: null,
+                      restDurationSeconds: null,
+                      isResting: false
+                    })
+                  } catch (error) {
+                    logError('Error saving resumed workout session', error)
+                  }
+                }
                 // Delete paused workout since we're resuming
                 await deletePausedWorkoutFromSupabase(user.id)
                 hasResumedPaused = true
@@ -202,68 +223,98 @@ export default function ActiveWorkout() {
     }
     load()
     
-    // Restore workout timer from localStorage if it exists (workout in progress)
-    const savedWorkoutStartTime = localStorage.getItem('workoutStartTime')
-    const savedPausedTime = localStorage.getItem('pausedTime')
-    
-    if (savedWorkoutStartTime) {
-      // Restore existing workout timer
-      workoutStartTimeRef.current = parseInt(savedWorkoutStartTime)
-      if (savedPausedTime) {
-        setPausedTime(parseInt(savedPausedTime))
-      }
-      // Calculate current elapsed time based on stored start time
-      const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - (parseInt(savedPausedTime) || 0)) / 1000)
-      setWorkoutTime(Math.max(0, elapsed))
-    } else {
-      // Initialize new workout timer
-      workoutStartTimeRef.current = Date.now()
-      localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
-      setWorkoutTime(0)
-      setPausedTime(0)
-      localStorage.setItem('pausedTime', '0')
-    }
-    
-    // Restore rest timer if it was running
-    const savedRestStart = localStorage.getItem('restStartTime')
-    const savedRestDuration = localStorage.getItem('restDuration')
-    if (savedRestStart && savedRestDuration) {
-      restStartTimeRef.current = parseInt(savedRestStart)
-      restDurationRef.current = parseInt(savedRestDuration)
-      const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
-      const remaining = Math.max(0, restDurationRef.current - elapsed)
-      if (remaining > 0) {
-        setRestTime(remaining)
-        setIsResting(true)
-        restTimerRef.current = setInterval(() => {
-          if (restStartTimeRef.current) {
+    // Restore workout timer from database if it exists (workout in progress)
+    async function loadWorkoutSession() {
+      if (!user) return
+      
+      try {
+        const session = await getActiveWorkoutSession(user.id)
+        
+        if (session) {
+          // Restore existing workout timer from database
+          workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
+          setPausedTime(session.paused_time_ms || 0)
+          
+          // Restore rest timer if it was running
+          if (session.rest_start_time && session.rest_duration_seconds) {
+            restStartTimeRef.current = new Date(session.rest_start_time).getTime()
+            restDurationRef.current = session.rest_duration_seconds
+            setIsResting(session.is_resting || false)
+            
             const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
             const remaining = Math.max(0, restDurationRef.current - elapsed)
-            setRestTime(remaining)
-            if (remaining <= 0) {
-              clearInterval(restTimerRef.current)
+            if (remaining > 0) {
+              setRestTime(remaining)
+              setIsResting(true)
+              restTimerRef.current = setInterval(() => {
+                if (restStartTimeRef.current) {
+                  const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
+                  const remaining = Math.max(0, restDurationRef.current - elapsed)
+                  setRestTime(remaining)
+                  if (remaining <= 0) {
+                    clearInterval(restTimerRef.current)
+                    setIsResting(false)
+                    setShowTimesUp(true)
+                    const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
+                    timeoutRefs.current.push(timeoutId)
+                    // Clear rest timer from database
+                    saveActiveWorkoutSession(user.id, {
+                      workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+                      pausedTimeMs: pausedTime,
+                      restStartTime: null,
+                      restDurationSeconds: null,
+                      isResting: false
+                    }).catch(() => {})
+                  }
+                }
+              }, 1000)
+            } else {
+              // Rest timer expired, clear it
               setIsResting(false)
-              setShowTimesUp(true)
-              const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
-              timeoutRefs.current.push(timeoutId)
-              localStorage.removeItem('restStartTime')
-              localStorage.removeItem('restDuration')
+              saveActiveWorkoutSession(user.id, {
+                workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+                pausedTimeMs: pausedTime,
+                restStartTime: null,
+                restDurationSeconds: null,
+                isResting: false
+              }).catch(() => {})
             }
           }
-        }, 1000)
-      } else {
-        localStorage.removeItem('restStartTime')
-        localStorage.removeItem('restDuration')
+          
+          // Calculate current elapsed time based on stored start time
+          const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - (session.paused_time_ms || 0)) / 1000)
+          setWorkoutTime(Math.max(0, elapsed))
+        } else {
+          // Initialize new workout timer
+          workoutStartTimeRef.current = Date.now()
+          setWorkoutTime(0)
+          setPausedTime(0)
+          
+          // Save to database
+          await saveActiveWorkoutSession(user.id, {
+            workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+            pausedTimeMs: 0,
+            restStartTime: null,
+            restDurationSeconds: null,
+            isResting: false
+          })
+        }
+      } catch (error) {
+        logError('Error loading workout session', error)
+        // Fallback: initialize new timer
+        workoutStartTimeRef.current = Date.now()
+        setWorkoutTime(0)
+        setPausedTime(0)
       }
     }
+    
+    loadWorkoutSession()
     
     // Update timer every second - always calculate from absolute time, not incremental
     // This ensures timer continues even when app is in background
     const updateTimer = () => {
       if (workoutStartTimeRef.current && !isPaused) {
-        // Read pausedTime from localStorage to get the most current value
-        const currentPausedTime = parseInt(localStorage.getItem('pausedTime') || '0')
-        const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - currentPausedTime) / 1000)
+        const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedTime) / 1000)
         setWorkoutTime(Math.max(0, elapsed))
       }
     }
@@ -277,39 +328,66 @@ export default function ActiveWorkout() {
     }
     
     // Handle visibility change to recalculate time when app comes to foreground
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        // Recalculate workout time based on absolute time difference
-        if (workoutStartTimeRef.current) {
-          const currentPausedTime = parseInt(localStorage.getItem('pausedTime') || '0')
-          const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - currentPausedTime) / 1000)
-          setWorkoutTime(Math.max(0, elapsed))
-        }
-        // Recalculate rest timer
-        if (restStartTimeRef.current && restDurationRef.current) {
-          const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
-          const remaining = Math.max(0, restDurationRef.current - elapsed)
-          setRestTime(remaining)
-          if (remaining <= 0 && isResting) {
-            clearInterval(restTimerRef.current)
-            setIsResting(false)
-            setShowTimesUp(true)
-            const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
-            timeoutRefs.current.push(timeoutId)
-            localStorage.removeItem('restStartTime')
-            localStorage.removeItem('restDuration')
+    const handleVisibilityChange = async () => {
+      if (!document.hidden && user) {
+        // Reload session from database to get latest state
+        try {
+          const session = await getActiveWorkoutSession(user.id)
+          if (session) {
+            workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
+            setPausedTime(session.paused_time_ms || 0)
+            
+            // Recalculate workout time based on absolute time difference
+            const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - (session.paused_time_ms || 0)) / 1000)
+            setWorkoutTime(Math.max(0, elapsed))
+            
+            // Recalculate rest timer
+            if (session.rest_start_time && session.rest_duration_seconds) {
+              restStartTimeRef.current = new Date(session.rest_start_time).getTime()
+              restDurationRef.current = session.rest_duration_seconds
+              setIsResting(session.is_resting || false)
+              
+              const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
+              const remaining = Math.max(0, restDurationRef.current - elapsed)
+              setRestTime(remaining)
+              if (remaining <= 0 && isResting) {
+                clearInterval(restTimerRef.current)
+                setIsResting(false)
+                setShowTimesUp(true)
+                const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
+                timeoutRefs.current.push(timeoutId)
+                // Clear rest timer from database
+                await saveActiveWorkoutSession(user.id, {
+                  workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+                  pausedTimeMs: pausedTime,
+                  restStartTime: null,
+                  restDurationSeconds: null,
+                  isResting: false
+                })
+              }
+            }
           }
+        } catch (error) {
+          logError('Error reloading workout session on visibility change', error)
         }
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     
     // Also handle page focus/blur for better mobile support
-    const handleFocus = () => {
-      if (workoutStartTimeRef.current) {
-        const currentPausedTime = parseInt(localStorage.getItem('pausedTime') || '0')
-        const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - currentPausedTime) / 1000)
-        setWorkoutTime(Math.max(0, elapsed))
+    const handleFocus = async () => {
+      if (workoutStartTimeRef.current && user) {
+        try {
+          const session = await getActiveWorkoutSession(user.id)
+          if (session) {
+            workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
+            setPausedTime(session.paused_time_ms || 0)
+            const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - (session.paused_time_ms || 0)) / 1000)
+            setWorkoutTime(Math.max(0, elapsed))
+          }
+        } catch (error) {
+          logError('Error reloading workout session on focus', error)
+        }
       }
     }
     window.addEventListener('focus', handleFocus)
@@ -332,38 +410,73 @@ export default function ActiveWorkout() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
-  const startRest = (duration = 90) => {
+  const startRest = async (duration = 90) => {
+    if (!user) return
+    
     restDurationRef.current = duration
     restStartTimeRef.current = Date.now()
-    localStorage.setItem('restStartTime', restStartTimeRef.current.toString())
-    localStorage.setItem('restDuration', duration.toString())
     setRestTime(duration)
     setIsResting(true)
+    
+    // Save to database
+    try {
+      await saveActiveWorkoutSession(user.id, {
+        workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+        pausedTimeMs: pausedTime,
+        restStartTime: new Date(restStartTimeRef.current).toISOString(),
+        restDurationSeconds: duration,
+        isResting: true
+      })
+    } catch (error) {
+      logError('Error saving rest timer to database', error)
+    }
+    
     clearInterval(restTimerRef.current)
     restTimerRef.current = setInterval(() => {
       if (restStartTimeRef.current) {
         const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
         const remaining = Math.max(0, restDurationRef.current - elapsed)
         setRestTime(remaining)
-          if (remaining <= 0) {
-            clearInterval(restTimerRef.current)
-            setIsResting(false)
-            setShowTimesUp(true)
-            const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
-            timeoutRefs.current.push(timeoutId)
-            localStorage.removeItem('restStartTime')
-            localStorage.removeItem('restDuration')
+        if (remaining <= 0) {
+          clearInterval(restTimerRef.current)
+          setIsResting(false)
+          setShowTimesUp(true)
+          const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
+          timeoutRefs.current.push(timeoutId)
+          // Clear rest timer from database
+          if (user) {
+            saveActiveWorkoutSession(user.id, {
+              workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+              pausedTimeMs: pausedTime,
+              restStartTime: null,
+              restDurationSeconds: null,
+              isResting: false
+            }).catch(() => {})
           }
+        }
       }
     }, 1000)
   }
 
-  const skipRest = () => {
+  const skipRest = async () => {
+    if (!user) return
+    
     clearInterval(restTimerRef.current)
     setIsResting(false)
     setRestTime(0)
-    localStorage.removeItem('restStartTime')
-    localStorage.removeItem('restDuration')
+    
+    // Clear rest timer from database
+    try {
+      await saveActiveWorkoutSession(user.id, {
+        workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+        pausedTimeMs: pausedTime,
+        restStartTime: null,
+        restDurationSeconds: null,
+        isResting: false
+      })
+    } catch (error) {
+      logError('Error clearing rest timer from database', error)
+    }
   }
 
   const toggleExpanded = (id) => {
@@ -524,13 +637,18 @@ export default function ActiveWorkout() {
   // IMPORTANT: Workouts are ONLY created when the user explicitly finishes a workout.
   // This is the ONLY place where workout logs are created - never automatically.
   const finishWorkout = async () => {
-    // Clean up timers and localStorage
+    // Clean up timers and database session
     clearInterval(workoutTimerRef.current)
     clearInterval(restTimerRef.current)
-    localStorage.removeItem('workoutStartTime')
-    localStorage.removeItem('pausedTime')
-    localStorage.removeItem('restStartTime')
-    localStorage.removeItem('restDuration')
+    
+    // Delete active workout session from database
+    if (user) {
+      try {
+        await deleteActiveWorkoutSession(user.id)
+      } catch (error) {
+        logError('Error deleting active workout session', error)
+      }
+    }
     
     // Delete paused workout if it exists
     if (user) {
@@ -672,17 +790,27 @@ export default function ActiveWorkout() {
     }
   }
 
-  const resumeWorkout = () => {
-    if (isPaused) {
+  const resumeWorkout = async () => {
+    if (isPaused && user) {
       // Resume: adjust paused time by pause duration
       const pauseDuration = pauseStartTime.current ? Date.now() - pauseStartTime.current : 0
-      setPausedTime(prev => {
-        const newPausedTime = prev + pauseDuration
-        localStorage.setItem('pausedTime', newPausedTime.toString())
-        return newPausedTime
-      })
+      const newPausedTime = pausedTime + pauseDuration
+      setPausedTime(newPausedTime)
       setIsPaused(false)
       pauseStartTime.current = null
+      
+      // Save to database
+      try {
+        await saveActiveWorkoutSession(user.id, {
+          workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+          pausedTimeMs: newPausedTime,
+          restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+          restDurationSeconds: restDurationRef.current || null,
+          isResting: isResting
+        })
+      } catch (error) {
+        logError('Error saving resumed workout session', error)
+      }
       
       // Timer will automatically restart via the interval that checks !isPaused
     }
@@ -752,12 +880,15 @@ export default function ActiveWorkout() {
       )}
       <header className={styles.header}>
         <div className={styles.headerTop}>
-          <button className={styles.cancelBtn} onClick={() => {
+          <button className={styles.cancelBtn} onClick={async () => {
             // Clear workout timer when canceling
-            localStorage.removeItem('workoutStartTime')
-            localStorage.removeItem('pausedTime')
-            localStorage.removeItem('restStartTime')
-            localStorage.removeItem('restDuration')
+            if (user) {
+              try {
+                await deleteActiveWorkoutSession(user.id)
+              } catch (error) {
+                logError('Error deleting active workout session on cancel', error)
+              }
+            }
             navigate('/')
           }}>
             Cancel

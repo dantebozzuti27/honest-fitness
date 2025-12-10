@@ -173,19 +173,24 @@
 .addFriendBtn {
   padding: var(--space-xs) var(--space-md);
   background: var(--accent);
-  color: white;
-  border: none;
+  color: white !important;
+  border: 1px solid var(--accent);
   border-radius: var(--radius-md);
   font-weight: 600;
   font-size: var(--text-sm);
   cursor: pointer;
   transition: all var(--transition-base);
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 
 .addFriendBtn:hover {
   opacity: 0.9;
   transform: translateY(-1px);
+  background: var(--accent);
+  color: white !important;
 }
 
 .feedFilters {

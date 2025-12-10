@@ -291,9 +291,13 @@ h1 {
 /* Metrics Card */
 .metricsCard {
   padding: 14px;
-  background: var(--bg-secondary);
+  /* Apple Liquid Glass Effect */
+  background: var(--glass-card-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-radius: var(--radius-md);
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-card-border);
+  box-shadow: var(--glass-card-shadow);
 }
 
 .sectionHeader {
@@ -439,9 +443,13 @@ h1 {
 
 .goalCard {
   padding: 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  /* Apple Liquid Glass Effect */
+  background: var(--glass-card-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-card-border);
   border-radius: var(--radius-md);
+  box-shadow: var(--glass-card-shadow);
 }
 
 .goalHeader {
@@ -504,15 +512,18 @@ h1 {
 }
 
 .modal {
-  background: var(--bg-secondary) !important;
-  border: 1px solid var(--border) !important;
+  /* Apple Liquid Glass Effect */
+  background: var(--glass-modal-bg) !important;
+  backdrop-filter: blur(30px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
+  border: 1px solid var(--glass-modal-border) !important;
   border-radius: var(--radius-xl) !important;
   width: 100% !important;
   max-width: 500px !important;
   max-height: calc(100vh - 40px) !important;
   max-height: calc(100dvh - 40px) !important;
   overflow: hidden !important;
-  box-shadow: var(--shadow-xl) !important;
+  box-shadow: var(--glass-modal-shadow) !important;
   -webkit-overflow-scrolling: touch !important;
   z-index: 10000 !important;
   position: relative !important;

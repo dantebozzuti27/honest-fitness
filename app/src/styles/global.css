@@ -100,13 +100,22 @@
   --backdrop-blur: blur(20px);
   
   /* Apple Liquid Glass for Forms */
-  --glass-form-bg: rgba(255, 255, 255, 0.08);
-  --glass-form-bg-hover: rgba(255, 255, 255, 0.12);
-  --glass-form-bg-focus: rgba(255, 255, 255, 0.15);
-  --glass-form-border: rgba(255, 255, 255, 0.18);
-  --glass-form-border-focus: rgba(255, 255, 255, 0.35);
+  --glass-form-bg: rgba(255, 255, 255, 0.12);
+  --glass-form-bg-hover: rgba(255, 255, 255, 0.18);
+  --glass-form-bg-focus: rgba(255, 255, 255, 0.22);
+  --glass-form-border: rgba(255, 255, 255, 0.25);
+  --glass-form-border-focus: rgba(255, 255, 255, 0.45);
   --glass-form-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  --glass-form-shadow-focus: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  --glass-form-shadow-focus: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.15);
+  
+  /* Apple Liquid Glass for Cards/Containers */
+  --glass-card-bg: rgba(255, 255, 255, 0.08);
+  --glass-card-bg-hover: rgba(255, 255, 255, 0.12);
+  --glass-card-border: rgba(255, 255, 255, 0.15);
+  --glass-card-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  --glass-modal-bg: rgba(26, 26, 26, 0.85);
+  --glass-modal-border: rgba(255, 255, 255, 0.2);
+  --glass-modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 html, body {

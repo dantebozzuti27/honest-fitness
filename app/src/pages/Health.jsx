@@ -97,6 +97,13 @@ export default function Health() {
     if (!user) return
     loadHealthGoals()
   }, [user, location.key])
+  
+  // Reload goals when Goals tab is active
+  useEffect(() => {
+    if (user && activeTab === 'Goals') {
+      loadHealthGoals()
+    }
+  }, [user, activeTab])
 
   useEffect(() => {
     if (!user) return
@@ -1287,28 +1294,98 @@ export default function Health() {
             <div className={styles.metricsCard}>
               <div className={styles.sectionHeader}>
                 <h3>Manual Logging</h3>
+              </div>
+              <p className={styles.sectionNote}>Select a category to log</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginTop: '16px' }}>
                 <button
                   className={styles.actionBtn}
                   onClick={() => {
-                    const newMetric = {
-                      date: getTodayEST(),
-                      steps: null,
-                      sleep_time: null,
-                      sleep_score: null,
-                      hrv: null,
-                      calories: null,
-                      weight: null,
-                      resting_heart_rate: null,
-                      body_temp: null
-                    }
-                    setEditingMetric(newMetric)
+                    setEditingMetricType('weight')
+                    setEditingMetric({ date: getTodayEST(), weight: null })
                     setShowLogModal(true)
                   }}
+                  style={{ padding: '16px', textAlign: 'center' }}
                 >
-                  Log Health Metrics
+                  Weight
+                </button>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => {
+                    setEditingMetricType('steps')
+                    setEditingMetric({ date: getTodayEST(), steps: null })
+                    setShowLogModal(true)
+                  }}
+                  style={{ padding: '16px', textAlign: 'center' }}
+                >
+                  Steps
+                </button>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => {
+                    setEditingMetricType('sleep')
+                    setEditingMetric({ date: getTodayEST(), sleep_time: null })
+                    setShowLogModal(true)
+                  }}
+                  style={{ padding: '16px', textAlign: 'center' }}
+                >
+                  Sleep
+                </button>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => {
+                    setEditingMetricType('calories')
+                    setEditingMetric({ date: getTodayEST(), calories_burned: null, calories: null })
+                    setShowLogModal(true)
+                  }}
+                  style={{ padding: '16px', textAlign: 'center' }}
+                >
+                  Calories Burned
+                </button>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => {
+                    setEditingMetricType('hrv')
+                    setEditingMetric({ date: getTodayEST(), hrv: null })
+                    setShowLogModal(true)
+                  }}
+                  style={{ padding: '16px', textAlign: 'center' }}
+                >
+                  HRV
+                </button>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => {
+                    setEditingMetricType('resting_heart_rate')
+                    setEditingMetric({ date: getTodayEST(), resting_heart_rate: null })
+                    setShowLogModal(true)
+                  }}
+                  style={{ padding: '16px', textAlign: 'center' }}
+                >
+                  Heart Rate
+                </button>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => {
+                    setEditingMetricType('body_temp')
+                    setEditingMetric({ date: getTodayEST(), body_temp: null })
+                    setShowLogModal(true)
+                  }}
+                  style={{ padding: '16px', textAlign: 'center' }}
+                >
+                  Body Temp
+                </button>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => {
+                    setEditingMetricType('sleep_score')
+                    setEditingMetric({ date: getTodayEST(), sleep_score: null })
+                    setShowLogModal(true)
+                  }}
+                  style={{ padding: '16px', textAlign: 'center' }}
+                >
+                  Sleep Score
                 </button>
               </div>
-              <p className={styles.sectionNote}>Log all health metrics for any date</p>
             </div>
           </div>
         )}
@@ -1397,7 +1474,11 @@ export default function Health() {
           }}>
             <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2>{editingMetric?.date ? `Log Health Metrics - ${new Date(editingMetric.date + 'T12:00:00').toLocaleDateString()}` : 'Log Health Metrics'}</h2>
+              <h2>
+                {editingMetricType 
+                  ? `Log ${editingMetricType === 'weight' ? 'Weight' : editingMetricType === 'steps' ? 'Steps' : editingMetricType === 'sleep' ? 'Sleep' : editingMetricType === 'calories' ? 'Calories Burned' : editingMetricType === 'hrv' ? 'HRV' : editingMetricType === 'resting_heart_rate' ? 'Heart Rate' : editingMetricType === 'body_temp' ? 'Body Temperature' : editingMetricType === 'sleep_score' ? 'Sleep Score' : editingMetricType}${editingMetric?.date ? ` - ${new Date(editingMetric.date + 'T12:00:00').toLocaleDateString()}` : ''}`
+                  : editingMetric?.date ? `Log Health Metrics - ${new Date(editingMetric.date + 'T12:00:00').toLocaleDateString()}` : 'Log Health Metrics'}
+              </h2>
               <button onClick={() => {
                 setEditingMetric(null)
                 setEditingMetricType(null)

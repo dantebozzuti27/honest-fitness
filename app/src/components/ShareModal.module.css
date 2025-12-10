@@ -14,10 +14,10 @@
 }
 
 .modal {
-  /* Apple Liquid Glass Effect */
+  /* Apple Liquid Glass Effect - Authentic */
   background: var(--glass-modal-bg);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
   border: 1px solid var(--glass-modal-border);
   border-radius: var(--radius-xl);
   width: 100%;
@@ -27,6 +27,19 @@
   box-shadow: var(--glass-modal-shadow);
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.modal::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  opacity: 0.6;
+  z-index: 1;
 }
 
 .modalHeader {

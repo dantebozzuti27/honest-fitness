@@ -167,10 +167,10 @@
 .textarea {
   padding: var(--space-sm) var(--space-md);
   font-size: var(--text-base);
-  /* Apple Liquid Glass Effect */
+  /* Apple Liquid Glass Effect - Authentic */
   background: var(--glass-form-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
   border: 1px solid var(--glass-form-border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
@@ -183,7 +183,8 @@
 .input:hover,
 .textarea:hover {
   background: var(--glass-form-bg-hover);
-  border-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .input:focus,
@@ -192,6 +193,8 @@
   background: var(--glass-form-bg-focus);
   border-color: var(--glass-form-border-focus);
   box-shadow: var(--glass-form-shadow-focus);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
 }
 
 .textarea {

@@ -14,13 +14,25 @@
   width: 100%;
   max-width: 360px;
   padding: 24px 20px;
-  /* Apple Liquid Glass Effect */
+  /* Apple Liquid Glass Effect - Authentic */
   background: var(--glass-card-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
   border-radius: var(--radius-lg);
   border: 1px solid var(--glass-card-border);
   box-shadow: var(--glass-card-shadow);
+  position: relative;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  opacity: 0.6;
 }
 
 .title {
@@ -58,10 +70,10 @@
 .inputGroup input {
   padding: 12px 14px;
   font-size: 15px;
-  /* Apple Liquid Glass Effect */
+  /* Apple Liquid Glass Effect - Authentic */
   background: var(--glass-form-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
   border-radius: var(--radius-md);
   border: 1px solid var(--glass-form-border);
   box-shadow: var(--glass-form-shadow);
@@ -70,13 +82,16 @@
 
 .inputGroup input:hover {
   background: var(--glass-form-bg-hover);
-  border-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .inputGroup input:focus {
   background: var(--glass-form-bg-focus);
   border-color: var(--glass-form-border-focus);
   box-shadow: var(--glass-form-shadow-focus);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
 }
 
 .helperText {

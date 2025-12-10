@@ -178,14 +178,26 @@
 
 .goalCard {
   padding: 14px;
-  /* Apple Liquid Glass Effect */
+  /* Apple Liquid Glass Effect - Authentic */
   background: var(--glass-card-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
   border: 1px solid var(--glass-card-border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   box-shadow: var(--glass-card-shadow);
+  position: relative;
+}
+
+.goalCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  opacity: 0.5;
 }
 
 .goalCard * {
@@ -371,10 +383,10 @@
 }
 
 .modal {
-  /* Apple Liquid Glass Effect */
+  /* Apple Liquid Glass Effect - Authentic */
   background: var(--glass-modal-bg);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
   border: 1px solid var(--glass-modal-border);
   border-radius: var(--radius-xl);
   max-width: 500px;
@@ -386,6 +398,19 @@
   display: flex;
   flex-direction: column;
   margin: auto;
+  position: relative;
+}
+
+.modal::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  opacity: 0.6;
+  z-index: 1;
 }
 
 .modalHeader {
@@ -443,10 +468,10 @@
 .formGroup select,
 .formGroup textarea {
   padding: 10px;
-  /* Apple Liquid Glass Effect */
+  /* Apple Liquid Glass Effect - Authentic */
   background: var(--glass-form-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
   border: 1px solid var(--glass-form-border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
@@ -459,7 +484,8 @@
 .formGroup select:hover,
 .formGroup textarea:hover {
   background: var(--glass-form-bg-hover);
-  border-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .formGroup input:focus,
@@ -469,6 +495,8 @@
   background: var(--glass-form-bg-focus);
   border-color: var(--glass-form-border-focus);
   box-shadow: var(--glass-form-shadow-focus);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
 }
 
 .modalActions {

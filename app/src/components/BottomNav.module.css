@@ -122,15 +122,30 @@
   bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  /* Apple Liquid Glass Effect */
+  background: var(--glass-modal-bg);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
+  border: 1px solid var(--glass-modal-border);
   border-radius: var(--radius-xl);
   padding: var(--space-lg);
   min-width: 280px;
   max-width: calc(100vw - 32px);
-  box-shadow: var(--shadow-2xl);
+  box-shadow: var(--glass-modal-shadow);
   z-index: 10000;
   animation: slideUp var(--transition-base) ease-out;
+  position: relative;
+}
+
+.quickLogMenu::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  opacity: 0.6;
 }
 
 .quickLogHeader {
@@ -183,8 +198,11 @@
 
 .quickLogOption {
   padding: var(--space-sm) var(--space-md);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  /* Apple Liquid Glass Effect */
+  background: var(--glass-card-bg);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
+  border: 1px solid var(--glass-card-border);
   border-radius: var(--radius-lg);
   color: var(--text-primary);
   font-size: var(--text-base);
@@ -196,13 +214,28 @@
   min-height: 44px;
   display: flex;
   align-items: center;
+  box-shadow: var(--glass-card-shadow);
+  position: relative;
+}
+
+.quickLogOption::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  opacity: 0.5;
 }
 
 .quickLogOption:hover {
-  background: var(--bg-elevated);
-  border-color: var(--border-light);
+  background: var(--glass-card-bg-hover);
+  border-color: rgba(255, 255, 255, 0.35);
   transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
 }
 
 .quickLogOption:active {

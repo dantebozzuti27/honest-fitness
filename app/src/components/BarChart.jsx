@@ -350,25 +350,44 @@ export default function BarChart({
           )
         })}
         
-        {/* Bars */}
+        {/* Bars with gradient fills */}
         {chartData.values.map((value, i) => {
           const barHeight = chartData.max > 0 ? (value / chartData.max) * chartHeight : 0
           const x = padding.left + i * barSpacing + (barSpacing - barWidth) / 2
           const y = padding.top + chartHeight - barHeight
           const date = chartData.dateKeys[i]
           const key = chartData.keys[i]
+          const normalizedValue = chartData.max > 0 ? value / chartData.max : 0
+          
+          // Create gradient ID for each bar (or reuse)
+          const gradientId = `barGradient-${i}`
           
           return (
             <g key={i}>
+              {/* Gradient definition */}
+              <defs>
+                <linearGradient id={gradientId} x1="0%" y1="100%" x2="0%" y2="0%">
+                  <stop offset="0%" stopColor={color} stopOpacity="0.8" />
+                  <stop offset="50%" stopColor={color} stopOpacity="1" />
+                  <stop offset="100%" stopColor={color} stopOpacity="0.9" />
+                </linearGradient>
+              </defs>
+              
+              {/* Bar with gradient */}
               <rect
                 x={x}
                 y={y}
                 width={barWidth}
                 height={Math.max(0.5, barHeight)}
-                fill={color}
+                fill={`url(#${gradientId})`}
                 className={styles.bar}
                 onClick={() => handleBarClick(i, value, key, date)}
-                style={{ cursor: onBarClick || dateData ? 'pointer' : 'default' }}
+                style={{ 
+                  cursor: onBarClick || dateData ? 'pointer' : 'default',
+                  animationDelay: `${i * 0.03}s`
+                }}
+                rx="1"
+                ry="1"
               />
               {showValues && value > 0 && barHeight > 3 && (
                 <text

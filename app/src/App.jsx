@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useAuth } from './context/AuthContext'
 import { startTokenRefreshInterval } from './lib/tokenManager'
@@ -13,6 +13,8 @@ import Terms from './pages/Terms'
 import BottomNav from './components/BottomNav'
 import Onboarding from './components/Onboarding'
 import ErrorBoundary from './components/ErrorBoundary'
+import { initializePassiveCollection } from './lib/passiveDataCollection'
+import { trackPageView, retryQueuedEvents } from './lib/eventTracking'
 
 // Lazy load heavy components for code splitting
 const Fitness = lazy(() => import('./pages/Fitness'))
@@ -52,9 +54,32 @@ function ProtectedRoute({ children }) {
 }
 
 export default function App() {
+  const location = useLocation()
   const { user } = useAuth()
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [checkingOnboarding, setCheckingOnboarding] = useState(false)
+  
+  // Track page views on route change
+  useEffect(() => {
+    if (user && location.pathname) {
+      const pageName = location.pathname === '/' ? 'home' : location.pathname.replace('/', '')
+      trackPageView(pageName, {
+        path: location.pathname,
+        search: location.search
+      })
+    }
+  }, [location, user])
+  
+  // Initialize event tracking and passive data collection
+  useEffect(() => {
+    if (!user) return
+    
+    // Initialize passive data collection
+    initializePassiveCollection()
+    
+    // Retry any queued events from previous sessions
+    retryQueuedEvents()
+  }, [user])
   
   // Check if user needs onboarding (non-blocking, runs after initial render)
   useEffect(() => {

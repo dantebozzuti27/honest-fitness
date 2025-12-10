@@ -2,6 +2,10 @@ import { supabase } from './supabase'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug } from '../utils/logger'
+import { validateWorkout } from './dataValidation'
+import { cleanWorkoutData } from './dataCleaning'
+import { saveEnrichedData } from './dataEnrichment'
+import { trackEvent } from './eventTracking'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -12,18 +16,43 @@ const safeLogDebug = logDebug || (() => {})
 // NEVER call this function automatically or with dummy/test data.
 
 export async function saveWorkoutToSupabase(workout, userId) {
-  // Validate that this is a real workout with exercises
-  if (!workout.exercises || workout.exercises.length === 0) {
+  // Data pipeline: Validate -> Clean -> Enrich -> Save
+  
+  // Step 1: Validate data
+  const validation = validateWorkout(workout)
+  if (!validation.valid) {
+    logError('Workout validation failed', validation.errors)
+    throw new Error(`Workout validation failed: ${validation.errors.join(', ')}`)
+  }
+  
+  // Step 2: Clean and normalize data
+  const cleanedWorkout = cleanWorkoutData(workout)
+  
+  // Validate that this is a real workout with exercises (after cleaning)
+  if (!cleanedWorkout.exercises || cleanedWorkout.exercises.length === 0) {
     throw new Error('Cannot save workout with no exercises')
   }
   
   // Validate that exercises have actual data (sets with weight/reps/time)
-  const hasValidData = workout.exercises.some(ex => 
+  const hasValidData = cleanedWorkout.exercises.some(ex => 
     ex.sets && ex.sets.length > 0 && ex.sets.some(s => s.weight || s.reps || s.time)
   )
   if (!hasValidData) {
     throw new Error('Cannot save workout with no exercise data')
   }
+  
+  // Track event
+  trackEvent('workout_saved', {
+    category: 'workout',
+    action: 'save',
+    properties: {
+      exercise_count: cleanedWorkout.exercises.length,
+      duration: cleanedWorkout.duration
+    }
+  })
+  
+  // Use cleaned workout from here on
+  const workoutToSave = cleanedWorkout
   
   // Use upsert with conflict resolution to prevent race conditions
   // First, check for existing workouts to handle duplicates
@@ -32,7 +61,7 @@ export async function saveWorkoutToSupabase(workout, userId) {
     .from('workouts')
     .select('id, date, created_at')
     .eq('user_id', userId)
-    .eq('date', workout.date)
+    .eq('date', workoutToSave.date)
     .order('created_at', { ascending: false })
 
   if (checkError) {
@@ -97,12 +126,12 @@ export async function saveWorkoutToSupabase(workout, userId) {
     const { data: updatedWorkout, error: updateError } = await supabase
       .from('workouts')
       .update({
-        duration: workout.duration,
-        template_name: workout.templateName || null,
-        perceived_effort: workout.perceivedEffort || null,
-        mood_after: workout.moodAfter || null,
-        notes: workout.notes || null,
-        day_of_week: workout.dayOfWeek ?? null,
+        duration: workoutToSave.duration,
+        template_name: workoutToSave.templateName || null,
+        perceived_effort: workoutToSave.perceivedEffort || null,
+        mood_after: workoutToSave.moodAfter || null,
+        notes: workoutToSave.notes || null,
+        day_of_week: workoutToSave.dayOfWeek ?? null,
         updated_at: new Date().toISOString()
       })
       .eq('id', existingId)
@@ -117,13 +146,13 @@ export async function saveWorkoutToSupabase(workout, userId) {
       .from('workouts')
       .insert({
         user_id: userId,
-        date: workout.date,
-        duration: workout.duration,
-        template_name: workout.templateName || null,
-        perceived_effort: workout.perceivedEffort || null,
-        mood_after: workout.moodAfter || null,
-        notes: workout.notes || null,
-        day_of_week: workout.dayOfWeek ?? null
+        date: workoutToSave.date,
+        duration: workoutToSave.duration,
+        template_name: workoutToSave.templateName || null,
+        perceived_effort: workoutToSave.perceivedEffort || null,
+        mood_after: workoutToSave.moodAfter || null,
+        notes: workoutToSave.notes || null,
+        day_of_week: workoutToSave.dayOfWeek ?? null
       })
       .select()
       .single()
@@ -131,11 +160,35 @@ export async function saveWorkoutToSupabase(workout, userId) {
     if (workoutError) throw workoutError
     workoutData = newWorkout
   }
+  
+  // Step 3: Enrich data (after saving to get workout ID)
+  try {
+    // Fetch full workout with exercises for enrichment
+    const { data: fullWorkout } = await supabase
+      .from('workouts')
+      .select(`
+        *,
+        workout_exercises (
+          *,
+          workout_sets (*)
+        )
+      `)
+      .eq('id', workoutData.id)
+      .single()
+    
+    if (fullWorkout) {
+      // Save enriched data (this will enrich and save to data_enrichments table)
+      await saveEnrichedData('workout', fullWorkout, userId)
+    }
+  } catch (enrichError) {
+    // Don't fail the save if enrichment fails
+    logError('Error enriching workout data', enrichError)
+  }
 
   // Insert exercises (only those with valid sets data)
   let exerciseOrder = 0
-  for (let i = 0; i < workout.exercises.length; i++) {
-    const ex = workout.exercises[i]
+  for (let i = 0; i < workoutToSave.exercises.length; i++) {
+    const ex = workoutToSave.exercises[i]
     
     // Skip exercises without valid sets data (prevent dummy data)
     if (!ex.sets || ex.sets.length === 0 || !ex.sets.some(s => s.weight || s.reps || s.time)) {
@@ -775,29 +828,55 @@ export async function cleanupDuplicateWorkouts(userId) {
 export async function saveMetricsToSupabase(userId, date, metrics) {
   safeLogDebug('saveMetricsToSupabase called with:', { userId, date, metrics })
   
-  // Validate that we have at least one metric value
-  const hasData = Object.values(metrics).some(val => val !== null && val !== undefined && val !== '')
+  // Data pipeline: Validate -> Clean -> Save -> Enrich
+  
+  // Step 1: Validate data
+  const { validateHealthMetrics } = await import('./dataValidation')
+  const validation = validateHealthMetrics({ ...metrics, date })
+  if (!validation.valid) {
+    logError('Health metrics validation failed', validation.errors)
+    throw new Error(`Health metrics validation failed: ${validation.errors.join(', ')}`)
+  }
+  
+  // Step 2: Clean and normalize data
+  const { cleanHealthMetricsData } = await import('./dataCleaning')
+  const cleanedMetrics = cleanHealthMetricsData(metrics)
+  
+  // Validate that we have at least one metric value (after cleaning)
+  const hasData = Object.values(cleanedMetrics).some(val => val !== null && val !== undefined && val !== '')
   if (!hasData) {
     throw new Error('Cannot save metrics with no data')
   }
+  
+  // Track event
+  trackEvent('health_metrics_saved', {
+    category: 'health',
+    action: 'save',
+    properties: {
+      metrics_count: Object.values(cleanedMetrics).filter(v => v !== null && v !== undefined).length
+    }
+  })
+  
+  // Use cleaned metrics from here on
+  const metricsToSave = cleanedMetrics
   
   // Map to health_metrics table structure
   const healthMetricsData = {
     user_id: userId,
     date: date,
-    sleep_score: toNumber(metrics.sleepScore),
-    sleep_duration: toNumber(metrics.sleepTime), // Map sleepTime to sleep_duration
-    hrv: toNumber(metrics.hrv),
-    steps: toInteger(metrics.steps), // INTEGER column - must be whole number
-    weight: toNumber(metrics.weight), // NUMERIC column - can be decimal
-    calories_burned: toNumber(metrics.caloriesBurned),
-    resting_heart_rate: toNumber(metrics.restingHeartRate),
-    body_temp: toNumber(metrics.bodyTemp),
-    body_fat_percentage: toNumber(metrics.bodyFatPercentage),
-    breathing_rate: toNumber(metrics.breathingRate),
-    spo2: toNumber(metrics.spo2),
-    strain: toNumber(metrics.strain),
-    source_provider: metrics.sourceProvider || 'manual',
+    sleep_score: toNumber(metricsToSave.sleepScore),
+    sleep_duration: toNumber(metricsToSave.sleepTime), // Map sleepTime to sleep_duration
+    hrv: toNumber(metricsToSave.hrv),
+    steps: toInteger(metricsToSave.steps), // INTEGER column - must be whole number
+    weight: toNumber(metricsToSave.weight), // NUMERIC column - can be decimal
+    calories_burned: toNumber(metricsToSave.caloriesBurned),
+    resting_heart_rate: toNumber(metricsToSave.restingHeartRate),
+    body_temp: toNumber(metricsToSave.bodyTemp),
+    body_fat_percentage: toNumber(metricsToSave.bodyFatPercentage),
+    breathing_rate: toNumber(metricsToSave.breathingRate),
+    spo2: toNumber(metricsToSave.spo2),
+    strain: toNumber(metricsToSave.strain),
+    source_provider: metricsToSave.sourceProvider || 'manual',
     updated_at: new Date().toISOString()
   }
   
@@ -823,6 +902,17 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
     }
     
     safeLogDebug('saveMetricsToSupabase: Success', data)
+    
+    // Step 3: Enrich data (after saving)
+    try {
+      const savedMetric = Array.isArray(data) ? data[0] : data
+      if (savedMetric) {
+        await saveEnrichedData('health', savedMetric, userId)
+      }
+    } catch (enrichError) {
+      // Don't fail the save if enrichment fails
+      logError('Error enriching health metrics data', enrichError)
+    }
     
     // Update health goals based on the saved metrics (non-blocking)
     try {

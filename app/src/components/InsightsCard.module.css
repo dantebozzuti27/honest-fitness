@@ -1,0 +1,222 @@
+.insightsCard {
+  background: var(--glass-card-bg);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
+  border: 1px solid var(--glass-card-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  box-shadow: var(--glass-card-shadow);
+  margin-bottom: var(--space-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.insightsCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.insightsCard.success {
+  border-left: 3px solid #34C759;
+}
+
+.insightsCard.warning {
+  border-left: 3px solid #FF9500;
+}
+
+.insightsCard.error {
+  border-left: 3px solid #FF3B30;
+}
+
+.insightsCard.info {
+  border-left: 3px solid #007AFF;
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-sm);
+}
+
+.headerContent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex: 1;
+}
+
+.cardTitle {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: var(--letter-tight);
+}
+
+.expandBtn {
+  width: 28px;
+  height: 28px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.expandBtn:hover {
+  background: var(--bg-elevated);
+  transform: scale(1.1);
+}
+
+.expandBtn:active {
+  transform: scale(0.95);
+}
+
+.dismissBtn {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  font-weight: 300;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+}
+
+.dismissBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.insightsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.insightItem {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-start;
+  padding: var(--space-sm);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.insightIcon {
+  font-size: var(--icon-md);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.insightContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.insightMessage {
+  font-size: var(--text-base);
+  line-height: var(--line-height-normal);
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: var(--letter-normal);
+}
+
+.actionBtn {
+  align-self: flex-start;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.actionBtn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.actionBtn:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.showMoreBtn {
+  width: 100%;
+  padding: var(--space-sm);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-top: var(--space-xs);
+}
+
+.showMoreBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.showMoreBtn:active {
+  transform: scale(0.98);
+}
+
+@media (max-width: var(--breakpoint-md)) {
+  .insightsCard {
+    padding: var(--space-sm);
+  }
+  
+  .cardTitle {
+    font-size: var(--text-base);
+  }
+  
+  .insightMessage {
+    font-size: var(--text-sm);
+  }
+}
+

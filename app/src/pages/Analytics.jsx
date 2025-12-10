@@ -24,6 +24,8 @@ import { formatGoalName } from '../utils/formatUtils'
 import BodyHeatmap from '../components/BodyHeatmap'
 // All charts are now BarChart only
 import BarChart from '../components/BarChart'
+import PredictiveInsights from '../components/PredictiveInsights'
+import DataSummaryCard from '../components/DataSummaryCard'
 import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
 import SideMenu from '../components/SideMenu'
@@ -433,6 +435,9 @@ export default function Analytics() {
   const renderOverview = () => {
     return (
       <div className={styles.overviewContainer}>
+        {/* Predictive Insights */}
+        <PredictiveInsights />
+        
         {/* ML Insights at Top */}
         {(mlInsights || mlLoading) && (
           <div className={styles.mlInsightsCard}>

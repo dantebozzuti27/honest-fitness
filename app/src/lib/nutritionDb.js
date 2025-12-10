@@ -5,6 +5,10 @@
 
 import { supabase } from './supabase'
 import { logError, logDebug } from '../utils/logger'
+import { validateNutrition } from './dataValidation'
+import { cleanNutritionData } from './dataCleaning'
+import { saveEnrichedData } from './dataEnrichment'
+import { trackEvent } from './eventTracking'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -17,16 +21,39 @@ const safeLogDebug = logDebug || (() => {})
 // NEVER call this function automatically or with dummy/test data.
 
 export async function saveMealToSupabase(userId, date, meal) {
-  // Validate that this is a real meal with data
-  // Check for name, description, or foods array
-  const mealName = meal.name || meal.description || (meal.foods && meal.foods.length > 0 ? meal.foods[0] : null)
-  if (!mealName || (!meal.calories && meal.calories !== 0)) {
+  // Data pipeline: Validate -> Clean -> Save -> Enrich
+  
+  // Step 1: Validate data
+  const validation = validateNutrition({ meals: [meal], date })
+  if (!validation.valid) {
+    logError('Nutrition validation failed', validation.errors)
+    throw new Error(`Nutrition validation failed: ${validation.errors.join(', ')}`)
+  }
+  
+  // Step 2: Clean and normalize data
+  const cleanedMeal = cleanNutritionData(meal)
+  
+  // Validate that this is a real meal with data (after cleaning)
+  const mealName = cleanedMeal.name || cleanedMeal.description || (cleanedMeal.foods && cleanedMeal.foods.length > 0 ? cleanedMeal.foods[0] : null)
+  if (!mealName || (!cleanedMeal.calories && cleanedMeal.calories !== 0)) {
     throw new Error('Cannot save meal without name and calories')
   }
   
+  // Track event
+  trackEvent('meal_saved', {
+    category: 'nutrition',
+    action: 'save',
+    properties: {
+      calories: cleanedMeal.calories
+    }
+  })
+  
+  // Use cleaned meal from here on
+  const mealToSave = cleanedMeal
+  
   // Ensure meal has a name field for consistency
-  if (!meal.name) {
-    meal.name = mealName
+  if (!mealToSave.name) {
+    mealToSave.name = mealName
   }
   // Save to a nutrition/meals table
   // For now, we'll use daily_metrics and store meals as JSON
@@ -65,10 +92,10 @@ export async function saveMealToSupabase(userId, date, meal) {
   }
   
   // Add new meal (don't duplicate if already has id)
-  const mealToAdd = meal.id 
-    ? { ...meal } 
+  const mealToAdd = mealToSave.id 
+    ? { ...mealToSave } 
     : {
-        ...meal,
+        ...mealToSave,
         id: Date.now().toString(),
         timestamp: new Date().toISOString()
       }
@@ -140,6 +167,14 @@ export async function saveMealToSupabase(userId, date, meal) {
     if (error) {
       console.error('Error saving meal to Supabase:', error)
       throw error
+    }
+    
+    // Step 3: Enrich data (after saving)
+    try {
+      await saveEnrichedData('nutrition', { ...data, meals, macros: totalMacros }, userId)
+    } catch (enrichError) {
+      // Don't fail the save if enrichment fails
+      logError('Error enriching nutrition data', enrichError)
     }
     
     // Update nutrition goals based on the saved meal (non-blocking)

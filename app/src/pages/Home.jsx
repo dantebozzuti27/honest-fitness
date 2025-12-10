@@ -13,6 +13,7 @@ import ShareCard from '../components/ShareCard'
 import AddFriend from '../components/AddFriend'
 import FriendRequests from '../components/FriendRequests'
 import Spinner from '../components/Spinner'
+import PredictiveInsights from '../components/PredictiveInsights'
 import { getPendingFriendRequests } from '../lib/friendsDb'
 import styles from './Home.module.css'
 
@@ -457,6 +458,9 @@ export default function Home() {
             </span>
           </div>
         )}
+        
+        {/* Predictive Insights */}
+        {user && <PredictiveInsights />}
         
         {/* Recent Activity Feed */}
         <div className={styles.feed}>

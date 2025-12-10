@@ -255,6 +255,17 @@ export async function saveWorkoutToSupabase(workout, userId) {
     safeLogDebug('Error auto-creating feed item for workout', feedError)
   }
 
+  // Update fitness goals based on the saved workout (non-blocking)
+  try {
+    const { updateCategoryGoals } = await import('./goalsDb')
+    updateCategoryGoals(userId, 'fitness').catch(error => {
+      logError('Error updating fitness goals after workout save', error)
+    })
+  } catch (error) {
+    // Silently fail - goal updates shouldn't block workout saves
+    logError('Error importing goalsDb for workout goal update', error)
+  }
+
   return workoutData
 }
 
@@ -812,6 +823,18 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
     }
     
     safeLogDebug('saveMetricsToSupabase: Success', data)
+    
+    // Update health goals based on the saved metrics (non-blocking)
+    try {
+      const { updateCategoryGoals } = await import('./goalsDb')
+      updateCategoryGoals(userId, 'health').catch(error => {
+        logError('Error updating health goals after metrics save', error)
+      })
+    } catch (error) {
+      // Silently fail - goal updates shouldn't block metrics saves
+      logError('Error importing goalsDb for metrics goal update', error)
+    }
+    
     return data
   } catch (err) {
     logError('saveMetricsToSupabase: Error', err)

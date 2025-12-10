@@ -50,6 +50,13 @@ export default function Health() {
   const loadHealthGoals = async () => {
     if (!user) return
     try {
+      // First, update goal progress based on current data
+      const { updateCategoryGoals } = await import('../lib/goalsDb')
+      await updateCategoryGoals(user.id, 'health').catch(() => {
+        // Silently fail - continue to load goals even if update fails
+      })
+      
+      // Then load the updated goals
       const goals = await getActiveGoalsFromSupabase(user.id, 'health')
       setHealthGoals(goals)
     } catch (error) {

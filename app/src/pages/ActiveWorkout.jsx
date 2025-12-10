@@ -72,6 +72,9 @@ export default function ActiveWorkout() {
                 setIsResting(paused.is_resting || false)
                 workoutStartTimeRef.current = Date.now() - ((paused.workout_time || 0) * 1000)
                 localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
+                // Clear paused time since we're resuming fresh
+                setPausedTime(0)
+                localStorage.setItem('pausedTime', '0')
                 // Delete paused workout since we're resuming
                 await deletePausedWorkoutFromSupabase(user.id)
                 hasResumedPaused = true
@@ -199,11 +202,27 @@ export default function ActiveWorkout() {
     }
     load()
     
-    // Initialize workout timer - always start at 0 for new workout
-    localStorage.removeItem('workoutStartTime')
-    workoutStartTimeRef.current = Date.now()
-    localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
-    setWorkoutTime(0)
+    // Restore workout timer from localStorage if it exists (workout in progress)
+    const savedWorkoutStartTime = localStorage.getItem('workoutStartTime')
+    const savedPausedTime = localStorage.getItem('pausedTime')
+    
+    if (savedWorkoutStartTime) {
+      // Restore existing workout timer
+      workoutStartTimeRef.current = parseInt(savedWorkoutStartTime)
+      if (savedPausedTime) {
+        setPausedTime(parseInt(savedPausedTime))
+      }
+      // Calculate current elapsed time based on stored start time
+      const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - (parseInt(savedPausedTime) || 0)) / 1000)
+      setWorkoutTime(Math.max(0, elapsed))
+    } else {
+      // Initialize new workout timer
+      workoutStartTimeRef.current = Date.now()
+      localStorage.setItem('workoutStartTime', workoutStartTimeRef.current.toString())
+      setWorkoutTime(0)
+      setPausedTime(0)
+      localStorage.setItem('pausedTime', '0')
+    }
     
     // Restore rest timer if it was running
     const savedRestStart = localStorage.getItem('restStartTime')
@@ -238,28 +257,41 @@ export default function ActiveWorkout() {
       }
     }
     
-    // Update timer every second (only when not paused)
-    if (workoutStartTimeRef.current) {
-      workoutTimerRef.current = setInterval(() => {
-        if (workoutStartTimeRef.current && !isPaused) {
-          const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedTime) / 1000)
-          setWorkoutTime(elapsed)
-        }
-      }, 1000)
+    // Update timer every second - always calculate from absolute time, not incremental
+    // This ensures timer continues even when app is in background
+    const updateTimer = () => {
+      if (workoutStartTimeRef.current && !isPaused) {
+        // Read pausedTime from localStorage to get the most current value
+        const currentPausedTime = parseInt(localStorage.getItem('pausedTime') || '0')
+        const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - currentPausedTime) / 1000)
+        setWorkoutTime(Math.max(0, elapsed))
+      }
     }
     
-    // Handle visibility change to recalculate time
+    // Update immediately
+    updateTimer()
+    
+    // Then update every second
+    if (workoutStartTimeRef.current) {
+      workoutTimerRef.current = setInterval(updateTimer, 1000)
+    }
+    
+    // Handle visibility change to recalculate time when app comes to foreground
     const handleVisibilityChange = () => {
       if (!document.hidden) {
+        // Recalculate workout time based on absolute time difference
         if (workoutStartTimeRef.current) {
-          const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current) / 1000)
-          setWorkoutTime(elapsed)
+          const currentPausedTime = parseInt(localStorage.getItem('pausedTime') || '0')
+          const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - currentPausedTime) / 1000)
+          setWorkoutTime(Math.max(0, elapsed))
         }
+        // Recalculate rest timer
         if (restStartTimeRef.current && restDurationRef.current) {
           const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
           const remaining = Math.max(0, restDurationRef.current - elapsed)
           setRestTime(remaining)
           if (remaining <= 0 && isResting) {
+            clearInterval(restTimerRef.current)
             setIsResting(false)
             setShowTimesUp(true)
             const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
@@ -272,6 +304,16 @@ export default function ActiveWorkout() {
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     
+    // Also handle page focus/blur for better mobile support
+    const handleFocus = () => {
+      if (workoutStartTimeRef.current) {
+        const currentPausedTime = parseInt(localStorage.getItem('pausedTime') || '0')
+        const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - currentPausedTime) / 1000)
+        setWorkoutTime(Math.max(0, elapsed))
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    
     return () => {
       mounted = false
       clearInterval(workoutTimerRef.current)
@@ -280,6 +322,7 @@ export default function ActiveWorkout() {
       timeoutRefs.current.forEach(timeoutId => clearTimeout(timeoutId))
       timeoutRefs.current = []
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
     }
   }, [templateId, randomWorkout, user, isPaused])
 
@@ -473,8 +516,8 @@ export default function ActiveWorkout() {
   }
 
   const handleFinishClick = () => {
-    clearInterval(workoutTimerRef.current)
-    clearInterval(restTimerRef.current)
+    // Don't clear timers here - let them continue until workout is actually saved
+    // This ensures accurate final time even if user takes time to fill out feedback
     setShowSummary(true)
   }
 
@@ -485,6 +528,7 @@ export default function ActiveWorkout() {
     clearInterval(workoutTimerRef.current)
     clearInterval(restTimerRef.current)
     localStorage.removeItem('workoutStartTime')
+    localStorage.removeItem('pausedTime')
     localStorage.removeItem('restStartTime')
     localStorage.removeItem('restDuration')
     
@@ -630,9 +674,13 @@ export default function ActiveWorkout() {
 
   const resumeWorkout = () => {
     if (isPaused) {
-      // Resume: adjust start time by paused duration
+      // Resume: adjust paused time by pause duration
       const pauseDuration = pauseStartTime.current ? Date.now() - pauseStartTime.current : 0
-      setPausedTime(prev => prev + pauseDuration)
+      setPausedTime(prev => {
+        const newPausedTime = prev + pauseDuration
+        localStorage.setItem('pausedTime', newPausedTime.toString())
+        return newPausedTime
+      })
       setIsPaused(false)
       pauseStartTime.current = null
       
@@ -704,7 +752,14 @@ export default function ActiveWorkout() {
       )}
       <header className={styles.header}>
         <div className={styles.headerTop}>
-          <button className={styles.cancelBtn} onClick={() => navigate('/')}>
+          <button className={styles.cancelBtn} onClick={() => {
+            // Clear workout timer when canceling
+            localStorage.removeItem('workoutStartTime')
+            localStorage.removeItem('pausedTime')
+            localStorage.removeItem('restStartTime')
+            localStorage.removeItem('restDuration')
+            navigate('/')
+          }}>
             Cancel
           </button>
           <div className={styles.workoutTimer}>{formatTime(workoutTime)}</div>

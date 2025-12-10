@@ -134,6 +134,72 @@ export async function calculateGoalProgress(goalId) {
 }
 
 /**
+ * Update all active goals for a user based on current logged data
+ * This should be called after saving workouts, meals, or health metrics
+ */
+export async function updateAllUserGoals(userId) {
+  try {
+    // Get all active goals for the user
+    const activeGoals = await getActiveGoalsFromSupabase(userId)
+    
+    if (!activeGoals || activeGoals.length === 0) {
+      return { updated: 0, errors: [] }
+    }
+    
+    const errors = []
+    let updated = 0
+    
+    // Update each goal's progress
+    for (const goal of activeGoals) {
+      try {
+        await calculateGoalProgress(goal.id)
+        updated++
+      } catch (error) {
+        logError(`Error updating goal ${goal.id}`, error)
+        errors.push({ goalId: goal.id, error: error.message })
+      }
+    }
+    
+    return { updated, errors }
+  } catch (error) {
+    logError('Error updating all user goals', error)
+    throw error
+  }
+}
+
+/**
+ * Update goals for a specific category (fitness, nutrition, health)
+ * More efficient than updating all goals when you know the category
+ */
+export async function updateCategoryGoals(userId, category) {
+  try {
+    const categoryGoals = await getActiveGoalsFromSupabase(userId, category)
+    
+    if (!categoryGoals || categoryGoals.length === 0) {
+      return { updated: 0, errors: [] }
+    }
+    
+    const errors = []
+    let updated = 0
+    
+    for (const goal of categoryGoals) {
+      try {
+        await calculateGoalProgress(goal.id)
+        updated++
+      } catch (error) {
+        logError(`Error updating goal ${goal.id}`, error)
+        errors.push({ goalId: goal.id, error: error.message })
+      }
+    }
+    
+    return { updated, errors }
+  } catch (error) {
+    logError(`Error updating ${category} goals`, error)
+    throw error
+  }
+}
+
+/**
  * Update daily goal achievement
  */
 export async function updateDailyGoalAchievement(userId, goalId, date, achieved) {

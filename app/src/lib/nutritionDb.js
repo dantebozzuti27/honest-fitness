@@ -142,6 +142,17 @@ export async function saveMealToSupabase(userId, date, meal) {
       throw error
     }
     
+    // Update nutrition goals based on the saved meal (non-blocking)
+    try {
+      const { updateCategoryGoals } = await import('./goalsDb')
+      updateCategoryGoals(userId, 'nutrition').catch(error => {
+        logError('Error updating nutrition goals after meal save', error)
+      })
+    } catch (error) {
+      // Silently fail - goal updates shouldn't block meal saves
+      logError('Error importing goalsDb for meal goal update', error)
+    }
+    
     return data
   } catch (err) {
     logError('Error saving meal to Supabase', err)

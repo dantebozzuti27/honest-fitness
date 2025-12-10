@@ -52,15 +52,18 @@ export default function Health() {
     try {
       // First, update goal progress based on current data
       const { updateCategoryGoals } = await import('../lib/goalsDb')
-      await updateCategoryGoals(user.id, 'health').catch(() => {
-        // Silently fail - continue to load goals even if update fails
-      })
+      const result = await updateCategoryGoals(user.id, 'health')
+      if (result.errors && result.errors.length > 0) {
+        console.error('Goal update errors:', result.errors)
+        logError('Some goals failed to update', result.errors)
+      }
       
       // Then load the updated goals
       const goals = await getActiveGoalsFromSupabase(user.id, 'health')
       setHealthGoals(goals)
     } catch (error) {
-      // Silently fail
+      logError('Error loading health goals', error)
+      console.error('Error loading health goals:', error)
     }
   }
 
@@ -1316,12 +1319,33 @@ export default function Health() {
               <div className={styles.metricsCard}>
                 <div className={styles.sectionHeader}>
                   <h3>Health Goals</h3>
-                  <button
-                    className={styles.linkBtn}
-                    onClick={() => navigate('/goals')}
-                  >
-                    View All →
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      className={styles.linkBtn}
+                      onClick={async () => {
+                        if (user) {
+                          try {
+                            const { updateCategoryGoals } = await import('../lib/goalsDb')
+                            await updateCategoryGoals(user.id, 'health')
+                            await loadHealthGoals()
+                            showToast('Goals refreshed', 'success')
+                          } catch (error) {
+                            logError('Error refreshing goals', error)
+                            showToast('Error refreshing goals. Make sure SQL migrations are run.', 'error')
+                          }
+                        }
+                      }}
+                      style={{ fontSize: '12px', padding: '4px 8px' }}
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      className={styles.linkBtn}
+                      onClick={() => navigate('/goals')}
+                    >
+                      View All →
+                    </button>
+                  </div>
                 </div>
                 <div className={styles.goalsList}>
                   {healthGoals.map(goal => {

@@ -423,6 +423,28 @@ export default function Goals() {
             >
               + New Goal
             </button>
+            <button
+              className={styles.newGoalBtn}
+              onClick={async () => {
+                if (user) {
+                  try {
+                    showToast('Refreshing goals...', 'info')
+                    const { updateCategoryGoals } = await import('../lib/goalsDb')
+                    const result = await updateCategoryGoals(user.id, activeCategory)
+                    console.log(`Goal update result for ${activeCategory}:`, result)
+                    await loadGoals()
+                    showToast(`Goals refreshed! Updated ${result.updated} goals.`, 'success')
+                  } catch (error) {
+                    logError('Error refreshing goals', error)
+                    console.error('Full error:', error)
+                    showToast(`Error: ${error.message || 'Failed to refresh goals. Check console for details.'}`, 'error')
+                  }
+                }
+              }}
+              style={{ marginLeft: '8px', fontSize: '14px', padding: '8px 16px' }}
+            >
+              Refresh Goals
+            </button>
           </div>
 
           <div className={styles.goalsList}>

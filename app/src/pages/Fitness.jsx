@@ -560,7 +560,39 @@ export default function Fitness() {
 
         {activeTab === 'Goals' && (
           <div>
-            <h2 className={styles.sectionTitle}>Fitness Goals</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 className={styles.sectionTitle}>Fitness Goals</h2>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  className={styles.goalsBtn}
+                  onClick={async () => {
+                    if (user) {
+                      try {
+                        showToast('Refreshing goals...', 'info')
+                        const { updateCategoryGoals } = await import('../lib/goalsDb')
+                        const result = await updateCategoryGoals(user.id, 'fitness')
+                        console.log('Fitness goal update result:', result)
+                        await loadFitnessGoals()
+                        showToast(`Goals refreshed! Updated ${result.updated} goals.`, 'success')
+                      } catch (error) {
+                        logError('Error refreshing fitness goals', error)
+                        console.error('Full error:', error)
+                        showToast(`Error: ${error.message || 'Failed to refresh goals. Check console for details.'}`, 'error')
+                      }
+                    }
+                  }}
+                  style={{ fontSize: '12px', padding: '6px 12px' }}
+                >
+                  Refresh
+                </button>
+                <button
+                  className={styles.goalsBtn}
+                  onClick={() => navigate('/goals')}
+                >
+                  View All Goals
+                </button>
+              </div>
+            </div>
             {fitnessGoals.length === 0 ? (
               <p className={styles.emptyText}>No fitness goals set. Create one on the Goals page.</p>
             ) : (
@@ -590,12 +622,6 @@ export default function Fitness() {
                 })}
               </div>
             )}
-            <button
-              className={styles.goalsBtn}
-              onClick={() => navigate('/goals')}
-            >
-              View All Goals
-            </button>
           </div>
         )}
 

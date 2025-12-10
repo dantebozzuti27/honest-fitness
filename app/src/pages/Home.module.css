@@ -172,9 +172,9 @@
 
 .addFriendBtn {
   padding: var(--space-xs) var(--space-md);
-  background: var(--accent);
-  color: white !important;
-  border: 1px solid var(--accent);
+  background: var(--bg-elevated);
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   font-weight: 600;
   font-size: var(--text-sm);
@@ -187,10 +187,10 @@
 }
 
 .addFriendBtn:hover {
-  opacity: 0.9;
+  background: var(--bg-tertiary);
+  border-color: var(--border-hover);
   transform: translateY(-1px);
-  background: var(--accent);
-  color: white !important;
+  color: var(--text-primary) !important;
 }
 
 .feedFilters {

@@ -128,8 +128,17 @@ export async function calculateGoalProgress(goalId) {
 
   if (error) {
     logError('Error calculating goal progress', error)
+    // Log more details for debugging
+    console.error('RPC Error details:', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      goalId
+    })
     throw error
   }
+  // RPC returns void, so data will be null - that's expected
   return data
 }
 

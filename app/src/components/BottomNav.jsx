@@ -45,17 +45,17 @@ export default function BottomNav() {
 
   const quickLogOptions = [
     { 
-      label: 'start workout', 
+      label: 'Start workout', 
       action: 'workout',
       description: 'Start a new workout'
     },
     { 
-      label: 'log meal', 
+      label: 'Log meal', 
       action: 'meal',
       description: 'Add a meal to nutrition'
     },
     { 
-      label: 'log metrics', 
+      label: 'Log metrics', 
       action: 'health',
       description: 'Log weight, sleep, etc.'
     }

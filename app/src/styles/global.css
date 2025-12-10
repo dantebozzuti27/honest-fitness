@@ -99,34 +99,34 @@
   --glass-border: rgba(255, 255, 255, 0.1);
   --backdrop-blur: blur(20px);
   
-  /* Apple Liquid Glass - Authentic Implementation */
-  /* Forms - More visible, higher opacity */
-  --glass-form-bg: rgba(255, 255, 255, 0.15);
-  --glass-form-bg-hover: rgba(255, 255, 255, 0.22);
-  --glass-form-bg-focus: rgba(255, 255, 255, 0.28);
-  --glass-form-border: rgba(255, 255, 255, 0.3);
-  --glass-form-border-focus: rgba(255, 255, 255, 0.5);
-  --glass-form-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  --glass-form-shadow-focus: 0 12px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.2);
+  /* Apple Liquid Glass - Authentic Implementation - Enhanced */
+  /* Forms - More transparent, stronger glass effect */
+  --glass-form-bg: rgba(255, 255, 255, 0.08);
+  --glass-form-bg-hover: rgba(255, 255, 255, 0.12);
+  --glass-form-bg-focus: rgba(255, 255, 255, 0.16);
+  --glass-form-border: rgba(255, 255, 255, 0.25);
+  --glass-form-border-focus: rgba(255, 255, 255, 0.4);
+  --glass-form-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+  --glass-form-shadow-focus: 0 12px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.2);
   
-  /* Cards - More pronounced glass effect */
-  --glass-card-bg: rgba(255, 255, 255, 0.12);
-  --glass-card-bg-hover: rgba(255, 255, 255, 0.18);
-  --glass-card-border: rgba(255, 255, 255, 0.25);
-  --glass-card-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  /* Cards - More transparent, vibrant glass */
+  --glass-card-bg: rgba(255, 255, 255, 0.06);
+  --glass-card-bg-hover: rgba(255, 255, 255, 0.1);
+  --glass-card-border: rgba(255, 255, 255, 0.2);
+  --glass-card-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(255, 255, 255, 0.05);
   
-  /* Modals - Strong glass with depth */
-  --glass-modal-bg: rgba(20, 20, 20, 0.75);
-  --glass-modal-border: rgba(255, 255, 255, 0.25);
-  --glass-modal-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  /* Modals - Stronger glass with more transparency */
+  --glass-modal-bg: rgba(20, 20, 20, 0.6);
+  --glass-modal-border: rgba(255, 255, 255, 0.2);
+  --glass-modal-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(255, 255, 255, 0.1);
   
   /* Overlays - Subtle backdrop */
   --glass-overlay-bg: rgba(0, 0, 0, 0.5);
   
-  /* Blur values - Apple uses strong blur */
-  --glass-blur-strong: blur(40px) saturate(200%);
-  --glass-blur-medium: blur(30px) saturate(180%);
-  --glass-blur-soft: blur(20px) saturate(160%);
+  /* Blur values - Apple uses very strong blur with high saturation */
+  --glass-blur-strong: blur(60px) saturate(300%);
+  --glass-blur-medium: blur(45px) saturate(250%);
+  --glass-blur-soft: blur(30px) saturate(200%);
 }
 
 html, body {
@@ -208,8 +208,8 @@ input, select, textarea {
 
 input:hover, select:hover, textarea:hover {
   background: var(--glass-form-bg-hover);
-  border-color: rgba(255, 255, 255, 0.35);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(255, 255, 255, 0.08);
 }
 
 input:focus, select:focus, textarea:focus {
@@ -353,7 +353,7 @@ td, th, li {
 
 /* Apple Liquid Glass Card - Authentic Implementation */
 .card {
-  /* Apple Liquid Glass Effect */
+  /* Apple Liquid Glass Effect - Enhanced */
   background: var(--glass-card-bg);
   backdrop-filter: var(--glass-blur-medium);
   -webkit-backdrop-filter: var(--glass-blur-medium);
@@ -373,25 +373,32 @@ td, th, li {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
   opacity: 0.6;
+  pointer-events: none;
 }
 
 .card:hover {
   background: var(--glass-card-bg-hover);
-  border-color: rgba(255, 255, 255, 0.35);
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(255, 255, 255, 0.1);
   transform: translateY(-2px);
   backdrop-filter: var(--glass-blur-strong);
   -webkit-backdrop-filter: var(--glass-blur-strong);
 }
 
-/* Glassmorphism effect */
+.card:hover::before {
+  opacity: 0.8;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+}
+
+/* Glassmorphism effect - Enhanced */
 .glass {
-  background: var(--glass-bg);
-  backdrop-filter: var(--backdrop-blur);
-  -webkit-backdrop-filter: var(--backdrop-blur);
-  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(45px) saturate(250%);
+  -webkit-backdrop-filter: blur(45px) saturate(250%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 /* Apple-style button */

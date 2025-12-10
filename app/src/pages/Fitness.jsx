@@ -581,7 +581,6 @@ export default function Fitness() {
                       }
                     }
                   }}
-                  style={{ fontSize: '12px', padding: '6px 12px' }}
                 >
                   Refresh
                 </button>

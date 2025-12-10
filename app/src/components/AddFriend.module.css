@@ -85,7 +85,7 @@
 
 .searchBtn {
   padding: var(--space-sm) var(--space-lg);
-  background: var(--accent);
+  background: #007AFF;
   color: white;
   border: none;
   border-radius: var(--radius-md);
@@ -95,13 +95,14 @@
 }
 
 .searchBtn:hover:not(:disabled) {
-  opacity: 0.9;
+  background: #0051D5;
   transform: translateY(-1px);
 }
 
 .searchBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  background: #007AFF;
 }
 
 .loading,
@@ -195,7 +196,7 @@
 
 .addBtn {
   padding: var(--space-xs) var(--space-md);
-  background: var(--accent);
+  background: #007AFF;
   color: white;
   border: none;
   border-radius: var(--radius-md);
@@ -206,7 +207,7 @@
 }
 
 .addBtn:hover {
-  opacity: 0.9;
+  background: #0051D5;
 }
 
 .friendStatus,

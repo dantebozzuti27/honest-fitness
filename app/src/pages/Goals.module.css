@@ -155,8 +155,8 @@
 }
 
 .newGoalBtn {
-  padding: 8px 16px;
-  font-size: 14px;
+  padding: 12px 20px;
+  font-size: 15px;
   font-weight: 600;
   background: var(--accent);
   color: #000;
@@ -164,6 +164,28 @@
   border-radius: var(--radius-md);
   cursor: pointer;
   opacity: 1;
+  min-height: 44px;
+  min-width: 80px;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
+  transition: all var(--transition-base);
+}
+
+.newGoalBtn:hover {
+  transform: translateY(-1px);
+}
+
+.newGoalBtn:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+  .newGoalBtn {
+    padding: 10px 16px;
+    font-size: 15px;
+    min-height: 44px;
+  }
 }
 
 .newGoalBtn * {

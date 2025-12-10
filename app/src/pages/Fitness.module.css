@@ -200,15 +200,21 @@ h1 {
 
 .shareBtn,
 .deleteBtn {
-  padding: 6px 10px;
-  font-size: 11px;
-  min-width: 50px;
-  min-height: 32px;
+  padding: 10px 16px;
+  font-size: 15px;
+  min-width: 60px;
+  min-height: 44px;
   flex-shrink: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
 }
 
 .shareBtn {
@@ -219,6 +225,11 @@ h1 {
 
 .shareBtn:hover {
   background: var(--bg-elevated);
+  transform: translateY(-1px);
+}
+
+.shareBtn:active {
+  transform: translateY(0);
 }
 
 .deleteBtn {
@@ -229,6 +240,11 @@ h1 {
 
 .deleteBtn:hover {
   background: var(--color-red-dark, #dc2626);
+  transform: translateY(-1px);
+}
+
+.deleteBtn:active {
+  transform: translateY(0);
 }
 
 .historyTableEmpty {
@@ -652,27 +668,38 @@ h1 {
 }
 
 .goalsBtn {
-  width: 100%;
-  padding: var(--space-md);
+  padding: 12px 20px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: var(--text-base);
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-base);
-  margin-top: var(--space-md);
-  min-height: 48px;
+  min-height: 44px;
+  min-width: 80px;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
 }
 
 .goalsBtn:hover {
   background: var(--bg-tertiary);
   border-color: var(--accent);
+  transform: translateY(-1px);
 }
 
 .goalsBtn:active {
-  transform: scale(0.98);
+  transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+  .goalsBtn {
+    padding: 10px 16px;
+    font-size: 15px;
+    min-height: 44px;
+  }
 }
 
 .emptyText {
@@ -682,19 +709,20 @@ h1 {
   font-size: var(--text-sm);
 }
 
-/* Mobile Optimizations */
-@media (max-width: 480px) {
+/* Mobile Optimizations - Apple Design System */
+@media (max-width: 768px) {
   h1 {
-    font-size: 18px;
+    font-size: 20px;
   }
   
   .tab {
-    padding: 12px 6px;
-    font-size: 10px;
+    padding: 12px 16px;
+    font-size: 15px;
+    min-height: 44px;
   }
   
   .sectionTitle {
-    font-size: 16px;
+    font-size: 18px;
   }
   
   .historyTable {
@@ -706,32 +734,70 @@ h1 {
     max-width: 100vw;
     padding-left: 0;
     padding-right: 0;
+    border-radius: 0;
   }
   
   .historyTableHeader,
   .historyTableRow {
     width: 100%;
     min-width: 100%;
-    grid-template-columns: minmax(50px, 1.5fr) minmax(45px, 1fr) minmax(35px, 0.8fr) minmax(70px, 1.5fr);
-    gap: clamp(2px, 1vw, 8px);
-    padding: var(--space-xs) clamp(4px, 1.5vw, var(--space-sm));
+    grid-template-columns: minmax(80px, 1.5fr) minmax(60px, 1fr) minmax(50px, 0.8fr) minmax(100px, 1.8fr);
+    gap: 12px;
+    padding: 12px 16px;
+    min-height: 52px;
+  }
+  
+  .historyTableHeader {
+    font-size: 13px;
+    font-weight: 600;
   }
   
   .historyTableCol {
-    font-size: clamp(8px, 1.8vw, 10px);
-    padding: 0 clamp(1px, 0.5vw, 3px);
+    font-size: 15px;
+    padding: 0 4px;
+    line-height: 1.4;
   }
   
   .historyTableCol.actionsCol {
-    gap: clamp(2px, 1vw, 4px);
+    gap: 8px;
     flex-shrink: 0;
+    flex-direction: row;
+    justify-content: flex-end;
   }
   
   .shareBtn,
   .deleteBtn {
-    padding: clamp(2px, 0.8vw, 5px) clamp(4px, 1.2vw, 8px);
-    font-size: clamp(7px, 1.6vw, 10px);
-    min-width: clamp(30px, 8vw, 45px);
-    min-height: clamp(20px, 5vw, 28px);
+    padding: 10px 14px;
+    font-size: 14px;
+    min-width: 60px;
+    min-height: 44px;
+    border-radius: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .historyTableHeader,
+  .historyTableRow {
+    grid-template-columns: minmax(70px, 1.2fr) minmax(50px, 0.9fr) minmax(40px, 0.7fr) minmax(120px, 2fr);
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  
+  .historyTableCol {
+    font-size: 14px;
+  }
+  
+  .historyTableCol.actionsCol {
+    flex-direction: column;
+    gap: 6px;
+    align-items: stretch;
+  }
+  
+  .shareBtn,
+  .deleteBtn {
+    width: 100%;
+    min-width: 100%;
+    padding: 12px;
+    font-size: 15px;
   }
 }

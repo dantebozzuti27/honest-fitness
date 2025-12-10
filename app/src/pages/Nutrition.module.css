@@ -1240,14 +1240,15 @@ h1 {
 .historyTableHeader {
   display: grid;
   grid-template-columns: minmax(80px, 2fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(100px, 1.5fr);
-  gap: clamp(4px, 1.5vw, 12px);
-  padding: var(--space-sm) clamp(8px, 2vw, var(--space-md));
+  gap: 12px;
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-tertiary);
   border-bottom: 2px solid var(--border);
   font-weight: 600;
-  font-size: clamp(9px, 2vw, var(--text-xs));
+  font-size: var(--text-xs);
   color: var(--text-primary);
   align-items: center;
+  min-height: 44px;
   min-height: 44px;
   width: 100%;
 }
@@ -1319,16 +1320,23 @@ h1 {
 }
 
 .deleteBtn {
-  padding: var(--space-xs) var(--space-sm);
+  padding: 10px 16px;
   background: var(--color-red, #ef4444);
   color: white;
   border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
+  border-radius: var(--radius-md);
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-base);
   white-space: nowrap;
+  min-height: 44px;
+  min-width: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
   min-height: 44px;
   min-width: 44px;
   display: flex;
@@ -2073,26 +2081,62 @@ h1 {
   .historyTableRow {
     width: 100%;
     min-width: 100%;
-    grid-template-columns: minmax(50px, 1.5fr) minmax(35px, 0.9fr) minmax(35px, 0.9fr) minmax(35px, 0.9fr) minmax(35px, 0.9fr) minmax(70px, 1.3fr);
-    gap: clamp(2px, 1vw, 8px);
-    padding: var(--space-xs) clamp(4px, 1.5vw, var(--space-sm));
+    grid-template-columns: minmax(80px, 1.5fr) minmax(60px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(100px, 1.8fr);
+    gap: 12px;
+    padding: 12px 16px;
+    min-height: 52px;
+  }
+  
+  .historyTableHeader {
+    font-size: 13px;
+    font-weight: 600;
   }
   
   .historyTableCol {
-    font-size: clamp(8px, 1.8vw, 10px);
-    padding: 0 clamp(1px, 0.5vw, 3px);
+    font-size: 15px;
+    padding: 0 4px;
+    line-height: 1.4;
   }
   
   .historyTableCol.actionsCol {
-    gap: clamp(2px, 1vw, 4px);
+    gap: 8px;
     flex-shrink: 0;
+    flex-direction: row;
+    justify-content: flex-end;
   }
   
   .deleteBtn {
-    padding: clamp(2px, 0.8vw, 5px) clamp(4px, 1.2vw, 8px);
-    font-size: clamp(7px, 1.6vw, 10px);
-    min-width: clamp(30px, 8vw, 45px);
-    min-height: clamp(20px, 5vw, 28px);
+    padding: 10px 14px;
+    font-size: 14px;
+    min-width: 60px;
+    min-height: 44px;
+    border-radius: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .historyTableHeader,
+  .historyTableRow {
+    grid-template-columns: minmax(70px, 1.2fr) minmax(50px, 0.9fr) minmax(40px, 0.7fr) minmax(40px, 0.7fr) minmax(40px, 0.7fr) minmax(120px, 2fr);
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  
+  .historyTableCol {
+    font-size: 14px;
+  }
+  
+  .historyTableCol.actionsCol {
+    flex-direction: column;
+    gap: 6px;
+    align-items: stretch;
+  }
+  
+  .deleteBtn {
+    width: 100%;
+    min-width: 100%;
+    padding: 12px;
+    font-size: 15px;
   }
   
   .mealCard {

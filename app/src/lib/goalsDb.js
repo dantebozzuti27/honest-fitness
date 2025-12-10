@@ -122,46 +122,12 @@ export async function updateGoalProgress(userId, goalId, currentValue, progressP
  * Calculate and update goal progress using database function
  */
 export async function calculateGoalProgress(goalId) {
-  console.log(`[calculateGoalProgress] Calling RPC for goal ${goalId}`)
-  
-  // First, get the goal to see what we're working with
-  const { data: goalBefore, error: goalError } = await supabase
-    .from('goals')
-    .select('id, type, current_value, progress_percentage, target_value, user_id')
-    .eq('id', goalId)
-    .single()
-  
-  if (goalError) {
-    console.error(`[calculateGoalProgress] Error fetching goal before calculation:`, goalError)
-    throw goalError
-  }
-  
-  console.log(`[calculateGoalProgress] Goal before calculation:`, goalBefore)
-  
-  // Check if data exists for this goal type
-  if (goalBefore.type === 'calories_burned' || goalBefore.type === 'steps' || goalBefore.type === 'sleep_hours' || goalBefore.type === 'sleep') {
-    const today = new Date().toISOString().split('T')[0]
-    const { data: metricsData, error: metricsError } = await supabase
-      .from('health_metrics')
-      .select('*')
-      .eq('user_id', goalBefore.user_id)
-      .eq('date', today)
-      .single()
-    
-    console.log(`[calculateGoalProgress] Checking for health_metrics for date ${today}:`, {
-      found: !!metricsData,
-      data: metricsData,
-      error: metricsError
-    })
-  }
-  
   const { data, error } = await supabase.rpc('calculate_goal_progress', {
     p_goal_id: goalId
   })
 
   if (error) {
     logError('Error calculating goal progress', error)
-    // Log more details for debugging
     console.error('RPC Error details:', {
       code: error.code,
       message: error.message,
@@ -170,25 +136,6 @@ export async function calculateGoalProgress(goalId) {
       goalId
     })
     throw error
-  }
-  
-  // After RPC call, fetch the updated goal to verify it worked
-  const { data: updatedGoal, error: fetchError } = await supabase
-    .from('goals')
-    .select('id, type, current_value, progress_percentage, target_value')
-    .eq('id', goalId)
-    .single()
-  
-  if (fetchError) {
-    console.error(`[calculateGoalProgress] Error fetching updated goal:`, fetchError)
-  } else {
-    console.log(`[calculateGoalProgress] Goal ${goalId} AFTER update:`, {
-      type: updatedGoal.type,
-      current_value: updatedGoal.current_value,
-      progress_percentage: updatedGoal.progress_percentage,
-      target_value: updatedGoal.target_value,
-      changed: updatedGoal.current_value !== goalBefore.current_value
-    })
   }
   
   // RPC returns void, so data will be null - that's expected
@@ -235,10 +182,7 @@ export async function updateAllUserGoals(userId) {
  */
 export async function updateCategoryGoals(userId, category) {
   try {
-    console.log(`[updateCategoryGoals] Starting update for category: ${category}, userId: ${userId}`)
     const categoryGoals = await getActiveGoalsFromSupabase(userId, category)
-    
-    console.log(`[updateCategoryGoals] Found ${categoryGoals?.length || 0} goals for category ${category}`)
     
     if (!categoryGoals || categoryGoals.length === 0) {
       return { updated: 0, errors: [] }
@@ -249,25 +193,16 @@ export async function updateCategoryGoals(userId, category) {
     
     for (const goal of categoryGoals) {
       try {
-        console.log(`[updateCategoryGoals] Processing goal:`, {
-          id: goal.id,
-          type: goal.type,
-          target_value: goal.target_value,
-          current_value: goal.current_value
-        })
         await calculateGoalProgress(goal.id)
         updated++
       } catch (error) {
-        console.error(`[updateCategoryGoals] Error updating goal ${goal.id}:`, error)
         logError(`Error updating goal ${goal.id}`, error)
         errors.push({ goalId: goal.id, error: error.message })
       }
     }
     
-    console.log(`[updateCategoryGoals] Completed: ${updated} updated, ${errors.length} errors`)
     return { updated, errors }
   } catch (error) {
-    console.error(`[updateCategoryGoals] Fatal error:`, error)
     logError(`Error updating ${category} goals`, error)
     throw error
   }

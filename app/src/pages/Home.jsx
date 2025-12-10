@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences, getSocialFeedItems } from '../lib/supabaseDb'
@@ -27,33 +27,41 @@ export default function Home() {
   const [showAddFriend, setShowAddFriend] = useState(false)
   const [showFriendRequests, setShowFriendRequests] = useState(false)
   const [pendingRequestCount, setPendingRequestCount] = useState(0)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [pullDistance, setPullDistance] = useState(0)
+  const feedContainerRef = useRef(null)
+  const pullStartY = useRef(0)
+  const isPulling = useRef(false)
   
   // Reload feed when filter changes
   useEffect(() => {
     if (user) {
-      console.log('[FEED DEBUG] Filter changed, reloading feed:', feedFilter)
       loadRecentLogs(user.id)
     }
   }, [feedFilter, user])
 
-  const loadRecentLogs = async (userId) => {
+  const loadRecentLogs = async (userId, showRefreshIndicator = false) => {
     try {
+      if (showRefreshIndicator) {
+        setIsRefreshing(true)
+      } else {
+        setLoading(true)
+      }
+      
       const logs = []
       
       if (!userId) {
         setRecentLogs([])
         setLoading(false)
+        setIsRefreshing(false)
         return
       }
 
       // SIMPLIFIED: Just get workouts from feed - that's all we need
       try {
-        console.log('[FEED DEBUG] Loading feed with filter:', feedFilter, 'userId:', userId)
         const feedItems = await getSocialFeedItems(userId, feedFilter, 100)
-        console.log('[FEED DEBUG] Received feedItems:', feedItems?.length || 0)
         
         if (feedItems && feedItems.length > 0) {
-          console.log('[FEED DEBUG] Processing', feedItems.length, 'feed items')
           feedItems.forEach((item) => {
             // Get user profile info
             const userProfile = item.user_profiles || null
@@ -114,18 +122,102 @@ export default function Home() {
         return dateB - dateA
       })
       
-      console.log('[FEED DEBUG] Final logs count:', logs.length)
-      if (logs.length > 0) {
-        console.log('[FEED DEBUG] Sample log entry:', logs[0])
-      }
       
       setRecentLogs(logs)
       setLoading(false)
+      setIsRefreshing(false)
     } catch (error) {
       logError('Error in loadRecentLogs', error)
       setRecentLogs([])
       setLoading(false)
+      setIsRefreshing(false)
     }
+  }
+  
+  // Pull-to-refresh handlers (Twitter-style)
+  const handleTouchStart = (e) => {
+    const container = feedContainerRef.current
+    if (!container) return
+    
+    const scrollTop = container.scrollTop
+    
+    // Only allow pull-to-refresh when at the top
+    if (scrollTop <= 5) {
+      pullStartY.current = e.touches[0].clientY
+      isPulling.current = true
+    }
+  }
+  
+  const handleTouchMove = (e) => {
+    if (!isPulling.current) return
+    
+    const currentY = e.touches[0].clientY
+    const pullDistance = Math.max(0, currentY - pullStartY.current)
+    
+    // Limit pull distance and add resistance
+    const maxPull = 120
+    const resistance = 2.5
+    const adjustedDistance = Math.min(pullDistance / resistance, maxPull)
+    
+    setPullDistance(adjustedDistance)
+    
+    // Prevent default scrolling when pulling down
+    if (pullDistance > 10) {
+      e.preventDefault()
+    }
+  }
+  
+  const handleTouchEnd = () => {
+    if (!isPulling.current) return
+    
+    const threshold = 60 // Distance needed to trigger refresh
+    
+    if (pullDistance >= threshold && user) {
+      // Trigger refresh
+      loadRecentLogs(user.id, true)
+    }
+    
+    // Reset
+    isPulling.current = false
+    setPullDistance(0)
+  }
+  
+  // Mouse drag support for desktop (optional)
+  const handleMouseDown = (e) => {
+    const container = feedContainerRef.current
+    if (!container) return
+    
+    const scrollTop = container.scrollTop
+    
+    if (scrollTop <= 5) {
+      pullStartY.current = e.clientY
+      isPulling.current = true
+    }
+  }
+  
+  const handleMouseMove = (e) => {
+    if (!isPulling.current) return
+    
+    const currentY = e.clientY
+    const pullDistance = Math.max(0, currentY - pullStartY.current)
+    const maxPull = 120
+    const resistance = 2.5
+    const adjustedDistance = Math.min(pullDistance / resistance, maxPull)
+    
+    setPullDistance(adjustedDistance)
+  }
+  
+  const handleMouseUp = () => {
+    if (!isPulling.current) return
+    
+    const threshold = 60
+    
+    if (pullDistance >= threshold && user) {
+      loadRecentLogs(user.id, true)
+    }
+    
+    isPulling.current = false
+    setPullDistance(0)
   }
 
   useEffect(() => {
@@ -246,6 +338,28 @@ export default function Home() {
       window.removeEventListener('feedUpdated', handleFeedUpdate)
     }
   }, [user, navigate, feedFilter]) // Add feedFilter to dependencies
+  
+  // Add event listeners for pull-to-refresh
+  useEffect(() => {
+    const container = feedContainerRef.current
+    if (!container) return
+    
+    container.addEventListener('touchstart', handleTouchStart, { passive: false })
+    container.addEventListener('touchmove', handleTouchMove, { passive: false })
+    container.addEventListener('touchend', handleTouchEnd)
+    container.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart)
+      container.removeEventListener('touchmove', handleTouchMove)
+      container.removeEventListener('touchend', handleTouchEnd)
+      container.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleMouseDown, handleMouseMove, handleMouseUp])
 
 
   if (loading) {
@@ -299,7 +413,31 @@ export default function Home() {
         <HomeButton />
       </div>
 
-      <div className={styles.content}>
+      <div className={styles.content} ref={feedContainerRef}>
+        {/* Pull-to-refresh indicator */}
+        {(pullDistance > 0 || isRefreshing) && (
+          <div 
+            className={styles.pullToRefresh}
+            style={{ 
+              transform: `translateY(${Math.max(0, pullDistance - 20)}px)`,
+              opacity: Math.min(1, pullDistance / 60)
+            }}
+          >
+            <div className={styles.pullToRefreshIcon}>
+              {isRefreshing ? (
+                <div className={styles.refreshSpinner} />
+              ) : pullDistance >= 60 ? (
+                <span style={{ transform: 'rotate(180deg)', display: 'inline-block' }}>↓</span>
+              ) : (
+                <span style={{ transform: `rotate(${pullDistance * 3}deg)`, display: 'inline-block' }}>↓</span>
+              )}
+            </div>
+            <span className={styles.pullToRefreshText}>
+              {isRefreshing ? 'Refreshing...' : pullDistance >= 60 ? 'Release to refresh' : 'Pull to refresh'}
+            </span>
+          </div>
+        )}
+        
         {/* Recent Activity Feed */}
         <div className={styles.feed}>
           <div className={styles.feedHeader}>

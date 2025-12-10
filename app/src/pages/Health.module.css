@@ -333,20 +333,30 @@ h1 {
 }
 
 .linkBtn {
-  padding: 6px 12px;
-  background: transparent;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-base);
+  min-height: 44px;
+  min-width: 80px;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
 }
 
 .linkBtn:hover {
   background: var(--bg-tertiary);
   border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.linkBtn:active {
+  transform: translateY(0);
 }
 
 .metricsList {
@@ -826,6 +836,96 @@ h1 {
   white-space: normal;
 }
 
+/* Share button in table context */
+.historyTableCol.actionsCol .shareBtn {
+  padding: 10px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  min-height: 44px;
+  min-width: 60px;
+  white-space: nowrap;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
+  width: auto;
+  margin-bottom: 0;
+}
+
+.historyTableCol.actionsCol .shareBtn:hover {
+  background: var(--bg-elevated);
+  transform: translateY(-1px);
+}
+
+.historyTableCol.actionsCol .shareBtn:active {
+  transform: translateY(0);
+}
+
+/* Mobile Optimizations - Apple Design System */
+@media (max-width: 768px) {
+  .historyTableHeader,
+  .historyTableRow {
+    grid-template-columns: minmax(80px, 1.5fr) minmax(60px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(70px, 1.2fr) minmax(120px, 1.8fr);
+    gap: 12px;
+    padding: 12px 16px;
+    min-height: 52px;
+  }
+  
+  .historyTableHeader {
+    font-size: 13px;
+  }
+  
+  .historyTableCol {
+    font-size: 15px;
+    padding: 0 4px;
+    line-height: 1.4;
+  }
+  
+  .historyTableCol.actionsCol {
+    flex-direction: row;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  
+  .historyTableCol.actionsCol .shareBtn,
+  .historyTableCol.actionsCol .deleteBtn {
+    padding: 10px 14px;
+    font-size: 14px;
+    min-width: 60px;
+  }
+}
+
+@media (max-width: 480px) {
+  .historyTableHeader,
+  .historyTableRow {
+    grid-template-columns: minmax(70px, 1.2fr) minmax(50px, 0.9fr) minmax(40px, 0.7fr) minmax(40px, 0.7fr) minmax(40px, 0.7fr) minmax(60px, 1fr) minmax(140px, 2.2fr);
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  
+  .historyTableCol {
+    font-size: 14px;
+  }
+  
+  .historyTableCol.actionsCol {
+    flex-direction: column;
+    gap: 6px;
+    align-items: stretch;
+  }
+  
+  .historyTableCol.actionsCol .shareBtn,
+  .historyTableCol.actionsCol .deleteBtn {
+    width: 100%;
+    min-width: 100%;
+    padding: 12px;
+    font-size: 15px;
+  }
+}
+
 .manualLogHint {
   position: absolute;
   right: 16px;
@@ -849,21 +949,23 @@ h1 {
 }
 
 .deleteBtn {
-  padding: var(--space-xs) var(--space-sm);
+  padding: 10px 16px;
   background: var(--color-red, #ef4444);
   color: white;
   border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
+  border-radius: var(--radius-md);
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-base);
   white-space: nowrap;
   min-height: 44px;
-  min-width: 44px;
+  min-width: 60px;
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
 }
 
 .deleteBtn:hover {

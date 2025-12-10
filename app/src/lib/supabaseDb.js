@@ -1294,8 +1294,6 @@ export async function getFeedItemsFromSupabase(userId, limit = 50) {
  */
 export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
   try {
-    console.log('[FEED DEBUG] getSocialFeedItems called:', { userId, filter, limit })
-    
     // First, get feed items (nutrition, health, and manually shared workouts)
     let feedItemsQuery = supabase
       .from('feed_items')
@@ -1331,7 +1329,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
     const { data: feedItems, error: feedItemsError } = await feedItemsQuery
     
     if (feedItemsError && feedItemsError.code !== 'PGRST205') {
-      console.error('[FEED DEBUG] Feed items query error:', feedItemsError)
+      logError('Feed items query error', feedItemsError)
     }
     
     // Build query to get ALL workouts with exercises and sets
@@ -1350,7 +1348,6 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
     // Apply filter
     if (filter === 'me') {
       workoutQuery = workoutQuery.eq('user_id', userId)
-      console.log('[FEED DEBUG] Filter: me - showing only user workouts')
     } else if (filter === 'friends') {
       // Get friend IDs first
       try {
@@ -1377,29 +1374,18 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
     if (filter === 'all') {
       // For now, show user's workouts when filter is 'all' (until RLS is configured)
       workoutQuery = workoutQuery.eq('user_id', userId)
-      console.log('[FEED DEBUG] Filter: all - showing user workouts')
     }
 
     const { data: workouts, error: workoutError } = await workoutQuery
 
-    console.log('[FEED DEBUG] Workouts query result:', { 
-      count: workouts?.length || 0, 
-      error: workoutError?.message,
-      sample: workouts?.[0] 
-    })
-
     if (workoutError) {
-      console.error('[FEED DEBUG] Workout query error:', workoutError)
       logError('Error loading workouts for feed', workoutError)
       return []
     }
 
     if (!workouts || workouts.length === 0) {
-      console.log('[FEED DEBUG] No workouts found in database')
       return []
     }
-
-    console.log('[FEED DEBUG] Found workouts:', workouts.length)
 
     // Get unique user IDs from workouts and feed items
     const allUserIds = [
@@ -1448,12 +1434,10 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
       .filter(workout => {
         // Only include workouts with valid data
         if (!workout || !workout.user_id || !workout.date || !workout.created_at) {
-          console.log('[FEED DEBUG] Filtered out workout - missing basic fields:', workout?.id)
           return false
         }
         // Must have exercises with sets
         if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
-          console.log('[FEED DEBUG] Filtered out workout - no exercises:', workout.id)
           return false
         }
         // Must have at least one exercise with valid sets
@@ -1462,7 +1446,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
           ex.workout_sets.some(s => s.weight || s.reps || s.time)
         )
         if (!hasValidSets) {
-          console.log('[FEED DEBUG] Filtered out workout - no valid sets:', workout.id)
+          return false
         }
         return hasValidSets
       })
@@ -1522,11 +1506,6 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
         return bTime - aTime
       })
       .slice(0, limit)
-    
-    console.log('[FEED DEBUG] Final feedItems count:', allFeedItems.length)
-    if (allFeedItems.length > 0) {
-      console.log('[FEED DEBUG] Sample feedItem:', allFeedItems[0])
-    }
     
     return allFeedItems
   } catch (error) {

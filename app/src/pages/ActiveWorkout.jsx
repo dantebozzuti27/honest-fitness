@@ -48,6 +48,7 @@ export default function ActiveWorkout() {
   const [pausedTime, setPausedTime] = useState(0) // Accumulated paused time
   const [isSaving, setIsSaving] = useState(false)
   const pauseStartTime = useRef(null)
+  const pausedTimeRef = useRef(0) // Ref to track paused time for timer calculations
   const workoutTimerRef = useRef(null)
   const restTimerRef = useRef(null)
   const workoutStartTimeRef = useRef(null)
@@ -81,6 +82,7 @@ export default function ActiveWorkout() {
                 workoutStartTimeRef.current = Date.now() - ((paused.workout_time || 0) * 1000)
                 // Clear paused time since we're resuming fresh
                 setPausedTime(0)
+                pausedTimeRef.current = 0
                 
                 // Save to database
                 if (user) {
@@ -233,7 +235,9 @@ export default function ActiveWorkout() {
         if (session) {
           // Restore existing workout timer from database
           workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
-          setPausedTime(session.paused_time_ms || 0)
+          const pausedMs = session.paused_time_ms || 0
+          setPausedTime(pausedMs)
+          pausedTimeRef.current = pausedMs
           
           // Restore rest timer if it was running
           if (session.rest_start_time && session.rest_duration_seconds) {
@@ -289,6 +293,7 @@ export default function ActiveWorkout() {
           workoutStartTimeRef.current = Date.now()
           setWorkoutTime(0)
           setPausedTime(0)
+          pausedTimeRef.current = 0
           
           // Save to database
           await saveActiveWorkoutSession(user.id, {
@@ -305,27 +310,35 @@ export default function ActiveWorkout() {
         workoutStartTimeRef.current = Date.now()
         setWorkoutTime(0)
         setPausedTime(0)
+        pausedTimeRef.current = 0
       }
     }
     
-    loadWorkoutSession()
-    
-    // Update timer every second - always calculate from absolute time, not incremental
-    // This ensures timer continues even when app is in background
-    const updateTimer = () => {
-      if (workoutStartTimeRef.current && !isPaused) {
-        const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedTime) / 1000)
-        setWorkoutTime(Math.max(0, elapsed))
+    // Load workout session and set up timer after it loads
+    loadWorkoutSession().then(() => {
+      // Clear any existing interval first
+      if (workoutTimerRef.current) {
+        clearInterval(workoutTimerRef.current)
       }
-    }
-    
-    // Update immediately
-    updateTimer()
-    
-    // Then update every second
-    if (workoutStartTimeRef.current) {
-      workoutTimerRef.current = setInterval(updateTimer, 1000)
-    }
+      
+      // Update timer every second - always calculate from absolute time, not incremental
+      // This ensures timer continues even when app is in background
+      const updateTimer = () => {
+        if (workoutStartTimeRef.current && !isPaused) {
+          // Use ref for pausedTime to get current value
+          const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedTimeRef.current) / 1000)
+          setWorkoutTime(Math.max(0, elapsed))
+        }
+      }
+      
+      // Update immediately
+      updateTimer()
+      
+      // Then update every second - always set up the interval if we have a start time
+      if (workoutStartTimeRef.current) {
+        workoutTimerRef.current = setInterval(updateTimer, 1000)
+      }
+    })
     
     // Handle visibility change to recalculate time when app comes to foreground
     const handleVisibilityChange = async () => {
@@ -335,10 +348,12 @@ export default function ActiveWorkout() {
           const session = await getActiveWorkoutSession(user.id)
           if (session) {
             workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
-            setPausedTime(session.paused_time_ms || 0)
+            const pausedMs = session.paused_time_ms || 0
+            setPausedTime(pausedMs)
+            pausedTimeRef.current = pausedMs
             
             // Recalculate workout time based on absolute time difference
-            const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - (session.paused_time_ms || 0)) / 1000)
+            const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedMs) / 1000)
             setWorkoutTime(Math.max(0, elapsed))
             
             // Recalculate rest timer
@@ -381,8 +396,10 @@ export default function ActiveWorkout() {
           const session = await getActiveWorkoutSession(user.id)
           if (session) {
             workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
-            setPausedTime(session.paused_time_ms || 0)
-            const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - (session.paused_time_ms || 0)) / 1000)
+            const pausedMs = session.paused_time_ms || 0
+            setPausedTime(pausedMs)
+            pausedTimeRef.current = pausedMs
+            const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedMs) / 1000)
             setWorkoutTime(Math.max(0, elapsed))
           }
         } catch (error) {
@@ -402,7 +419,33 @@ export default function ActiveWorkout() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('focus', handleFocus)
     }
-  }, [templateId, randomWorkout, user, isPaused])
+  }, [templateId, randomWorkout, user])
+  
+  // Separate effect to handle timer updates based on isPaused state
+  useEffect(() => {
+    if (!workoutStartTimeRef.current) return
+    
+    // Clear existing interval
+    if (workoutTimerRef.current) {
+      clearInterval(workoutTimerRef.current)
+    }
+    
+    if (!isPaused) {
+      // Timer is running - update every second
+      workoutTimerRef.current = setInterval(() => {
+        if (workoutStartTimeRef.current && !isPaused) {
+          const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedTimeRef.current) / 1000)
+          setWorkoutTime(Math.max(0, elapsed))
+        }
+      }, 1000)
+    }
+    
+    return () => {
+      if (workoutTimerRef.current) {
+        clearInterval(workoutTimerRef.current)
+      }
+    }
+  }, [isPaused])
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60)
@@ -796,8 +839,22 @@ export default function ActiveWorkout() {
       const pauseDuration = pauseStartTime.current ? Date.now() - pauseStartTime.current : 0
       const newPausedTime = pausedTime + pauseDuration
       setPausedTime(newPausedTime)
+      pausedTimeRef.current = newPausedTime
       setIsPaused(false)
       pauseStartTime.current = null
+      
+      // Restart the timer interval
+      if (workoutStartTimeRef.current) {
+        if (workoutTimerRef.current) {
+          clearInterval(workoutTimerRef.current)
+        }
+        workoutTimerRef.current = setInterval(() => {
+          if (workoutStartTimeRef.current && !isPaused) {
+            const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedTimeRef.current) / 1000)
+            setWorkoutTime(Math.max(0, elapsed))
+          }
+        }, 1000)
+      }
       
       // Save to database
       try {

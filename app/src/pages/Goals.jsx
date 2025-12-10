@@ -441,7 +441,6 @@ export default function Goals() {
                   }
                 }
               }}
-              style={{ marginLeft: '8px', fontSize: '14px', padding: '8px 16px' }}
             >
               Refresh Goals
             </button>

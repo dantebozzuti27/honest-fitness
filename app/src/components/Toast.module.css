@@ -1,21 +1,23 @@
 .toast {
   position: fixed;
-  top: 20px;
-  right: 20px;
+  top: calc(env(safe-area-inset-top, 0px) + var(--space-md));
+  right: var(--space-md);
+  left: auto;
   min-width: 280px;
-  max-width: 90%;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  max-width: calc(100vw - var(--space-md) * 2);
+  background: var(--glass-modal-bg);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
+  border: 1px solid var(--glass-modal-border);
   border-radius: var(--radius-lg);
-  padding: 16px 20px;
-  box-shadow: var(--shadow-xl);
-  z-index: 10000;
+  padding: var(--space-sm) var(--space-md);
+  box-shadow: var(--glass-modal-shadow);
+  z-index: var(--z-toast);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  animation: slideIn 0.3s ease-out;
-  backdrop-filter: blur(10px);
+  gap: var(--space-sm);
+  animation: slideIn var(--transition-base) cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 @keyframes slideIn {
@@ -47,7 +49,7 @@
 .toastContent {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-sm);
   flex: 1;
 }
 
@@ -108,7 +110,7 @@
   color: var(--text-primary);
 }
 
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   .toast {
     top: 12px;
     right: 12px;

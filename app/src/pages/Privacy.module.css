@@ -91,7 +91,7 @@
   font-weight: 600;
 }
 
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   .content {
     padding: var(--space-md);
   }

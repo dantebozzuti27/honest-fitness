@@ -302,7 +302,7 @@ h1 {
 }
 
 /* Mobile Optimizations */
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   h1 {
     font-size: 18px;
   }

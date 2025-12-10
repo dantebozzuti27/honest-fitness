@@ -7,12 +7,13 @@
   background: var(--glass-overlay-bg);
   backdrop-filter: var(--glass-overlay-blur);
   -webkit-backdrop-filter: var(--glass-overlay-blur);
-  z-index: 10000;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: var(--space-md);
   overflow-y: auto;
+  animation: overlayFadeIn 300ms ease-out;
 }
 
 .modal {
@@ -30,6 +31,7 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  animation: modalSlideUp 300ms ease-out;
 }
 
 .modal::before {
@@ -48,32 +50,36 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px;
+  padding: var(--space-md);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .modalHeader h2 {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: 600;
   margin: 0;
   color: var(--text-primary);
+  letter-spacing: var(--letter-tight);
+  line-height: var(--line-height-tight);
 }
 
 .closeBtn {
   background: transparent;
   border: none;
   color: var(--text-primary);
-  font-size: 24px;
+  font-size: var(--icon-md);
   cursor: pointer;
-  padding: 0;
-  width: 32px;
-  height: 32px;
+  padding: var(--space-xs);
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
-  transition: background 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .closeBtn:hover {
@@ -81,7 +87,7 @@
 }
 
 .cardPreview {
-  padding: 12px;
+  padding: var(--space-sm);
   display: flex;
   justify-content: center;
   background: var(--bg-primary);
@@ -91,26 +97,29 @@
 }
 
 .shareOptions {
-  padding: 20px;
+  padding: var(--space-md);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-sm);
 }
 
 .shareBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 14px;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
   background: var(--accent);
   color: var(--bg-primary);
   border: none;
   border-radius: var(--radius-md);
-  font-size: 15px;
+  font-size: var(--text-base);
   font-weight: 600;
+  letter-spacing: var(--letter-wide);
+  line-height: var(--line-height-normal);
   cursor: pointer;
-  transition: transform 0.1s;
+  transition: all var(--transition-fast);
+  min-height: 44px;
 }
 
 .shareBtn:hover {
@@ -118,7 +127,7 @@
 }
 
 .shareBtn:active {
-  transform: scale(0.98);
+  transform: scale(0.96);
 }
 
 .shareBtn:disabled {
@@ -138,22 +147,24 @@
 .socialGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
 }
 
 .socialBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px;
+  padding: var(--space-sm);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 20px;
+  font-size: var(--icon-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-base);
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .socialBtn:hover {
@@ -168,10 +179,12 @@
 }
 
 .instagramNote {
-  margin-top: 12px;
-  font-size: 12px;
+  margin-top: var(--space-sm);
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   text-align: center;
   font-style: italic;
+  line-height: var(--line-height-normal);
+  letter-spacing: var(--letter-normal);
 }
 

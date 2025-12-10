@@ -143,6 +143,7 @@
 }
 
 .modalOverlay {
+  animation: overlayFadeIn 300ms ease-out;
   position: fixed;
   top: 0;
   left: 0;
@@ -170,6 +171,7 @@
   z-index: 1001;
   box-shadow: var(--glass-modal-shadow);
   position: relative;
+  animation: modalSlideUp 300ms ease-out;
 }
 
 .detailModal::before {
@@ -384,7 +386,7 @@
   transform-origin: left center;
 }
 
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   .chartContainer {
     padding: 10px;
     max-height: 220px;

@@ -12,6 +12,7 @@ import HomeButton from '../components/HomeButton'
 import ShareCard from '../components/ShareCard'
 import AddFriend from '../components/AddFriend'
 import FriendRequests from '../components/FriendRequests'
+import Spinner from '../components/Spinner'
 import { getPendingFriendRequests } from '../lib/friendsDb'
 import styles from './Home.module.css'
 
@@ -173,8 +174,17 @@ export default function Home() {
     const threshold = 60 // Distance needed to trigger refresh
     
     if (pullDistance >= threshold && user) {
+      // Haptic feedback on release
+      if (navigator.vibrate) {
+        navigator.vibrate([10, 20, 10]) // Success haptic pattern
+      }
       // Trigger refresh
       loadRecentLogs(user.id, true)
+    } else if (pullDistance > 10) {
+      // Light haptic for insufficient pull
+      if (navigator.vibrate) {
+        navigator.vibrate(5)
+      }
     }
     
     // Reset
@@ -425,11 +435,21 @@ export default function Home() {
           >
             <div className={styles.pullToRefreshIcon}>
               {isRefreshing ? (
-                <div className={styles.refreshSpinner} />
+                <Spinner size="sm" color="primary" />
               ) : pullDistance >= 60 ? (
-                <span style={{ transform: 'rotate(180deg)', display: 'inline-block' }}>↓</span>
+                <span style={{ 
+                  fontSize: 'var(--icon-md)',
+                  transform: 'rotate(180deg)',
+                  display: 'inline-block',
+                  transition: 'transform var(--transition-fast)'
+                }}>↓</span>
               ) : (
-                <span style={{ transform: `rotate(${pullDistance * 3}deg)`, display: 'inline-block' }}>↓</span>
+                <span style={{ 
+                  transform: `rotate(${pullDistance * 3}deg)`, 
+                  display: 'inline-block',
+                  fontSize: 'var(--icon-md)',
+                  transition: 'transform var(--transition-fast)'
+                }}>↓</span>
               )}
             </div>
             <span className={styles.pullToRefreshText}>

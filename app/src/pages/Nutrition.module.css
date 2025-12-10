@@ -114,28 +114,63 @@ h1 {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   gap: 0;
-  padding: 0 8px;
+  padding: 0 var(--space-xs);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
   flex: 1;
   min-width: 60px;
-  padding: 14px 8px;
-  font-size: 11px;
+  padding: var(--space-sm) var(--space-xs);
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-secondary);
   background: none;
+  border: none;
   border-bottom: 2px solid transparent;
   white-space: nowrap;
   text-align: center;
-  letter-spacing: 0.5px;
-  transition: all 0.2s;
+  letter-spacing: var(--letter-wide);
+  line-height: var(--line-height-normal);
+  transition: all var(--transition-base);
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
 }
 
 .tab.activeTab {
   color: var(--accent);
   border-bottom-color: var(--accent);
-  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.2);
+}
+
+.tab.activeTab::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-xs);
 }
 
 .content {
@@ -2052,7 +2087,7 @@ h1 {
 }
 
 /* Mobile Optimizations - Apple Design System */
-@media (max-width: 768px) {
+@media (max-width: var(--breakpoint-md)) {
   /* Hide table header on mobile */
   .historyTableHeader {
     display: none;
@@ -2169,7 +2204,7 @@ h1 {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   h1 {
     font-size: 20px;
   }

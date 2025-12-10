@@ -1,0 +1,64 @@
+.spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinnerCircle {
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin var(--transition-slow) linear infinite;
+}
+
+.spinner.xs .spinnerCircle {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+.spinner.sm .spinnerCircle {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+
+.spinner.md .spinnerCircle {
+  width: 24px;
+  height: 24px;
+  border-width: 3px;
+}
+
+.spinner.lg .spinnerCircle {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+.spinner.xl .spinnerCircle {
+  width: 40px;
+  height: 40px;
+  border-width: 4px;
+}
+
+.spinner.primary {
+  color: var(--text-primary);
+}
+
+.spinner.secondary {
+  color: var(--text-secondary);
+}
+
+.spinner.accent {
+  color: var(--accent);
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+

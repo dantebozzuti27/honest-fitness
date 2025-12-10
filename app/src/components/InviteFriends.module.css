@@ -12,6 +12,7 @@
   justify-content: center;
   z-index: 1000;
   padding: var(--space-md);
+  animation: overlayFadeIn 300ms ease-out;
 }
 
 .modal {
@@ -25,8 +26,7 @@
   max-height: 90vh;
   box-shadow: var(--glass-modal-shadow);
   overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  border: 1px solid var(--border);
+  animation: modalSlideUp 300ms ease-out;
 }
 
 .header {
@@ -165,7 +165,7 @@
   color: var(--text-secondary);
 }
 
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   .modal {
     max-width: 100%;
     margin: var(--space-md);

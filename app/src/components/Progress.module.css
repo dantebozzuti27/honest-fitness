@@ -1,0 +1,94 @@
+.progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.progressBar {
+  flex: 1;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  position: relative;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width var(--transition-base);
+  position: relative;
+  overflow: hidden;
+}
+
+.progressFill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0.3) 0%, 
+    rgba(255, 255, 255, 0.1) 50%, 
+    rgba(255, 255, 255, 0.3) 100%
+  );
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Sizes */
+.progress.sm .progressBar {
+  height: 4px;
+}
+
+.progress.md .progressBar {
+  height: 8px;
+}
+
+.progress.lg .progressBar {
+  height: 12px;
+}
+
+/* Variants */
+.progressFill.default {
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0.9) 0%, 
+    rgba(200, 200, 200, 0.7) 100%
+  );
+}
+
+.progressFill.success {
+  background: linear-gradient(90deg, 
+    var(--success) 0%, 
+    rgba(48, 209, 88, 0.8) 100%
+  );
+}
+
+.progressFill.warning {
+  background: linear-gradient(90deg, 
+    var(--warning) 0%, 
+    rgba(255, 159, 10, 0.8) 100%
+  );
+}
+
+.progressFill.danger {
+  background: linear-gradient(90deg, 
+    var(--danger) 0%, 
+    rgba(255, 69, 58, 0.8) 100%
+  );
+}
+
+.progressLabel {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 40px;
+  text-align: right;
+  letter-spacing: var(--letter-normal);
+}
+

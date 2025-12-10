@@ -64,8 +64,8 @@
   background: var(--glass-overlay-bg);
   backdrop-filter: var(--glass-overlay-blur);
   -webkit-backdrop-filter: var(--glass-overlay-blur);
-  z-index: 9998;
-  animation: fadeIn var(--transition-fast) ease-out;
+  z-index: var(--z-overlay);
+  animation: overlayFadeIn 300ms ease-out;
 }
 
 .menu {
@@ -80,7 +80,7 @@
   -webkit-backdrop-filter: var(--glass-blur-strong);
   border-right: 1px solid var(--glass-modal-border);
   box-shadow: var(--glass-modal-shadow);
-  z-index: 9999;
+  z-index: var(--z-modal);
   display: flex;
   flex-direction: column;
   animation: slideIn var(--transition-base) ease-out;

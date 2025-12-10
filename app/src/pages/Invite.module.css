@@ -176,7 +176,7 @@
   opacity: 0.9;
 }
 
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   .profileCard {
     padding: var(--space-lg);
   }

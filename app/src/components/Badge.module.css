@@ -1,0 +1,68 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  letter-spacing: var(--letter-wide);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+/* Sizes */
+.badge.xs {
+  padding: 2px var(--space-xs);
+  font-size: var(--text-xs);
+  min-height: 18px;
+}
+
+.badge.sm {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-xs);
+  min-height: 20px;
+}
+
+.badge.md {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--text-sm);
+  min-height: 24px;
+}
+
+.badge.lg {
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--text-base);
+  min-height: 28px;
+}
+
+/* Variants */
+.badge.default {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.badge.primary {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: 1px solid var(--accent);
+}
+
+.badge.success {
+  background: rgba(48, 209, 88, 0.2);
+  color: var(--success);
+  border: 1px solid var(--success);
+}
+
+.badge.warning {
+  background: rgba(255, 159, 10, 0.2);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+
+.badge.danger {
+  background: rgba(255, 69, 58, 0.2);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+

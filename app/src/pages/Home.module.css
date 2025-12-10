@@ -106,6 +106,15 @@
 
 /* Pull-to-refresh indicator (Twitter-style) */
 .pullToRefresh {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  transition: all var(--transition-base);
   position: fixed;
   top: 0;
   left: 50%;
@@ -122,6 +131,13 @@
 }
 
 .pullToRefreshIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-md);
+  height: var(--icon-md);
+  font-size: var(--icon-md);
+  transition: transform var(--transition-base);
   width: 32px;
   height: 32px;
   display: flex;
@@ -133,6 +149,11 @@
 }
 
 .pullToRefreshText {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: var(--letter-normal);
+  line-height: var(--line-height-normal);
+  color: var(--text-secondary);
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
@@ -335,6 +356,7 @@
   font-weight: 400;
 }
 
+/* Standardized list spacing - consistent gap between items */
 .feedList {
   display: flex;
   flex-direction: column;
@@ -342,8 +364,8 @@
   width: 100%;
   max-width: 100%;
   margin: 0;
-  gap: 16px;
-  padding: 16px 0;
+  gap: var(--space-sm);
+  padding: var(--space-md) 0;
 }
 
 .feedCardItem {
@@ -356,20 +378,22 @@
   gap: var(--space-sm);
 }
 
+/* Standardized list item spacing - consistent padding and hover states */
 .feedItem {
   display: flex;
-  padding: clamp(10px, 2.5vw, 12px) clamp(12px, 3vw, 16px);
+  padding: var(--space-md);
   border-bottom: 1px solid var(--border);
-  transition: background-color 0.2s;
+  transition: all var(--transition-base);
   cursor: pointer;
-  gap: 12px;
+  gap: var(--space-sm);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
 }
 
 .feedItem:hover {
-  background-color: rgba(255, 255, 255, 0.03);
+  background: var(--bg-tertiary);
+  border-color: var(--border-light);
 }
 
 .feedItemIcon {
@@ -779,7 +803,7 @@
 }
 
 /* Mobile Responsive */
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   .container {
     padding: var(--space-md);
     padding-top: calc(env(safe-area-inset-top, 16px) + var(--space-md));

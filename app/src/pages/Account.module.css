@@ -193,7 +193,7 @@
   transform: scale(0.98);
 }
 
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   .container {
     padding: 12px;
     padding-top: calc(env(safe-area-inset-top, 12px) + 12px);

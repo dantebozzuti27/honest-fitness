@@ -479,7 +479,7 @@
 }
 
 /* Mobile Optimizations */
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   .title {
     font-size: 18px;
   }

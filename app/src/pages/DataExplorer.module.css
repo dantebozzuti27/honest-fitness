@@ -263,7 +263,7 @@ h1 {
   text-align: center;
 }
 
-@media (max-width: 768px) {
+@media (max-width: var(--breakpoint-md)) {
   .extremesCard {
     grid-template-columns: 1fr;
   }

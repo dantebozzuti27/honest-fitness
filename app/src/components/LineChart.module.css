@@ -92,7 +92,7 @@
   font-family: var(--font-mono);
 }
 
-@media (max-width: 480px) {
+@media (max-width: var(--breakpoint-sm)) {
   .chartContainer {
     padding: var(--space-sm);
     max-height: 200px;

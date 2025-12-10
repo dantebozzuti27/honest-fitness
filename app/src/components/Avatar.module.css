@@ -1,0 +1,70 @@
+.avatar {
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border);
+}
+
+/* Sizes */
+.avatar.xs {
+  width: var(--avatar-xs);
+  height: var(--avatar-xs);
+  border-width: 1px;
+}
+
+.avatar.sm {
+  width: var(--avatar-sm);
+  height: var(--avatar-sm);
+  border-width: 2px;
+}
+
+.avatar.md {
+  width: var(--avatar-md);
+  height: var(--avatar-md);
+  border-width: 2px;
+}
+
+.avatar.lg {
+  width: var(--avatar-lg);
+  height: var(--avatar-lg);
+  border-width: 3px;
+}
+
+.avatarImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-light) 100%);
+}
+
+.avatar.xs .avatarPlaceholder {
+  font-size: var(--text-xs);
+}
+
+.avatar.sm .avatarPlaceholder {
+  font-size: var(--text-sm);
+}
+
+.avatar.md .avatarPlaceholder {
+  font-size: var(--text-lg);
+}
+
+.avatar.lg .avatarPlaceholder {
+  font-size: var(--text-2xl);
+}
+

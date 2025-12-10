@@ -167,19 +167,31 @@
 .textarea {
   padding: var(--space-sm) var(--space-md);
   font-size: var(--text-base);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  /* Apple Liquid Glass Effect */
+  background: var(--glass-form-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-form-border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   width: 100%;
   box-sizing: border-box;
+  box-shadow: var(--glass-form-shadow);
+  transition: all var(--transition-base);
+}
+
+.input:hover,
+.textarea:hover {
+  background: var(--glass-form-bg-hover);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .input:focus,
 .textarea:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow);
+  background: var(--glass-form-bg-focus);
+  border-color: var(--glass-form-border-focus);
+  box-shadow: var(--glass-form-shadow-focus);
 }
 
 .textarea {

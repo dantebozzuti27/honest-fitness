@@ -436,11 +436,32 @@
 .formGroup select,
 .formGroup textarea {
   padding: 10px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  /* Apple Liquid Glass Effect */
+  background: var(--glass-form-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-form-border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
+  box-shadow: var(--glass-form-shadow);
+  transition: all var(--transition-base);
   font-size: 14px;
+}
+
+.formGroup input:hover,
+.formGroup select:hover,
+.formGroup textarea:hover {
+  background: var(--glass-form-bg-hover);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.formGroup input:focus,
+.formGroup select:focus,
+.formGroup textarea:focus {
+  outline: none;
+  background: var(--glass-form-bg-focus);
+  border-color: var(--glass-form-border-focus);
+  box-shadow: var(--glass-form-shadow-focus);
 }
 
 .modalActions {

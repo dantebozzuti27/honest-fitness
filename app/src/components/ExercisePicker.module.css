@@ -47,8 +47,26 @@
   width: 100%;
   padding: 12px 14px;
   font-size: 15px;
-  background: var(--bg-tertiary);
+  /* Apple Liquid Glass Effect */
+  background: var(--glass-form-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-form-border);
   border-radius: var(--radius-md);
+  box-shadow: var(--glass-form-shadow);
+  transition: all var(--transition-base);
+}
+
+.search input:hover {
+  background: var(--glass-form-bg-hover);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.search input:focus {
+  background: var(--glass-form-bg-focus);
+  border-color: var(--glass-form-border-focus);
+  box-shadow: var(--glass-form-shadow-focus);
+  outline: none;
 }
 
 .filterSection {

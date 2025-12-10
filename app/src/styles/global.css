@@ -98,6 +98,15 @@
   --glass-bg: rgba(10, 10, 10, 0.7);
   --glass-border: rgba(255, 255, 255, 0.1);
   --backdrop-blur: blur(20px);
+  
+  /* Apple Liquid Glass for Forms */
+  --glass-form-bg: rgba(255, 255, 255, 0.08);
+  --glass-form-bg-hover: rgba(255, 255, 255, 0.12);
+  --glass-form-bg-focus: rgba(255, 255, 255, 0.15);
+  --glass-form-border: rgba(255, 255, 255, 0.18);
+  --glass-form-border-focus: rgba(255, 255, 255, 0.35);
+  --glass-form-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --glass-form-shadow-focus: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 html, body {
@@ -154,14 +163,17 @@ button:active {
 
 input, select, textarea {
   font-family: inherit;
-  border: none;
+  border: 1px solid var(--glass-form-border);
   outline: none;
-  background: var(--bg-tertiary);
+  /* Apple Liquid Glass Effect */
+  background: var(--glass-form-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   color: var(--text-primary);
   border-radius: var(--radius-md);
   padding: clamp(12px, 3vw, 16px) clamp(16px, 4vw, 20px);
   font-size: clamp(16px, 4vw, 17px);
-  transition: all var(--transition-fast);
+  transition: all var(--transition-base);
   /* Prevent iOS zoom on focus */
   font-size: max(clamp(16px, 4vw, 17px), 1em);
   touch-action: manipulation;
@@ -170,11 +182,20 @@ input, select, textarea {
   -webkit-appearance: none;
   appearance: none;
   box-sizing: border-box;
+  box-shadow: var(--glass-form-shadow);
+  position: relative;
+}
+
+input:hover, select:hover, textarea:hover {
+  background: var(--glass-form-bg-hover);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 input:focus, select:focus, textarea:focus {
-  background: var(--bg-elevated);
-  box-shadow: 0 0 0 2px var(--accent), 0 0 20px var(--accent-glow);
+  background: var(--glass-form-bg-focus);
+  border-color: var(--glass-form-border-focus);
+  box-shadow: var(--glass-form-shadow-focus);
+  outline: none;
 }
 
 input[type="number"] {

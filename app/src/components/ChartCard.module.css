@@ -1,0 +1,444 @@
+.chartCard {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(60px) saturate(300%);
+  -webkit-backdrop-filter: blur(60px) saturate(300%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-xl);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.25),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+              0 0 0 1px rgba(255, 255, 255, 0.05);
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition-base);
+}
+
+.chartCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  opacity: 0.3;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.chartCard > * {
+  position: relative;
+  z-index: 1;
+}
+
+.chartCard:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5),
+              inset 0 1px 0 rgba(255, 255, 255, 0.35),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.12),
+              0 0 0 1px rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(80px) saturate(350%);
+  -webkit-backdrop-filter: blur(80px) saturate(350%);
+  transform: translateY(-2px);
+}
+
+/* Top gradient line - more liquidy */
+.gradientLine {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.5) 15%,
+    rgba(255, 255, 255, 0.8) 30%,
+    rgba(255, 255, 255, 1) 50%,
+    rgba(255, 255, 255, 0.8) 70%,
+    rgba(255, 255, 255, 0.5) 85%,
+    transparent 100%
+  );
+  opacity: 0.9;
+  animation: shimmer 4s ease-in-out infinite;
+  z-index: 2;
+  filter: blur(1px);
+}
+
+@keyframes shimmer {
+  0%, 100% {
+    opacity: 0.6;
+    transform: translateX(-100%);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(100%);
+  }
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-sm);
+  gap: var(--space-sm);
+}
+
+.headerLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: var(--letter-tight);
+  line-height: var(--line-height-tight);
+  margin: 0 0 4px 0;
+}
+
+.subtitle {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.freshness {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.iconBtn {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.iconBtn:active {
+  transform: scale(0.95);
+}
+
+/* Category Selector */
+.categorySelector {
+  display: flex;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+  flex-wrap: wrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 4px;
+}
+
+.categorySelector::-webkit-scrollbar {
+  display: none;
+}
+
+.categoryBtn {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.categoryBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text-primary);
+}
+
+.categoryBtn.active {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.18) 100%);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--text-primary);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.4),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(30px) saturate(250%);
+  -webkit-backdrop-filter: blur(30px) saturate(250%);
+}
+
+/* Controls Toggle */
+.controlsToggle {
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  margin-bottom: var(--space-xs);
+  transition: color var(--transition-base);
+}
+
+.controlsToggle:hover {
+  color: var(--text-primary);
+}
+
+/* Controls */
+.controls {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.controlGroup {
+  margin-bottom: var(--space-sm);
+}
+
+.controlGroup:last-child {
+  margin-bottom: 0;
+}
+
+.controlLabel {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.controlButtons {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.controlBtn {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.controlBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text-primary);
+}
+
+.controlBtn.active {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.18) 100%);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--text-primary);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.4),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(30px) saturate(250%);
+  -webkit-backdrop-filter: blur(30px) saturate(250%);
+}
+
+.comparisonToggle {
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-align: left;
+}
+
+.comparisonToggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text-primary);
+}
+
+.comparisonToggle.active {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.15) 100%);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--text-primary);
+}
+
+/* Chart Visualization */
+.chartVisualization {
+  position: relative;
+  min-height: 200px;
+  margin-bottom: var(--space-sm);
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px) saturate(200%);
+  -webkit-backdrop-filter: blur(20px) saturate(200%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1),
+              inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Insights */
+.insights {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.insightItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding: 6px 0;
+  font-size: var(--text-sm);
+  line-height: var(--line-height-normal);
+}
+
+.insightIcon {
+  font-size: var(--text-base);
+  margin-top: 2px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.insightText {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.insightValue {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.primaryAction {
+  flex: 1;
+  min-width: 120px;
+  padding: 12px var(--space-md);
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.primaryAction:hover {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.primaryAction:active {
+  transform: scale(0.98);
+}
+
+.secondaryAction {
+  flex: 1;
+  min-width: 120px;
+  padding: 12px var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.secondaryAction:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.secondaryAction:active {
+  transform: scale(0.98);
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .chartCard {
+    padding: var(--space-sm);
+    border-radius: var(--radius-lg);
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+
+  .primaryAction,
+  .secondaryAction {
+    width: 100%;
+  }
+}
+

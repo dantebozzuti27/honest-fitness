@@ -1,0 +1,229 @@
+.chartContainer {
+  width: 100%;
+  position: relative;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  overflow: hidden;
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.emptyChart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+}
+
+.emptyText {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Date Range Overlay */
+.dateRangeOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  z-index: 10;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  animation: overlayPulse 1s ease-in-out infinite;
+}
+
+@keyframes overlayPulse {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.dateRangeLabel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Chart Elements */
+.axisLabel {
+  font-family: var(--font-mono);
+  fill: var(--text-secondary);
+  font-weight: 500;
+}
+
+.bar {
+  animation: barGrow 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  opacity: 0;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.bar:hover {
+  opacity: 0.9;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+}
+
+@keyframes barGrow {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.line {
+  animation: lineDraw 0.8s ease-out;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+@keyframes lineDraw {
+  from {
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 1000;
+  }
+  to {
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 0;
+  }
+}
+
+.area {
+  animation: areaFadeIn 0.8s ease-out;
+}
+
+@keyframes areaFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.point {
+  animation: pointPulse 0.6s ease-out forwards;
+  opacity: 0;
+  cursor: pointer;
+  transition: r 0.2s ease;
+}
+
+.point:hover {
+  r: 3;
+  filter: drop-shadow(0 0 8px currentColor);
+}
+
+@keyframes pointPulse {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.valueLabel {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 2px;
+}
+
+/* X-axis Labels */
+.xAxisLabels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding: 0 var(--space-xs);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+  gap: 2px;
+  min-height: 20px;
+}
+
+.xAxisLabel {
+  font-size: var(--text-xs);
+  text-align: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+/* Pinch Hint */
+.pinchHint {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-align: center;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+/* Reset Button */
+.resetBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 5;
+}
+
+.resetBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.resetBtn:active {
+  transform: scale(0.95);
+}
+

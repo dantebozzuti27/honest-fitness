@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 import { getAllTemplates, saveTemplate, deleteTemplate } from '../db'
 import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase, deleteWorkoutFromSupabase, getScheduledWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
@@ -39,6 +40,7 @@ export default function Fitness() {
   const [showTemplateSelection, setShowTemplateSelection] = useState(false)
   const [todaysScheduledWorkout, setTodaysScheduledWorkout] = useState(null)
   const [isGeneratingWorkout, setIsGeneratingWorkout] = useState(false)
+  const subscriptionRef = useRef(null)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -142,18 +144,73 @@ export default function Fitness() {
   useEffect(() => {
     if (!user) return
     
+    // Set up Supabase real-time subscription for workouts
+    const workoutsChannel = supabase
+      .channel(`fitness_workouts_changes_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'workouts',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          // Refresh workout history when workout changes
+          console.log('Workout change detected in Fitness:', payload.eventType)
+          loadWorkoutHistory()
+        }
+      )
+      .subscribe()
+
+    subscriptionRef.current = { workoutsChannel }
+    
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         loadFitnessGoals()
+        loadWorkoutHistory() // Also refresh workout history
+      }
+    }
+    
+    // Refresh when window gains focus
+    const handleFocus = () => {
+      if (document.hasFocus()) {
+        loadWorkoutHistory()
       }
     }
     
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
     
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+      
+      // Clean up subscription
+      if (subscriptionRef.current?.workoutsChannel) {
+        supabase.removeChannel(subscriptionRef.current.workoutsChannel)
+        subscriptionRef.current = null
+      }
     }
   }, [user])
+
+  // Refresh workout history when navigating to Fitness page or when History tab becomes active
+  useEffect(() => {
+    if (user && (location.pathname === '/fitness' || location.pathname === '/workout')) {
+      // Small delay to ensure page is mounted
+      const timeoutId = setTimeout(() => {
+        loadWorkoutHistory()
+      }, 100)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [location.pathname, user])
+
+  // Refresh workout history when History tab is opened
+  useEffect(() => {
+    if (user && activeTab === 'History') {
+      loadWorkoutHistory()
+    }
+  }, [activeTab, user])
 
   const startWorkout = async (templateId, random = false) => {
     // Navigate to active workout page

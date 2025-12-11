@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unified Chart Design - Visual Example</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #ffffff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 420px;
+            margin: 0 auto;
+        }
+
+        /* Liquid Glass Card */
+        .chart-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .chart-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+        }
+
+        /* Header */
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .chart-title {
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .chart-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .icon-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .icon-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.05);
+        }
+
+        /* Controls */
+        .chart-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .category-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .category-btn {
+            padding: 8px 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .category-btn.active {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .category-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .control-btn {
+            padding: 8px 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .control-btn.active {
+            background: linear-gradient(135deg, #ff2d2d 0%, #ff6b35 100%);
+            border-color: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 4px 12px rgba(255, 45, 45, 0.3);
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Chart Area */
+        .chart-visualization {
+            position: relative;
+            height: 200px;
+            margin-bottom: 16px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 16px;
+            padding: 16px;
+            overflow: hidden;
+        }
+
+        /* SVG Chart */
+        .chart-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Bar with gradient */
+        .bar {
+            fill: url(#barGradient);
+            rx: 4;
+            ry: 4;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            cursor: pointer;
+        }
+
+        .bar:hover {
+            opacity: 0.9;
+            transform: scaleY(1.05);
+        }
+
+        /* Gradient definition */
+        .gradient-defs {
+            position: absolute;
+            width: 0;
+            height: 0;
+        }
+
+        /* Trend Indicator */
+        .trend-indicator {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(74, 222, 128, 0.2);
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border: 1px solid rgba(74, 222, 128, 0.3);
+        }
+
+        .trend-arrow {
+            font-size: 14px;
+        }
+
+        /* Insights Section */
+        .chart-insights {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .insight-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 0;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .insight-icon {
+            font-size: 16px;
+            margin-top: 2px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.7);
+            width: 20px;
+            text-align: center;
+        }
+
+        .insight-text {
+            flex: 1;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .insight-value {
+            color: #4ade80;
+            font-weight: 600;
+        }
+
+        /* Actions */
+        .chart-actions-section {
+            display: flex;
+            gap: 8px;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 12px;
+            border: none;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .action-btn-primary {
+            background: linear-gradient(135deg, #ff2d2d 0%, #ff6b35 100%);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(255, 45, 45, 0.3);
+        }
+
+        .action-btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(255, 45, 45, 0.4);
+        }
+
+        .action-btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .action-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Date Range Overlay (for pinch gesture) */
+        .date-range-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 45, 45, 0.1);
+            border: 2px dashed rgba(255, 45, 45, 0.5);
+            border-radius: 16px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .date-range-overlay.active {
+            opacity: 1;
+        }
+
+        .date-range-label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        /* Pinch Instruction */
+        .pinch-hint {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+            text-align: center;
+        }
+
+        /* Animation */
+        @keyframes barGrow {
+            from {
+                transform: scaleY(0);
+                opacity: 0;
+            }
+            to {
+                transform: scaleY(1);
+                opacity: 1;
+            }
+        }
+
+        .bar {
+            transform-origin: bottom;
+            animation: barGrow 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        .bar:nth-child(1) { animation-delay: 0.05s; }
+        .bar:nth-child(2) { animation-delay: 0.1s; }
+        .bar:nth-child(3) { animation-delay: 0.15s; }
+        .bar:nth-child(4) { animation-delay: 0.2s; }
+        .bar:nth-child(5) { animation-delay: 0.25s; }
+        .bar:nth-child(6) { animation-delay: 0.3s; }
+        .bar:nth-child(7) { animation-delay: 0.35s; }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .container {
+                padding: 0;
+            }
+            
+            .chart-card {
+                border-radius: 20px;
+                margin-bottom: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 style="text-align: center; margin-bottom: 24px; font-size: 24px; font-weight: 700;">Unified Chart Design</h1>
+        
+        <!-- Example Chart Card -->
+        <div class="chart-card">
+            <!-- Header -->
+            <div class="chart-header">
+                <div>
+                    <div class="chart-title">Workout Frequency</div>
+                    <div style="font-size: 11px; color: rgba(255, 255, 255, 0.6); margin-top: 4px;">Updated 2 hours ago</div>
+                </div>
+                <div class="chart-actions">
+                    <button class="icon-btn" title="Share">Share</button>
+                    <button class="icon-btn" title="Export">Export</button>
+                </div>
+            </div>
+
+            <!-- Category Selector -->
+            <div class="category-selector">
+                <button class="category-btn active">Workouts</button>
+                <button class="category-btn">Volume</button>
+                <button class="category-btn">Duration</button>
+                <button class="category-btn">Intensity</button>
+            </div>
+
+            <!-- Controls -->
+            <div class="chart-controls">
+                <button class="control-btn active">This Week</button>
+                <button class="control-btn">This Month</button>
+                <button class="control-btn">Last 30 Days</button>
+                <button class="control-btn">Custom</button>
+            </div>
+
+            <!-- Chart Visualization -->
+            <div class="chart-visualization">
+                <!-- Date Range Overlay (appears on pinch) -->
+                <div class="date-range-overlay" id="dateOverlay">
+                    <div class="date-range-label">Pinch to adjust range</div>
+                </div>
+
+                <!-- Trend Indicator -->
+                <div class="trend-indicator">
+                    <span class="trend-arrow">↑</span>
+                    <span>+23% vs last week</span>
+                </div>
+
+                <!-- SVG Chart -->
+                <svg class="chart-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                        <linearGradient id="barGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ff2d2d;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#ff6b35;stop-opacity:0.8" />
+                        </linearGradient>
+                    </defs>
+                    
+                    <!-- Y-axis line -->
+                    <line x1="10" y1="10" x2="10" y2="90" stroke="rgba(255,255,255,0.3)" stroke-width="0.5"/>
+                    
+                    <!-- X-axis line -->
+                    <line x1="10" y1="90" x2="90" y2="90" stroke="rgba(255,255,255,0.3)" stroke-width="0.5"/>
+                    
+                    <!-- Bars -->
+                    <rect class="bar" x="15" y="50" width="8" height="40" />
+                    <rect class="bar" x="26" y="45" width="8" height="45" />
+                    <rect class="bar" x="37" y="35" width="8" height="55" />
+                    <rect class="bar" x="48" y="30" width="8" height="60" />
+                    <rect class="bar" x="59" y="40" width="8" height="50" />
+                    <rect class="bar" x="70" y="25" width="8" height="65" />
+                    <rect class="bar" x="81" y="20" width="8" height="70" />
+                </svg>
+
+                <!-- Pinch Hint -->
+                <div class="pinch-hint">Pinch to zoom date range</div>
+            </div>
+
+            <!-- Insights -->
+            <div class="chart-insights">
+                <div class="insight-item">
+                    <span class="insight-icon">↑</span>
+                    <div class="insight-text">
+                        <span class="insight-value">23% increase</span> in workouts this week
+                    </div>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-icon">→</span>
+                    <div class="insight-text">
+                        On track to hit <span class="insight-value">12 workouts</span> this month
+                    </div>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-icon">•</span>
+                    <div class="insight-text">
+                        Best performance days: <span class="insight-value">Tuesday, Thursday</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="chart-actions-section">
+                <button class="action-btn action-btn-primary">Log Workout</button>
+                <button class="action-btn action-btn-secondary">View Details</button>
+            </div>
+        </div>
+
+        <!-- Second Example: Metrics Chart -->
+        <div class="chart-card">
+            <div class="chart-header">
+                <div>
+                    <div class="chart-title">Sleep Quality</div>
+                    <div style="font-size: 11px; color: rgba(255, 255, 255, 0.6); margin-top: 4px;">Last 7 days</div>
+                </div>
+                <div class="chart-actions">
+                    <button class="icon-btn">Share</button>
+                </div>
+            </div>
+
+            <!-- Category Selector -->
+            <div class="category-selector">
+                <button class="category-btn active">Sleep Quality</button>
+                <button class="category-btn">Sleep Duration</button>
+                <button class="category-btn">HRV</button>
+                <button class="category-btn">Resting HR</button>
+            </div>
+
+            <div class="chart-controls">
+                <button class="control-btn active">Line</button>
+                <button class="control-btn">Bar</button>
+                <button class="control-btn">Area</button>
+            </div>
+
+            <div class="chart-visualization">
+                <div class="trend-indicator" style="background: rgba(248, 113, 113, 0.2); border-color: rgba(248, 113, 113, 0.3);">
+                    <span class="trend-arrow">↓</span>
+                    <span>-8% vs last week</span>
+                </div>
+
+                <svg class="chart-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                        <linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:0.3" />
+                            <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0.05" />
+                        </linearGradient>
+                    </defs>
+                    
+                    <line x1="10" y1="10" x2="10" y2="90" stroke="rgba(255,255,255,0.3)" stroke-width="0.5"/>
+                    <line x1="10" y1="90" x2="90" y2="90" stroke="rgba(255,255,255,0.3)" stroke-width="0.5"/>
+                    
+                    <!-- Area fill -->
+                    <path d="M 15,70 L 26,65 L 37,55 L 48,50 L 59,60 L 70,45 L 81,40 L 81,90 L 15,90 Z" 
+                          fill="url(#lineGradient)"/>
+                    
+                    <!-- Line -->
+                    <path d="M 15,70 L 26,65 L 37,55 L 48,50 L 59,60 L 70,45 L 81,40" 
+                          fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
+                    
+                    <!-- Points -->
+                    <circle cx="15" cy="70" r="2" fill="#3b82f6"/>
+                    <circle cx="26" cy="65" r="2" fill="#3b82f6"/>
+                    <circle cx="37" cy="55" r="2" fill="#3b82f6"/>
+                    <circle cx="48" cy="50" r="2" fill="#3b82f6"/>
+                    <circle cx="59" cy="60" r="2" fill="#3b82f6"/>
+                    <circle cx="70" cy="45" r="2" fill="#3b82f6"/>
+                    <circle cx="81" cy="40" r="2" fill="#3b82f6"/>
+                </svg>
+
+                <div class="pinch-hint">Pinch to zoom date range</div>
+            </div>
+
+            <div class="chart-insights">
+                <div class="insight-item">
+                    <span class="insight-icon">↓</span>
+                    <div class="insight-text">
+                        Sleep quality <span class="insight-value" style="color: #f87171;">declining</span> over last 3 days
+                    </div>
+                </div>
+                <div class="insight-item">
+                    <span class="insight-icon">↔</span>
+                    <div class="insight-text">
+                        Correlates with <span class="insight-value">higher workout volume</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-actions-section">
+                <button class="action-btn action-btn-primary">Log Sleep</button>
+                <button class="action-btn action-btn-secondary">View Correlation</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simulate pinch gesture (for demo)
+        let isPinching = false;
+        const overlay = document.getElementById('dateOverlay');
+
+        // Touch events for pinch simulation
+        document.querySelectorAll('.chart-visualization').forEach(chart => {
+            let initialDistance = 0;
+
+            chart.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 2) {
+                    isPinching = true;
+                    initialDistance = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    overlay.classList.add('active');
+                }
+            });
+
+            chart.addEventListener('touchmove', (e) => {
+                if (e.touches.length === 2 && isPinching) {
+                    const currentDistance = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    const scale = currentDistance / initialDistance;
+                    // Visual feedback
+                    overlay.style.transform = `scale(${Math.min(scale, 1.5)})`;
+                }
+            });
+
+            chart.addEventListener('touchend', () => {
+                isPinching = false;
+                setTimeout(() => {
+                    overlay.classList.remove('active');
+                }, 300);
+            });
+        });
+
+        // Button interactions
+        document.querySelectorAll('.control-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const parent = btn.closest('.chart-card');
+                parent.querySelectorAll('.control-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+
+        // Category button interactions
+        document.querySelectorAll('.category-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const parent = btn.closest('.chart-card');
+                parent.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>
+

@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   getBodyPartStats,
@@ -20,6 +20,7 @@ import { getAllConnectedAccounts, getFitbitDaily, getMostRecentFitbitData } from
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST, getYesterdayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
+import { supabase } from '../lib/supabase'
 import { formatGoalName } from '../utils/formatUtils'
 import BodyHeatmap from '../components/BodyHeatmap'
 // All charts are now BarChart only
@@ -33,6 +34,8 @@ import ChartContext from '../components/ChartContext'
 import LineChart from '../components/LineChart'
 import PieChart from '../components/PieChart'
 import Sparkline from '../components/Sparkline'
+import ChartCard from '../components/ChartCard'
+import UnifiedChart from '../components/UnifiedChart'
 import { enrichWorkoutData, enrichNutritionData } from '../lib/dataEnrichment'
 import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
@@ -54,7 +57,9 @@ const METRIC_TYPES = ['Sessions', 'Total Reps', 'Total Sets']
 
 export default function Analytics() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
+  const subscriptionRef = useRef(null)
   const [activeTab, setActiveTab] = useState(0)
   const [loading, setLoading] = useState(true)
   const [dateFilter, setDateFilter] = useState(1) // This Month default
@@ -62,6 +67,15 @@ export default function Analytics() {
   const [historyChartType, setHistoryChartType] = useState('frequency') // 'frequency' or 'duration'
   const [metricsChartType, setMetricsChartType] = useState('weight') // 'weight', 'sleep', 'steps'
   const [trendsChartType, setTrendsChartType] = useState('frequency') // 'frequency', 'volume', 'exercises'
+  const [historyCategory, setHistoryCategory] = useState('Frequency')
+  const [historyDateRange, setHistoryDateRange] = useState('This Month')
+  const [historyChartTypeVisual, setHistoryChartTypeVisual] = useState('Bar')
+  const [metricsCategory, setMetricsCategory] = useState('Weight')
+  const [metricsDateRange, setMetricsDateRange] = useState('Last 30 Days')
+  const [metricsChartTypeVisual, setMetricsChartTypeVisual] = useState('Line')
+  const [trendsCategory, setTrendsCategory] = useState('Frequency')
+  const [trendsDateRange, setTrendsDateRange] = useState('Last 30 Days')
+  const [trendsChartTypeVisual, setTrendsChartTypeVisual] = useState('Bar')
   const [data, setData] = useState({
     bodyParts: {},
     bodyPartReps: {},
@@ -222,6 +236,30 @@ export default function Analytics() {
 
     loadData()
 
+    // Set up Supabase real-time subscription for workouts
+    if (user) {
+      // Subscribe to workout changes
+      const workoutsChannel = supabase
+        .channel(`workouts_changes_${user.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // INSERT, UPDATE, DELETE
+            schema: 'public',
+            table: 'workouts',
+            filter: `user_id=eq.${user.id}`
+          },
+          (payload) => {
+            // Refresh data when workout changes
+            console.log('Workout change detected:', payload.eventType)
+            refreshData()
+          }
+        )
+        .subscribe()
+
+      subscriptionRef.current = { workoutsChannel }
+    }
+
     // Refresh on visibility change (when user comes back to tab)
     const handleVisibilityChange = () => {
       if (!document.hidden && user) {
@@ -230,10 +268,38 @@ export default function Analytics() {
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     
+    // Refresh when page comes into focus (navigation back to Analytics)
+    const handleFocus = () => {
+      if (user && document.hasFocus()) {
+        refreshData()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+      
+      // Clean up subscriptions
+      if (subscriptionRef.current) {
+        if (subscriptionRef.current.workoutsChannel) {
+          supabase.removeChannel(subscriptionRef.current.workoutsChannel)
+        }
+        subscriptionRef.current = null
+      }
     }
   }, [user])
+
+  // Refresh when navigating to Analytics page
+  useEffect(() => {
+    if (location.pathname === '/analytics' && user) {
+      // Small delay to ensure page is mounted
+      const timeoutId = setTimeout(() => {
+        refreshData()
+      }, 100)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [location.pathname, user])
 
   const [nutritionQuality, setNutritionQuality] = useState(null)
 
@@ -659,10 +725,13 @@ export default function Analytics() {
                 position="top"
               />
             </div>
-            {data.workouts.length > 0 && (() => {
-              const recentWorkouts = data.workouts.slice(-7).map(w => 1)
-              return <Sparkline data={recentWorkouts} height={30} color="#ff2d2d" />
-            })()}
+            {data.workouts.length > 0 && (
+              <Sparkline 
+                data={data.workouts.slice(-7).map(() => 1)} 
+                height={30} 
+                color="#ff2d2d" 
+              />
+            )}
           </div>
           {data.nutrition && (
             <div className={styles.statCard}>
@@ -965,6 +1034,115 @@ export default function Analytics() {
     return weeks
   }, [data.workouts])
 
+  // Generate insights from workout data - Improved calculations
+  const generateWorkoutInsights = useMemo(() => {
+    if (!weeklyWorkoutData || Object.keys(weeklyWorkoutData).length === 0) return []
+    
+    // Get sorted weeks with dates
+    const sortedWeeks = Object.entries(weeklyWorkoutData)
+      .map(([date, count]) => ({ date: new Date(date + 'T12:00:00'), count }))
+      .sort((a, b) => a.date - b.date)
+    
+    if (sortedWeeks.length === 0) return []
+    
+    const values = sortedWeeks.map(w => w.count)
+    const currentWeek = sortedWeeks[sortedWeeks.length - 1]
+    const current = currentWeek.count
+    
+    // Find the most recent previous week (consecutive comparison)
+    let previousWeek = null
+    for (let i = sortedWeeks.length - 2; i >= 0; i--) {
+      const daysDiff = Math.floor((currentWeek.date - sortedWeeks[i].date) / (1000 * 60 * 60 * 24))
+      if (daysDiff <= 14) { // Within 2 weeks (accounting for gaps)
+        previousWeek = sortedWeeks[i]
+        break
+      }
+    }
+    
+    const avg = values.reduce((a, b) => a + b, 0) / values.length
+    const insights = []
+    
+    // Week-over-week comparison (only if we have a recent previous week)
+    if (previousWeek && previousWeek.count > 0) {
+      const change = ((current - previousWeek.count) / previousWeek.count) * 100
+      if (Math.abs(change) >= 5) { // Only show if change is significant (5%+)
+        if (change > 0) {
+          insights.push({
+            icon: '↑',
+            text: `${Math.abs(change).toFixed(0)}% increase`,
+            value: 'vs previous week'
+          })
+        } else {
+          insights.push({
+            icon: '↓',
+            text: `${Math.abs(change).toFixed(0)}% decrease`,
+            value: 'vs previous week'
+          })
+        }
+      }
+    }
+    
+    // Above/below average analysis
+    if (current >= avg * 1.2) {
+      insights.push({
+        icon: '→',
+        text: 'Above average performance',
+        value: `(${current} vs ${avg.toFixed(1)} avg)`
+      })
+    } else if (current < avg * 0.8 && avg > 0) {
+      insights.push({
+        icon: '→',
+        text: 'Below average performance',
+        value: `(${current} vs ${avg.toFixed(1)} avg)`
+      })
+    }
+    
+    // Trend-based monthly projection
+    if (sortedWeeks.length >= 3) {
+      // Calculate trend from last 3-4 weeks
+      const recentWeeks = sortedWeeks.slice(-4).map(w => w.count)
+      const trend = recentWeeks.length >= 2 
+        ? (recentWeeks[recentWeeks.length - 1] - recentWeeks[0]) / recentWeeks.length
+        : 0
+      
+      // Project based on current rate + trend
+      const weeklyAvg = values.reduce((a, b) => a + b, 0) / values.length
+      const projectedWeekly = Math.max(0, current + trend)
+      const monthlyProjection = Math.round(projectedWeekly * 4.33) // More accurate (30.33 days / 7)
+      
+      insights.push({
+        icon: '•',
+        text: 'Projected',
+        value: `${monthlyProjection} workouts this month`
+      })
+    } else if (sortedWeeks.length >= 1) {
+      // Fallback: simple projection if not enough data
+      const weeklyAvg = values.reduce((a, b) => a + b, 0) / values.length
+      const monthlyProjection = Math.round(weeklyAvg * 4.33)
+      insights.push({
+        icon: '•',
+        text: 'On track for',
+        value: `${monthlyProjection} workouts this month`
+      })
+    }
+    
+    // Best week analysis
+    const maxCount = Math.max(...values)
+    const maxWeek = sortedWeeks.find(w => w.count === maxCount)
+    if (maxWeek && maxCount > current && maxCount > avg) {
+      const weeksAgo = Math.floor((currentWeek.date - maxWeek.date) / (1000 * 60 * 60 * 24 * 7))
+      if (weeksAgo > 0 && weeksAgo <= 8) {
+        insights.push({
+          icon: '•',
+          text: `Best week was ${weeksAgo} week${weeksAgo > 1 ? 's' : ''} ago`,
+          value: `(${maxCount} workouts)`
+        })
+      }
+    }
+    
+    return insights
+  }, [weeklyWorkoutData])
+
   const renderHistory = () => {
     const sortedWorkouts = [...data.workouts].sort((a, b) => new Date(a.date) - new Date(b.date))
     
@@ -978,13 +1156,40 @@ export default function Analytics() {
     const durationDates = last14Workouts.map(w => w.date)
     const durationDateData = Object.fromEntries(last14Workouts.map(w => [w.date, w]))
     
+    // Prepare chart data based on category
+    const historyCategories = [
+      { id: 'Frequency', label: 'Frequency' },
+      { id: 'Duration', label: 'Duration' }
+    ]
+    
+    const historyDateRangePresets = [
+      { id: 'This Week', label: 'This Week' },
+      { id: 'This Month', label: 'This Month' },
+      { id: 'Last 30 Days', label: 'Last 30 Days' },
+      { id: 'Last 90 Days', label: 'Last 90 Days' },
+      { id: 'All Time', label: 'All Time' }
+    ]
+    
+    // Get chart data based on selected category
+    const getHistoryChartData = () => {
+      if (historyCategory === 'Frequency') {
+        return weeklyWorkoutData
+      } else {
+        return Object.fromEntries(durationData.map((d, i) => [durationDates[i], d]))
+      }
+    }
+    
+    const chartData = getHistoryChartData()
+    const chartDates = historyCategory === 'Frequency' 
+      ? Object.keys(weeklyWorkoutData)
+      : durationDates
+    
     return (
       <div className={styles.historyContainer}>
         <h3 className={styles.sectionTitle}>Workout History</h3>
         
         {sortedWorkouts.length === 0 ? (
           <EmptyState
-            icon="💪"
             title="No Workouts Yet"
             message="Start logging workouts to see your progress and trends over time."
             actionLabel="Start Workout"
@@ -992,83 +1197,53 @@ export default function Analytics() {
           />
         ) : (
           <>
-            <div className={styles.chartTypeSelector}>
-              <button
-                className={`${styles.chartTypeBtn} ${historyChartType === 'frequency' ? styles.activeChartType : ''}`}
-                onClick={() => setHistoryChartType('frequency')}
-              >
-                Frequency
-              </button>
-              <button
-                className={`${styles.chartTypeBtn} ${historyChartType === 'duration' ? styles.activeChartType : ''}`}
-                onClick={() => setHistoryChartType('duration')}
-              >
-                Duration
-              </button>
-            </div>
-            
-            <div className={styles.chartSection}>
-              {historyChartType === 'frequency' && (
-                <>
-                  <h4 className={styles.chartTitle}>Workouts Per Week</h4>
-                  <div 
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      // Chart click handler - will be handled by BarChart's onBarClick
-                    }}
-                  >
-                    <BarChart 
-                      data={weeklyWorkoutData} 
-                      labels={Object.keys(weeklyWorkoutData).map(k => {
-                        const d = new Date(k + 'T12:00:00')
-                        return `${d.getMonth() + 1}/${d.getDate()}`
-                      })}
-                      dates={Object.keys(weeklyWorkoutData)}
-                      dateData={weeklyWorkoutData}
-                      height={150}
-                      color="#ff2d2d"
-                      xAxisLabel="Week"
-                      yAxisLabel="Workouts"
-                      chartTitle="Workouts Per Week"
-                    />
-                    {(() => {
-                      const values = Object.values(weeklyWorkoutData)
-                      const current = values[values.length - 1] || 0
-                      const previous = values[values.length - 2] || 0
-                      return (
-                        <ChartContext
-                          currentValue={current}
-                          previousValue={previous}
-                          showTrend={true}
-                        />
-                      )
-                    })()}
-                  </div>
-                </>
-              )}
-              {historyChartType === 'duration' && durationData.length > 0 && (
-                <>
-                  <h4 className={styles.chartTitle}>Workout Duration (Last 14 Days)</h4>
-                  <div 
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      // Chart click handler - will be handled by BarChart's onBarClick
-                    }}
-                  >
-                    <BarChart 
-                      data={Object.fromEntries(durationData.map((d, i) => [durationLabels[i], d]))} 
-                      dates={durationDates}
-                      dateData={durationDateData}
-                      height={150} 
-                      color="#ff2d2d"
-                      xAxisLabel="Date"
-                      yAxisLabel="Duration (min)"
-                      chartTitle="Workout Duration"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
+            <ChartCard
+              title={historyCategory === 'Frequency' ? 'Workout Frequency' : 'Workout Duration'}
+              subtitle={historyDateRange}
+              categories={historyCategories}
+              selectedCategory={historyCategory}
+              onCategoryChange={(cat) => setHistoryCategory(cat.id || cat)}
+              dateRangePresets={historyDateRangePresets}
+              selectedDateRange={historyDateRange}
+              onDateRangeChange={(preset) => setHistoryDateRange(preset.id || preset.label || preset)}
+              chartTypes={['Bar', 'Line', 'Area']}
+              selectedChartType={historyChartTypeVisual}
+              onChartTypeChange={setHistoryChartTypeVisual}
+              insights={historyCategory === 'Frequency' ? generateWorkoutInsights : []}
+              primaryAction={{
+                label: 'Log Workout',
+                onClick: () => navigate('/workout')
+              }}
+              secondaryActions={[
+                {
+                  label: 'View Details',
+                  onClick: () => setHistoryChartType(historyCategory === 'Frequency' ? 'frequency' : 'duration')
+                }
+              ]}
+              onShare={() => {
+                // Share functionality
+                console.log('Share chart')
+              }}
+              onExport={() => {
+                // Export functionality
+                console.log('Export chart')
+              }}
+              dataFreshness={lastDataUpdate ? `${Math.round((new Date() - lastDataUpdate) / (1000 * 60 * 60))} hours ago` : null}
+            >
+              <UnifiedChart
+                data={chartData}
+                dates={chartDates}
+                type={historyChartTypeVisual.toLowerCase()}
+                height={200}
+                color="var(--accent)"
+                showValues={true}
+                xAxisLabel={historyCategory === 'Frequency' ? 'Week' : 'Date'}
+                yAxisLabel={historyCategory === 'Frequency' ? 'Workouts' : 'Duration (min)'}
+                onDateRangeChange={(range) => {
+                  console.log('Date range changed:', range)
+                }}
+              />
+            </ChartCard>
             
             <div className={styles.historyList}>
               {sortedWorkouts.slice().reverse().map(w => (
@@ -1163,7 +1338,6 @@ export default function Analytics() {
         
         {recentMetrics.length === 0 ? (
           <EmptyState
-            icon="📊"
             title="No Metrics Yet"
             message="Log your health metrics like weight, sleep, and steps to see trends and insights."
             actionLabel="Log Metrics"
@@ -1171,116 +1345,179 @@ export default function Analytics() {
           />
         ) : (
           <>
-            <div className={styles.chartTypeSelector}>
-              <button
-                className={`${styles.chartTypeBtn} ${metricsChartType === 'weight' ? styles.activeChartType : ''}`}
-                onClick={() => setMetricsChartType('weight')}
-                disabled={weightData.length === 0}
-              >
-                Weight
-              </button>
-              <button
-                className={`${styles.chartTypeBtn} ${metricsChartType === 'sleep' ? styles.activeChartType : ''}`}
-                onClick={() => setMetricsChartType('sleep')}
-                disabled={sleepData.length === 0}
-              >
-                Sleep
-              </button>
-              <button
-                className={`${styles.chartTypeBtn} ${metricsChartType === 'steps' ? styles.activeChartType : ''}`}
-                onClick={() => setMetricsChartType('steps')}
-                disabled={stepsData.length === 0}
-              >
-                Steps
-              </button>
-              <button
-                className={`${styles.chartTypeBtn} ${metricsChartType === 'hrv' ? styles.activeChartType : ''}`}
-                onClick={() => setMetricsChartType('hrv')}
-                disabled={hrvData.length === 0}
-              >
-                HRV
-              </button>
-              <button
-                className={`${styles.chartTypeBtn} ${metricsChartType === 'calories' ? styles.activeChartType : ''}`}
-                onClick={() => setMetricsChartType('calories')}
-                disabled={caloriesData.length === 0}
-              >
-                Calories
-              </button>
-            </div>
-            
-            <div className={styles.chartSection}>
-              {metricsChartType === 'weight' && weightData.length > 0 && (
-                <>
-                  <h4 className={styles.chartTitle}>Weight (lbs)</h4>
-                  <BarChart 
-                    data={Object.fromEntries(weightData.map((d, i) => [weightLabels[i], d]))} 
-                    dates={weightDates}
-                    dateData={weightDateData}
-                    height={150} 
-                    color="#ff2d2d"
+            {/* Metrics Categories */}
+            {(() => {
+              const metricsCategories = [
+                { id: 'Weight', label: 'Weight', data: weightData, dates: weightDates, labels: weightLabels },
+                { id: 'Sleep', label: 'Sleep Quality', data: sleepData, dates: sleepDates, labels: sleepLabels },
+                { id: 'Steps', label: 'Steps', data: stepsData, dates: stepsDates, labels: stepsLabels },
+                { id: 'HRV', label: 'HRV', data: hrvData, dates: hrvDates, labels: hrvLabels },
+                { id: 'Calories', label: 'Calories', data: caloriesData, dates: caloriesDates, labels: caloriesLabels }
+              ].filter(cat => cat.data.length > 0)
+
+              const selectedCategoryData = metricsCategories.find(c => c.id === metricsCategory) || metricsCategories[0]
+              
+              // Generate insights for selected metric - Improved calculations
+              const generateMetricInsights = () => {
+                if (!selectedCategoryData || selectedCategoryData.data.length < 1) return []
+                
+                const values = selectedCategoryData.data
+                const dates = selectedCategoryData.dates
+                const current = values[values.length - 1]
+                const avg = values.reduce((a, b) => a + b, 0) / values.length
+                const insights = []
+                
+                // Find most recent previous measurement (within reasonable timeframe)
+                let previous = null
+                let previousIndex = null
+                if (dates.length >= 2) {
+                  const currentDate = new Date(dates[dates.length - 1] + 'T12:00:00')
+                  for (let i = dates.length - 2; i >= 0; i--) {
+                    const prevDate = new Date(dates[i] + 'T12:00:00')
+                    const daysDiff = Math.floor((currentDate - prevDate) / (1000 * 60 * 60 * 24))
+                    if (daysDiff <= 30) { // Within 30 days
+                      previous = values[i]
+                      previousIndex = i
+                      break
+                    }
+                  }
+                }
+                
+                // Compare with previous measurement
+                if (previous !== null && previous > 0) {
+                  const change = ((current - previous) / previous) * 100
+                  if (Math.abs(change) >= 2) { // Only show if change is significant (2%+)
+                    if (change > 0) {
+                      insights.push({
+                        icon: '↑',
+                        text: `${Math.abs(change).toFixed(1)}% increase`,
+                        value: 'vs last measurement'
+                      })
+                    } else {
+                      insights.push({
+                        icon: '↓',
+                        text: `${Math.abs(change).toFixed(1)}% decrease`,
+                        value: 'vs last measurement'
+                      })
+                    }
+                  }
+                }
+                
+                // Trend analysis (last 7 measurements if available)
+                if (values.length >= 7) {
+                  const recentValues = values.slice(-7)
+                  const trend = (recentValues[recentValues.length - 1] - recentValues[0]) / recentValues.length
+                  const trendPercent = (trend / avg) * 100
+                  
+                  if (Math.abs(trendPercent) >= 5) {
+                    if (trend > 0) {
+                      insights.push({
+                        icon: '→',
+                        text: 'Improving trend',
+                        value: `+${Math.abs(trendPercent).toFixed(1)}% over last 7 measurements`
+                      })
+                    } else {
+                      insights.push({
+                        icon: '→',
+                        text: 'Declining trend',
+                        value: `${trendPercent.toFixed(1)}% over last 7 measurements`
+                      })
+                    }
+                  }
+                }
+                
+                // Above/below average analysis
+                if (current >= avg * 1.1) {
+                  insights.push({
+                    icon: '→',
+                    text: 'Above average',
+                    value: `(${current.toFixed(1)} vs ${avg.toFixed(1)} avg)`
+                  })
+                } else if (current < avg * 0.9 && avg > 0) {
+                  insights.push({
+                    icon: '→',
+                    text: 'Below average',
+                    value: `(${current.toFixed(1)} vs ${avg.toFixed(1)} avg)`
+                  })
+                }
+                
+                // Best/worst measurement
+                if (values.length >= 5) {
+                  const max = Math.max(...values)
+                  const min = Math.min(...values)
+                  
+                  if (current === max && max > avg * 1.05) {
+                    insights.push({
+                      icon: '•',
+                      text: 'Best measurement',
+                      value: `in last ${values.length} records`
+                    })
+                  } else if (current === min && min < avg * 0.95) {
+                    insights.push({
+                      icon: '•',
+                      text: 'Lowest measurement',
+                      value: `in last ${values.length} records`
+                    })
+                  }
+                }
+                
+                return insights
+              }
+
+              const chartData = selectedCategoryData 
+                ? Object.fromEntries(selectedCategoryData.data.map((d, i) => [selectedCategoryData.dates[i], d]))
+                : {}
+
+              return (
+                <ChartCard
+                  title={selectedCategoryData?.label || 'Health Metrics'}
+                  subtitle={metricsDateRange}
+                  categories={metricsCategories}
+                  selectedCategory={metricsCategory}
+                  onCategoryChange={(cat) => setMetricsCategory(cat.id || cat)}
+                  dateRangePresets={[
+                    { id: 'Last 7 Days', label: 'Last 7 Days' },
+                    { id: 'Last 30 Days', label: 'Last 30 Days' },
+                    { id: 'Last 90 Days', label: 'Last 90 Days' },
+                    { id: 'This Year', label: 'This Year' },
+                    { id: 'All Time', label: 'All Time' }
+                  ]}
+                  selectedDateRange={metricsDateRange}
+                  onDateRangeChange={(preset) => setMetricsDateRange(preset.id || preset.label || preset)}
+                  chartTypes={['Line', 'Bar', 'Area']}
+                  selectedChartType={metricsChartTypeVisual}
+                  onChartTypeChange={setMetricsChartTypeVisual}
+                  insights={generateMetricInsights()}
+                  primaryAction={{
+                    label: 'Log Metrics',
+                    onClick: () => navigate('/health')
+                  }}
+                  secondaryActions={[
+                    {
+                      label: 'View Details',
+                      onClick: () => console.log('View metric details')
+                    }
+                  ]}
+                  onShare={() => console.log('Share metrics chart')}
+                  onExport={() => console.log('Export metrics chart')}
+                  dataFreshness={lastDataUpdate ? `${Math.round((new Date() - lastDataUpdate) / (1000 * 60 * 60))} hours ago` : null}
+                >
+                  <UnifiedChart
+                    data={chartData}
+                    dates={selectedCategoryData?.dates || []}
+                    type={metricsChartTypeVisual.toLowerCase()}
+                    height={200}
+                    color="var(--accent)"
+                    showValues={true}
                     xAxisLabel="Date"
-                    yAxisLabel="Weight (lbs)"
+                    yAxisLabel={selectedCategoryData?.label || 'Value'}
+                    onDateRangeChange={(range) => {
+                      console.log('Metrics date range changed:', range)
+                    }}
                   />
-                </>
-              )}
-              {metricsChartType === 'sleep' && sleepData.length > 0 && (
-                <>
-                  <h4 className={styles.chartTitle}>Sleep Score</h4>
-                  <BarChart 
-                    data={Object.fromEntries(sleepData.map((d, i) => [sleepLabels[i], d]))} 
-                    dates={sleepDates}
-                    dateData={sleepDateData}
-                    height={150} 
-                    color="#ff2d2d"
-                    xAxisLabel="Date"
-                    yAxisLabel="Score"
-                  />
-                </>
-              )}
-              {metricsChartType === 'steps' && stepsData.length > 0 && (
-                <>
-                  <h4 className={styles.chartTitle}>Steps</h4>
-                  <BarChart 
-                    data={Object.fromEntries(stepsData.map((d, i) => [stepsLabels[i], d]))} 
-                    dates={stepsDates}
-                    dateData={stepsDateData}
-                    height={150} 
-                    color="#ff2d2d"
-                    xAxisLabel="Date"
-                    yAxisLabel="Steps"
-                  />
-                </>
-              )}
-              {metricsChartType === 'hrv' && hrvData.length > 0 && (
-                <>
-                  <h4 className={styles.chartTitle}>HRV (ms)</h4>
-                  <BarChart 
-                    data={Object.fromEntries(hrvData.map((d, i) => [hrvLabels[i], d]))} 
-                    dates={hrvDates}
-                    dateData={hrvDateData}
-                    height={150} 
-                    color="#ff2d2d"
-                    xAxisLabel="Date"
-                    yAxisLabel="HRV (ms)"
-                  />
-                </>
-              )}
-              {metricsChartType === 'calories' && caloriesData.length > 0 && (
-                <>
-                  <h4 className={styles.chartTitle}>Calories</h4>
-                  <BarChart 
-                    data={Object.fromEntries(caloriesData.map((d, i) => [caloriesLabels[i], d]))}
-                    dates={caloriesDates}
-                    dateData={caloriesDateData} 
-                    height={150} 
-                    color="#ff2d2d"
-                    xAxisLabel="Date"
-                    yAxisLabel="Calories"
-                  />
-                </>
-              )}
-            </div>
+                </ChartCard>
+              )
+            })()}
             
             <h3 className={styles.sectionTitle}>Recent Metrics</h3>
             <div className={styles.metricsTable}>
@@ -1412,94 +1649,219 @@ export default function Analytics() {
           )}
         </div>
 
-        <div className={styles.chartTypeSelector}>
-          <button
-            className={`${styles.chartTypeBtn} ${trendsChartType === 'frequency' ? styles.activeChartType : ''}`}
-            onClick={() => setTrendsChartType('frequency')}
-            disabled={Object.keys(frequencyChartData).length === 0}
-          >
-            Frequency
-          </button>
-          <button
-            className={`${styles.chartTypeBtn} ${trendsChartType === 'volume' ? styles.activeChartType : ''}`}
-            onClick={() => setTrendsChartType('volume')}
-            disabled={Object.keys(volumeChartData).length === 0}
-          >
-            Volume
-          </button>
-          <button
-            className={`${styles.chartTypeBtn} ${trendsChartType === 'exercises' ? styles.activeChartType : ''}`}
-            onClick={() => setTrendsChartType('exercises')}
-            disabled={Object.keys(topExercisesChartData).length === 0}
-          >
-            Exercises
-          </button>
-        </div>
-        
-        <div className={styles.chartSection}>
-          {trendsChartType === 'frequency' && Object.keys(frequencyChartData).length > 0 && (
-            <>
-              <h4 className={styles.chartTitle}>Workout Frequency (Last 30 Days)</h4>
-              <BarChart 
-                data={frequencyChartData} 
-                labels={Object.keys(frequencyChartData).map(k => {
-                  const d = new Date(k + 'T12:00:00')
-                  return `${d.getMonth() + 1}/${d.getDate()}`
-                })}
-                dates={Object.keys(frequencyChartData)}
-                dateData={frequencyChartData}
-                height={150} 
-                color="#ff2d2d"
-                xAxisLabel="Date"
-                yAxisLabel="Workouts"
-              />
-            </>
-          )}
-          {trendsChartType === 'volume' && Object.keys(volumeChartData).length > 0 && (
-            <>
-              <h4 className={styles.chartTitle}>Training Volume (Sets Per Week)</h4>
-              <BarChart 
-                data={volumeChartData} 
-                labels={Object.keys(volumeChartData).map(k => {
-                  const d = new Date(k + 'T12:00:00')
-                  return `${d.getMonth() + 1}/${d.getDate()}`
-                })}
-                dates={Object.keys(volumeChartData)}
-                dateData={volumeChartData}
-                height={150} 
-                color="#ff2d2d"
-                xAxisLabel="Week"
-                yAxisLabel="Sets"
-              />
-            </>
-          )}
-          {trendsChartType === 'exercises' && Object.keys(topExercisesChartData).length > 0 && (
-            <>
-              <h4 className={styles.chartTitle}>Top Exercises</h4>
-              <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
-                  <BarChart 
-                    data={topExercisesChartData} 
-                    labels={Object.keys(topExercisesChartData)}
-                    height={150} 
-                    color="#ff2d2d"
-                    xAxisLabel="Exercise"
-                    yAxisLabel="Count"
-                  />
+        {/* Trends Categories */}
+        {(() => {
+          const trendsCategories = [
+            { 
+              id: 'Frequency', 
+              label: 'Frequency', 
+              data: frequencyChartData,
+              dates: Object.keys(frequencyChartData)
+            },
+            { 
+              id: 'Volume', 
+              label: 'Volume', 
+              data: volumeChartData,
+              dates: Object.keys(volumeChartData)
+            },
+            { 
+              id: 'Exercises', 
+              label: 'Exercises', 
+              data: topExercisesChartData,
+              dates: Object.keys(topExercisesChartData)
+            }
+          ].filter(cat => cat.data && Object.keys(cat.data).length > 0)
+
+          const selectedTrendCategory = trendsCategories.find(c => c.id === trendsCategory) || trendsCategories[0]
+          
+          // Generate insights for trends - Improved calculations
+          const generateTrendInsights = () => {
+            if (!selectedTrendCategory || !selectedTrendCategory.data) return []
+            
+            // Get sorted entries with dates
+            const entries = Object.entries(selectedTrendCategory.data)
+              .map(([date, value]) => ({ date: new Date(date + 'T12:00:00'), value: Number(value) || 0 }))
+              .sort((a, b) => a.date - b.date)
+            
+            if (entries.length === 0) return []
+            
+            const values = entries.map(e => e.value)
+            const currentEntry = entries[entries.length - 1]
+            const current = currentEntry.value
+            
+            // Find most recent previous period
+            let previousEntry = null
+            for (let i = entries.length - 2; i >= 0; i--) {
+              const daysDiff = Math.floor((currentEntry.date - entries[i].date) / (1000 * 60 * 60 * 24))
+              // For frequency: within 7 days, for volume: within 14 days
+              const maxDays = selectedTrendCategory.id === 'Frequency' ? 7 : 14
+              if (daysDiff <= maxDays) {
+                previousEntry = entries[i]
+                break
+              }
+            }
+            
+            const avg = values.reduce((a, b) => a + b, 0) / values.length
+            const insights = []
+            
+            // Period-over-period comparison
+            if (previousEntry && previousEntry.value > 0) {
+              const change = ((current - previousEntry.value) / previousEntry.value) * 100
+              if (Math.abs(change) >= 5) { // Only show if change is significant
+                if (change > 0) {
+                  insights.push({
+                    icon: '↑',
+                    text: `${Math.abs(change).toFixed(0)}% increase`,
+                    value: 'vs previous period'
+                  })
+                } else {
+                  insights.push({
+                    icon: '↓',
+                    text: `${Math.abs(change).toFixed(0)}% decrease`,
+                    value: 'vs previous period'
+                  })
+                }
+              }
+            }
+            
+            // Trend analysis (last 4-6 periods)
+            if (entries.length >= 4) {
+              const recentEntries = entries.slice(-6)
+              const recentValues = recentEntries.map(e => e.value)
+              const trend = (recentValues[recentValues.length - 1] - recentValues[0]) / recentValues.length
+              const trendPercent = avg > 0 ? (trend / avg) * 100 : 0
+              
+              if (Math.abs(trendPercent) >= 10) {
+                if (trend > 0) {
+                  insights.push({
+                    icon: '→',
+                    text: 'Strong upward trend',
+                    value: `+${Math.abs(trendPercent).toFixed(0)}% over recent periods`
+                  })
+                } else {
+                  insights.push({
+                    icon: '→',
+                    text: 'Declining trend',
+                    value: `${trendPercent.toFixed(0)}% over recent periods`
+                  })
+                }
+              }
+            }
+            
+            // Above/below average analysis
+            if (current >= avg * 1.15) {
+              insights.push({
+                icon: '→',
+                text: 'Above average',
+                value: `(${current} vs ${avg.toFixed(1)} avg)`
+              })
+            } else if (current < avg * 0.85 && avg > 0) {
+              insights.push({
+                icon: '→',
+                text: 'Below average',
+                value: `(${current} vs ${avg.toFixed(1)} avg)`
+              })
+            }
+            
+            // Best period analysis
+            if (entries.length >= 3) {
+              const maxValue = Math.max(...values)
+              const maxEntry = entries.find(e => e.value === maxValue)
+              if (maxEntry && maxValue > current && maxValue > avg) {
+                const daysAgo = Math.floor((currentEntry.date - maxEntry.date) / (1000 * 60 * 60 * 24))
+                if (daysAgo > 0 && daysAgo <= 60) {
+                  const periodLabel = selectedTrendCategory.id === 'Frequency' ? 'day' : 'week'
+                  insights.push({
+                    icon: '•',
+                    text: `Best ${periodLabel} was ${daysAgo} day${daysAgo > 1 ? 's' : ''} ago`,
+                    value: `(${maxValue})`
+                  })
+                }
+              }
+            }
+            
+            return insights
+          }
+
+          const chartData = selectedTrendCategory?.data || {}
+          const chartDates = selectedTrendCategory?.dates || []
+
+          return selectedTrendCategory ? (
+            <ChartCard
+              title={`Training ${selectedTrendCategory.label}`}
+              subtitle={trendsDateRange}
+              categories={trendsCategories}
+              selectedCategory={trendsCategory}
+              onCategoryChange={(cat) => setTrendsCategory(cat.id || cat)}
+              dateRangePresets={[
+                { id: 'Last 7 Days', label: 'Last 7 Days' },
+                { id: 'Last 30 Days', label: 'Last 30 Days' },
+                { id: 'Last 90 Days', label: 'Last 90 Days' },
+                { id: 'This Year', label: 'This Year' },
+                { id: 'All Time', label: 'All Time' }
+              ]}
+              selectedDateRange={trendsDateRange}
+              onDateRangeChange={(preset) => setTrendsDateRange(preset.id || preset.label || preset)}
+              chartTypes={trendsCategory === 'Exercises' ? ['Bar'] : ['Bar', 'Line', 'Area']}
+              selectedChartType={trendsChartTypeVisual}
+              onChartTypeChange={setTrendsChartTypeVisual}
+              insights={generateTrendInsights()}
+              primaryAction={{
+                label: 'Log Workout',
+                onClick: () => navigate('/workout')
+              }}
+              secondaryActions={[
+                {
+                  label: 'View Details',
+                  onClick: () => console.log('View trend details')
+                }
+              ]}
+              onShare={() => console.log('Share trends chart')}
+              onExport={() => console.log('Export trends chart')}
+              dataFreshness={lastDataUpdate ? `${Math.round((new Date() - lastDataUpdate) / (1000 * 60 * 60))} hours ago` : null}
+            >
+              {trendsCategory === 'Exercises' ? (
+                <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <UnifiedChart
+                      data={chartData}
+                      dates={chartDates}
+                      type="bar"
+                      height={200}
+                      color="var(--accent)"
+                      showValues={true}
+                      xAxisLabel="Exercise"
+                      yAxisLabel="Count"
+                    />
+                  </div>
+                  <div style={{ flex: '0 0 200px' }}>
+                    <PieChart 
+                      data={chartData}
+                      height={200}
+                      donut={true}
+                      showLabels={true}
+                      showLegend={false}
+                    />
+                  </div>
                 </div>
-                <div style={{ flex: '0 0 200px' }}>
-                  <PieChart 
-                    data={topExercisesChartData}
-                    height={200}
-                    donut={true}
-                    showLabels={true}
-                    showLegend={false}
-                  />
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+              ) : (
+                <UnifiedChart
+                  data={chartData}
+                  dates={chartDates}
+                  type={trendsChartTypeVisual.toLowerCase()}
+                  height={200}
+                  color="var(--accent)"
+                  showValues={true}
+                  xAxisLabel={trendsCategory === 'Frequency' ? 'Date' : 'Week'}
+                  yAxisLabel={trendsCategory === 'Frequency' ? 'Workouts' : 'Sets'}
+                  onDateRangeChange={(range) => {
+                    console.log('Trends date range changed:', range)
+                  }}
+                />
+              )}
+            </ChartCard>
+          ) : null
+        })()}
 
         <h3 className={styles.sectionTitle}>Top Exercises List</h3>
         {data.topExercises.length === 0 ? (

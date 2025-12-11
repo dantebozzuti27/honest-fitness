@@ -22,6 +22,8 @@ import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
 import { getTodayEST, getYesterdayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
 import { supabase } from '../lib/supabase'
 import { formatGoalName } from '../utils/formatUtils'
+import { generateShareImage, shareNative } from '../utils/shareUtils'
+import { downloadData } from '../lib/dataExport'
 import BodyHeatmap from '../components/BodyHeatmap'
 // All charts are now BarChart only
 import BarChart from '../components/BarChart'
@@ -1170,6 +1172,30 @@ export default function Analytics() {
       { id: 'All Time', label: 'All Time' }
     ]
     
+    // Calculate date range filter
+    const getDateRangeFilter = () => {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const range = historyDateRange || 'This Month'
+      
+      let startDate = new Date(0) // Default to all time
+      if (range === 'This Week') {
+        startDate = new Date(today)
+        startDate.setDate(today.getDate() - today.getDay())
+      } else if (range === 'This Month') {
+        startDate = new Date(today.getFullYear(), today.getMonth(), 1)
+      } else if (range === 'Last 30 Days') {
+        startDate = new Date(today)
+        startDate.setDate(today.getDate() - 30)
+      } else if (range === 'Last 90 Days') {
+        startDate = new Date(today)
+        startDate.setDate(today.getDate() - 90)
+      }
+      // 'All Time' uses default startDate (epoch)
+      
+      return startDate
+    }
+    
     // Get chart data based on selected category
     const getHistoryChartData = () => {
       if (historyCategory === 'Frequency') {
@@ -1180,11 +1206,15 @@ export default function Analytics() {
     }
     
     const chartDataRaw = getHistoryChartData()
-    // Filter to only include dates with actual data
+    const dateFilter = getDateRangeFilter()
+    
+    // Filter to only include dates with actual data AND within date range
     const chartData = Object.fromEntries(
-      Object.entries(chartDataRaw).filter(([date, value]) => 
-        value != null && value !== undefined && !isNaN(Number(value))
-      )
+      Object.entries(chartDataRaw).filter(([date, value]) => {
+        if (value == null || value === undefined || isNaN(Number(value))) return false
+        const dateObj = new Date(date + 'T12:00:00')
+        return dateObj >= dateFilter
+      })
     )
     // Only use dates that exist in the filtered data, sorted chronologically
     const chartDates = Object.keys(chartData).sort((a, b) => {
@@ -1224,16 +1254,43 @@ export default function Analytics() {
               secondaryActions={[
                 {
                   label: 'View Details',
-                  onClick: () => setHistoryChartType(historyCategory === 'Frequency' ? 'frequency' : 'duration')
+                  onClick: () => {
+                    const historyListElement = document.querySelector(`.${styles.historyList}`)
+                    if (historyListElement) {
+                      historyListElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }
+                  }
                 }
               ]}
-              onShare={() => {
-                // Share functionality
-                console.log('Share chart')
+              onShare={async () => {
+                try {
+                  const chartElement = document.querySelector(`.${styles.historyContainer} svg`)?.closest('div')
+                  if (chartElement) {
+                    const imageUrl = await generateShareImage(chartElement)
+                    if (imageUrl) {
+                      await shareNative(
+                        `${historyCategory === 'Frequency' ? 'Workout Frequency' : 'Workout Duration'} Chart`,
+                        `Check out my ${historyCategory.toLowerCase()} chart from Echelon Fitness`,
+                        window.location.origin,
+                        imageUrl
+                      )
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error sharing chart:', error)
+                }
               }}
               onExport={() => {
-                // Export functionality
-                console.log('Export chart')
+                try {
+                  const csvRows = [['Date', historyCategory === 'Frequency' ? 'Workouts' : 'Duration (min)']]
+                  Object.entries(chartData).sort(([a], [b]) => new Date(a) - new Date(b)).forEach(([date, value]) => {
+                    csvRows.push([date, value])
+                  })
+                  const csv = csvRows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n')
+                  downloadData(csv, `workout-${historyCategory.toLowerCase()}-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
+                } catch (error) {
+                  console.error('Error exporting chart:', error)
+                }
               }}
               dataFreshness={lastDataUpdate ? `${Math.round((new Date() - lastDataUpdate) / (1000 * 60 * 60))} hours ago` : null}
             >
@@ -1975,7 +2032,11 @@ export default function Analytics() {
               <div className={styles.workoutActions}>
                 <button 
                   className={styles.editBtn} 
-                  onClick={handleEditWorkout}
+                  onClick={() => {
+                    if (handleEditWorkout && typeof handleEditWorkout === 'function') {
+                      handleEditWorkout()
+                    }
+                  }}
                 >
                   Edit Workout
                 </button>
@@ -2035,7 +2096,14 @@ export default function Analytics() {
                 />
               </div>
               <div className={styles.formActions}>
-                <button className={styles.saveBtn} onClick={handleSaveWorkout}>
+                <button 
+                  className={styles.saveBtn} 
+                  onClick={() => {
+                    if (handleSaveWorkout && typeof handleSaveWorkout === 'function') {
+                      handleSaveWorkout()
+                    }
+                  }}
+                >
                   Save
                 </button>
                 <button className={styles.cancelBtn} onClick={() => setEditingWorkout(null)}>
@@ -2116,7 +2184,14 @@ export default function Analytics() {
                 />
               </div>
               <div className={styles.formActions}>
-                <button className={styles.saveBtn} onClick={handleSaveMetric}>
+                <button 
+                  className={styles.saveBtn} 
+                  onClick={() => {
+                    if (handleSaveMetric && typeof handleSaveMetric === 'function') {
+                      handleSaveMetric()
+                    }
+                  }}
+                >
                   Save
                 </button>
                 <button className={styles.cancelBtn} onClick={() => setEditingMetric(null)}>

@@ -767,17 +767,60 @@ h1 {
   background: var(--bg-elevated);
 }
 
-/* History Table */
+/* History Cards */
 .historyContent {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md, 16px);
   width: 100%;
-  margin: 0;
-  padding: 0;
-  margin-left: calc(-1 * var(--space-md));
-  margin-right: calc(-1 * var(--space-md));
-  width: calc(100% + 2 * var(--space-md));
+}
+
+.historyCards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm, 12px);
+}
+
+.emptyState {
+  padding: var(--space-xl, 48px) var(--space-md, 16px);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.emptyStateIcon {
+  font-size: 48px;
+  margin-bottom: var(--space-md, 16px);
+  opacity: 0.5;
+}
+
+.emptyStateTitle {
+  font-size: var(--text-lg, 18px);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-xs, 8px);
+}
+
+.emptyStateMessage {
+  font-size: var(--text-sm, 14px);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-md, 16px);
+}
+
+.actionBtn {
+  padding: 12px 24px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.actionBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 
 .historyTable {

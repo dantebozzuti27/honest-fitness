@@ -52,7 +52,11 @@ export default function ChartCard({
           {onShare && typeof onShare === 'function' && (
             <button 
               className={styles.iconBtn}
-              onClick={onShare}
+              onClick={() => {
+                if (onShare && typeof onShare === 'function') {
+                  onShare()
+                }
+              }}
               title="Share"
             >
               Share
@@ -61,7 +65,11 @@ export default function ChartCard({
           {onExport && typeof onExport === 'function' && (
             <button 
               className={styles.iconBtn}
-              onClick={onExport}
+              onClick={() => {
+                if (onExport && typeof onExport === 'function') {
+                  onExport()
+                }
+              }}
               title="Export"
             >
               Export
@@ -163,7 +171,11 @@ export default function ChartCard({
                 className={`${styles.comparisonToggle} ${
                   showComparison ? styles.active : ''
                 }`}
-                onClick={onToggleComparison}
+                onClick={() => {
+                  if (onToggleComparison && typeof onToggleComparison === 'function') {
+                    onToggleComparison()
+                  }
+                }}
               >
                 Compare with Previous Period
               </button>
@@ -200,7 +212,11 @@ export default function ChartCard({
           {primaryAction && primaryAction.onClick && typeof primaryAction.onClick === 'function' && (
             <button
               className={styles.primaryAction}
-              onClick={primaryAction.onClick}
+              onClick={() => {
+                if (primaryAction && primaryAction.onClick && typeof primaryAction.onClick === 'function') {
+                  primaryAction.onClick()
+                }
+              }}
             >
               {primaryAction.label}
             </button>
@@ -210,7 +226,11 @@ export default function ChartCard({
               <button
                 key={i}
                 className={styles.secondaryAction}
-                onClick={action.onClick}
+                onClick={() => {
+                  if (action && action.onClick && typeof action.onClick === 'function') {
+                    action.onClick()
+                  }
+                }}
               >
                 {action.label}
               </button>

@@ -22,8 +22,15 @@ export default function EmptyState({
       )}
       {title && <h3 className={styles.title}>{title}</h3>}
       {message && <p className={styles.message}>{message}</p>}
-      {actionLabel && onAction && (
-        <button className={styles.actionBtn} onClick={onAction}>
+      {actionLabel && onAction && typeof onAction === 'function' && (
+        <button 
+          className={styles.actionBtn} 
+          onClick={() => {
+            if (onAction && typeof onAction === 'function') {
+              onAction()
+            }
+          }}
+        >
           {actionLabel}
         </button>
       )}

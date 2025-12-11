@@ -113,11 +113,15 @@ export default function GhostMode() {
         try {
           const data = JSON.parse(saved)
           setTargetCalories(data.targetCalories || 2000)
-        setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
-        setFavorites(data.favorites || [])
-        setFastingEnabled(data.fastingEnabled || false)
-        if (data.fastingStartTime) {
-          setFastingStartTime(new Date(data.fastingStartTime))
+          setTargetMacros(data.targetMacros || { protein: 150, carbs: 200, fat: 67 })
+          setFavorites(data.favorites || [])
+          setFastingEnabled(data.fastingEnabled || false)
+          if (data.fastingStartTime) {
+            setFastingStartTime(new Date(data.fastingStartTime))
+          }
+        } catch (parseError) {
+          logError('Error parsing localStorage ghostMode data in catch block', parseError)
+          localStorage.removeItem(`ghostMode_${user.id}`)
         }
       }
     }
@@ -846,7 +850,11 @@ export default function GhostMode() {
                     </button>
                     <button
                       className={styles.submitBtn}
-                      onClick={handleManualEntry}
+                      onClick={() => {
+                        if (handleManualEntry && typeof handleManualEntry === 'function') {
+                          handleManualEntry()
+                        }
+                      }}
                       disabled={!manualEntry.calories || manualEntry.calories <= 0}
                     >
                       Add Meal
@@ -910,7 +918,11 @@ export default function GhostMode() {
                   </button>
                   <button
                     className={styles.submitBtn}
-                    onClick={handleTextSubmit}
+                    onClick={() => {
+                      if (handleTextSubmit && typeof handleTextSubmit === 'function') {
+                        handleTextSubmit()
+                      }
+                    }}
                     disabled={!textInput.trim() || analyzing}
                   >
                     Analyze

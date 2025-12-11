@@ -322,7 +322,11 @@ export default function Wearables() {
                 )}
                 <button
                   className={styles.connectBtn}
-                  onClick={handleConnectFitbit}
+                  onClick={() => {
+                    if (handleConnectFitbit && typeof handleConnectFitbit === 'function') {
+                      handleConnectFitbit()
+                    }
+                  }}
                   disabled={!fitbitClientId}
                 >
                   Sign In with Fitbit
@@ -422,7 +426,11 @@ export default function Wearables() {
                 )}
                 <button
                   className={styles.connectBtn}
-                  onClick={handleConnectOura}
+                  onClick={() => {
+                    if (handleConnectOura && typeof handleConnectOura === 'function') {
+                      handleConnectOura()
+                    }
+                  }}
                   disabled={!ouraClientId}
                 >
                   Sign In with Oura

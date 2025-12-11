@@ -259,11 +259,27 @@ export default function ShareModal({ type, data, onClose }) {
   const shareUrls = getShareUrls(type, data)
 
   return createPortal(
-    <div className={styles.overlay} onClick={onClose}>
+    <div 
+      className={styles.overlay} 
+      onClick={() => {
+        if (onClose && typeof onClose === 'function') {
+          onClose()
+        }
+      }}
+    >
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <h2>Share Your {type === 'workout' ? 'Workout' : type === 'nutrition' ? 'Nutrition' : 'Health'} Summary</h2>
-          <button className={styles.closeBtn} onClick={onClose}>✕</button>
+          <button 
+            className={styles.closeBtn} 
+            onClick={() => {
+              if (onClose && typeof onClose === 'function') {
+                onClose()
+              }
+            }}
+          >
+            ✕
+          </button>
         </div>
         
         <div className={styles.cardPreview}>
@@ -277,7 +293,11 @@ export default function ShareModal({ type, data, onClose }) {
           {navigator.share && (
             <button 
               className={styles.shareBtn}
-              onClick={handleNativeShare}
+              onClick={() => {
+                if (handleNativeShare && typeof handleNativeShare === 'function') {
+                  handleNativeShare()
+                }
+              }}
               disabled={sharing}
             >
               Share
@@ -287,7 +307,11 @@ export default function ShareModal({ type, data, onClose }) {
           {/* Copy Image */}
           <button 
             className={styles.shareBtn}
-            onClick={handleCopyImage}
+            onClick={() => {
+              if (handleCopyImage && typeof handleCopyImage === 'function') {
+                handleCopyImage()
+              }
+            }}
           >
             Copy Image
           </button>
@@ -295,7 +319,11 @@ export default function ShareModal({ type, data, onClose }) {
           {/* Download */}
           <button 
             className={styles.shareBtn}
-            onClick={handleDownload}
+            onClick={() => {
+              if (handleDownload && typeof handleDownload === 'function') {
+                handleDownload()
+              }
+            }}
           >
             Download
           </button>
@@ -303,7 +331,11 @@ export default function ShareModal({ type, data, onClose }) {
           {/* Share to Feed */}
           <button 
             className={`${styles.shareBtn} ${sharedToFeed ? styles.sharedToFeed : ''}`}
-            onClick={handleShareToFeed}
+            onClick={() => {
+              if (handleShareToFeed && typeof handleShareToFeed === 'function') {
+                handleShareToFeed()
+              }
+            }}
             disabled={sharedToFeed}
           >
             {sharedToFeed ? '✓ Shared to Feed' : 'Share to Feed'}

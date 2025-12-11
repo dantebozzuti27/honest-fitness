@@ -552,67 +552,59 @@ export default function Fitness() {
         {activeTab === 'History' && (
           <div className={styles.historyContent}>
             <h2 className={styles.sectionTitle}>Workout History</h2>
-            <div className={styles.historyTable}>
-              <div className={styles.historyTableHeader}>
-                <div className={styles.historyTableCol}>Date</div>
-                <div className={styles.historyTableCol}>Duration</div>
-                <div className={styles.historyTableCol}>Exercises</div>
-                <div className={styles.historyTableCol}>Actions</div>
+            {workoutHistory.length === 0 ? (
+              <div className={styles.emptyState}>
+                <div className={styles.emptyStateIcon}>💪</div>
+                <div className={styles.emptyStateTitle}>No Workouts Yet</div>
+                <div className={styles.emptyStateMessage}>Start logging workouts to see your progress here</div>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => navigate('/workout')}
+                >
+                  Start Workout
+                </button>
               </div>
-              <div className={styles.historyTableBody}>
-                {workoutHistory.length === 0 ? (
-                  <div className={styles.historyTableEmpty}>No workouts yet</div>
-                ) : (
-                  workoutHistory
-                    .sort((a, b) => b.date.localeCompare(a.date))
-                    .map(workout => (
-                      <div key={workout.id} className={styles.historyTableRow}>
-                        <div className={styles.historyTableCol} data-label="Date">
-                          {formatDateMMDDYYYY(workout.date)}
-                        </div>
-                        <div className={styles.historyTableCol} data-label="Duration">
-                          {workout.duration 
-                            ? `${Math.floor((workout.duration || 0) / 60)}:${String((workout.duration || 0) % 60).padStart(2, '0')}`
-                            : 'N/A'}
-                        </div>
-                        <div className={styles.historyTableCol} data-label="Exercises">
-                          {workout.workout_exercises?.length || 0}
-                        </div>
-                        <div className={`${styles.historyTableCol} ${styles.actionsCol}`}>
-                          <button
-                            className={styles.shareBtn}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedWorkoutForShare(workout)
-                              setShowShareModal(true)
-                            }}
-                          >
-                            Share
-                          </button>
-                          <button
-                            className={styles.deleteBtn}
-                            onClick={async (e) => {
-                              e.stopPropagation()
-                              if (confirm(`Delete workout from ${workout.date}?`)) {
-                                try {
-                                  await deleteWorkoutFromSupabase(workout.id, user.id)
-                                  await loadWorkoutHistory()
-                                  showToast('Workout deleted', 'success')
-                                } catch (error) {
-                                  console.error('Error deleting workout:', error)
-                                  showToast('Failed to delete workout', 'error')
-                                }
-                              }
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                )}
+            ) : (
+              <div className={styles.historyCards}>
+                {workoutHistory
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .map((workout, index) => {
+                    const previousWorkout = workoutHistory
+                      .sort((a, b) => b.date.localeCompare(a.date))
+                      [index + 1]
+                    return (
+                      <HistoryCard
+                        key={workout.id}
+                        type="fitness"
+                        date={workout.date}
+                        data={workout}
+                        previousData={previousWorkout}
+                        index={index}
+                        onView={() => {
+                          // Could navigate to workout details
+                          console.log('View workout:', workout.id)
+                        }}
+                        onShare={() => {
+                          setSelectedWorkoutForShare(workout)
+                          setShowShareModal(true)
+                        }}
+                        onDelete={async () => {
+                          if (confirm(`Delete workout from ${workout.date}?`)) {
+                            try {
+                              await deleteWorkoutFromSupabase(workout.id, user.id)
+                              await loadWorkoutHistory()
+                              showToast('Workout deleted', 'success')
+                            } catch (error) {
+                              console.error('Error deleting workout:', error)
+                              showToast('Failed to delete workout', 'error')
+                            }
+                          }
+                        }}
+                      />
+                    )
+                  })}
               </div>
-            </div>
+            )}
           </div>
         )}
 

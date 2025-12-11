@@ -60,7 +60,11 @@ export default function DataSummaryCard({
         {details && (
           <button 
             className={styles.expandBtn}
-            onClick={handleExpand}
+            onClick={() => {
+              if (handleExpand && typeof handleExpand === 'function') {
+                handleExpand()
+              }
+            }}
             aria-label={expanded ? 'Collapse details' : 'Expand details'}
           >
             {expanded ? 'Show Less' : 'Show Details'}
@@ -89,7 +93,11 @@ export default function DataSummaryCard({
           {fullData && (
             <button 
               className={styles.viewFullBtn}
-              onClick={handleViewFull}
+              onClick={() => {
+                if (handleViewFull && typeof handleViewFull === 'function') {
+                  handleViewFull()
+                }
+              }}
             >
               View Full Analysis
             </button>

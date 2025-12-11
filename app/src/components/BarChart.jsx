@@ -276,8 +276,16 @@ export default function BarChart({
       <div 
         className={styles.chartContainer}
         ref={containerRef}
-        onDoubleClick={handleDoubleClick}
-        onClick={handleChartClick}
+        onDoubleClick={() => {
+          if (handleDoubleClick && typeof handleDoubleClick === 'function') {
+            handleDoubleClick()
+          }
+        }}
+        onClick={(e) => {
+          if (handleChartClick && typeof handleChartClick === 'function') {
+            handleChartClick(e)
+          }
+        }}
         style={{
           height: `${height}px`,
           minHeight: `${height}px`,

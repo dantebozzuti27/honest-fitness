@@ -6,6 +6,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react'
 import styles from './UnifiedChart.module.css'
+import { formatDateShort } from '../utils/dateUtils'
 
 export default function UnifiedChart({
   data,
@@ -405,9 +406,23 @@ export default function UnifiedChart({
                             i % Math.ceil(chartData.keys.length / 5) === 0
             if (!showLabel) return null
             
+            // Format date properly
+            let displayLabel = key
+            try {
+              // Try to format as date if it's a date string (YYYY-MM-DD)
+              if (/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+                displayLabel = formatDateShort(key)
+              } else if (key.length > 10) {
+                displayLabel = formatDateShort(key) || key.substring(0, 8)
+              }
+            } catch (e) {
+              // Fallback to truncated string
+              displayLabel = key.length > 8 ? key.substring(0, 6) + '...' : key
+            }
+            
             return (
-              <span key={i} className={styles.xAxisLabel}>
-                {key.length > 8 ? key.substring(0, 6) + '...' : key}
+              <span key={i} className={styles.xAxisLabel} title={key}>
+                {displayLabel}
               </span>
             )
           })}
@@ -425,7 +440,11 @@ export default function UnifiedChart({
       {dateRange.end !== null && (
         <button
           className={styles.resetBtn}
-          onClick={resetDateRange}
+          onClick={() => {
+            if (resetDateRange && typeof resetDateRange === 'function') {
+              resetDateRange()
+            }
+          }}
           title="Reset to full range"
         >
           Reset

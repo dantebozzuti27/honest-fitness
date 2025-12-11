@@ -627,7 +627,11 @@ export default function Profile() {
           <h2 className={styles.sectionTitle}>Account</h2>
           <button
             className={styles.logoutBtn}
-            onClick={handleLogout}
+            onClick={() => {
+              if (handleLogout && typeof handleLogout === 'function') {
+                handleLogout()
+              }
+            }}
           >
             Sign Out
           </button>
@@ -638,7 +642,11 @@ export default function Profile() {
           {!showDeleteConfirm ? (
             <button
               className={styles.deleteBtn}
-              onClick={handleDeleteAccount}
+              onClick={() => {
+                if (handleDeleteAccount && typeof handleDeleteAccount === 'function') {
+                  handleDeleteAccount()
+                }
+              }}
               disabled={deleting}
             >
               Delete Account
@@ -662,7 +670,11 @@ export default function Profile() {
               <div className={styles.deleteActions}>
                 <button
                   className={styles.deleteConfirmBtn}
-                  onClick={handleDeleteAccount}
+                  onClick={() => {
+                    if (handleDeleteAccount && typeof handleDeleteAccount === 'function') {
+                      handleDeleteAccount()
+                    }
+                  }}
                   disabled={deleting || deleteConfirmText !== 'DELETE'}
                 >
                   {deleting ? 'Deleting...' : 'Permanently Delete Account'}

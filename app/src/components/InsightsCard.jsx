@@ -36,7 +36,11 @@ export default function InsightsCard({
           {insights.length > 1 && expandable && (
             <button 
               className={styles.expandBtn}
-              onClick={handleExpand}
+              onClick={() => {
+                if (handleExpand && typeof handleExpand === 'function') {
+                  handleExpand()
+                }
+              }}
               aria-label={expanded ? 'Collapse insights' : 'Expand insights'}
             >
               {expanded ? '−' : '+'}
@@ -82,7 +86,11 @@ export default function InsightsCard({
       {insights.length > 1 && !expanded && (
         <button 
           className={styles.showMoreBtn}
-          onClick={handleExpand}
+          onClick={() => {
+            if (handleExpand && typeof handleExpand === 'function') {
+              handleExpand()
+            }
+          }}
         >
           Show {insights.length - 1} more
         </button>

@@ -1198,7 +1198,14 @@ export default function ActiveWorkout() {
             Cancel
           </button>
           <div className={styles.workoutTimer}>{formatTime(workoutTime)}</div>
-          <button className={styles.finishBtn} onClick={handleFinishClick}>
+          <button 
+            className={styles.finishBtn} 
+            onClick={() => {
+              if (handleFinishClick && typeof handleFinishClick === 'function') {
+                handleFinishClick()
+              }
+            }}
+          >
             Finish
           </button>
         </div>
@@ -1212,7 +1219,15 @@ export default function ActiveWorkout() {
         {isResting && (
           <div className={styles.restBar}>
             <span>Rest: {formatTime(restTime)}</span>
-            <button onClick={skipRest}>Skip</button>
+            <button 
+              onClick={() => {
+                if (skipRest && typeof skipRest === 'function') {
+                  skipRest()
+                }
+              }}
+            >
+              Skip
+            </button>
           </div>
         )}
       </header>

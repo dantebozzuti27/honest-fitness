@@ -21,6 +21,7 @@ import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
+import HistoryCard from '../components/HistoryCard'
 import styles from './Health.module.css'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
@@ -1122,7 +1123,11 @@ export default function Health() {
                     <h3>Fitbit Sync</h3>
                     <button
                       className={styles.actionBtn}
-                      onClick={handleSyncFitbit}
+                      onClick={() => {
+                        if (handleSyncFitbit && typeof handleSyncFitbit === 'function') {
+                          handleSyncFitbit()
+                        }
+                      }}
                       disabled={syncing}
                     >
                       {syncing ? 'Syncing...' : 'Sync Now'}
@@ -1181,108 +1186,53 @@ export default function Health() {
                   </button>
                 </div>
               ) : (
-                <div className={styles.historyTable}>
-                  <div className={styles.historyTableHeader}>
-                    <div className={styles.historyTableCol}>Date</div>
-                    <div className={styles.historyTableCol}>Weight</div>
-                    <div className={styles.historyTableCol}>Steps</div>
-                    <div className={styles.historyTableCol}>HRV</div>
-                    <div className={styles.historyTableCol}>Calories</div>
-                    <div className={styles.historyTableCol}>Sleep Duration</div>
-                    <div className={styles.historyTableCol}>Actions</div>
-                  </div>
-                  <div className={styles.historyTableBody}>
-                    {metrics
-                      .slice(0, 14)
-                      .map(metric => {
-                        // Check if metric has any data (Fitbit or manual)
-                        const hasData = metric.steps || metric.hrv || metric.calories_burned || metric.calories || metric.sleep_score || metric.weight
-                        return (
-                          <div
-                            key={metric.date}
-                            className={styles.historyTableRow}
-                            onClick={() => {
-                              setEditingMetric({ ...metric })
-                              setEditingMetricType(null) // Show all fields
-                              setShowLogModal(true)
-                            }}
-                          >
-                            <div className={styles.historyTableCol} data-label="Date">
-                              {formatDateShort(metric.date, metric.date !== getTodayEST())}
-                            </div>
-                            <div className={styles.historyTableCol} data-label="Weight">
-                              {metric.weight ? `${metric.weight} lbs` : '-'}
-                            </div>
-                            <div className={styles.historyTableCol} data-label="Steps">
-                              {metric.steps ? metric.steps.toLocaleString() : '-'}
-                            </div>
-                            <div className={styles.historyTableCol} data-label="HRV">
-                              {metric.hrv ? `${metric.hrv} ms` : '-'}
-                            </div>
-                            <div className={styles.historyTableCol} data-label="Calories">
-                              {metric.calories_burned || metric.calories ? (metric.calories_burned || metric.calories).toLocaleString() : '-'}
-                            </div>
-                            <div className={styles.historyTableCol} data-label="Sleep">
-                              {(() => {
-                                let sleepMinutes = metric.sleep_time != null ? Number(metric.sleep_time) : null
-                                if (sleepMinutes == null) return '-'
-                                
-                                // Safety check: ensure valid range
-                                if (sleepMinutes < 0) sleepMinutes = 0
-                                if (sleepMinutes > 1440) {
-                                  console.warn('Sleep duration seems too high:', sleepMinutes, 'minutes, capping at 1440')
-                                  sleepMinutes = 1440
-                                }
-                                
-                                const hours = Math.floor(sleepMinutes / 60)
-                                const minutes = Math.round(sleepMinutes % 60)
-                                return `${hours}:${minutes.toString().padStart(2, '0')}`
-                              })()}
-                            </div>
-                            {!hasData && (
-                              <div className={styles.manualLogHint}>
-                                Tap to log
-                              </div>
-                            )}
-                            <div className={`${styles.historyTableCol} ${styles.actionsCol}`}>
-                              <button
-                                className={styles.shareBtn}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setSelectedMetricForShare(metric)
-                                  setShowShareModal(true)
-                                }}
-                              >
-                                Share
-                              </button>
-                              <button
-                                className={styles.deleteBtn}
-                                onClick={async (e) => {
-                                  e.stopPropagation()
-                                  if (confirm(`Delete all health metrics for ${metric.date}?`)) {
-                                    try {
-                                      const { supabase } = await import('../lib/supabase')
-                                      await supabase
-                                        .from('daily_metrics')
-                                        .delete()
-                                        .eq('user_id', user.id)
-                                        .eq('date', metric.date)
-                                      await loadAllData()
-                                      showToast('Health metrics deleted', 'success')
-                                    } catch (error) {
-                                      logError('Error deleting health metrics', error)
-                                      showToast('Failed to delete health metrics', 'error')
-                                    }
-                                  }
-                                }}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                  </div>
+                <div className={styles.historyCards}>
+                  {metrics
+                    .slice(0, 14)
+                    .map((metric, index) => {
+                      const previousMetric = metrics[index + 1]
+                      return (
+                        <HistoryCard
+                          key={metric.date}
+                          type="health"
+                          date={metric.date}
+                          data={metric}
+                          previousData={previousMetric}
+                          index={index}
+                          onView={() => {
+                            setEditingMetric({ ...metric })
+                            setEditingMetricType(null)
+                            setShowLogModal(true)
+                          }}
+                          onEdit={() => {
+                            setEditingMetric({ ...metric })
+                            setEditingMetricType(null)
+                            setShowLogModal(true)
+                          }}
+                          onShare={() => {
+                            setSelectedMetricForShare(metric)
+                            setShowShareModal(true)
+                          }}
+                          onDelete={async () => {
+                            if (confirm(`Delete all health metrics for ${metric.date}?`)) {
+                              try {
+                                const { supabase } = await import('../lib/supabase')
+                                await supabase
+                                  .from('daily_metrics')
+                                  .delete()
+                                  .eq('user_id', user.id)
+                                  .eq('date', metric.date)
+                                await loadAllData()
+                                showToast('Health metrics deleted', 'success')
+                              } catch (error) {
+                                logError('Error deleting health metrics', error)
+                                showToast('Failed to delete health metrics', 'error')
+                              }
+                            }
+                          }}
+                        />
+                      )
+                    })}
                 </div>
               )}
             </div>
@@ -1622,14 +1572,19 @@ export default function Health() {
               <div className={styles.formActions}>
                 <button 
                   className={styles.saveBtn} 
-                  onClick={async () => {
-                    if (!user) return
-                    const metricToSave = editingMetric || { date: getTodayEST() }
-                    if (!metricToSave.date) {
-                      showToast('Please select a date', 'error')
-                      return
-                    }
-                    
+                  onClick={() => {
+                    (async () => {
+                      if (!user) return
+                      if (!showToast || typeof showToast !== 'function') {
+                        console.error('showToast is not a function')
+                        return
+                      }
+                      const metricToSave = editingMetric || { date: getTodayEST() }
+                      if (!metricToSave.date) {
+                        showToast('Please select a date', 'error')
+                        return
+                      }
+                      
                       // Validate inputs
                       const errors = []
                       const { validateWeight, validateSteps, validateHRV, validateCalories, validateSleepScore, validateRestingHeartRate, validateBodyTemperature } = await import('../utils/validation')
@@ -1691,6 +1646,7 @@ export default function Health() {
                         logError('Error saving metrics', { error: e, message: e.message, stack: e.stack })
                         showToast(`Failed to save metrics: ${e.message || 'Unknown error'}. Please check console.`, 'error')
                       }
+                    })()
                   }}
                 >
                   Save

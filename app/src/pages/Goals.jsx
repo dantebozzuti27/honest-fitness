@@ -496,10 +496,24 @@ export default function Goals() {
                           />
                         </div>
                         <div className={styles.editActions}>
-                          <button className={styles.cancelBtn} onClick={handleCancelEdit}>
+                          <button 
+                            className={styles.cancelBtn} 
+                            onClick={() => {
+                              if (handleCancelEdit && typeof handleCancelEdit === 'function') {
+                                handleCancelEdit()
+                              }
+                            }}
+                          >
                             Cancel
                           </button>
-                          <button className={styles.saveBtn} onClick={handleSaveEdit}>
+                          <button 
+                            className={styles.saveBtn} 
+                            onClick={() => {
+                              if (handleSaveEdit && typeof handleSaveEdit === 'function') {
+                                handleSaveEdit()
+                              }
+                            }}
+                          >
                             Save
                           </button>
                         </div>
@@ -622,7 +636,11 @@ export default function Goals() {
         <section className={styles.section}>
           <button
             className={styles.analyzeBtn}
-            onClick={handleAnalyzeGoals}
+            onClick={() => {
+              if (handleAnalyzeGoals && typeof handleAnalyzeGoals === 'function') {
+                handleAnalyzeGoals()
+              }
+            }}
             disabled={analyzing}
           >
             {analyzing ? 'Analyzing...' : 'Analyze Me'}
@@ -716,7 +734,14 @@ export default function Goals() {
                 <button className={styles.cancelBtn} onClick={() => setShowNewGoal(false)}>
                   Cancel
                 </button>
-                <button className={styles.saveBtn} onClick={handleCreateGoal}>
+                <button 
+                  className={styles.saveBtn} 
+                  onClick={() => {
+                    if (handleCreateGoal && typeof handleCreateGoal === 'function') {
+                      handleCreateGoal()
+                    }
+                  }}
+                >
                   Create Goal
                 </button>
               </div>

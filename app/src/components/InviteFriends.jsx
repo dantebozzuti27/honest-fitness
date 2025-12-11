@@ -92,11 +92,27 @@ export default function InviteFriends({ onClose }) {
   }
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
+    <div 
+      className={styles.overlay} 
+      onClick={() => {
+        if (onClose && typeof onClose === 'function') {
+          onClose()
+        }
+      }}
+    >
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Invite Friends</h2>
-          <button className={styles.closeBtn} onClick={onClose}>×</button>
+          <button 
+            className={styles.closeBtn} 
+            onClick={() => {
+              if (onClose && typeof onClose === 'function') {
+                onClose()
+              }
+            }}
+          >
+            ×
+          </button>
         </div>
         
         <div className={styles.content}>
@@ -115,7 +131,11 @@ export default function InviteFriends({ onClose }) {
               />
               <button
                 className={styles.copyBtn}
-                onClick={handleCopyLink}
+                onClick={() => {
+                  if (handleCopyLink && typeof handleCopyLink === 'function') {
+                    handleCopyLink()
+                  }
+                }}
               >
                 {copied ? '✓ Copied!' : 'Copy'}
               </button>
@@ -127,14 +147,22 @@ export default function InviteFriends({ onClose }) {
             <div className={styles.shareButtons}>
               <button
                 className={styles.shareBtn}
-                onClick={handleShareText}
+                onClick={() => {
+                  if (handleShareText && typeof handleShareText === 'function') {
+                    handleShareText()
+                  }
+                }}
                 disabled={loading}
               >
                 {loading ? 'Opening...' : '📱 Share via Text'}
               </button>
               <button
                 className={styles.shareBtn}
-                onClick={handleShareSMS}
+                onClick={() => {
+                  if (handleShareSMS && typeof handleShareSMS === 'function') {
+                    handleShareSMS()
+                  }
+                }}
               >
                 📲 Open SMS
               </button>

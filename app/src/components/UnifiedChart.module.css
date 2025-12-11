@@ -4,7 +4,8 @@
   background: rgba(0, 0, 0, 0.2);
   border-radius: var(--radius-md);
   padding: var(--space-sm);
-  overflow: hidden;
+  overflow: visible;
+  padding-bottom: 40px; /* Extra space for x-axis labels */
 }
 
 .chart {
@@ -168,20 +169,31 @@
   padding: 0 var(--space-xs);
   font-size: var(--text-xs);
   color: var(--text-secondary);
-  flex-wrap: wrap;
-  gap: 2px;
-  min-height: 20px;
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-height: 24px;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.xAxisLabels::-webkit-scrollbar {
+  display: none;
 }
 
 .xAxisLabel {
   font-size: var(--text-xs);
   text-align: center;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
+  flex: 0 0 auto;
+  min-width: 50px;
+  max-width: 80px;
+  overflow: visible;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-secondary);
+  padding: 2px 4px;
 }
 
 /* Pinch Hint */

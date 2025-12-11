@@ -18,6 +18,7 @@ import { useToast } from '../hooks/useToast'
 import ShareModal from '../components/ShareModal'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
+import HistoryCard from '../components/HistoryCard'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
@@ -1019,7 +1020,11 @@ export default function Nutrition() {
               </p>
               <button
                 className={styles.dieticianBtn}
-                onClick={handleDieticianAnalysis}
+                onClick={() => {
+                  if (handleDieticianAnalysis && typeof handleDieticianAnalysis === 'function') {
+                    handleDieticianAnalysis()
+                  }
+                }}
                 disabled={!canUseDietician || dieticianAnalyzing}
               >
                 {dieticianAnalyzing ? 'Analyzing...' : 'Analyze My Diet'}
@@ -1096,118 +1101,93 @@ export default function Nutrition() {
         {activeTab === 'History' && (
           <div className={styles.historyContent}>
             <h2 className={styles.sectionTitle}>History</h2>
-            <div className={styles.historyTable}>
-              <div className={styles.historyTableHeader}>
-                <div className={styles.historyTableCol}>Date</div>
-                <div className={styles.historyTableCol}>Calories</div>
-                <div className={styles.historyTableCol}>Protein</div>
-                <div className={styles.historyTableCol}>Carbs</div>
-                <div className={styles.historyTableCol}>Fat</div>
-                <div className={styles.historyTableCol}>Actions</div>
+            {Object.keys(historyData).length === 0 ? (
+              <div className={styles.emptyState}>
+                <div className={styles.emptyStateIcon}>🍽️</div>
+                <div className={styles.emptyStateTitle}>No Nutrition Data Yet</div>
+                <div className={styles.emptyStateMessage}>Start logging meals to see your nutrition history here</div>
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => setActiveTab('Today')}
+                >
+                  Log Meal
+                </button>
               </div>
-              <div className={styles.historyTableBody}>
+            ) : (
+              <div className={styles.historyCards}>
                 {Object.entries(historyData)
                   .sort((a, b) => b[0].localeCompare(a[0]))
-                  .map(([date, data]) => (
-                    <div key={date} className={styles.historyTableRow}>
-                      <div className={styles.historyTableCol} data-label="Date" onClick={() => {
-                        setSelectedDate(date)
-                        setActiveTab('Today')
-                      }}>
-                        {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </div>
-                      <div className={styles.historyTableCol} data-label="Calories" onClick={() => {
-                        setSelectedDate(date)
-                        setActiveTab('Today')
-                      }}>{data.calories || 0}</div>
-                      <div className={styles.historyTableCol} data-label="Protein" onClick={() => {
-                        setSelectedDate(date)
-                        setActiveTab('Today')
-                      }}>{Math.round(data.macros?.protein || 0)}g</div>
-                      <div className={styles.historyTableCol} data-label="Carbs" onClick={() => {
-                        setSelectedDate(date)
-                        setActiveTab('Today')
-                      }}>{Math.round(data.macros?.carbs || 0)}g</div>
-                      <div className={styles.historyTableCol} data-label="Fat" onClick={() => {
-                        setSelectedDate(date)
-                        setActiveTab('Today')
-                      }}>{Math.round(data.macros?.fat || 0)}g</div>
-                      <div className={`${styles.historyTableCol} ${styles.actionsCol}`}>
-                        <button
-                          className={styles.shareBtn}
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            // Load full meal data for the selected date
+                  .map(([date, data], index) => {
+                    const previousData = Object.entries(historyData)
+                      .sort((a, b) => b[0].localeCompare(a[0]))
+                      [index + 1]?.[1]
+                    return (
+                      <HistoryCard
+                        key={date}
+                        type="nutrition"
+                        date={date}
+                        data={data}
+                        previousData={previousData}
+                        index={index}
+                        onView={() => {
+                          setSelectedDate(date)
+                          setActiveTab('Today')
+                        }}
+                        onShare={async () => {
+                          try {
+                            const { getMealsFromSupabase } = await import('../lib/nutritionDb')
+                            const dayData = await getMealsFromSupabase(user.id, date)
+                            setSelectedNutritionForShare({
+                              date,
+                              calories: data.calories || 0,
+                              protein: data.macros?.protein || 0,
+                              carbs: data.macros?.carbs || 0,
+                              fat: data.macros?.fat || 0,
+                              meals: dayData.meals || [],
+                              water: data.water || 0,
+                              targetCalories: targetCalories,
+                              targetMacros: targetMacros
+                            })
+                            setShowShareModal(true)
+                          } catch (error) {
+                            logError('Error loading nutrition data for sharing', error)
+                            setSelectedNutritionForShare({
+                              date,
+                              calories: data.calories || 0,
+                              protein: data.macros?.protein || 0,
+                              carbs: data.macros?.carbs || 0,
+                              fat: data.macros?.fat || 0,
+                              meals: [],
+                              targetCalories: targetCalories,
+                              targetMacros: targetMacros
+                            })
+                            setShowShareModal(true)
+                          }
+                        }}
+                        onDelete={async () => {
+                          if (confirm(`Delete all nutrition data for ${date}?`)) {
                             try {
-                              const { getMealsFromSupabase } = await import('../lib/nutritionDb')
+                              const { deleteMealFromSupabase, getMealsFromSupabase, updateWaterIntake } = await import('../lib/nutritionDb')
                               const dayData = await getMealsFromSupabase(user.id, date)
-                              setSelectedNutritionForShare({
-                                date,
-                                calories: data.calories || 0,
-                                protein: data.macros?.protein || 0,
-                                carbs: data.macros?.carbs || 0,
-                                fat: data.macros?.fat || 0,
-                                meals: dayData.meals || [],
-                                water: data.water || 0,
-                                targetCalories: targetCalories,
-                                targetMacros: targetMacros
-                              })
-                              setShowShareModal(true)
-                            } catch (error) {
-                              logError('Error loading nutrition data for sharing', error)
-                              // Fallback to basic data
-                              setSelectedNutritionForShare({
-                                date,
-                                calories: data.calories || 0,
-                                protein: data.macros?.protein || 0,
-                                carbs: data.macros?.carbs || 0,
-                                fat: data.macros?.fat || 0,
-                                meals: [],
-                                targetCalories: targetCalories,
-                                targetMacros: targetMacros
-                              })
-                              setShowShareModal(true)
-                            }
-                          }}
-                        >
-                          Share
-                        </button>
-                        <button
-                          className={styles.deleteBtn}
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            if (confirm(`Delete all nutrition data for ${date}?`)) {
-                              try {
-                                const { deleteMealFromSupabase, getMealsFromSupabase, updateWaterIntake } = await import('../lib/nutritionDb')
-                                // Delete all meals for this date
-                                const dayData = await getMealsFromSupabase(user.id, date)
-                                if (dayData.meals && dayData.meals.length > 0) {
-                                  for (const meal of dayData.meals) {
-                                    await deleteMealFromSupabase(user.id, date, meal.id)
-                                  }
+                              if (dayData.meals && dayData.meals.length > 0) {
+                                for (const meal of dayData.meals) {
+                                  await deleteMealFromSupabase(user.id, date, meal.id)
                                 }
-                                // Clear water intake
-                                await updateWaterIntake(user.id, date, 0)
-                                // Reload data
-                                await loadDateDataFromSupabase(selectedDate)
-                                showToast('Nutrition data deleted', 'success')
-                              } catch (error) {
-                                logError('Error deleting nutrition data', error)
-                                showToast('Failed to delete nutrition data', 'error')
                               }
+                              await updateWaterIntake(user.id, date, 0)
+                              await loadDateDataFromSupabase(selectedDate)
+                              showToast('Nutrition data deleted', 'success')
+                            } catch (error) {
+                              logError('Error deleting nutrition data', error)
+                              showToast('Failed to delete nutrition data', 'error')
                             }
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                {Object.keys(historyData).length === 0 && (
-                  <div className={styles.historyTableEmpty}>No history yet</div>
-                )}
+                          }
+                        }}
+                      />
+                    )
+                  })}
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -1524,7 +1504,14 @@ export default function Nutrition() {
                 <button className={styles.cancelBtn} onClick={() => setShowMealPlanEditor(false)}>
                   Cancel
                 </button>
-                <button className={styles.saveBtn} onClick={saveWeeklyMealPlan}>
+                <button 
+                  className={styles.saveBtn} 
+                  onClick={() => {
+                    if (saveWeeklyMealPlan && typeof saveWeeklyMealPlan === 'function') {
+                      saveWeeklyMealPlan()
+                    }
+                  }}
+                >
                   Save Plan
                 </button>
               </div>

@@ -99,11 +99,28 @@ export default function AddFriend({ onClose, onFriendAdded }) {
   }
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
+    <div 
+      className={styles.overlay} 
+      onClick={() => {
+        if (onClose && typeof onClose === 'function') {
+          onClose()
+        }
+      }}
+    >
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Add Friend</h2>
-          <button className={styles.closeBtn} onClick={onClose} aria-label="Close">×</button>
+          <button 
+            className={styles.closeBtn} 
+            onClick={() => {
+              if (onClose && typeof onClose === 'function') {
+                onClose()
+              }
+            }}
+            aria-label="Close"
+          >
+            ×
+          </button>
         </div>
         
         <div className={styles.searchSection}>

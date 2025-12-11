@@ -76,11 +76,27 @@ export default function FriendRequests({ onClose, onRequestHandled }) {
   }
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
+    <div 
+      className={styles.overlay} 
+      onClick={() => {
+        if (onClose && typeof onClose === 'function') {
+          onClose()
+        }
+      }}
+    >
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2 className={styles.title}>Friend Requests</h2>
-          <button className={styles.closeBtn} onClick={onClose}>×</button>
+          <button 
+            className={styles.closeBtn} 
+            onClick={() => {
+              if (onClose && typeof onClose === 'function') {
+                onClose()
+              }
+            }}
+          >
+            ×
+          </button>
         </div>
 
         <div className={styles.content}>

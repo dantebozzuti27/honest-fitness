@@ -183,7 +183,11 @@ export default function Invite() {
               ) : (
                 <button
                   className={styles.addBtn}
-                  onClick={handleSendRequest}
+                  onClick={() => {
+                    if (handleSendRequest && typeof handleSendRequest === 'function') {
+                      handleSendRequest()
+                    }
+                  }}
                   disabled={sending}
                 >
                   {sending ? 'Sending...' : 'Send Friend Request'}

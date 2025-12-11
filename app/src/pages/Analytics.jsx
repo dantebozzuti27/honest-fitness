@@ -88,6 +88,7 @@ export default function Analytics() {
   const [mlInsights, setMlInsights] = useState(null)
   const [mlLoading, setMlLoading] = useState(false)
   const [comparativeData, setComparativeData] = useState(null)
+  const [advancedAnalytics, setAdvancedAnalytics] = useState(null)
   const [lastDataUpdate, setLastDataUpdate] = useState(new Date())
 
   useEffect(() => {

@@ -4,25 +4,50 @@
  */
 
 /**
- * Generate shareable image from a card element
+ * Generate shareable image from a card element (platform-optimized)
  */
-export async function generateShareImage(cardElement) {
+export async function generateShareImage(cardElement, platform = 'default') {
   if (!cardElement) return null
 
   try {
     // Use html2canvas if available, otherwise return null
     const html2canvas = (await import('html2canvas')).default
     
-    const canvas = await html2canvas(cardElement, {
+    // Platform-specific optimizations
+    const options = {
       backgroundColor: '#1a1a1a',
       scale: 2,
       logging: false,
       useCORS: true
-    })
+    }
+    
+    // Instagram prefers square images (1080x1080)
+    if (platform === 'instagram') {
+      options.width = 1080
+      options.height = 1080
+    }
+    
+    // Twitter prefers 1200x675
+    if (platform === 'twitter') {
+      options.width = 1200
+      options.height = 675
+    }
+    
+    const canvas = await html2canvas(cardElement, options)
+    
+    // Track generation success
+    const { trackShareCardGeneration } = await import('./shareAnalytics')
+    trackShareCardGeneration(platform, true)
     
     return canvas.toDataURL('image/png')
   } catch (error) {
-    // Silently fail - image generation is optional
+    // Track generation failure
+    try {
+      const { trackShareCardGeneration } = await import('./shareAnalytics')
+      trackShareCardGeneration(platform, false)
+    } catch (e) {
+      // Ignore analytics errors
+    }
     return null
   }
 }
@@ -123,18 +148,22 @@ export function downloadImage(dataUrl, filename) {
 }
 
 /**
- * Get share URLs for different platforms
+ * Get share URLs for different platforms (optimized per platform)
  */
-export function getShareUrls(type, data) {
+export function getShareUrls(type, data, achievements = []) {
   const baseUrl = window.location.origin
-  const text = generateShareText(type, data)
+  const text = generateShareText(type, data, achievements)
   const encodedText = encodeURIComponent(text)
   const encodedUrl = encodeURIComponent(baseUrl)
 
+  // Platform-specific optimizations
+  const twitterText = text.length > 200 ? text.substring(0, 197) + '...' : text
+  const linkedinText = text // LinkedIn allows longer text
+
   return {
-    twitter: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
-    facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
-    linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
+    twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(twitterText)}&url=${encodedUrl}`,
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodedText}`,
+    linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}&summary=${encodeURIComponent(linkedinText)}`,
     reddit: `https://reddit.com/submit?url=${encodedUrl}&title=${encodedText}`,
     imessage: `sms:?body=${encodedText}%20${encodedUrl}`,
     telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`
@@ -142,34 +171,87 @@ export function getShareUrls(type, data) {
 }
 
 /**
- * Generate share text based on type and data
+ * Generate share text based on type and data (achievement-focused, no emojis)
  */
-function generateShareText(type, data) {
+function generateShareText(type, data, achievements = []) {
   if (type === 'workout') {
     const { workout } = data
-    // Duration is in SECONDS, convert to minutes for display
     const totalSeconds = workout?.duration || 0
     const totalMinutes = Math.floor(totalSeconds / 60)
     const hours = Math.floor(totalMinutes / 60)
     const minutes = totalMinutes % 60
     const duration = hours > 0 ? `${hours}h ${minutes}m` : `${totalMinutes}m`
     const exercises = workout?.exercises?.length || 0
-    return `Just completed a ${duration} workout with ${exercises} exercises! #EchelonFitness`
+    
+    // Calculate volume
+    let totalVolume = 0
+    if (workout?.exercises) {
+      workout.exercises.forEach(ex => {
+        const sets = ex.sets || []
+        sets.forEach(set => {
+          const weight = Number(set.weight) || 0
+          const reps = Number(set.reps) || 0
+          totalVolume += weight * reps
+        })
+      })
+    }
+    const volumeK = totalVolume >= 1000 ? `${(totalVolume / 1000).toFixed(1)}k` : Math.round(totalVolume)
+    
+    // Build achievement-focused text
+    const parts = []
+    if (achievements.length > 0) {
+      const prAchievement = achievements.find(a => a.type === 'pr')
+      if (prAchievement) {
+        parts.push(`New ${prAchievement.label}!`)
+      }
+      const milestone = achievements.find(a => a.type === 'milestone')
+      if (milestone) {
+        parts.push(milestone.label)
+      }
+    }
+    
+    parts.push(`${duration} workout`)
+    parts.push(`${exercises} exercises`)
+    if (totalVolume > 0) {
+      parts.push(`${volumeK} lbs volume`)
+    }
+    
+    return parts.join(' | ') + ' | Echelon Fitness'
   }
   
   if (type === 'nutrition') {
     const { nutrition } = data
-    const calories = nutrition?.calories || 0
-    return `Today's nutrition: ${calories.toLocaleString()} calories! #EchelonNutrition`
+    const calories = Number(nutrition?.calories) || 0
+    const protein = Number(nutrition?.protein) || 0
+    
+    const parts = []
+    if (achievements.length > 0) {
+      parts.push(achievements[0].label)
+    }
+    parts.push(`${calories.toLocaleString()} calories`)
+    if (protein > 0) {
+      parts.push(`${Math.round(protein)}g protein`)
+    }
+    
+    return parts.join(' | ') + ' | Echelon Nutrition'
   }
   
   if (type === 'health') {
     const { health } = data
-    const steps = health?.steps || 0
-    return `Health metrics: ${steps.toLocaleString()} steps today! #EchelonHealth`
+    const steps = Number(health?.steps) || 0
+    
+    const parts = []
+    if (achievements.length > 0) {
+      parts.push(achievements[0].label)
+    }
+    if (steps > 0) {
+      parts.push(`${steps.toLocaleString()} steps`)
+    }
+    
+    return parts.join(' | ') + ' | Echelon Health'
   }
   
-  return 'Check out my progress on Echelon! #EchelonFitness'
+  return 'Check out my progress on Echelon Fitness'
 }
 
 /**

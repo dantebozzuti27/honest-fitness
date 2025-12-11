@@ -2,8 +2,10 @@ import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import ShareCard from './ShareCard'
 import { generateShareImage, shareNative, copyImageToClipboard, downloadImage, getShareUrls, openShareUrl } from '../utils/shareUtils'
+import { trackShareClick } from '../utils/shareAnalytics'
+import { calculateWorkoutAchievements, calculateNutritionAchievements, calculateHealthAchievements } from '../utils/achievements'
 import { useAuth } from '../context/AuthContext'
-import { saveFeedItemToSupabase } from '../lib/supabaseDb'
+import { saveFeedItemToSupabase, getWorkoutsFromSupabase, calculateStreakFromSupabase } from '../lib/supabaseDb'
 import styles from './ShareModal.module.css'
 
 export default function ShareModal({ type, data, onClose }) {
@@ -11,13 +13,46 @@ export default function ShareModal({ type, data, onClose }) {
   const [sharing, setSharing] = useState(false)
   const [imageDataUrl, setImageDataUrl] = useState(null)
   const [sharedToFeed, setSharedToFeed] = useState(false)
+  const [theme, setTheme] = useState('default')
+  const [template, setTemplate] = useState('standard')
+  const [achievements, setAchievements] = useState([])
+  const [userStats, setUserStats] = useState({})
   const cardRef = useRef(null)
 
+  // Load user stats for achievements
   useEffect(() => {
-    // Generate image when modal opens
+    if (user) {
+      Promise.all([
+        getWorkoutsFromSupabase(user.id),
+        calculateStreakFromSupabase(user.id)
+      ]).then(([workouts, streak]) => {
+        setUserStats({
+          totalWorkouts: workouts?.length || 0,
+          currentStreak: streak || 0,
+          previousWorkout: workouts?.[1] || null
+        })
+      }).catch(() => {})
+    }
+  }, [user])
+
+  // Calculate achievements
+  useEffect(() => {
+    let calculated = []
+    if (type === 'workout' && data.workout) {
+      calculated = calculateWorkoutAchievements(data.workout, userStats)
+    } else if (type === 'nutrition' && data.nutrition) {
+      calculated = calculateNutritionAchievements(data.nutrition, userStats)
+    } else if (type === 'health' && data.health) {
+      calculated = calculateHealthAchievements(data.health, userStats)
+    }
+    setAchievements(calculated)
+  }, [type, data, userStats])
+
+  useEffect(() => {
+    // Generate image when modal opens or theme/template changes
     const generateImage = async () => {
       if (cardRef.current) {
-        const imageUrl = await generateShareImage(cardRef.current)
+        const imageUrl = await generateShareImage(cardRef.current, 'default')
         setImageDataUrl(imageUrl)
       }
     }
@@ -27,19 +62,20 @@ export default function ShareModal({ type, data, onClose }) {
     
     // Cleanup timeout on unmount
     return () => clearTimeout(timeoutId)
-  }, [type, data])
+  }, [type, data, theme, template])
 
-  const handleNativeShare = async () => {
+  const handleNativeShare = async (platform = 'native') => {
     setSharing(true)
     try {
-      const text = type === 'workout' 
-        ? `Just completed a workout!`
-        : type === 'nutrition'
-        ? `Today's nutrition summary`
-        : `Today's health metrics`
+      // Generate achievement-focused share text
+      const { generateAchievementShareText } = await import('../utils/achievements')
+      const text = generateAchievementShareText(type, data, achievements)
+      
+      // Track share click
+      trackShareClick(platform, type, { image: !!imageDataUrl, achievement: achievements.length > 0 })
       
       // Use the generated image if available
-      const imageToShare = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current) : null)
+      const imageToShare = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current, platform) : null)
       
       const shared = await shareNative(
         'Echelon',
@@ -256,7 +292,17 @@ export default function ShareModal({ type, data, onClose }) {
     }
   }
 
-  const shareUrls = getShareUrls(type, data)
+  const shareUrls = getShareUrls(type, data, achievements)
+  
+  // Share templates
+  const templates = {
+    standard: { theme: 'default', showAchievements: true, showBranding: true, showSocial: true },
+    achievement: { theme: 'default', showAchievements: true, showBranding: true, showSocial: false },
+    minimal: { theme: 'minimal', showAchievements: false, showBranding: false, showSocial: false },
+    social: { theme: 'default', showAchievements: true, showBranding: true, showSocial: true }
+  }
+  
+  const currentTemplate = templates[template] || templates.standard
 
   return createPortal(
     <div 
@@ -282,9 +328,47 @@ export default function ShareModal({ type, data, onClose }) {
           </button>
         </div>
         
+        {/* Customization Options */}
+        <div className={styles.customizationSection}>
+          <div className={styles.customizationGroup}>
+            <label className={styles.customizationLabel}>Theme</label>
+            <select 
+              className={styles.customizationSelect}
+              value={theme}
+              onChange={(e) => setTheme(e.target.value)}
+            >
+              <option value="default">Default</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="gradient">Gradient</option>
+              <option value="minimal">Minimal</option>
+            </select>
+          </div>
+          <div className={styles.customizationGroup}>
+            <label className={styles.customizationLabel}>Template</label>
+            <select 
+              className={styles.customizationSelect}
+              value={template}
+              onChange={(e) => setTemplate(e.target.value)}
+            >
+              <option value="standard">Standard</option>
+              <option value="achievement">Achievement Focus</option>
+              <option value="minimal">Minimal</option>
+              <option value="social">Social</option>
+            </select>
+          </div>
+        </div>
+
         <div className={styles.cardPreview}>
           <div ref={cardRef}>
-            <ShareCard type={type} data={data} />
+            <ShareCard 
+              type={type} 
+              data={data}
+              theme={currentTemplate.theme}
+              showAchievements={currentTemplate.showAchievements}
+              showBranding={currentTemplate.showBranding}
+              showSocial={currentTemplate.showSocial}
+            />
           </div>
         </div>
 
@@ -345,14 +429,20 @@ export default function ShareModal({ type, data, onClose }) {
           <div className={styles.socialGrid}>
             <button 
               className={styles.socialBtn}
-              onClick={() => openShareUrl(shareUrls.twitter)}
+              onClick={() => {
+                trackShareClick('twitter', type, { image: !!imageDataUrl, achievement: achievements.length > 0 })
+                openShareUrl(shareUrls.twitter)
+              }}
               title="Share on X (Twitter)"
             >
-              <span className={styles.socialIcon}>𝕏</span>
+              <span className={styles.socialIcon}>X</span>
             </button>
             <button 
               className={styles.socialBtn}
-              onClick={() => openShareUrl(shareUrls.facebook)}
+              onClick={() => {
+                trackShareClick('facebook', type, { image: !!imageDataUrl, achievement: achievements.length > 0 })
+                openShareUrl(shareUrls.facebook)
+              }}
               title="Share on Facebook"
             >
               <span className={styles.socialIcon}>f</span>
@@ -360,8 +450,9 @@ export default function ShareModal({ type, data, onClose }) {
             <button 
               className={styles.socialBtn}
               onClick={async () => {
-                // For Instagram, use native share with image
-                const imageToShare = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current) : null)
+                trackShareClick('instagram', type, { image: true, achievement: achievements.length > 0 })
+                // For Instagram, use native share with image (optimized for 1080x1080)
+                const imageToShare = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current, 'instagram') : null)
                 if (imageToShare && navigator.share) {
                   try {
                     const response = await fetch(imageToShare)
@@ -388,6 +479,7 @@ export default function ShareModal({ type, data, onClose }) {
             <button 
               className={styles.socialBtn}
               onClick={async () => {
+                trackShareClick('imessage', type, { image: !!imageDataUrl, achievement: achievements.length > 0 })
                 // For iMessage, use native share with image if available
                 const imageToShare = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current) : null)
                 if (imageToShare && navigator.share) {
@@ -411,7 +503,7 @@ export default function ShareModal({ type, data, onClose }) {
               }}
               title="Share via iMessage"
             >
-              <span className={styles.socialIcon}>💬</span>
+              <span className={styles.socialIcon}>Msg</span>
             </button>
           </div>
           <p className={styles.instagramNote}>

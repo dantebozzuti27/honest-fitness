@@ -1,9 +1,17 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { formatDateMMDDYYYY } from '../utils/dateUtils'
+import { useAuth } from '../context/AuthContext'
+import { getUserProfile } from '../lib/friendsDb'
+import { getWorkoutsFromSupabase, calculateStreakFromSupabase } from '../lib/supabaseDb'
+import { calculateWorkoutAchievements, calculateNutritionAchievements, calculateHealthAchievements } from '../utils/achievements'
 import styles from './ShareCard.module.css'
 
-export default function ShareCard({ type, data }) {
+export default function ShareCard({ type, data, theme = 'default', showAchievements = true, showBranding = true, showSocial = true, customStats = null }) {
   const cardRef = useRef(null)
+  const { user } = useAuth()
+  const [achievements, setAchievements] = useState([])
+  const [userProfile, setUserProfile] = useState(null)
+  const [userStats, setUserStats] = useState({})
 
   const formatDuration = (seconds) => {
     // Duration is stored in SECONDS, not minutes
@@ -19,6 +27,42 @@ export default function ShareCard({ type, data }) {
   }
 
   const formatDate = formatDateMMDDYYYY
+
+  // Load user profile and stats for social context
+  useEffect(() => {
+    if (user && showSocial) {
+      getUserProfile(user.id).then(profile => {
+        setUserProfile(profile)
+      }).catch(() => {})
+      
+      // Load user stats for achievements
+      Promise.all([
+        getWorkoutsFromSupabase(user.id),
+        calculateStreakFromSupabase(user.id)
+      ]).then(([workouts, streak]) => {
+        setUserStats({
+          totalWorkouts: workouts?.length || 0,
+          currentStreak: streak || 0,
+          previousWorkout: workouts?.[1] || null
+        })
+      }).catch(() => {})
+    }
+  }, [user, showSocial])
+
+  // Calculate achievements
+  useEffect(() => {
+    if (!showAchievements) return
+    
+    let calculated = []
+    if (type === 'workout' && data.workout) {
+      calculated = calculateWorkoutAchievements(data.workout, userStats)
+    } else if (type === 'nutrition' && data.nutrition) {
+      calculated = calculateNutritionAchievements(data.nutrition, userStats)
+    } else if (type === 'health' && data.health) {
+      calculated = calculateHealthAchievements(data.health, userStats)
+    }
+    setAchievements(calculated)
+  }, [type, data, userStats, showAchievements])
 
   const renderWorkoutCard = () => {
     const { workout } = data
@@ -184,8 +228,26 @@ export default function ShareCard({ type, data }) {
     const itemGap = Math.max(2, Math.floor(2 * scaleFactor))
     const gridGap = Math.max(4, Math.floor(6 * scaleFactor))
     
+    // Calculate total volume for display
+    let totalVolume = 0
+    validExercises.forEach(ex => {
+      const sets = ex.sets || []
+      sets.forEach(set => {
+        const weight = Number(set.weight) || 0
+        const reps = Number(set.reps) || 0
+        totalVolume += weight * reps
+      })
+    })
+    
+    // Get stats to display (use customStats if provided)
+    const displayStats = customStats || {
+      duration: formatDuration(workout?.duration),
+      exercises: totalExercises,
+      volume: totalVolume
+    }
+
     return (
-      <div className={styles.card} ref={cardRef}>
+      <div className={`${styles.card} ${styles[`theme_${theme}`]}`} ref={cardRef}>
         <div className={styles.cardHeader}>
           <div className={styles.logo}>ECHELON</div>
           <div className={styles.headerRight}>
@@ -193,14 +255,36 @@ export default function ShareCard({ type, data }) {
             <div className={styles.cardDateHeader}>{formatDate(workout?.date)}</div>
           </div>
         </div>
+        
+        {/* Achievements Banner */}
+        {showAchievements && achievements.length > 0 && (
+          <div className={styles.achievementsBanner}>
+            {achievements.slice(0, 2).map((achievement, idx) => (
+              <div key={idx} className={`${styles.achievementBadge} ${styles[achievement.type]}`}>
+                {achievement.label}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {/* Social Context */}
+        {showSocial && userProfile && (
+          <div className={styles.socialContext}>
+            <span className={styles.username}>@{userProfile.username || 'user'}</span>
+          </div>
+        )}
+        
         <div className={styles.cardContent}>
           <div className={styles.mainStat}>
-            <div className={styles.statValue}>{formatDuration(workout?.duration)}</div>
+            <div className={styles.statValue}>{displayStats.duration}</div>
             <div className={styles.statLabel}>Duration</div>
           </div>
-          {totalExercises > 0 && (
+          {displayStats.exercises > 0 && (
             <div className={styles.exerciseCount}>
-              {totalExercises} {totalExercises === 1 ? 'Exercise' : 'Exercises'}
+              {displayStats.exercises} {displayStats.exercises === 1 ? 'Exercise' : 'Exercises'}
+              {displayStats.volume > 0 && (
+                <span className={styles.volumeStat}> • {displayStats.volume >= 1000 ? `${(displayStats.volume / 1000).toFixed(1)}k` : Math.round(displayStats.volume)} lbs</span>
+              )}
             </div>
           )}
           {validExercises.length > 0 && (
@@ -372,8 +456,16 @@ export default function ShareCard({ type, data }) {
     const carbs = totalCarbs || Number(nutrition?.carbs) || 0
     const fat = totalFat || Number(nutrition?.fat) || 0
     
+    // Get stats to display
+    const displayStats = customStats || {
+      calories,
+      protein,
+      carbs,
+      fat
+    }
+
     return (
-      <div className={styles.card} ref={cardRef}>
+      <div className={`${styles.card} ${styles[`theme_${theme}`]}`} ref={cardRef}>
         <div className={styles.cardHeader}>
           <div className={styles.logo}>ECHELON</div>
           <div className={styles.headerRight}>
@@ -381,27 +473,46 @@ export default function ShareCard({ type, data }) {
             <div className={styles.cardDateHeader}>{formatDate(nutrition?.date)}</div>
           </div>
         </div>
+        
+        {/* Achievements Banner */}
+        {showAchievements && achievements.length > 0 && (
+          <div className={styles.achievementsBanner}>
+            {achievements.slice(0, 2).map((achievement, idx) => (
+              <div key={idx} className={`${styles.achievementBadge} ${styles[achievement.type]}`}>
+                {achievement.label}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {/* Social Context */}
+        {showSocial && userProfile && (
+          <div className={styles.socialContext}>
+            <span className={styles.username}>@{userProfile.username || 'user'}</span>
+          </div>
+        )}
+        
         <div className={styles.cardContent}>
           <div className={styles.mainStat}>
-            <div className={styles.statValue}>{calories > 0 ? calories.toLocaleString() : '—'}</div>
+            <div className={styles.statValue}>{displayStats.calories > 0 ? displayStats.calories.toLocaleString() : '—'}</div>
             <div className={styles.statLabel}>Calories</div>
           </div>
           <div className={styles.macrosGrid}>
-            {protein > 0 && (
+            {displayStats.protein > 0 && (
               <div className={styles.macroItem}>
-                <div className={styles.macroValue}>{Math.round(protein)}g</div>
+                <div className={styles.macroValue}>{Math.round(displayStats.protein)}g</div>
                 <div className={styles.macroLabel}>Protein</div>
               </div>
             )}
-            {carbs > 0 && (
+            {displayStats.carbs > 0 && (
               <div className={styles.macroItem}>
-                <div className={styles.macroValue}>{Math.round(carbs)}g</div>
+                <div className={styles.macroValue}>{Math.round(displayStats.carbs)}g</div>
                 <div className={styles.macroLabel}>Carbs</div>
               </div>
             )}
-            {fat > 0 && (
+            {displayStats.fat > 0 && (
               <div className={styles.macroItem}>
-                <div className={styles.macroValue}>{Math.round(fat)}g</div>
+                <div className={styles.macroValue}>{Math.round(displayStats.fat)}g</div>
                 <div className={styles.macroLabel}>Fat</div>
               </div>
             )}
@@ -419,6 +530,14 @@ export default function ShareCard({ type, data }) {
             </div>
           )}
         </div>
+        
+        {/* Branding Footer */}
+        {showBranding && (
+          <div className={styles.brandingFooter}>
+            <div className={styles.brandingText}>Made with Echelon</div>
+            <div className={styles.brandingUrl}>echelon.app</div>
+          </div>
+        )}
       </div>
     )
   }
@@ -428,7 +547,7 @@ export default function ShareCard({ type, data }) {
     const { steps, hrv, sleep_time, calories_burned, weight } = health || {}
     
     return (
-      <div className={styles.card} ref={cardRef}>
+      <div className={`${styles.card} ${styles[`theme_${theme}`]}`} ref={cardRef}>
         <div className={styles.cardHeader}>
           <div className={styles.logo}>ECHELON</div>
           <div className={styles.headerRight}>
@@ -436,6 +555,25 @@ export default function ShareCard({ type, data }) {
             <div className={styles.cardDateHeader}>{formatDate(health?.date)}</div>
           </div>
         </div>
+        
+        {/* Achievements Banner */}
+        {showAchievements && achievements.length > 0 && (
+          <div className={styles.achievementsBanner}>
+            {achievements.slice(0, 2).map((achievement, idx) => (
+              <div key={idx} className={`${styles.achievementBadge} ${styles[achievement.type]}`}>
+                {achievement.label}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {/* Social Context */}
+        {showSocial && userProfile && (
+          <div className={styles.socialContext}>
+            <span className={styles.username}>@{userProfile.username || 'user'}</span>
+          </div>
+        )}
+        
         <div className={styles.cardContent}>
           <div className={styles.healthStatsGrid}>
             {steps && (
@@ -472,6 +610,14 @@ export default function ShareCard({ type, data }) {
             )}
           </div>
         </div>
+        
+        {/* Branding Footer */}
+        {showBranding && (
+          <div className={styles.brandingFooter}>
+            <div className={styles.brandingText}>Made with Echelon</div>
+            <div className={styles.brandingUrl}>echelon.app</div>
+          </div>
+        )}
       </div>
     )
   }

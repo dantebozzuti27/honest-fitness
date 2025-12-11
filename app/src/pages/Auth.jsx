@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
+import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator'
+import EmailCapture from '../components/EmailCapture'
 import styles from './Auth.module.css'
 
 export default function Auth() {
@@ -12,11 +15,37 @@ export default function Auth() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [username, setUsername] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
+  const [referralCode, setReferralCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [consentPrivacy, setConsentPrivacy] = useState(false)
   const [consentTerms, setConsentTerms] = useState(false)
+  const [showEmailCapture, setShowEmailCapture] = useState(false)
+  const [socialLoading, setSocialLoading] = useState(null)
+
+  // Social login handlers
+  const handleSocialLogin = async (provider) => {
+    setSocialLoading(provider)
+    setError('')
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: provider,
+        options: {
+          redirectTo: `${window.location.origin}/`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          }
+        }
+      })
+      if (error) throw error
+      // OAuth will redirect, so we don't need to navigate
+    } catch (err) {
+      setError(`Failed to sign in with ${provider}: ${err.message}`)
+      setSocialLoading(null)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -28,8 +57,8 @@ export default function Auth() {
       return
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters')
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters')
       return
     }
 
@@ -71,6 +100,10 @@ export default function Auth() {
 
     try {
       if (isSignUp) {
+        // Store referral code if provided
+        if (referralCode.trim()) {
+          localStorage.setItem('signup_referral_code', referralCode.trim())
+        }
         await signUp(email, password, username.trim().toLowerCase(), phoneNumber.trim())
         setMessage('Check your email to confirm your account!')
       } else {
@@ -84,11 +117,135 @@ export default function Auth() {
     }
   }
 
+  // Show email capture for non-users first (only once)
+  if (showEmailCapture && !isSignUp) {
+    return (
+      <div className={styles.container}>
+        <EmailCapture 
+          onEmailCaptured={() => setShowEmailCapture(false)}
+          onSkip={() => setShowEmailCapture(false)}
+        />
+        <button 
+          className={styles.backToAuthBtn}
+          onClick={() => setShowEmailCapture(false)}
+        >
+          Continue to Sign In
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.container}>
+      {/* Hero Section with Value Propositions */}
+      <div className={styles.heroSection}>
+        <div className={styles.heroContent}>
+          <h1 className={styles.heroTitle}>Your Fitness Journey, Elevated</h1>
+          <p className={styles.heroTagline}>
+            Track workouts, analyze progress, and achieve your goals with precision.
+          </p>
+          
+          {/* Key Value Propositions */}
+          <div className={styles.valueProps}>
+            <div className={styles.valueProp}>
+              <span className={styles.valueIcon}>📊</span>
+              <div>
+                <div className={styles.valueTitle}>Advanced Analytics</div>
+                <div className={styles.valueDesc}>Data-driven insights powered by ML</div>
+              </div>
+            </div>
+            <div className={styles.valueProp}>
+              <span className={styles.valueIcon}>💪</span>
+              <div>
+                <div className={styles.valueTitle}>Comprehensive Tracking</div>
+                <div className={styles.valueDesc}>Workouts, nutrition, and health metrics</div>
+              </div>
+            </div>
+            <div className={styles.valueProp}>
+              <span className={styles.valueIcon}>🎯</span>
+              <div>
+                <div className={styles.valueTitle}>Goal Achievement</div>
+                <div className={styles.valueDesc}>Smart goals with predictive insights</div>
+              </div>
+            </div>
+            <div className={styles.valueProp}>
+              <span className={styles.valueIcon}>👥</span>
+              <div>
+                <div className={styles.valueTitle}>Social Community</div>
+                <div className={styles.valueDesc}>Connect with friends and share progress</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Social Proof */}
+          <div className={styles.socialProof}>
+            <div className={styles.socialProofItem}>
+              <span className={styles.socialProofNumber}>10,000+</span>
+              <span className={styles.socialProofLabel}>Active Users</span>
+            </div>
+            <div className={styles.socialProofItem}>
+              <span className={styles.socialProofNumber}>500K+</span>
+              <span className={styles.socialProofLabel}>Workouts Logged</span>
+            </div>
+            <div className={styles.socialProofItem}>
+              <span className={styles.socialProofNumber}>4.8★</span>
+              <span className={styles.socialProofLabel}>User Rating</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className={styles.card}>
-        <h1 className={styles.title}>HonestFitness</h1>
-        <p className={styles.subtitle}>{isSignUp ? 'Create your account' : 'Welcome back'}</p>
+        <div className={styles.cardHeader}>
+          <h1 className={styles.title}>ECHELON</h1>
+          <p className={styles.subtitle}>
+            {isSignUp ? 'Create your account' : 'Welcome back'}
+          </p>
+        </div>
+
+        {/* Social Login Options */}
+        <div className={styles.socialLoginSection}>
+          <button
+            className={`${styles.socialBtn} ${styles.appleBtn}`}
+            onClick={() => handleSocialLogin('apple')}
+            disabled={socialLoading !== null}
+          >
+            {socialLoading === 'apple' ? (
+              <span className={styles.loadingSpinner}>⏳</span>
+            ) : (
+              <span className={styles.socialIcon}>🍎</span>
+            )}
+            <span>Continue with Apple</span>
+          </button>
+          <button
+            className={`${styles.socialBtn} ${styles.googleBtn}`}
+            onClick={() => handleSocialLogin('google')}
+            disabled={socialLoading !== null}
+          >
+            {socialLoading === 'google' ? (
+              <span className={styles.loadingSpinner}>⏳</span>
+            ) : (
+              <span className={styles.socialIcon}>G</span>
+            )}
+            <span>Continue with Google</span>
+          </button>
+          <button
+            className={`${styles.socialBtn} ${styles.facebookBtn}`}
+            onClick={() => handleSocialLogin('facebook')}
+            disabled={socialLoading !== null}
+          >
+            {socialLoading === 'facebook' ? (
+              <span className={styles.loadingSpinner}>⏳</span>
+            ) : (
+              <span className={styles.socialIcon}>f</span>
+            )}
+            <span>Continue with Facebook</span>
+          </button>
+        </div>
+
+        <div className={styles.divider}>
+          <span>or</span>
+        </div>
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <div className={styles.inputGroup}>
@@ -110,7 +267,14 @@ export default function Auth() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
+              minLength={8}
             />
+            {isSignUp && <PasswordStrengthIndicator password={password} />}
+            {isSignUp && (
+              <small className={styles.helperText}>
+                Use a strong password with 8+ characters, including uppercase, lowercase, numbers, and special characters.
+              </small>
+            )}
           </div>
 
           {isSignUp && (
@@ -139,6 +303,9 @@ export default function Auth() {
                   placeholder="+1 (555) 123-4567"
                   required
                 />
+                <small className={styles.helperText}>
+                  Required for account recovery and two-factor authentication
+                </small>
               </div>
 
               <div className={styles.inputGroup}>
@@ -150,6 +317,20 @@ export default function Auth() {
                   placeholder="••••••••"
                   required
                 />
+              </div>
+
+              {/* Referral Code Input */}
+              <div className={styles.inputGroup}>
+                <label>Referral Code (Optional)</label>
+                <input
+                  type="text"
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value)}
+                  placeholder="Enter friend's code"
+                />
+                <small className={styles.helperText}>
+                  Have a referral code? Enter it to unlock premium features for both you and your friend!
+                </small>
               </div>
             </>
           )}
@@ -191,9 +372,59 @@ export default function Auth() {
           {message && <p className={styles.message}>{message}</p>}
 
           <button type="submit" className={styles.submitBtn} disabled={loading}>
-            {loading ? 'Loading...' : isSignUp ? 'Sign Up' : 'Sign In'}
+            {loading ? 'Loading...' : isSignUp ? 'Create Account' : 'Sign In'}
           </button>
         </form>
+
+        {/* Trust Signals */}
+        <div className={styles.trustSignals}>
+          <div className={styles.trustBadge}>
+            <span className={styles.trustIcon}>🔒</span>
+            <span>256-bit Encryption</span>
+          </div>
+          <div className={styles.trustBadge}>
+            <span className={styles.trustIcon}>✓</span>
+            <span>GDPR Compliant</span>
+          </div>
+          <div className={styles.trustBadge}>
+            <span className={styles.trustIcon}>🛡️</span>
+            <span>Privacy First</span>
+          </div>
+        </div>
+
+        {/* Onboarding Preview */}
+        {isSignUp && (
+          <div className={styles.onboardingPreview}>
+            <h3 className={styles.previewTitle}>What you'll get:</h3>
+            <div className={styles.previewFeatures}>
+              <div className={styles.previewFeature}>
+                <span className={styles.previewIcon}>📱</span>
+                <span>Track workouts with precision</span>
+              </div>
+              <div className={styles.previewFeature}>
+                <span className={styles.previewIcon}>📊</span>
+                <span>Advanced analytics & insights</span>
+              </div>
+              <div className={styles.previewFeature}>
+                <span className={styles.previewIcon}>🎯</span>
+                <span>Set and achieve goals</span>
+              </div>
+              <div className={styles.previewFeature}>
+                <span className={styles.previewIcon}>👥</span>
+                <span>Connect with friends</span>
+              </div>
+            </div>
+            <button 
+              className={styles.previewBtn}
+              onClick={() => {
+                // Could open a modal or navigate to a tour
+                alert('Take a tour coming soon!')
+              }}
+            >
+              Take a Tour →
+            </button>
+          </div>
+        )}
 
         <p className={styles.toggle}>
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
@@ -203,10 +434,26 @@ export default function Auth() {
             setMessage('')
             setUsername('')
             setPhoneNumber('')
+            setReferralCode('')
           }}>
             {isSignUp ? 'Sign In' : 'Sign Up'}
           </button>
         </p>
+
+        {/* Email Capture for Non-Users */}
+        {!isSignUp && (
+          <div className={styles.emailCaptureSection}>
+            <p className={styles.emailCaptureText}>
+              Want updates? Get notified about new features.
+            </p>
+            <button 
+              className={styles.emailCaptureBtn}
+              onClick={() => setShowEmailCapture(true)}
+            >
+              Get Early Access
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

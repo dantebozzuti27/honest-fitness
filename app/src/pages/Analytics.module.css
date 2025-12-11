@@ -504,6 +504,169 @@
   color: var(--text-secondary);
 }
 
+/* Comparative Analytics Card */
+.comparativeCard {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.comparativeTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.comparativeStats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.comparativeStat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.comparativeLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.comparativeValue {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.comparativeArrow {
+  font-size: 24px;
+  color: var(--text-secondary);
+}
+
+.comparativeChange {
+  margin-left: auto;
+}
+
+.positiveChange {
+  color: #4ade80;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.negativeChange {
+  color: #f87171;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* Enrichment Metrics */
+.qualityBadge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.qualityLabel {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.qualityScore {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.workoutMetrics {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.metricBadge {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  min-width: 80px;
+}
+
+.metricLabel {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metricValue {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+/* Advanced Analytics */
+.advancedAnalyticsCard {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.advancedAnalyticsTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.advancedAnalyticsStats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.advancedStat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 100px;
+}
+
+.advancedStatLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.advancedStatValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
 /* Body Parts Heatmap */
 .heatmapContainer {
   padding: 4px 0;
@@ -752,7 +915,8 @@
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   position: relative;
-  overflow: hidden;
+  overflow: visible;
+  gap: 8px;
 }
 
 .statCard::before {

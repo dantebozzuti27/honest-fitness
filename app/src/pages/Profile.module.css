@@ -474,6 +474,77 @@
   cursor: not-allowed;
 }
 
+.exportMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  overflow: hidden;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.exportOption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-align: left;
+}
+
+.exportOption:last-child {
+  border-bottom: none;
+}
+
+.exportOption:hover {
+  background: var(--bg-tertiary);
+}
+
+.exportIcon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.exportTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.exportDesc {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.exportNote {
+  margin-top: var(--space-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
 .logoutBtn {
   padding: 14px 20px;
   font-size: 15px;

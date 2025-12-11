@@ -285,23 +285,125 @@
 
 .progressBar {
   width: 100%;
-  height: 8px;
+  height: 10px;
   background: var(--bg-tertiary);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 4px;
+  border-radius: 5px;
+  overflow: visible;
+  margin-bottom: 8px;
+  position: relative;
 }
 
 .progressFill {
   height: 100%;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 100%);
+  border-radius: 5px;
+  transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  box-shadow: 0 2px 8px rgba(255, 45, 45, 0.3);
+  animation: progressGlow 2s ease-in-out infinite;
+}
+
+@keyframes progressGlow {
+  0%, 100% {
+    box-shadow: 0 2px 8px rgba(255, 45, 45, 0.3);
+  }
+  50% {
+    box-shadow: 0 2px 12px rgba(255, 45, 45, 0.5);
+  }
+}
+
+.progressFill[data-progress="100"] {
+  background: linear-gradient(90deg, #4ade80 0%, #22c55e 100%);
+  box-shadow: 0 2px 8px rgba(74, 222, 128, 0.4);
+}
+
+.milestoneMarker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border);
+  z-index: 2;
+  transition: all 0.3s ease;
+}
+
+.milestoneMarker.reached {
   background: var(--accent);
-  transition: width 0.3s;
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(255, 45, 45, 0.5);
+  animation: milestonePulse 0.6s ease-out;
+}
+
+@keyframes milestonePulse {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.3);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 .progressText {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-primary);
   opacity: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.progressValues {
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+}
+
+.progressPercent {
+  font-weight: 600;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.celebration {
+  font-size: 16px;
+  animation: celebrate 0.6s ease-out;
+}
+
+@keyframes celebrate {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+  }
+  25% {
+    transform: scale(1.2) rotate(-10deg);
+  }
+  75% {
+    transform: scale(1.2) rotate(10deg);
+  }
+}
+
+.progressRate {
+  font-size: 11px;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.onTrack {
+  color: #4ade80;
+  font-weight: 500;
+}
+
+.offTrack {
+  color: #f87171;
+  font-weight: 500;
 }
 
 .goalDescription {

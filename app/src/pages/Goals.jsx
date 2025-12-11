@@ -540,11 +540,48 @@ export default function Goals() {
                             <div
                               className={styles.progressFill}
                               style={{ width: `${progress}%` }}
+                              data-progress={progress}
                             />
+                            {/* Milestone markers */}
+                            {[25, 50, 75, 100].map(milestone => (
+                              <div
+                                key={milestone}
+                                className={`${styles.milestoneMarker} ${progress >= milestone ? styles.reached : ''}`}
+                                style={{ left: `${milestone}%` }}
+                              />
+                            ))}
                           </div>
                           <div className={styles.progressText}>
-                            {goal.current_value} / {goal.target_value} {goal.unit} ({Math.round(progress)}%)
+                            <span className={styles.progressValues}>
+                              {goal.current_value} / {goal.target_value} {goal.unit}
+                            </span>
+                            <span className={styles.progressPercent}>
+                              {Math.round(progress)}%
+                            </span>
+                            {progress >= 100 && (
+                              <span className={styles.celebration}>🎉</span>
+                            )}
                           </div>
+                          {goal.end_date && (() => {
+                            const today = new Date()
+                            const endDate = new Date(goal.end_date)
+                            const daysRemaining = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24))
+                            const daysTotal = Math.ceil((endDate - new Date(goal.start_date)) / (1000 * 60 * 60 * 24))
+                            const timeProgress = Math.max(0, Math.min(100, ((daysTotal - daysRemaining) / daysTotal) * 100))
+                            const onTrack = progress >= timeProgress * 0.9
+                            
+                            return (
+                              <div className={styles.progressRate}>
+                                {onTrack ? (
+                                  <span className={styles.onTrack}>✓ On track</span>
+                                ) : (
+                                  <span className={styles.offTrack}>
+                                    {daysRemaining > 0 ? `${daysRemaining} days left` : 'Time expired'}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </div>
                         {goal.description && (
                           <p className={styles.goalDescription}>{goal.description}</p>

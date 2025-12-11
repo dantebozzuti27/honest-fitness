@@ -26,8 +26,18 @@ import BodyHeatmap from '../components/BodyHeatmap'
 import BarChart from '../components/BarChart'
 import PredictiveInsights from '../components/PredictiveInsights'
 import DataSummaryCard from '../components/DataSummaryCard'
+import DataFreshnessIndicator from '../components/DataFreshnessIndicator'
+import HelpTooltip from '../components/HelpTooltip'
+import EmptyState from '../components/EmptyState'
+import ChartContext from '../components/ChartContext'
+import LineChart from '../components/LineChart'
+import PieChart from '../components/PieChart'
+import Sparkline from '../components/Sparkline'
+import { enrichWorkoutData, enrichNutritionData } from '../lib/dataEnrichment'
 import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
+import { comparePeriods, compareGoalVsActual } from '../lib/comparativeAnalytics'
+import { analyzeCohorts, analyzeFunnel, analyzeRetention } from '../lib/advancedAnalytics'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import styles from './Analytics.module.css'
@@ -77,6 +87,8 @@ export default function Analytics() {
   const [editingMetric, setEditingMetric] = useState(null)
   const [mlInsights, setMlInsights] = useState(null)
   const [mlLoading, setMlLoading] = useState(false)
+  const [comparativeData, setComparativeData] = useState(null)
+  const [lastDataUpdate, setLastDataUpdate] = useState(new Date())
 
   useEffect(() => {
     async function loadData() {
@@ -130,6 +142,22 @@ export default function Analytics() {
         
         // Load ML insights in background
         loadMLInsights()
+        
+        // Load comparative analytics
+        loadComparativeAnalytics()
+        
+        // Load advanced analytics
+        loadAdvancedAnalytics()
+        
+        // Calculate nutrition quality
+        if (nutrition) {
+          enrichNutritionData(nutrition).then(enriched => {
+            setNutritionQuality(enriched?.derived_metrics?.quality_score)
+          })
+        }
+        
+        // Update data freshness timestamp
+        setLastDataUpdate(new Date())
 
         // Calculate reps and sets per body part (only valid data)
         const bodyPartReps = {}
@@ -205,6 +233,94 @@ export default function Analytics() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [user])
+
+  const [nutritionQuality, setNutritionQuality] = useState(null)
+
+  async function loadAdvancedAnalytics() {
+    if (!user) return
+    try {
+      // Load retention analysis
+      const retention = await analyzeRetention(user.id, 30)
+      if (retention) {
+        setAdvancedAnalytics(prev => ({ ...prev, retention }))
+      }
+    } catch (error) {
+      logWarn('Advanced analytics unavailable', error)
+    }
+  }
+
+  function WorkoutMetrics({ workout }) {
+    const [metrics, setMetrics] = useState(null)
+    
+    useEffect(() => {
+      if (workout) {
+        enrichWorkoutData(workout).then(enriched => {
+          setMetrics(enriched?.derived_metrics)
+        })
+      }
+    }, [workout])
+    
+    if (!metrics) return null
+    
+    const { intensity_percentage, difficulty_score, total_volume } = metrics
+    
+    return (
+      <div className={styles.workoutMetrics}>
+        {total_volume > 0 && (
+          <div className={styles.metricBadge}>
+            <span className={styles.metricLabel}>Volume</span>
+            <span className={styles.metricValue}>{Math.round(total_volume).toLocaleString()} lbs</span>
+          </div>
+        )}
+        {intensity_percentage > 0 && (
+          <div className={styles.metricBadge}>
+            <span className={styles.metricLabel}>Intensity</span>
+            <span className={styles.metricValue}>{Math.round(intensity_percentage)}%</span>
+          </div>
+        )}
+        {difficulty_score !== undefined && (
+          <div className={styles.metricBadge}>
+            <span className={styles.metricLabel}>Difficulty</span>
+            <span className={styles.metricValue}>{Math.round(difficulty_score)}/100</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+
+  async function loadComparativeAnalytics() {
+    if (!user) return
+    try {
+      // Compare this week vs last week
+      const today = new Date()
+      const thisWeekStart = new Date(today)
+      thisWeekStart.setDate(today.getDate() - (today.getDay() === 0 ? 6 : today.getDay() - 1))
+      const lastWeekStart = new Date(thisWeekStart)
+      lastWeekStart.setDate(thisWeekStart.getDate() - 7)
+      const lastWeekEnd = new Date(thisWeekStart)
+      lastWeekEnd.setDate(lastWeekEnd.getDate() - 1)
+
+      const comparison = await comparePeriods(
+        user.id,
+        'workout_count',
+        {
+          start: lastWeekStart.toISOString().split('T')[0],
+          end: lastWeekEnd.toISOString().split('T')[0]
+        },
+        {
+          start: thisWeekStart.toISOString().split('T')[0],
+          end: today.toISOString().split('T')[0]
+        }
+      )
+
+      if (comparison) {
+        setComparativeData(comparison)
+      }
+    } catch (error) {
+      logWarn('Comparative analytics unavailable', error)
+    }
+  }
 
   const getTemplateName = (templateId) => {
     if (templateId === 'freestyle') return 'Freestyle'
@@ -435,6 +551,63 @@ export default function Analytics() {
   const renderOverview = () => {
     return (
       <div className={styles.overviewContainer}>
+        {/* Data Freshness Indicator */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+          <DataFreshnessIndicator lastUpdated={lastDataUpdate} />
+        </div>
+
+        {/* Comparative Analytics Card */}
+        {comparativeData && (
+          <div className={styles.comparativeCard}>
+            <h3 className={styles.comparativeTitle}>This Week vs Last Week</h3>
+            <div className={styles.comparativeStats}>
+              <div className={styles.comparativeStat}>
+                <span className={styles.comparativeLabel}>Last Week</span>
+                <span className={styles.comparativeValue}>{comparativeData.period1.value}</span>
+              </div>
+              <div className={styles.comparativeArrow}>
+                {comparativeData.change > 0 ? '↑' : comparativeData.change < 0 ? '↓' : '→'}
+              </div>
+              <div className={styles.comparativeStat}>
+                <span className={styles.comparativeLabel}>This Week</span>
+                <span className={styles.comparativeValue}>{comparativeData.period2.value}</span>
+              </div>
+              <div className={styles.comparativeChange}>
+                <span className={comparativeData.change > 0 ? styles.positiveChange : styles.negativeChange}>
+                  {comparativeData.change > 0 ? '+' : ''}{comparativeData.change_percent}%
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Advanced Analytics Summary */}
+        {advancedAnalytics?.retention && (
+          <div className={styles.advancedAnalyticsCard}>
+            <h3 className={styles.advancedAnalyticsTitle}>Engagement Insights</h3>
+            <div className={styles.advancedAnalyticsStats}>
+              <div className={styles.advancedStat}>
+                <span className={styles.advancedStatLabel}>Retention Rate</span>
+                <span className={styles.advancedStatValue}>
+                  {Math.round(advancedAnalytics.retention.retention_rate)}%
+                </span>
+              </div>
+              <div className={styles.advancedStat}>
+                <span className={styles.advancedStatLabel}>Active Users</span>
+                <span className={styles.advancedStatValue}>
+                  {advancedAnalytics.retention.total_active_users}
+                </span>
+              </div>
+              <div className={styles.advancedStat}>
+                <span className={styles.advancedStatLabel}>Return Rate</span>
+                <span className={styles.advancedStatValue}>
+                  {Math.round(advancedAnalytics.retention.avg_return_rate * 10) / 10}/week
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Predictive Insights */}
         <PredictiveInsights />
         
@@ -478,7 +651,17 @@ export default function Analytics() {
         <div className={styles.combinedStatsGrid}>
           <div className={styles.statCard}>
             <div className={styles.statValue}>{data.totalWorkouts}</div>
-            <div className={styles.statLabel}>Workouts</div>
+            <div className={styles.statLabel}>
+              Workouts
+              <HelpTooltip 
+                content="Total number of workouts you've completed"
+                position="top"
+              />
+            </div>
+            {data.workouts.length > 0 && (() => {
+              const recentWorkouts = data.workouts.slice(-7).map(w => 1)
+              return <Sparkline data={recentWorkouts} height={30} color="#ff2d2d" />
+            })()}
           </div>
           {data.nutrition && (
             <div className={styles.statCard}>
@@ -515,7 +698,15 @@ export default function Analytics() {
         {/* Nutrition Summary */}
         {data.nutrition && data.nutrition.calories > 0 && (
           <div className={styles.nutritionCard}>
-            <h3>Today's Nutrition</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3>Today's Nutrition</h3>
+              {nutritionQuality !== null && (
+                <div className={styles.qualityBadge}>
+                  <span className={styles.qualityLabel}>Quality</span>
+                  <span className={styles.qualityScore}>{Math.round(nutritionQuality)}</span>
+                </div>
+              )}
+            </div>
             <div className={styles.nutritionStats}>
               <div className={styles.nutritionItem}>
                 <span className={styles.nutritionLabel}>Calories</span>
@@ -649,11 +840,13 @@ export default function Analytics() {
           return (
             <div className={styles.trendsCard}>
               <h3>Weekly Nutrition Trend</h3>
-              <BarChart 
+              <LineChart 
                 data={chartData}
                 labels={chartLabels}
                 height={150}
-                color="var(--text-primary)"
+                color="#ff2d2d"
+                xAxisLabel="Date"
+                yAxisLabel="Calories"
               />
             </div>
           )
@@ -715,9 +908,15 @@ export default function Analytics() {
           ))}
         </div>
 
-        <h3 className={styles.sectionTitle}>
-          {METRIC_TYPES[metricType]} by Body Part
-        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+          <h3 className={styles.sectionTitle}>
+            {METRIC_TYPES[metricType]} by Body Part
+          </h3>
+          <HelpTooltip 
+            content="This heatmap shows your training distribution across different body parts. Tap a body part to see detailed exercise history."
+            position="right"
+          />
+        </div>
         
         {/* Body Heatmap */}
         <BodyHeatmap 
@@ -783,7 +982,13 @@ export default function Analytics() {
         <h3 className={styles.sectionTitle}>Workout History</h3>
         
         {sortedWorkouts.length === 0 ? (
-          <p className={styles.emptyText}>No workouts recorded yet</p>
+          <EmptyState
+            icon="💪"
+            title="No Workouts Yet"
+            message="Start logging workouts to see your progress and trends over time."
+            actionLabel="Start Workout"
+            onAction={() => navigate('/workout')}
+          />
         ) : (
           <>
             <div className={styles.chartTypeSelector}>
@@ -825,6 +1030,18 @@ export default function Analytics() {
                       yAxisLabel="Workouts"
                       chartTitle="Workouts Per Week"
                     />
+                    {(() => {
+                      const values = Object.values(weeklyWorkoutData)
+                      const current = values[values.length - 1] || 0
+                      const previous = values[values.length - 2] || 0
+                      return (
+                        <ChartContext
+                          currentValue={current}
+                          previousValue={previous}
+                          showTrend={true}
+                        />
+                      )
+                    })()}
                   </div>
                 </>
               )}
@@ -944,7 +1161,13 @@ export default function Analytics() {
         <h3 className={styles.sectionTitle}>Metrics Trends</h3>
         
         {recentMetrics.length === 0 ? (
-          <p className={styles.emptyText}>No metrics recorded yet</p>
+          <EmptyState
+            icon="📊"
+            title="No Metrics Yet"
+            message="Log your health metrics like weight, sleep, and steps to see trends and insights."
+            actionLabel="Log Metrics"
+            onAction={() => navigate('/health')}
+          />
         ) : (
           <>
             <div className={styles.chartTypeSelector}>
@@ -1252,21 +1475,40 @@ export default function Analytics() {
           {trendsChartType === 'exercises' && Object.keys(topExercisesChartData).length > 0 && (
             <>
               <h4 className={styles.chartTitle}>Top Exercises</h4>
-              <BarChart 
-                data={topExercisesChartData} 
-                labels={Object.keys(topExercisesChartData)}
-                height={150} 
-                color="#ff2d2d"
-                xAxisLabel="Exercise"
-                yAxisLabel="Count"
-              />
+              <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+                <div style={{ flex: 1 }}>
+                  <BarChart 
+                    data={topExercisesChartData} 
+                    labels={Object.keys(topExercisesChartData)}
+                    height={150} 
+                    color="#ff2d2d"
+                    xAxisLabel="Exercise"
+                    yAxisLabel="Count"
+                  />
+                </div>
+                <div style={{ flex: '0 0 200px' }}>
+                  <PieChart 
+                    data={topExercisesChartData}
+                    height={200}
+                    donut={true}
+                    showLabels={true}
+                    showLegend={false}
+                  />
+                </div>
+              </div>
             </>
           )}
         </div>
 
         <h3 className={styles.sectionTitle}>Top Exercises List</h3>
         {data.topExercises.length === 0 ? (
-          <p className={styles.emptyText}>Complete workouts to see your top exercises</p>
+          <EmptyState
+            icon="🏋️"
+            title="No Exercise Data"
+            message="Complete workouts with exercises to see your most performed exercises and training patterns."
+            actionLabel="Start Workout"
+            onAction={() => navigate('/workout')}
+          />
         ) : (
           <div className={styles.topExercises}>
             {data.topExercises.map(([name, count], i) => (

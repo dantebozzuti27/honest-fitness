@@ -55,13 +55,13 @@ export async function analyzeCohorts(userId = null, startDate = null, endDate = 
       // Check retention at different time periods
       const retentionPeriods = [7, 14, 30, 60, 90] // days
       
-      retentionPeriods.forEach(period => {
+      for (const period of retentionPeriods) {
         const activeUsers = await countActiveUsers(cohortUsers.map(u => u.id), period)
         cohorts[cohortMonth].retention[`day_${period}`] = {
           active_users: activeUsers,
           retention_rate: (activeUsers / cohortUsers.length) * 100
         }
-      })
+      }
     }
     
     return Object.values(cohorts)

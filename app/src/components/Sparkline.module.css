@@ -1,0 +1,54 @@
+.sparklineContainer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sparkline {
+  width: 100px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.emptySparkline {
+  width: 100px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.line {
+  animation: sparklineDraw 0.6s ease-out;
+}
+
+@keyframes sparklineDraw {
+  from {
+    stroke-dasharray: 200;
+    stroke-dashoffset: 200;
+  }
+  to {
+    stroke-dasharray: 200;
+    stroke-dashoffset: 0;
+  }
+}
+
+.trend {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.trendUp {
+  color: #4ade80;
+}
+
+.trendDown {
+  color: #f87171;
+}
+
+.trendStable {
+  color: var(--text-secondary);
+}
+

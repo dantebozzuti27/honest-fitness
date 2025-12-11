@@ -1,113 +1,136 @@
 .chartContainer {
   width: 100%;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--glass-card-bg);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
+  border: 1px solid var(--glass-card-border);
   border-radius: var(--radius-lg);
   padding: var(--space-md);
-  max-height: 250px;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--glass-card-shadow);
   position: relative;
-  overflow: hidden;
-}
-
-.chartContainer::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: 
-    linear-gradient(90deg, transparent 0%, var(--accent-glow) 50%, transparent 100%),
-    linear-gradient(0deg, transparent 0%, var(--accent-glow) 50%, transparent 100%);
-  pointer-events: none;
-  opacity: 0.3;
+  display: flex;
+  flex-direction: column;
 }
 
 .chart {
   width: 100%;
   height: auto;
+  flex: 1;
+  min-height: 0;
   display: block;
-  position: relative;
-  z-index: 1;
 }
 
 .emptyChart {
   padding: var(--space-xl);
   text-align: center;
-  color: var(--text-muted);
+  color: #ffffff;
   font-size: var(--text-sm);
 }
 
-.grid {
-  opacity: 0.2;
+.area {
+  animation: areaFadeIn 0.8s ease-out;
+}
+
+@keyframes areaFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .line {
-  stroke-width: 2;
-  filter: drop-shadow(0 0 2px currentColor);
-  transition: all var(--transition-base);
+  animation: lineDraw 1s ease-out;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+@keyframes lineDraw {
+  from {
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 1000;
+  }
+  to {
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 0;
+  }
 }
 
 .point {
-  transition: all var(--transition-fast);
-  filter: drop-shadow(0 0 2px currentColor);
+  animation: pointPulse 0.6s ease-out forwards;
+  opacity: 0;
+  cursor: pointer;
+  transition: r 0.2s ease;
 }
 
 .point:hover {
-  r: 2.5;
-  filter: drop-shadow(0 0 4px currentColor);
+  r: 3.5;
+  filter: drop-shadow(0 0 8px currentColor);
 }
 
-.labels {
+@keyframes pointPulse {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.xAxisLabels {
   display: flex;
   justify-content: space-between;
-  margin-top: var(--space-sm);
-  padding: 0 var(--space-xs);
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
+  margin-top: 8px;
+  padding: 0 12px;
+  font-size: 10px;
+  color: #ffffff;
   flex-wrap: wrap;
-  gap: var(--space-xs);
-  min-height: 20px;
+  gap: 2px;
+  min-height: 24px;
 }
 
-.label {
-  font-size: 8px;
+.xAxisLabel {
+  font-size: 11px;
   text-align: center;
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-primary);
+  color: #ffffff;
+  opacity: 0.7;
 }
 
-.legend {
-  display: flex;
-  justify-content: space-between;
-  margin-top: var(--space-sm);
-  padding: 0 var(--space-xs);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
+.xAxisLabelText {
+  text-align: center;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  opacity: 0.8;
 }
 
-@media (max-width: var(--breakpoint-sm)) {
-  .chartContainer {
-    padding: var(--space-sm);
-    max-height: 200px;
-  }
-  
-  .labels {
-    font-size: 10px;
-    gap: 2px;
-  }
-  
-  .label {
-    font-size: 10px;
-  }
-  
-  .legend {
-    font-size: 10px;
-  }
+.yAxisLabel {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%) rotate(-90deg);
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  z-index: 2;
+  letter-spacing: -0.01em;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.axisLabel {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  fill: #ffffff;
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }

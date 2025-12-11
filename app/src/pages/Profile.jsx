@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
+import { exportUserDataJSON, exportWorkoutsCSV, exportHealthMetricsCSV, downloadData } from '../lib/dataExport'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
 import { getUserPreferences, saveUserPreferences } from '../lib/supabaseDb'
 import { getUserProfile, updateUserProfile, getOrCreateUserProfile, getFriends, getFriendCount, getPendingFriendRequests } from '../lib/friendsDb'
@@ -33,6 +34,7 @@ export default function Profile() {
   const [loadingSocial, setLoadingSocial] = useState(true)
   const [showInviteFriends, setShowInviteFriends] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showExportMenu, setShowExportMenu] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -199,13 +201,30 @@ export default function Profile() {
     }
   }
 
-  const handleExport = async () => {
+  const handleExport = async (format = 'json') => {
     if (!user) return
     setExporting(true)
     try {
-      const result = await exportWorkoutData(user.id, user.email)
-      alert(`Exported ${result.workouts} workouts and ${result.metrics} daily metrics!\n\nThe Excel file has been downloaded. Attach it to the email that just opened.`)
+      if (format === 'json') {
+        const data = await exportUserDataJSON(user.id)
+        downloadData(data, `honest-fitness-data-${new Date().toISOString().split('T')[0]}.json`, 'application/json')
+        alert('All data exported as JSON!')
+      } else if (format === 'workouts-csv') {
+        const csv = await exportWorkoutsCSV(user.id)
+        downloadData(csv, `workouts-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
+        alert('Workouts exported as CSV!')
+      } else if (format === 'metrics-csv') {
+        const csv = await exportHealthMetricsCSV(user.id)
+        downloadData(csv, `health-metrics-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
+        alert('Health metrics exported as CSV!')
+      } else if (format === 'excel') {
+        // Legacy Excel export
+        const result = await exportWorkoutData(user.id, user.email)
+        alert(`Exported ${result.workouts} workouts and ${result.metrics} daily metrics!\n\nThe Excel file has been downloaded. Attach it to the email that just opened.`)
+      }
+      setShowExportMenu(false)
     } catch (err) {
+      console.error('Export error:', err)
       alert('Failed to export data. Please try again.')
     }
     setExporting(false)
@@ -502,14 +521,63 @@ export default function Profile() {
         </div>
 
         <div className={styles.section}>
-          <h2 className={styles.sectionTitle}>Data</h2>
-          <button
-            className={styles.actionBtn}
-            onClick={handleExport}
-            disabled={exporting}
-          >
-            {exporting ? 'Exporting...' : 'Export All Data'}
-          </button>
+          <h2 className={styles.sectionTitle}>Data Export</h2>
+          <div style={{ position: 'relative' }}>
+            <button
+              className={styles.actionBtn}
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              disabled={exporting}
+            >
+              {exporting ? 'Exporting...' : 'Export Data'}
+            </button>
+            {showExportMenu && !exporting && (
+              <div className={styles.exportMenu}>
+                <button
+                  className={styles.exportOption}
+                  onClick={() => handleExport('json')}
+                >
+                  <span className={styles.exportIcon}>📦</span>
+                  <div>
+                    <div className={styles.exportTitle}>All Data (JSON)</div>
+                    <div className={styles.exportDesc}>Complete backup of all your data</div>
+                  </div>
+                </button>
+                <button
+                  className={styles.exportOption}
+                  onClick={() => handleExport('workouts-csv')}
+                >
+                  <span className={styles.exportIcon}>💪</span>
+                  <div>
+                    <div className={styles.exportTitle}>Workouts (CSV)</div>
+                    <div className={styles.exportDesc}>Workout history in spreadsheet format</div>
+                  </div>
+                </button>
+                <button
+                  className={styles.exportOption}
+                  onClick={() => handleExport('metrics-csv')}
+                >
+                  <span className={styles.exportIcon}>📊</span>
+                  <div>
+                    <div className={styles.exportTitle}>Health Metrics (CSV)</div>
+                    <div className={styles.exportDesc}>Sleep, HRV, steps, weight, etc.</div>
+                  </div>
+                </button>
+                <button
+                  className={styles.exportOption}
+                  onClick={() => handleExport('excel')}
+                >
+                  <span className={styles.exportIcon}>📧</span>
+                  <div>
+                    <div className={styles.exportTitle}>Excel (Legacy)</div>
+                    <div className={styles.exportDesc}>Opens email with Excel attachment</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+          <p className={styles.exportNote}>
+            Export your data for backup or analysis. GDPR compliant.
+          </p>
         </div>
 
         <div className={styles.section}>

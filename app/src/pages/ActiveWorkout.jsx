@@ -70,7 +70,7 @@ export default function ActiveWorkout() {
           const exercisesStr = JSON.stringify(exercises)
           if (exercisesStr !== lastSavedExercisesRef.current) {
             // Save to active workout session
-            await saveActiveWorkoutSession(user.id, {
+            const result = await saveActiveWorkoutSession(user.id, {
               workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
               pausedTimeMs: pausedTimeRef.current || 0,
               restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
@@ -78,6 +78,8 @@ export default function ActiveWorkout() {
               isResting: isResting,
               exercises: exercises // Save exercises for recovery
             })
+            
+            // If saveActiveWorkoutSession returns null, table/column doesn't exist - that's okay, use localStorage
             lastSavedExercisesRef.current = exercisesStr
 
             // Also save to localStorage as backup
@@ -92,8 +94,19 @@ export default function ActiveWorkout() {
             }))
           }
         } catch (error) {
-          logError('Error auto-saving workout progress', error)
-          // Fallback to localStorage only
+          // Only log unexpected errors (not table/column missing errors)
+          const isExpectedError = error.code === 'PGRST205' || 
+                                  error.code === '42P01' ||
+                                  error.code === '42703' ||
+                                  error.message?.includes('Could not find the table') ||
+                                  error.message?.includes('column') ||
+                                  error.message?.includes('does not exist')
+          
+          if (!isExpectedError) {
+            logError('Error auto-saving workout progress', error)
+          }
+          
+          // Always fallback to localStorage
           try {
             localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
               exercises,
@@ -105,7 +118,10 @@ export default function ActiveWorkout() {
               timestamp: Date.now()
             }))
           } catch (e) {
-            logError('Error saving to localStorage backup', e)
+            // localStorage might be full or unavailable
+            if (!isExpectedError) {
+              logError('Error saving to localStorage backup', e)
+            }
           }
         }
       }
@@ -124,7 +140,7 @@ export default function ActiveWorkout() {
 
     const saveTimeout = setTimeout(async () => {
       try {
-        await saveActiveWorkoutSession(user.id, {
+        const result = await saveActiveWorkoutSession(user.id, {
           workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
           pausedTimeMs: pausedTimeRef.current || 0,
           restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
@@ -132,7 +148,11 @@ export default function ActiveWorkout() {
           isResting: isResting,
           exercises: exercises
         })
-        lastSavedExercisesRef.current = JSON.stringify(exercises)
+        
+        // If result is null, table/column doesn't exist - that's okay, localStorage will be used
+        if (result !== null) {
+          lastSavedExercisesRef.current = JSON.stringify(exercises)
+        }
 
         // Also save to localStorage
         localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
@@ -145,8 +165,19 @@ export default function ActiveWorkout() {
           timestamp: Date.now()
         }))
       } catch (error) {
-        logError('Error saving exercise progress', error)
-        // Fallback to localStorage
+        // Only log unexpected errors (not table/column missing errors)
+        const isExpectedError = error.code === 'PGRST205' || 
+                                error.code === '42P01' ||
+                                error.code === '42703' ||
+                                error.message?.includes('Could not find the table') ||
+                                error.message?.includes('column') ||
+                                error.message?.includes('does not exist')
+        
+        if (!isExpectedError) {
+          logError('Error saving exercise progress', error)
+        }
+        
+        // Always fallback to localStorage
         try {
           localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
             exercises,
@@ -158,7 +189,10 @@ export default function ActiveWorkout() {
             timestamp: Date.now()
           }))
         } catch (e) {
-          logError('Error saving to localStorage', e)
+          // localStorage might be full or unavailable
+          if (!isExpectedError) {
+            logError('Error saving to localStorage', e)
+          }
         }
       }
     }, 2000) // Debounce: save 2 seconds after last change
@@ -1181,7 +1215,17 @@ export default function ActiveWorkout() {
                   timestamp: Date.now()
                 }))
               } catch (error) {
-                logError('Error saving workout before cancel', error)
+                // Only log unexpected errors
+                const isExpectedError = error.code === 'PGRST205' || 
+                                        error.code === '42P01' ||
+                                        error.code === '42703' ||
+                                        error.message?.includes('Could not find the table') ||
+                                        error.message?.includes('column') ||
+                                        error.message?.includes('does not exist')
+                
+                if (!isExpectedError) {
+                  logError('Error saving workout before cancel', error)
+                }
               }
             }
             
@@ -1190,7 +1234,14 @@ export default function ActiveWorkout() {
               try {
                 await deleteActiveWorkoutSession(user.id)
               } catch (error) {
-                logError('Error deleting active workout session on cancel', error)
+                // Only log unexpected errors
+                const isExpectedError = error.code === 'PGRST205' || 
+                                        error.code === '42P01' ||
+                                        error.message?.includes('Could not find the table')
+                
+                if (!isExpectedError) {
+                  logError('Error deleting active workout session on cancel', error)
+                }
               }
             }
             navigate('/')

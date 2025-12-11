@@ -135,13 +135,21 @@
 }
 
 .cardPreview {
-  padding: var(--space-sm);
+  padding: var(--space-md);
   display: flex;
   justify-content: center;
+  align-items: center;
   background: var(--bg-primary);
   flex-shrink: 0;
-  max-height: 400px;
-  overflow: hidden;
+  min-height: 320px;
+  overflow: visible;
+}
+
+@media (max-width: 768px) {
+  .cardPreview {
+    padding: var(--space-sm);
+    min-height: 280px;
+  }
 }
 
 .shareOptions {

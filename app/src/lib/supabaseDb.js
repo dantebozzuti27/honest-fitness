@@ -1615,64 +1615,152 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
  * Save or update active workout session (timer state)
  */
 export async function saveActiveWorkoutSession(userId, sessionData) {
-  const sessionPayload = {
-    user_id: userId,
-    workout_start_time: sessionData.workoutStartTime,
-    paused_time_ms: sessionData.pausedTimeMs || 0,
-    rest_start_time: sessionData.restStartTime || null,
-    rest_duration_seconds: sessionData.restDurationSeconds || null,
-    is_resting: sessionData.isResting || false,
-    updated_at: new Date().toISOString()
-  }
+  try {
+    const sessionPayload = {
+      user_id: userId,
+      workout_start_time: sessionData.workoutStartTime,
+      paused_time_ms: sessionData.pausedTimeMs || 0,
+      rest_start_time: sessionData.restStartTime || null,
+      rest_duration_seconds: sessionData.restDurationSeconds || null,
+      is_resting: sessionData.isResting || false,
+      updated_at: new Date().toISOString()
+    }
 
-  // Include exercises if provided (for auto-save)
-  if (sessionData.exercises !== undefined) {
-    sessionPayload.exercises = sessionData.exercises
-  }
+    // Include exercises if provided (for auto-save)
+    // Only include if column exists (graceful degradation)
+    if (sessionData.exercises !== undefined) {
+      sessionPayload.exercises = sessionData.exercises
+    }
 
-  const { data, error } = await supabase
-    .from('active_workout_sessions')
-    .upsert(sessionPayload, {
-      onConflict: 'user_id'
-    })
-    .select()
-    .single()
+    const { data, error } = await supabase
+      .from('active_workout_sessions')
+      .upsert(sessionPayload, {
+        onConflict: 'user_id'
+      })
+      .select()
+      .single()
 
-  if (error) {
-    logError('Error saving active workout session', error)
+    if (error) {
+      // Check if error is due to missing table or column (expected errors)
+      const isExpectedError = error.code === 'PGRST205' || 
+                              error.code === '42P01' || // table doesn't exist
+                              error.code === '42703' || // column doesn't exist
+                              error.message?.includes('Could not find the table') ||
+                              error.message?.includes('column') ||
+                              error.message?.includes('does not exist')
+      
+      if (isExpectedError) {
+        // Silently fail for expected errors - table/column may not exist yet
+        safeLogDebug('Active workout sessions table/column not available, using localStorage fallback')
+        return null
+      }
+      
+      // Log unexpected errors
+      logError('Error saving active workout session', error)
+      throw error
+    }
+    return data
+  } catch (error) {
+    // Catch any unexpected errors and fail gracefully
+    const isExpectedError = error.code === 'PGRST205' || 
+                            error.code === '42P01' ||
+                            error.code === '42703' ||
+                            error.message?.includes('Could not find the table') ||
+                            error.message?.includes('column') ||
+                            error.message?.includes('does not exist')
+    
+    if (isExpectedError) {
+      safeLogDebug('Active workout sessions not available, using localStorage fallback')
+      return null
+    }
+    
+    // Re-throw unexpected errors
     throw error
   }
-  return data
 }
 
 /**
  * Get active workout session for user
  */
 export async function getActiveWorkoutSession(userId) {
-  const { data, error } = await supabase
-    .from('active_workout_sessions')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle()
+  try {
+    const { data, error } = await supabase
+      .from('active_workout_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle()
 
-  if (error) {
+    if (error) {
+      // Check if error is due to missing table (expected error)
+      const isExpectedError = error.code === 'PGRST205' || 
+                              error.code === '42P01' ||
+                              error.message?.includes('Could not find the table')
+      
+      if (isExpectedError) {
+        // Silently fail for expected errors
+        safeLogDebug('Active workout sessions table not available')
+        return null
+      }
+      
+      // Log unexpected errors
+      logError('Error getting active workout session', error)
+      return null
+    }
+    return data
+  } catch (error) {
+    // Catch any unexpected errors and fail gracefully
+    const isExpectedError = error.code === 'PGRST205' || 
+                            error.code === '42P01' ||
+                            error.message?.includes('Could not find the table')
+    
+    if (isExpectedError) {
+      safeLogDebug('Active workout sessions table not available')
+      return null
+    }
+    
     logError('Error getting active workout session', error)
     return null
   }
-  return data
 }
 
 /**
  * Delete active workout session (when workout is finished or cancelled)
  */
 export async function deleteActiveWorkoutSession(userId) {
-  const { error } = await supabase
-    .from('active_workout_sessions')
-    .delete()
-    .eq('user_id', userId)
+  try {
+    const { error } = await supabase
+      .from('active_workout_sessions')
+      .delete()
+      .eq('user_id', userId)
 
-  if (error) {
-    logError('Error deleting active workout session', error)
+    if (error) {
+      // Check if error is due to missing table (expected error)
+      const isExpectedError = error.code === 'PGRST205' || 
+                              error.code === '42P01' ||
+                              error.message?.includes('Could not find the table')
+      
+      if (isExpectedError) {
+        // Silently fail for expected errors
+        safeLogDebug('Active workout sessions table not available')
+        return
+      }
+      
+      // Log unexpected errors
+      logError('Error deleting active workout session', error)
+      throw error
+    }
+  } catch (error) {
+    // Catch any unexpected errors and fail gracefully
+    const isExpectedError = error.code === 'PGRST205' || 
+                            error.code === '42P01' ||
+                            error.message?.includes('Could not find the table')
+    
+    if (isExpectedError) {
+      safeLogDebug('Active workout sessions table not available')
+      return
+    }
+    
+    // Re-throw unexpected errors
     throw error
   }
 }

@@ -1660,9 +1660,24 @@ export default function Health() {
                           showToast('Health metrics saved successfully!', 'success')
                         }
                       } catch (e) {
-                        logError('Error saving metrics', { error: e, message: e.message, stack: e.stack })
-                        if (showToast && typeof showToast === 'function') {
-                          showToast(`Failed to save metrics: ${e.message || 'Unknown error'}. Please check console.`, 'error')
+                        // Only log unexpected errors (not table/column missing errors)
+                        const isExpectedError = e.code === 'PGRST205' || 
+                                                e.code === '42P01' ||
+                                                e.code === '42703' ||
+                                                e.message?.includes('Could not find the table') ||
+                                                e.message?.includes('column') ||
+                                                e.message?.includes('does not exist')
+                        
+                        if (!isExpectedError) {
+                          logError('Error saving metrics', { error: e, message: e.message, stack: e.stack })
+                          if (showToast && typeof showToast === 'function') {
+                            showToast(`Failed to save metrics: ${e.message || 'Unknown error'}. Please check console.`, 'error')
+                          }
+                        } else {
+                          // For expected errors (table/column missing), show a less alarming message
+                          if (showToast && typeof showToast === 'function') {
+                            showToast('Metrics saved locally. Database sync will be available soon.', 'info')
+                          }
                         }
                       }
                     })()

@@ -319,17 +319,20 @@ export default function Health() {
       // Reload data to show updated Fitbit data
       await loadAllData()
       
-      showToast('Fitbit data synced successfully!', 'success')
+      if (showToast && typeof showToast === 'function') {
+        showToast('Fitbit data synced successfully!', 'success')
+      }
     } catch (error) {
       logError('Fitbit sync error', error)
       // Don't show error toast for sync errors - they're expected if account isn't connected
       // Only show if it's a critical error
       const errorMsg = error.message || 'Failed to sync Fitbit data. Please try again or reconnect your account.'
-      if (!errorMsg.includes('not connected') && !errorMsg.includes('not found')) {
-        showToast(errorMsg, 'error')
+      if (showToast && typeof showToast === 'function') {
+        if (!errorMsg.includes('not connected') && !errorMsg.includes('not found')) {
+          showToast(errorMsg, 'error')
+        }
       }
       setSyncError(errorMsg)
-      showToast(errorMsg, 'error')
     } finally {
       setSyncing(false)
     }
@@ -1223,10 +1226,14 @@ export default function Health() {
                                   .eq('user_id', user.id)
                                   .eq('date', metric.date)
                                 await loadAllData()
-                                showToast('Health metrics deleted', 'success')
+                                if (showToast && typeof showToast === 'function') {
+                                  showToast('Health metrics deleted', 'success')
+                                }
                               } catch (error) {
                                 logError('Error deleting health metrics', error)
-                                showToast('Failed to delete health metrics', 'error')
+                                if (showToast && typeof showToast === 'function') {
+                                  showToast('Failed to delete health metrics', 'error')
+                                }
                               }
                             }
                           }}
@@ -1355,10 +1362,14 @@ export default function Health() {
                             const { updateCategoryGoals } = await import('../lib/goalsDb')
                             await updateCategoryGoals(user.id, 'health')
                             await loadHealthGoals()
-                            showToast('Goals refreshed', 'success')
+                            if (showToast && typeof showToast === 'function') {
+                              showToast('Goals refreshed', 'success')
+                            }
                           } catch (error) {
                             logError('Error refreshing goals', error)
-                            showToast('Error refreshing goals. Make sure SQL migrations are run.', 'error')
+                            if (showToast && typeof showToast === 'function') {
+                              showToast('Error refreshing goals. Make sure SQL migrations are run.', 'error')
+                            }
                           }
                         }
                       }}
@@ -1581,7 +1592,9 @@ export default function Health() {
                       }
                       const metricToSave = editingMetric || { date: getTodayEST() }
                       if (!metricToSave.date) {
-                        showToast('Please select a date', 'error')
+                        if (showToast && typeof showToast === 'function') {
+                          showToast('Please select a date', 'error')
+                        }
                         return
                       }
                       
@@ -1619,7 +1632,9 @@ export default function Health() {
                       }
                       
                       if (errors.length > 0) {
-                        showToast(errors.join(', '), 'error')
+                        if (showToast && typeof showToast === 'function') {
+                          showToast(errors.join(', '), 'error')
+                        }
                         return
                       }
                       
@@ -1641,10 +1656,14 @@ export default function Health() {
                         setEditingMetric(null)
                         setEditingMetricType(null)
                         setShowLogModal(false)
-                        showToast('Health metrics saved successfully!', 'success')
+                        if (showToast && typeof showToast === 'function') {
+                          showToast('Health metrics saved successfully!', 'success')
+                        }
                       } catch (e) {
                         logError('Error saving metrics', { error: e, message: e.message, stack: e.stack })
-                        showToast(`Failed to save metrics: ${e.message || 'Unknown error'}. Please check console.`, 'error')
+                        if (showToast && typeof showToast === 'function') {
+                          showToast(`Failed to save metrics: ${e.message || 'Unknown error'}. Please check console.`, 'error')
+                        }
                       }
                     })()
                   }}

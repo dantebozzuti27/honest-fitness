@@ -1528,12 +1528,42 @@ export default function Analytics() {
                 return insights
               }
 
-              // Only include dates that have actual data values
+              // Apply date range filter for metrics
+              const getMetricsDateRangeFilter = () => {
+                const today = new Date()
+                today.setHours(0, 0, 0, 0)
+                const range = metricsDateRange || 'Last 30 Days'
+                
+                let startDate = new Date(0) // Default to all time
+                if (range === 'Last 7 Days') {
+                  startDate = new Date(today)
+                  startDate.setDate(today.getDate() - 7)
+                } else if (range === 'Last 30 Days') {
+                  startDate = new Date(today)
+                  startDate.setDate(today.getDate() - 30)
+                } else if (range === 'Last 90 Days') {
+                  startDate = new Date(today)
+                  startDate.setDate(today.getDate() - 90)
+                } else if (range === 'This Year') {
+                  startDate = new Date(today.getFullYear(), 0, 1)
+                }
+                // 'All Time' uses default startDate (epoch)
+                
+                return startDate
+              }
+              
+              const metricsDateFilter = getMetricsDateRangeFilter()
+              
+              // Only include dates that have actual data values AND within date range
               const chartData = selectedCategoryData 
                 ? Object.fromEntries(
                     selectedCategoryData.data
                       .map((d, i) => [selectedCategoryData.dates[i], d])
-                      .filter(([date, value]) => value != null && value !== undefined && !isNaN(Number(value)))
+                      .filter(([date, value]) => {
+                        if (value == null || value === undefined || isNaN(Number(value))) return false
+                        const dateObj = new Date(date + 'T12:00:00')
+                        return dateObj >= metricsDateFilter
+                      })
                   )
                 : {}
 
@@ -1852,8 +1882,44 @@ export default function Analytics() {
             return insights
           }
 
-          const chartData = selectedTrendCategory?.data || {}
-          const chartDates = selectedTrendCategory?.dates || []
+          // Apply date range filter for trends
+          const getTrendsDateRangeFilter = () => {
+            const today = new Date()
+            today.setHours(0, 0, 0, 0)
+            const range = trendsDateRange || 'Last 30 Days'
+            
+            let startDate = new Date(0) // Default to all time
+            if (range === 'Last 7 Days') {
+              startDate = new Date(today)
+              startDate.setDate(today.getDate() - 7)
+            } else if (range === 'Last 30 Days') {
+              startDate = new Date(today)
+              startDate.setDate(today.getDate() - 30)
+            } else if (range === 'Last 90 Days') {
+              startDate = new Date(today)
+              startDate.setDate(today.getDate() - 90)
+            } else if (range === 'This Year') {
+              startDate = new Date(today.getFullYear(), 0, 1)
+            }
+            // 'All Time' uses default startDate (epoch)
+            
+            return startDate
+          }
+          
+          const trendsDateFilter = getTrendsDateRangeFilter()
+          
+          // Filter chart data by date range
+          const chartDataRaw = selectedTrendCategory?.data || {}
+          const chartData = Object.fromEntries(
+            Object.entries(chartDataRaw).filter(([date, value]) => {
+              if (value == null || value === undefined || isNaN(Number(value))) return false
+              const dateObj = new Date(date + 'T12:00:00')
+              return dateObj >= trendsDateFilter
+            })
+          )
+          const chartDates = Object.keys(chartData).sort((a, b) => {
+            return new Date(a + 'T12:00:00') - new Date(b + 'T12:00:00')
+          })
 
           return selectedTrendCategory ? (
             <ChartCard

@@ -24,6 +24,9 @@ export default function UnifiedChart({
   const [isPinching, setIsPinching] = useState(false)
   const [pinchStartDistance, setPinchStartDistance] = useState(0)
   const [pinchStartRange, setPinchStartRange] = useState({ start: 0, end: null })
+  const [isPanning, setIsPanning] = useState(false)
+  const [panStartX, setPanStartX] = useState(0)
+  const [panStartRange, setPanStartRange] = useState({ start: 0, end: null })
   const containerRef = useRef(null)
   const touchStartRef = useRef(null)
 
@@ -80,16 +83,26 @@ export default function UnifiedChart({
     return Math.sqrt(dx * dx + dy * dy)
   }
 
-  // Touch handlers for pinch-to-zoom date range
+  // Touch handlers for pinch-to-zoom date range and swipe panning
   const handleTouchStart = (e) => {
     if (e.touches.length === 2) {
       setIsPinching(true)
+      setIsPanning(false)
       const distance = getDistance(e.touches[0], e.touches[1])
       setPinchStartDistance(distance)
       setPinchStartRange({ ...dateRange })
       touchStartRef.current = {
         touches: [e.touches[0], e.touches[1]],
         distance
+      }
+    } else if (e.touches.length === 1) {
+      setIsPanning(true)
+      setIsPinching(false)
+      setPanStartX(e.touches[0].clientX)
+      setPanStartRange({ ...dateRange })
+      touchStartRef.current = {
+        touch: e.touches[0],
+        x: e.touches[0].clientX
       }
     }
   }
@@ -128,11 +141,50 @@ export default function UnifiedChart({
           : chartData.keys[chartData.keys.length - 1]
         onDateRangeChange({ start: startDate, end: endDate, indices: newRange })
       }
+    } else if (e.touches.length === 1 && isPanning && touchStartRef.current && chartData) {
+      e.preventDefault()
+      const currentX = e.touches[0].clientX
+      const deltaX = currentX - panStartX
+      
+      // Calculate pan distance in data points
+      const totalDataPoints = chartData.total
+      const currentRangeSize = (panStartRange.end !== null 
+        ? panStartRange.end 
+        : totalDataPoints) - panStartRange.start
+      
+      // Convert pixel movement to data point movement
+      // Assume chart width is ~600px (svgWidth - padding)
+      const chartWidth = 600
+      const pixelsPerDataPoint = chartWidth / currentRangeSize
+      const dataPointsDelta = Math.round(deltaX / pixelsPerDataPoint)
+      
+      // Calculate new range (swipe right = earlier data, swipe left = later data)
+      const newStart = Math.max(0, Math.min(totalDataPoints - currentRangeSize, panStartRange.start - dataPointsDelta))
+      const newEnd = newStart + currentRangeSize >= totalDataPoints 
+        ? null 
+        : Math.min(totalDataPoints, newStart + currentRangeSize)
+      
+      const newRange = {
+        start: newStart,
+        end: newEnd
+      }
+      
+      setDateRange(newRange)
+      
+      // Notify parent of date range change
+      if (onDateRangeChange && chartData) {
+        const startDate = chartData.keys[newStart]
+        const endDate = newEnd !== null 
+          ? chartData.keys[newEnd - 1]
+          : chartData.keys[chartData.keys.length - 1]
+        onDateRangeChange({ start: startDate, end: endDate, indices: newRange })
+      }
     }
   }
 
   const handleTouchEnd = () => {
     setIsPinching(false)
+    setIsPanning(false)
     touchStartRef.current = null
   }
 

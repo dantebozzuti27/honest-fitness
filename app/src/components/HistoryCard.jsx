@@ -284,7 +284,9 @@ export default function HistoryCard({
         '--card-type': type
       }}
       onClick={() => {
-        if (onView) onView()
+        if (onView && typeof onView === 'function') {
+          onView()
+        }
         setIsExpanded(!isExpanded)
       }}
     >

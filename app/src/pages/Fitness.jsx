@@ -17,6 +17,7 @@ import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
+import HistoryCard from '../components/HistoryCard'
 import styles from './Fitness.module.css'
 
 const TABS = ['Workout', 'Templates', 'History', 'Goals']

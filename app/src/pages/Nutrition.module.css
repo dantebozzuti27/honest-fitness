@@ -1282,7 +1282,7 @@ h1 {
 .actionBtn {
   padding: 12px 24px;
   background: var(--accent);
-  color: white;
+  color: var(--bg-primary);
   border: none;
   border-radius: var(--radius-md);
   font-size: var(--text-base);

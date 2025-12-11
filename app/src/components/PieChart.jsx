@@ -12,7 +12,8 @@ export default function PieChart({
   donut = false,
   showLabels = true,
   showLegend = true,
-  colors = ['#ff2d2d', '#4ade80', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899']
+  colors = ['#ff2d2d', '#4ade80', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899'],
+  onSegmentClick
 }) {
   const chartData = useMemo(() => {
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
@@ -116,6 +117,17 @@ export default function PieChart({
                 style={{ 
                   animationDelay: `${i * 0.1}s`,
                   filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+                }}
+                onClick={() => {
+                  if (onSegmentClick && typeof onSegmentClick === 'function') {
+                    onSegmentClick(segment)
+                  }
+                }}
+                onTouchStart={(e) => {
+                  e.preventDefault()
+                  if (onSegmentClick && typeof onSegmentClick === 'function') {
+                    onSegmentClick(segment)
+                  }
                 }}
               />
               {showLabels && segment.percentage > 5 && (

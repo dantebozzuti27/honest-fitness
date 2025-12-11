@@ -1,5 +1,6 @@
 .chartContainer {
   width: 100%;
+  min-width: 0;
   background: var(--glass-card-bg);
   backdrop-filter: var(--glass-blur-medium);
   -webkit-backdrop-filter: var(--glass-blur-medium);
@@ -11,12 +12,30 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-md);
+  overflow: visible;
 }
 
 .chart {
   width: 100%;
+  max-width: 100%;
   height: auto;
   flex-shrink: 0;
+  overflow: visible;
+}
+
+@media (max-width: 768px) {
+  .chartContainer {
+    padding: var(--space-sm);
+  }
+  
+  .chart {
+    min-width: 280px;
+    min-height: 280px;
+  }
+  
+  .legend {
+    max-width: 100%;
+  }
 }
 
 .emptyChart {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -50,7 +50,7 @@ export default function Fitness() {
     weight: ''
   })
 
-  const loadFitnessGoals = async () => {
+  const loadFitnessGoals = useCallback(async () => {
     if (!user) return
     try {
       // First, update goal progress based on current data
@@ -65,7 +65,18 @@ export default function Fitness() {
     } catch (e) {
       // Silently fail
     }
-  }
+  }, [user])
+
+  const loadWorkoutHistory = useCallback(async () => {
+    if (!user) return
+    try {
+      const workouts = await getWorkoutsFromSupabase(user.id)
+      setWorkoutHistory(workouts)
+    } catch (e) {
+      // Silently fail
+      logError('Error loading workout history', e)
+    }
+  }, [user])
 
   useEffect(() => {
     // Check if AI workout was passed from Planner
@@ -139,7 +150,7 @@ export default function Fitness() {
   useEffect(() => {
     if (!user) return
     loadFitnessGoals()
-  }, [user, location.key])
+  }, [user, location.key, loadFitnessGoals])
 
   useEffect(() => {
     if (!user) return
@@ -192,7 +203,7 @@ export default function Fitness() {
         subscriptionRef.current = null
       }
     }
-  }, [user])
+  }, [user, loadFitnessGoals, loadWorkoutHistory])
 
   // Refresh workout history when navigating to Fitness page or when History tab becomes active
   useEffect(() => {
@@ -203,14 +214,14 @@ export default function Fitness() {
       }, 100)
       return () => clearTimeout(timeoutId)
     }
-  }, [location.pathname, user])
+  }, [location.pathname, user, loadWorkoutHistory])
 
   // Refresh workout history when History tab is opened
   useEffect(() => {
     if (user && activeTab === 'History') {
       loadWorkoutHistory()
     }
-  }, [activeTab, user])
+  }, [activeTab, user, loadWorkoutHistory])
 
   const startWorkout = async (templateId, random = false) => {
     // Navigate to active workout page
@@ -236,16 +247,6 @@ export default function Fitness() {
   }
 
   // Removed startOutdoorRun - not needed for now
-
-  const loadWorkoutHistory = async () => {
-    if (!user) return
-    try {
-      const workouts = await getWorkoutsFromSupabase(user.id)
-      setWorkoutHistory(workouts)
-    } catch (e) {
-      // Silently fail
-    }
-  }
 
   const startRandomWorkout = async () => {
     try {

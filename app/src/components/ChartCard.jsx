@@ -49,7 +49,7 @@ export default function ChartCard({
           )}
         </div>
         <div className={styles.headerActions}>
-          {onShare && (
+          {onShare && typeof onShare === 'function' && (
             <button 
               className={styles.iconBtn}
               onClick={onShare}
@@ -58,7 +58,7 @@ export default function ChartCard({
               Share
             </button>
           )}
-          {onExport && (
+          {onExport && typeof onExport === 'function' && (
             <button 
               className={styles.iconBtn}
               onClick={onExport}
@@ -81,7 +81,11 @@ export default function ChartCard({
                   ? styles.active 
                   : ''
               }`}
-              onClick={() => onCategoryChange?.(category)}
+              onClick={() => {
+                if (onCategoryChange && typeof onCategoryChange === 'function') {
+                  onCategoryChange(category)
+                }
+              }}
             >
               {category.label || category}
             </button>
@@ -115,7 +119,11 @@ export default function ChartCard({
                         ? styles.active
                         : ''
                     }`}
-                    onClick={() => onDateRangeChange?.(preset)}
+                    onClick={() => {
+                      if (onDateRangeChange && typeof onDateRangeChange === 'function') {
+                        onDateRangeChange(preset)
+                      }
+                    }}
                   >
                     {preset.label || preset}
                   </button>
@@ -135,7 +143,11 @@ export default function ChartCard({
                     className={`${styles.controlBtn} ${
                       selectedChartType === type ? styles.active : ''
                     }`}
-                    onClick={() => onChartTypeChange?.(type)}
+                    onClick={() => {
+                      if (onChartTypeChange && typeof onChartTypeChange === 'function') {
+                        onChartTypeChange(type)
+                      }
+                    }}
                   >
                     {type}
                   </button>
@@ -145,7 +157,7 @@ export default function ChartCard({
           )}
 
           {/* Comparison Toggle */}
-          {showComparison && (
+          {showComparison && onToggleComparison && typeof onToggleComparison === 'function' && (
             <div className={styles.controlGroup}>
               <button
                 className={`${styles.comparisonToggle} ${
@@ -185,7 +197,7 @@ export default function ChartCard({
       {/* Actions */}
       {(primaryAction || secondaryActions.length > 0) && (
         <div className={styles.actions}>
-          {primaryAction && (
+          {primaryAction && primaryAction.onClick && typeof primaryAction.onClick === 'function' && (
             <button
               className={styles.primaryAction}
               onClick={primaryAction.onClick}
@@ -194,13 +206,15 @@ export default function ChartCard({
             </button>
           )}
           {secondaryActions.map((action, i) => (
-            <button
-              key={i}
-              className={styles.secondaryAction}
-              onClick={action.onClick}
-            >
-              {action.label}
-            </button>
+            action && action.onClick && typeof action.onClick === 'function' ? (
+              <button
+                key={i}
+                className={styles.secondaryAction}
+                onClick={action.onClick}
+              >
+                {action.label}
+              </button>
+            ) : null
           ))}
         </div>
       )}

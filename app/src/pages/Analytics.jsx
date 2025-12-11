@@ -769,7 +769,7 @@ export default function Analytics() {
         {data.nutrition && data.nutrition.calories > 0 && (
           <div className={styles.nutritionCard}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3>Today's Nutrition</h3>
+            <h3>Today's Nutrition</h3>
               {nutritionQuality !== null && (
                 <div className={styles.qualityBadge}>
                   <span className={styles.qualityLabel}>Quality</span>
@@ -979,9 +979,9 @@ export default function Analytics() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-          <h3 className={styles.sectionTitle}>
-            {METRIC_TYPES[metricType]} by Body Part
-          </h3>
+        <h3 className={styles.sectionTitle}>
+          {METRIC_TYPES[metricType]} by Body Part
+        </h3>
           <HelpTooltip 
             content="This heatmap shows your training distribution across different body parts. Tap a body part to see detailed exercise history."
             position="right"
@@ -1179,10 +1179,17 @@ export default function Analytics() {
       }
     }
     
-    const chartData = getHistoryChartData()
-    const chartDates = historyCategory === 'Frequency' 
-      ? Object.keys(weeklyWorkoutData)
-      : durationDates
+    const chartDataRaw = getHistoryChartData()
+    // Filter to only include dates with actual data
+    const chartData = Object.fromEntries(
+      Object.entries(chartDataRaw).filter(([date, value]) => 
+        value != null && value !== undefined && !isNaN(Number(value))
+      )
+    )
+    // Only use dates that exist in the filtered data, sorted chronologically
+    const chartDates = Object.keys(chartData).sort((a, b) => {
+      return new Date(a + 'T12:00:00') - new Date(b + 'T12:00:00')
+    })
     
     return (
       <div className={styles.historyContainer}>
@@ -1464,8 +1471,13 @@ export default function Analytics() {
                 return insights
               }
 
+              // Only include dates that have actual data values
               const chartData = selectedCategoryData 
-                ? Object.fromEntries(selectedCategoryData.data.map((d, i) => [selectedCategoryData.dates[i], d]))
+                ? Object.fromEntries(
+                    selectedCategoryData.data
+                      .map((d, i) => [selectedCategoryData.dates[i], d])
+                      .filter(([date, value]) => value != null && value !== undefined && !isNaN(Number(value)))
+                  )
                 : {}
 
               return (
@@ -1830,10 +1842,10 @@ export default function Analytics() {
                       height={200}
                       color="var(--accent)"
                       showValues={true}
-                      xAxisLabel="Exercise"
-                      yAxisLabel="Count"
-                    />
-                  </div>
+                xAxisLabel="Exercise"
+                yAxisLabel="Count"
+              />
+        </div>
                   <div style={{ flex: '0 0 200px' }}>
                     <PieChart 
                       data={chartData}

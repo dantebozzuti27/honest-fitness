@@ -1615,17 +1615,24 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
  * Save or update active workout session (timer state)
  */
 export async function saveActiveWorkoutSession(userId, sessionData) {
+  const sessionPayload = {
+    user_id: userId,
+    workout_start_time: sessionData.workoutStartTime,
+    paused_time_ms: sessionData.pausedTimeMs || 0,
+    rest_start_time: sessionData.restStartTime || null,
+    rest_duration_seconds: sessionData.restDurationSeconds || null,
+    is_resting: sessionData.isResting || false,
+    updated_at: new Date().toISOString()
+  }
+
+  // Include exercises if provided (for auto-save)
+  if (sessionData.exercises !== undefined) {
+    sessionPayload.exercises = sessionData.exercises
+  }
+
   const { data, error } = await supabase
     .from('active_workout_sessions')
-    .upsert({
-      user_id: userId,
-      workout_start_time: sessionData.workoutStartTime,
-      paused_time_ms: sessionData.pausedTimeMs || 0,
-      rest_start_time: sessionData.restStartTime || null,
-      rest_duration_seconds: sessionData.restDurationSeconds || null,
-      is_resting: sessionData.isResting || false,
-      updated_at: new Date().toISOString()
-    }, {
+    .upsert(sessionPayload, {
       onConflict: 'user_id'
     })
     .select()

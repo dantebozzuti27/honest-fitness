@@ -26,29 +26,47 @@ export default function UnifiedChart({
   const containerRef = useRef(null)
   const touchStartRef = useRef(null)
 
-  // Process chart data
+  // Process chart data - only show dates that have actual data
   const chartData = useMemo(() => {
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
     
+    // Get all dates that have actual data (non-null, non-undefined, non-zero if appropriate)
     const dataEntries = Object.entries(data)
-    const dataKeys = dates || labels || Object.keys(data)
-    const dataValues = Object.values(data).map(v => Number(v) || 0)
+      .filter(([key, value]) => {
+        const numValue = Number(value)
+        return !isNaN(numValue) && (numValue !== 0 || value === 0) // Include zero values
+      })
+    
+    if (dataEntries.length === 0) return null
+    
+    // Sort by date to ensure chronological order
+    const sortedEntries = dataEntries.sort((a, b) => {
+      const dateA = new Date(a[0] + 'T12:00:00').getTime()
+      const dateB = new Date(b[0] + 'T12:00:00').getTime()
+      return dateA - dateB
+    })
+    
+    // Only use dates that exist in the data
+    const dataKeys = sortedEntries.map(([key]) => key)
+    const dataValues = sortedEntries.map(([, value]) => Number(value) || 0)
     const max = Math.max(...dataValues, 1)
     
-    // Apply date range filter
-    const startIdx = dateRange.start
-    const endIdx = dateRange.end !== null ? dateRange.end : dataEntries.length
+    // Apply date range filter (only within actual data range)
+    const startIdx = Math.max(0, Math.min(dateRange.start, dataKeys.length - 1))
+    const endIdx = dateRange.end !== null 
+      ? Math.min(dateRange.end, dataKeys.length)
+      : dataKeys.length
     
     const filteredKeys = dataKeys.slice(startIdx, endIdx)
     const filteredValues = dataValues.slice(startIdx, endIdx)
-    const filteredEntries = dataEntries.slice(startIdx, endIdx)
+    const filteredEntries = sortedEntries.slice(startIdx, endIdx)
     
     return {
       keys: filteredKeys,
       values: filteredValues,
       entries: filteredEntries,
       max,
-      total: dataEntries.length,
+      total: dataKeys.length,
       startIdx,
       endIdx
     }
@@ -155,10 +173,12 @@ export default function UnifiedChart({
     )
   }
 
-  // Chart dimensions
-  const padding = { top: 20, right: 20, bottom: 40, left: 50 }
-  const chartWidth = 100 - padding.left - padding.right
-  const chartHeight = 100 - padding.top - padding.bottom
+  // Chart dimensions - use actual pixel values, not percentages
+  const svgWidth = 800
+  const svgHeight = height
+  const padding = { top: 30, right: 40, bottom: 50, left: 60 }
+  const chartWidth = svgWidth - padding.left - padding.right
+  const chartHeight = svgHeight - padding.top - padding.bottom
 
   return (
     <div 
@@ -179,7 +199,9 @@ export default function UnifiedChart({
 
       {/* Chart SVG */}
       <svg 
-        viewBox="0 0 100 100" 
+        width={svgWidth}
+        height={svgHeight}
+        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
         className={styles.chart}
         preserveAspectRatio="xMidYMid meet"
       >
@@ -188,19 +210,19 @@ export default function UnifiedChart({
           x1={padding.left}
           y1={padding.top}
           x2={padding.left}
-          y2={100 - padding.bottom}
+          y2={svgHeight - padding.bottom}
           stroke="rgba(255, 255, 255, 0.2)"
-          strokeWidth="0.5"
+          strokeWidth="1"
         />
         
         {/* X-axis */}
         <line
           x1={padding.left}
-          y1={100 - padding.bottom}
-          x2={100 - padding.right}
-          y2={100 - padding.bottom}
+          y1={svgHeight - padding.bottom}
+          x2={svgWidth - padding.right}
+          y2={svgHeight - padding.bottom}
           stroke="rgba(255, 255, 255, 0.2)"
-          strokeWidth="0.5"
+          strokeWidth="1"
         />
         
         {/* Y-axis ticks */}
@@ -210,18 +232,18 @@ export default function UnifiedChart({
           return (
             <g key={i}>
               <line
-                x1={padding.left - 2}
+                x1={padding.left - 5}
                 y1={y}
                 x2={padding.left}
                 y2={y}
                 stroke="rgba(255, 255, 255, 0.2)"
-                strokeWidth="0.3"
+                strokeWidth="1"
               />
               <text
-                x={padding.left - 5}
-                y={y + 1}
+                x={padding.left - 10}
+                y={y + 4}
                 textAnchor="end"
-                fontSize="1.5"
+                fontSize="12"
                 fill="var(--text-secondary)"
                 className={styles.axisLabel}
               >
@@ -236,7 +258,7 @@ export default function UnifiedChart({
           <>
             {chartData.values.map((value, i) => {
               const barHeight = (value / chartData.max) * chartHeight
-              const barWidth = (chartWidth / chartData.values.length) * 0.8
+              const barWidth = Math.max(2, (chartWidth / chartData.values.length) * 0.8)
               const x = padding.left + (i * (chartWidth / chartData.values.length)) + ((chartWidth / chartData.values.length) - barWidth) / 2
               const y = padding.top + chartHeight - barHeight
               
@@ -252,19 +274,19 @@ export default function UnifiedChart({
                     x={x}
                     y={y}
                     width={barWidth}
-                    height={Math.max(0.5, barHeight)}
+                    height={Math.max(1, barHeight)}
                     fill={`url(#barGradient-${i})`}
                     className={styles.bar}
-                    rx="2"
-                    ry="2"
+                    rx="4"
+                    ry="4"
                     style={{ animationDelay: `${i * 0.03}s` }}
                   />
-                  {showValues && value > 0 && barHeight > 5 && (
+                  {showValues && value > 0 && barHeight > 20 && (
                     <text
                       x={x + barWidth / 2}
-                      y={y - 2}
+                      y={y - 5}
                       textAnchor="middle"
-                      fontSize="2"
+                      fontSize="11"
                       fill="var(--text-primary)"
                       className={styles.valueLabel}
                     >
@@ -306,7 +328,7 @@ export default function UnifiedChart({
                   }).join(' ')}`}
                   fill="none"
                   stroke={color}
-                  strokeWidth="1.5"
+                  strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   className={styles.line}
@@ -320,8 +342,10 @@ export default function UnifiedChart({
                       key={i}
                       cx={x}
                       cy={y}
-                      r="2"
+                      r="4"
                       fill={color}
+                      stroke="rgba(0, 0, 0, 0.3)"
+                      strokeWidth="1"
                       className={styles.point}
                       style={{ animationDelay: `${i * 0.05}s` }}
                     />
@@ -359,7 +383,7 @@ export default function UnifiedChart({
                   }).join(' ')}`}
                   fill="none"
                   stroke={color}
-                  strokeWidth="2"
+                  strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   className={styles.line}

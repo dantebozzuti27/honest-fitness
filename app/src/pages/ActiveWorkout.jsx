@@ -55,6 +55,141 @@ export default function ActiveWorkout() {
   const restStartTimeRef = useRef(null)
   const restDurationRef = useRef(0)
   const timeoutRefs = useRef([]) // Track all timeouts for cleanup
+  const autoSaveIntervalRef = useRef(null) // Auto-save interval
+  const lastSavedExercisesRef = useRef(null) // Track last saved exercises to avoid unnecessary saves
+
+  // Auto-save exercises periodically during workout
+  useEffect(() => {
+    if (!user || exercises.length === 0) return
+
+    // Auto-save every 30 seconds
+    autoSaveIntervalRef.current = setInterval(async () => {
+      if (workoutStartTimeRef.current && exercises.length > 0) {
+        try {
+          // Only save if exercises have changed
+          const exercisesStr = JSON.stringify(exercises)
+          if (exercisesStr !== lastSavedExercisesRef.current) {
+            // Save to active workout session
+            await saveActiveWorkoutSession(user.id, {
+              workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+              pausedTimeMs: pausedTimeRef.current || 0,
+              restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+              restDurationSeconds: restDurationRef.current || null,
+              isResting: isResting,
+              exercises: exercises // Save exercises for recovery
+            })
+            lastSavedExercisesRef.current = exercisesStr
+
+            // Also save to localStorage as backup
+            localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
+              exercises,
+              workoutTime,
+              restTime,
+              isResting,
+              templateId,
+              date: getTodayEST(),
+              timestamp: Date.now()
+            }))
+          }
+        } catch (error) {
+          logError('Error auto-saving workout progress', error)
+          // Fallback to localStorage only
+          try {
+            localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
+              exercises,
+              workoutTime,
+              restTime,
+              isResting,
+              templateId,
+              date: getTodayEST(),
+              timestamp: Date.now()
+            }))
+          } catch (e) {
+            logError('Error saving to localStorage backup', e)
+          }
+        }
+      }
+    }, 30000) // Every 30 seconds
+
+    return () => {
+      if (autoSaveIntervalRef.current) {
+        clearInterval(autoSaveIntervalRef.current)
+      }
+    }
+  }, [user, exercises, workoutTime, restTime, isResting, templateId])
+
+  // Save exercises immediately when they change (debounced)
+  useEffect(() => {
+    if (!user || exercises.length === 0 || !workoutStartTimeRef.current) return
+
+    const saveTimeout = setTimeout(async () => {
+      try {
+        await saveActiveWorkoutSession(user.id, {
+          workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+          pausedTimeMs: pausedTimeRef.current || 0,
+          restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+          restDurationSeconds: restDurationRef.current || null,
+          isResting: isResting,
+          exercises: exercises
+        })
+        lastSavedExercisesRef.current = JSON.stringify(exercises)
+
+        // Also save to localStorage
+        localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
+          exercises,
+          workoutTime,
+          restTime,
+          isResting,
+          templateId,
+          date: getTodayEST(),
+          timestamp: Date.now()
+        }))
+      } catch (error) {
+        logError('Error saving exercise progress', error)
+        // Fallback to localStorage
+        try {
+          localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
+            exercises,
+            workoutTime,
+            restTime,
+            isResting,
+            templateId,
+            date: getTodayEST(),
+            timestamp: Date.now()
+          }))
+        } catch (e) {
+          logError('Error saving to localStorage', e)
+        }
+      }
+    }, 2000) // Debounce: save 2 seconds after last change
+
+    return () => clearTimeout(saveTimeout)
+  }, [exercises, user])
+
+  // Warn before leaving page with unsaved workout
+  useEffect(() => {
+    if (exercises.length === 0 || !workoutStartTimeRef.current) return
+
+    const handleBeforeUnload = (e) => {
+      // Only warn if there's actual progress (exercises with data)
+      const hasProgress = exercises.some(ex => 
+        ex.sets && ex.sets.some(s => 
+          (s.weight && s.weight !== '') || 
+          (s.reps && s.reps !== '') || 
+          (s.time && s.time !== '')
+        )
+      )
+      
+      if (hasProgress) {
+        e.preventDefault()
+        e.returnValue = 'You have unsaved workout progress. Are you sure you want to leave?'
+        return e.returnValue
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [exercises])
 
   useEffect(() => {
     let mounted = true
@@ -238,6 +373,32 @@ export default function ActiveWorkout() {
           const pausedMs = session.paused_time_ms || 0
           setPausedTime(pausedMs)
           pausedTimeRef.current = pausedMs
+          
+          // Restore exercises if they exist in session
+          if (session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0) {
+            setExercises(session.exercises)
+            lastSavedExercisesRef.current = JSON.stringify(session.exercises)
+          } else {
+            // Fallback: try to restore from localStorage
+            try {
+              const saved = localStorage.getItem(`activeWorkout_${user.id}`)
+              if (saved) {
+                const workoutData = JSON.parse(saved)
+                // Only restore if it's recent (within last hour)
+                if (workoutData.timestamp && (Date.now() - workoutData.timestamp) < 3600000) {
+                  if (workoutData.exercises && Array.isArray(workoutData.exercises) && workoutData.exercises.length > 0) {
+                    setExercises(workoutData.exercises)
+                    lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                    if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
+                    if (workoutData.restTime) setRestTime(workoutData.restTime)
+                    if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                  }
+                }
+              }
+            } catch (e) {
+              logError('Error restoring from localStorage', e)
+            }
+          }
           
           // Restore rest timer if it was running
           if (session.rest_start_time && session.rest_duration_seconds) {
@@ -680,11 +841,30 @@ export default function ActiveWorkout() {
   // IMPORTANT: Workouts are ONLY created when the user explicitly finishes a workout.
   // This is the ONLY place where workout logs are created - never automatically.
   const finishWorkout = async () => {
-    // Clean up timers and database session
+    // Clean up timers and auto-save
     clearInterval(workoutTimerRef.current)
     clearInterval(restTimerRef.current)
+    if (autoSaveIntervalRef.current) {
+      clearInterval(autoSaveIntervalRef.current)
+    }
     
-    // Delete active workout session from database
+    // Final save of exercises before finishing (safety measure)
+    if (user && exercises.length > 0 && workoutStartTimeRef.current) {
+      try {
+        await saveActiveWorkoutSession(user.id, {
+          workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+          pausedTimeMs: pausedTimeRef.current || 0,
+          restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+          restDurationSeconds: restDurationRef.current || null,
+          isResting: false,
+          exercises: exercises
+        })
+      } catch (error) {
+        logError('Error saving final workout state', error)
+      }
+    }
+    
+    // Delete active workout session from database (after final save)
     if (user) {
       try {
         await deleteActiveWorkoutSession(user.id)
@@ -698,6 +878,15 @@ export default function ActiveWorkout() {
       try {
         await deletePausedWorkoutFromSupabase(user.id)
       } catch (error) {
+        // Silently fail
+      }
+    }
+
+    // Clear localStorage backup
+    if (user) {
+      try {
+        localStorage.removeItem(`activeWorkout_${user.id}`)
+      } catch (e) {
         // Silently fail
       }
     }
@@ -741,17 +930,35 @@ export default function ActiveWorkout() {
     
     setIsSaving(true)
     try {
-      // Save to local IndexedDB
+      // Save to local IndexedDB first (fast, local backup)
       await saveWorkout(workout)
       
-      // Save to Supabase if logged in
+      // Save to Supabase if logged in (with retry logic)
       if (user) {
-        try {
-          await saveWorkoutToSupabase(workout, user.id)
-          showToast('Workout saved successfully!', 'success')
-        } catch (err) {
-          logError('Error saving workout to Supabase', err)
-          showToast('Workout saved locally. Syncing to cloud failed - will retry later.', 'warning')
+        let retries = 3
+        let saved = false
+        while (retries > 0 && !saved) {
+          try {
+            await saveWorkoutToSupabase(workout, user.id)
+            saved = true
+            showToast('Workout saved successfully!', 'success')
+          } catch (err) {
+            retries--
+            logError(`Error saving workout to Supabase (${3 - retries}/3 attempts)`, err)
+            if (retries > 0) {
+              // Wait before retry
+              await new Promise(resolve => setTimeout(resolve, 1000))
+            } else {
+              // All retries failed
+              showToast('Workout saved locally. Syncing to cloud failed - will retry later.', 'warning')
+              // Store in localStorage for manual recovery
+              try {
+                localStorage.setItem(`failedWorkout_${user.id}_${Date.now()}`, JSON.stringify(workout))
+              } catch (e) {
+                logError('Error storing failed workout in localStorage', e)
+              }
+            }
+          }
         }
       } else {
         showToast('Workout saved locally!', 'success')
@@ -938,6 +1145,46 @@ export default function ActiveWorkout() {
       <header className={styles.header}>
         <div className={styles.headerTop}>
           <button className={styles.cancelBtn} onClick={async () => {
+            // Warn user before canceling if there's progress
+            const hasProgress = exercises.some(ex => 
+              ex.sets && ex.sets.some(s => 
+                (s.weight && s.weight !== '') || 
+                (s.reps && s.reps !== '') || 
+                (s.time && s.time !== '')
+              )
+            )
+            
+            if (hasProgress) {
+              const confirmCancel = window.confirm('You have workout progress. Are you sure you want to cancel? Your progress will be saved for recovery.')
+              if (!confirmCancel) return
+            }
+            
+            // Save progress before canceling (for recovery)
+            if (user && exercises.length > 0 && workoutStartTimeRef.current) {
+              try {
+                await saveActiveWorkoutSession(user.id, {
+                  workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+                  pausedTimeMs: pausedTimeRef.current || 0,
+                  restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+                  restDurationSeconds: restDurationRef.current || null,
+                  isResting: false,
+                  exercises: exercises
+                })
+                // Also save to localStorage
+                localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
+                  exercises,
+                  workoutTime,
+                  restTime,
+                  isResting,
+                  templateId,
+                  date: getTodayEST(),
+                  timestamp: Date.now()
+                }))
+              } catch (error) {
+                logError('Error saving workout before cancel', error)
+              }
+            }
+            
             // Clear workout timer when canceling
             if (user) {
               try {

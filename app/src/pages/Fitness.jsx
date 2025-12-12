@@ -943,7 +943,9 @@ export default function Fitness() {
                 templateName: selectedWorkoutForShare.template_name || 'Freestyle Workout',
                 perceivedEffort: selectedWorkoutForShare.perceived_effort,
                 moodAfter: selectedWorkoutForShare.mood_after,
-                notes: selectedWorkoutForShare.notes
+                notes: selectedWorkoutForShare.notes,
+                workoutCaloriesBurned: selectedWorkoutForShare.workout_calories_burned,
+                workoutSteps: selectedWorkoutForShare.workout_steps
               }
             }}
             onClose={() => {

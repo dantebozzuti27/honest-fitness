@@ -160,48 +160,63 @@ export default function Workout() {
 
   const handleMetricChange = (field, value) => {
     // Import validation dynamically to avoid circular dependencies
-    import('../utils/validation').then(({ validateWeight, validateSteps, validateHRV, validateCalories, validateSleepScore }) => {
+    import('../utils/validation').then((validationModule) => {
+      const { validateWeight, validateSteps, validateHRV, validateCalories, validateSleepScore } = validationModule || {}
       let validatedValue = value
       
       // Validate based on field type
       if (field === 'weight' && value !== '' && value !== null && value !== undefined) {
-        const validation = validateWeight(value)
-        if (!validation.valid) {
-          alert(validation.error)
-          return
+        if (validateWeight && typeof validateWeight === 'function') {
+          const validation = validateWeight(value)
+          if (!validation.valid) {
+            alert(validation.error)
+            return
+          }
+          validatedValue = validation.value
         }
-        validatedValue = validation.value
       } else if (field === 'steps' && value !== '' && value !== null && value !== undefined) {
-        const validation = validateSteps(value)
-        if (!validation.valid) {
-          alert(validation.error)
-          return
+        if (validateSteps && typeof validateSteps === 'function') {
+          const validation = validateSteps(value)
+          if (!validation.valid) {
+            alert(validation.error)
+            return
+          }
+          validatedValue = validation.value
         }
-        validatedValue = validation.value
       } else if (field === 'hrv' && value !== '' && value !== null && value !== undefined) {
-        const validation = validateHRV(value)
-        if (!validation.valid) {
-          alert(validation.error)
-          return
+        if (validateHRV && typeof validateHRV === 'function') {
+          const validation = validateHRV(value)
+          if (!validation.valid) {
+            alert(validation.error)
+            return
+          }
+          validatedValue = validation.value
         }
-        validatedValue = validation.value
       } else if (field === 'caloriesBurned' && value !== '' && value !== null && value !== undefined) {
-        const validation = validateCalories(value)
-        if (!validation.valid) {
-          alert(validation.error)
-          return
+        if (validateCalories && typeof validateCalories === 'function') {
+          const validation = validateCalories(value)
+          if (!validation.valid) {
+            alert(validation.error)
+            return
+          }
+          validatedValue = validation.value
         }
-        validatedValue = validation.value
       } else if (field === 'sleepScore' && value !== '' && value !== null && value !== undefined) {
-        const validation = validateSleepScore(value)
-        if (!validation.valid) {
-          alert(validation.error)
-          return
+        if (validateSleepScore && typeof validateSleepScore === 'function') {
+          const validation = validateSleepScore(value)
+          if (!validation.valid) {
+            alert(validation.error)
+            return
+          }
+          validatedValue = validation.value
         }
-        validatedValue = validation.value
       }
       
       setMetrics(prev => ({ ...prev, [field]: validatedValue }))
+    }).catch((error) => {
+      logError('Error importing validation functions', error)
+      // Fallback: use raw value without validation
+      setMetrics(prev => ({ ...prev, [field]: value }))
     })
   }
 

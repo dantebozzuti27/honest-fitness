@@ -1601,35 +1601,63 @@ export default function Health() {
                       
                       // Validate inputs
                       const errors = []
-                      const { validateWeight, validateSteps, validateHRV, validateCalories, validateSleepScore, validateRestingHeartRate, validateBodyTemperature } = await import('../utils/validation')
-                      
-                      if (metricToSave.weight !== null && metricToSave.weight !== undefined && metricToSave.weight !== '') {
-                        const weightValidation = validateWeight(metricToSave.weight)
-                        if (!weightValidation.valid) errors.push(`Weight: ${weightValidation.error}`)
-                      }
-                      if (metricToSave.steps !== null && metricToSave.steps !== undefined && metricToSave.steps !== '') {
-                        const stepsValidation = validateSteps(metricToSave.steps)
-                        if (!stepsValidation.valid) errors.push(`Steps: ${stepsValidation.error}`)
-                      }
-                      if (metricToSave.hrv !== null && metricToSave.hrv !== undefined && metricToSave.hrv !== '') {
-                        const hrvValidation = validateHRV(metricToSave.hrv)
-                        if (!hrvValidation.valid) errors.push(`HRV: ${hrvValidation.error}`)
-                      }
-                      if (metricToSave.calories !== null && metricToSave.calories !== undefined && metricToSave.calories !== '') {
-                        const caloriesValidation = validateCalories(metricToSave.calories)
-                        if (!caloriesValidation.valid) errors.push(`Calories: ${caloriesValidation.error}`)
-                      }
-                      if (metricToSave.sleep_score !== null && metricToSave.sleep_score !== undefined && metricToSave.sleep_score !== '') {
-                        const sleepValidation = validateSleepScore(metricToSave.sleep_score)
-                        if (!sleepValidation.valid) errors.push(`Sleep Score: ${sleepValidation.error}`)
-                      }
-                      if (metricToSave.resting_heart_rate !== null && metricToSave.resting_heart_rate !== undefined && metricToSave.resting_heart_rate !== '') {
-                        const restingHeartRateValidation = validateRestingHeartRate(metricToSave.resting_heart_rate)
-                        if (!restingHeartRateValidation.valid) errors.push(`Resting Heart Rate: ${restingHeartRateValidation.error}`)
-                      }
-                      if (metricToSave.body_temp !== null && metricToSave.body_temp !== undefined && metricToSave.body_temp !== '') {
-                        const bodyTemperatureValidation = validateBodyTemperature(metricToSave.body_temp)
-                        if (!bodyTemperatureValidation.valid) errors.push(`Body Temperature: ${bodyTemperatureValidation.error}`)
+                      try {
+                        const validationModule = await import('../utils/validation')
+                        const { 
+                          validateWeight, 
+                          validateSteps, 
+                          validateHRV, 
+                          validateCalories, 
+                          validateSleepScore, 
+                          validateRestingHeartRate, 
+                          validateBodyTemperature 
+                        } = validationModule || {}
+                        
+                        if (metricToSave.weight !== null && metricToSave.weight !== undefined && metricToSave.weight !== '') {
+                          if (validateWeight && typeof validateWeight === 'function') {
+                            const weightValidation = validateWeight(metricToSave.weight)
+                            if (!weightValidation.valid) errors.push(`Weight: ${weightValidation.error}`)
+                          }
+                        }
+                        if (metricToSave.steps !== null && metricToSave.steps !== undefined && metricToSave.steps !== '') {
+                          if (validateSteps && typeof validateSteps === 'function') {
+                            const stepsValidation = validateSteps(metricToSave.steps)
+                            if (!stepsValidation.valid) errors.push(`Steps: ${stepsValidation.error}`)
+                          }
+                        }
+                        if (metricToSave.hrv !== null && metricToSave.hrv !== undefined && metricToSave.hrv !== '') {
+                          if (validateHRV && typeof validateHRV === 'function') {
+                            const hrvValidation = validateHRV(metricToSave.hrv)
+                            if (!hrvValidation.valid) errors.push(`HRV: ${hrvValidation.error}`)
+                          }
+                        }
+                        if (metricToSave.calories !== null && metricToSave.calories !== undefined && metricToSave.calories !== '') {
+                          if (validateCalories && typeof validateCalories === 'function') {
+                            const caloriesValidation = validateCalories(metricToSave.calories)
+                            if (!caloriesValidation.valid) errors.push(`Calories: ${caloriesValidation.error}`)
+                          }
+                        }
+                        if (metricToSave.sleep_score !== null && metricToSave.sleep_score !== undefined && metricToSave.sleep_score !== '') {
+                          if (validateSleepScore && typeof validateSleepScore === 'function') {
+                            const sleepValidation = validateSleepScore(metricToSave.sleep_score)
+                            if (!sleepValidation.valid) errors.push(`Sleep Score: ${sleepValidation.error}`)
+                          }
+                        }
+                        if (metricToSave.resting_heart_rate !== null && metricToSave.resting_heart_rate !== undefined && metricToSave.resting_heart_rate !== '') {
+                          if (validateRestingHeartRate && typeof validateRestingHeartRate === 'function') {
+                            const restingHeartRateValidation = validateRestingHeartRate(metricToSave.resting_heart_rate)
+                            if (!restingHeartRateValidation.valid) errors.push(`Resting Heart Rate: ${restingHeartRateValidation.error}`)
+                          }
+                        }
+                        if (metricToSave.body_temp !== null && metricToSave.body_temp !== undefined && metricToSave.body_temp !== '') {
+                          if (validateBodyTemperature && typeof validateBodyTemperature === 'function') {
+                            const bodyTemperatureValidation = validateBodyTemperature(metricToSave.body_temp)
+                            if (!bodyTemperatureValidation.valid) errors.push(`Body Temperature: ${bodyTemperatureValidation.error}`)
+                          }
+                        }
+                      } catch (validationError) {
+                        logError('Error loading validation functions', validationError)
+                        // Continue without validation if import fails
                       }
                       
                       if (errors.length > 0) {

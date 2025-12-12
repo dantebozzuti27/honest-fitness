@@ -420,26 +420,47 @@ export default function Nutrition() {
     }
     
     try {
-      const { validateCalories, validateMacro } = await import('../utils/validation')
-      const caloriesValidation = validateCalories(manualEntry.calories)
-      if (!caloriesValidation.valid) {
-        showToast(caloriesValidation.error, 'error')
-        return
-      }
-      const proteinValidation = validateMacro(manualEntry.protein || 0)
-      const carbsValidation = validateMacro(manualEntry.carbs || 0)
-      const fatValidation = validateMacro(manualEntry.fat || 0)
-      if (!proteinValidation.valid || !carbsValidation.valid || !fatValidation.valid) {
-        showToast('Please enter valid macro values (0-1000g)', 'error')
-        return
+      const validationModule = await import('../utils/validation')
+      const { validateCalories, validateMacro } = validationModule || {}
+      
+      if (validateCalories && typeof validateCalories === 'function') {
+        const caloriesValidation = validateCalories(manualEntry.calories)
+        if (!caloriesValidation.valid) {
+          showToast(caloriesValidation.error, 'error')
+          return
+        }
       }
       
+      if (validateMacro && typeof validateMacro === 'function') {
+        const proteinValidation = validateMacro(manualEntry.protein || 0)
+        const carbsValidation = validateMacro(manualEntry.carbs || 0)
+        const fatValidation = validateMacro(manualEntry.fat || 0)
+        if (!proteinValidation.valid || !carbsValidation.valid || !fatValidation.valid) {
+          showToast('Please enter valid macro values (0-1000g)', 'error')
+          return
+        }
+      }
+      
+      // Get validated values or use raw values if validation not available
+      const validatedCalories = (validateCalories && typeof validateCalories === 'function') 
+        ? validateCalories(manualEntry.calories).value 
+        : Number(manualEntry.calories) || 0
+      const validatedProtein = (validateMacro && typeof validateMacro === 'function')
+        ? validateMacro(manualEntry.protein || 0).value
+        : Number(manualEntry.protein) || 0
+      const validatedCarbs = (validateMacro && typeof validateMacro === 'function')
+        ? validateMacro(manualEntry.carbs || 0).value
+        : Number(manualEntry.carbs) || 0
+      const validatedFat = (validateMacro && typeof validateMacro === 'function')
+        ? validateMacro(manualEntry.fat || 0).value
+        : Number(manualEntry.fat) || 0
+      
       await addMeal({
-        calories: caloriesValidation.value,
+        calories: validatedCalories,
         macros: {
-          protein: proteinValidation.value,
-          carbs: carbsValidation.value,
-          fat: fatValidation.value
+          protein: validatedProtein,
+          carbs: validatedCarbs,
+          fat: validatedFat
         },
         foods: manualEntry.name ? [manualEntry.name] : [],
         description: manualEntry.name || 'Manual entry',

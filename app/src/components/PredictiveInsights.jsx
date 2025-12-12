@@ -46,11 +46,16 @@ export default function PredictiveInsights() {
     
     setLoading(true)
     try {
-      const { getActiveGoalsFromSupabase } = await import('../lib/goalsDb')
+      const goalsModule = await import('../lib/goalsDb')
+      const { getActiveGoalsFromSupabase } = goalsModule || {}
+      const goalsPromise = (getActiveGoalsFromSupabase && typeof getActiveGoalsFromSupabase === 'function')
+        ? getActiveGoalsFromSupabase(user.id)
+        : Promise.resolve([])
+      
       const [forecast, injuryRisk, goals] = await Promise.all([
         forecastWorkoutPerformance(user.id),
         predictInjuryRisk(user.id),
-        getActiveGoalsFromSupabase(user.id)
+        goalsPromise
       ])
       
       const newInsights = []

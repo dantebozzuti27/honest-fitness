@@ -36,15 +36,25 @@ export async function generateShareImage(cardElement, platform = 'default') {
     const canvas = await html2canvas(cardElement, options)
     
     // Track generation success
-    const { trackShareCardGeneration } = await import('./shareAnalytics')
-    trackShareCardGeneration(platform, true)
+    try {
+      const analyticsModule = await import('./shareAnalytics')
+      const { trackShareCardGeneration } = analyticsModule || {}
+      if (trackShareCardGeneration && typeof trackShareCardGeneration === 'function') {
+        trackShareCardGeneration(platform, true)
+      }
+    } catch (analyticsError) {
+      // Silently fail - analytics is non-critical
+    }
     
     return canvas.toDataURL('image/png')
   } catch (error) {
     // Track generation failure
     try {
-      const { trackShareCardGeneration } = await import('./shareAnalytics')
-      trackShareCardGeneration(platform, false)
+      const analyticsModule = await import('./shareAnalytics')
+      const { trackShareCardGeneration } = analyticsModule || {}
+      if (trackShareCardGeneration && typeof trackShareCardGeneration === 'function') {
+        trackShareCardGeneration(platform, false)
+      }
     } catch (e) {
       // Ignore analytics errors
     }

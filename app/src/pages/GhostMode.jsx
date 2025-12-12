@@ -336,46 +336,83 @@ export default function GhostMode() {
 
   const handleManualEntry = async () => {
     // Import validation dynamically
-    const { validateCalories, validateMacro } = await import('../utils/validation')
-    
-    // Validate calories
-    const caloriesValidation = validateCalories(manualEntry.calories)
-    if (!caloriesValidation.valid) {
-      alert(caloriesValidation.error)
-      return
-    }
-    
-    // Validate macros
-    const proteinValidation = validateMacro(manualEntry.protein || 0)
-    const carbsValidation = validateMacro(manualEntry.carbs || 0)
-    const fatValidation = validateMacro(manualEntry.fat || 0)
-    
-    if (!proteinValidation.valid || !carbsValidation.valid || !fatValidation.valid) {
-      alert('Please enter valid macro values (0-1000g)')
-      return
-    }
+    try {
+      const validationModule = await import('../utils/validation')
+      const { validateCalories, validateMacro } = validationModule || {}
+      
+      // Validate calories
+      if (validateCalories && typeof validateCalories === 'function') {
+        const caloriesValidation = validateCalories(manualEntry.calories)
+        if (!caloriesValidation.valid) {
+          alert(caloriesValidation.error)
+          return
+        }
+      }
+      
+      // Validate macros
+      if (validateMacro && typeof validateMacro === 'function') {
+        const proteinValidation = validateMacro(manualEntry.protein || 0)
+        const carbsValidation = validateMacro(manualEntry.carbs || 0)
+        const fatValidation = validateMacro(manualEntry.fat || 0)
+        
+        if (!proteinValidation.valid || !carbsValidation.valid || !fatValidation.valid) {
+          alert('Please enter valid macro values (0-1000g)')
+          return
+        }
+      }
+      
+      // Get validated values or use raw values if validation not available
+      const validatedCalories = (validateCalories && typeof validateCalories === 'function')
+        ? validateCalories(manualEntry.calories).value
+        : Number(manualEntry.calories) || 0
+      const validatedProtein = (validateMacro && typeof validateMacro === 'function')
+        ? validateMacro(manualEntry.protein || 0).value
+        : Number(manualEntry.protein) || 0
+      const validatedCarbs = (validateMacro && typeof validateMacro === 'function')
+        ? validateMacro(manualEntry.carbs || 0).value
+        : Number(manualEntry.carbs) || 0
+      const validatedFat = (validateMacro && typeof validateMacro === 'function')
+        ? validateMacro(manualEntry.fat || 0).value
+        : Number(manualEntry.fat) || 0
 
-    addMeal({
-      calories: caloriesValidation.value,
-      macros: {
-        protein: proteinValidation.value,
-        carbs: carbsValidation.value,
-        fat: fatValidation.value
-      },
-      foods: manualEntry.name ? [manualEntry.name] : [],
-      description: manualEntry.name || 'Manual entry',
-      type: 'manual'
-    })
+      addMeal({
+        calories: validatedCalories,
+        macros: {
+          protein: validatedProtein,
+          carbs: validatedCarbs,
+          fat: validatedFat
+        },
+        foods: manualEntry.name ? [manualEntry.name] : [],
+        description: manualEntry.name || 'Manual entry',
+        type: 'manual'
+      })
 
-    // Reset form
-    setManualEntry({
-      name: '',
-      calories: '',
-      protein: '',
-      carbs: '',
-      fat: ''
-    })
-    setShowManualEntry(false)
+      // Reset form
+      setManualEntry({
+        name: '',
+        calories: '',
+        protein: '',
+        carbs: '',
+        fat: ''
+      })
+      setShowManualEntry(false)
+    } catch (validationError) {
+      logError('Error importing or calling validation functions', validationError)
+      // Fallback: use raw values without validation
+      addMeal({
+        calories: Number(manualEntry.calories) || 0,
+        macros: {
+          protein: Number(manualEntry.protein) || 0,
+          carbs: Number(manualEntry.carbs) || 0,
+          fat: Number(manualEntry.fat) || 0
+        },
+        foods: manualEntry.name ? [manualEntry.name] : [],
+        description: manualEntry.name || 'Manual entry',
+        type: 'manual'
+      })
+      setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
+      setShowManualEntry(false)
+    }
   }
 
   const removeMeal = async (mealId) => {

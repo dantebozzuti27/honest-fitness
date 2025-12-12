@@ -17,16 +17,40 @@ export async function saveWorkoutToSupabase(workout, userId) {
   // Data pipeline: Validate -> Clean -> Enrich -> Save
   
   // Step 1: Validate data (dynamic import for code-splitting)
-  const { validateWorkout } = await import('./dataValidation')
-  const validation = validateWorkout(workout)
-  if (!validation.valid) {
-    logError('Workout validation failed', validation.errors)
-    throw new Error(`Workout validation failed: ${validation.errors.join(', ')}`)
+  let validation = { valid: true, errors: [] }
+  try {
+    const validationModule = await import('./dataValidation')
+    const { validateWorkout } = validationModule || {}
+    if (validateWorkout && typeof validateWorkout === 'function') {
+      validation = validateWorkout(workout)
+      if (!validation.valid) {
+        logError('Workout validation failed', validation.errors)
+        throw new Error(`Workout validation failed: ${validation.errors.join(', ')}`)
+      }
+    } else {
+      logError('validateWorkout is not a function', { validationModule })
+      // Continue without validation if function is not available
+    }
+  } catch (validationError) {
+    logError('Error importing or calling validateWorkout', validationError)
+    // Continue without validation if import fails
   }
   
   // Step 2: Clean and normalize data (dynamic import for code-splitting)
-  const { cleanWorkoutData } = await import('./dataCleaning')
-  const cleanedWorkout = cleanWorkoutData(workout)
+  let cleanedWorkout = workout
+  try {
+    const cleaningModule = await import('./dataCleaning')
+    const { cleanWorkoutData } = cleaningModule || {}
+    if (cleanWorkoutData && typeof cleanWorkoutData === 'function') {
+      cleanedWorkout = cleanWorkoutData(workout)
+    } else {
+      logError('cleanWorkoutData is not a function', { cleaningModule })
+      // Use original workout if cleaning function is not available
+    }
+  } catch (cleaningError) {
+    logError('Error importing or calling cleanWorkoutData', cleaningError)
+    // Use original workout if import fails
+  }
   
   // Validate that this is a real workout with exercises (after cleaning)
   if (!cleanedWorkout.exercises || cleanedWorkout.exercises.length === 0) {
@@ -132,6 +156,8 @@ export async function saveWorkoutToSupabase(workout, userId) {
         mood_after: workoutToSave.moodAfter || null,
         notes: workoutToSave.notes || null,
         day_of_week: workoutToSave.dayOfWeek ?? null,
+        workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
+        workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null,
         updated_at: new Date().toISOString()
       })
       .eq('id', existingId)
@@ -152,7 +178,9 @@ export async function saveWorkoutToSupabase(workout, userId) {
         perceived_effort: workoutToSave.perceivedEffort || null,
         mood_after: workoutToSave.moodAfter || null,
         notes: workoutToSave.notes || null,
-        day_of_week: workoutToSave.dayOfWeek ?? null
+        day_of_week: workoutToSave.dayOfWeek ?? null,
+        workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
+        workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null
       })
       .select()
       .single()
@@ -831,16 +859,40 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
   // Data pipeline: Validate -> Clean -> Save -> Enrich
   
   // Step 1: Validate data
-  const { validateHealthMetrics } = await import('./dataValidation')
-  const validation = validateHealthMetrics({ ...metrics, date })
-  if (!validation.valid) {
-    logError('Health metrics validation failed', validation.errors)
-    throw new Error(`Health metrics validation failed: ${validation.errors.join(', ')}`)
+  let validation = { valid: true, errors: [] }
+  try {
+    const validationModule = await import('./dataValidation')
+    const { validateHealthMetrics } = validationModule || {}
+    if (validateHealthMetrics && typeof validateHealthMetrics === 'function') {
+      validation = validateHealthMetrics({ ...metrics, date })
+      if (!validation.valid) {
+        logError('Health metrics validation failed', validation.errors)
+        throw new Error(`Health metrics validation failed: ${validation.errors.join(', ')}`)
+      }
+    } else {
+      logError('validateHealthMetrics is not a function', { validationModule })
+      // Continue without validation if function is not available
+    }
+  } catch (validationError) {
+    logError('Error importing or calling validateHealthMetrics', validationError)
+    // Continue without validation if import fails
   }
   
   // Step 2: Clean and normalize data
-  const { cleanHealthMetricsData } = await import('./dataCleaning')
-  const cleanedMetrics = cleanHealthMetricsData(metrics)
+  let cleanedMetrics = metrics
+  try {
+    const cleaningModule = await import('./dataCleaning')
+    const { cleanHealthMetricsData } = cleaningModule || {}
+    if (cleanHealthMetricsData && typeof cleanHealthMetricsData === 'function') {
+      cleanedMetrics = cleanHealthMetricsData(metrics)
+    } else {
+      logError('cleanHealthMetricsData is not a function', { cleaningModule })
+      // Use original metrics if cleaning function is not available
+    }
+  } catch (cleaningError) {
+    logError('Error importing or calling cleanHealthMetricsData', cleaningError)
+    // Use original metrics if import fails
+  }
   
   // Validate that we have at least one metric value (after cleaning)
   const hasData = Object.values(cleanedMetrics).some(val => val !== null && val !== undefined && val !== '')

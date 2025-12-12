@@ -287,6 +287,23 @@ export default function ShareCard({ type, data, theme = 'default', showAchieveme
               )}
             </div>
           )}
+          {/* Display wearable metrics if available */}
+          {(workout?.workoutCaloriesBurned != null || workout?.workoutSteps != null) && (
+            <div className={styles.workoutMetrics}>
+              {workout.workoutCaloriesBurned != null && (
+                <div className={styles.workoutMetric}>
+                  <span className={styles.workoutMetricValue}>{Math.round(workout.workoutCaloriesBurned)}</span>
+                  <span className={styles.workoutMetricLabel}>Calories</span>
+                </div>
+              )}
+              {workout.workoutSteps != null && (
+                <div className={styles.workoutMetric}>
+                  <span className={styles.workoutMetricValue}>{workout.workoutSteps.toLocaleString()}</span>
+                  <span className={styles.workoutMetricLabel}>Steps</span>
+                </div>
+              )}
+            </div>
+          )}
           {validExercises.length > 0 && (
             <div 
               className={styles.exercisesGrid}

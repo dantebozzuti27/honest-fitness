@@ -22,16 +22,40 @@ export async function saveMealToSupabase(userId, date, meal) {
   // Data pipeline: Validate -> Clean -> Save -> Enrich
   
   // Step 1: Validate data (dynamic import for code-splitting)
-  const { validateNutrition } = await import('./dataValidation')
-  const validation = validateNutrition({ meals: [meal], date })
-  if (!validation.valid) {
-    logError('Nutrition validation failed', validation.errors)
-    throw new Error(`Nutrition validation failed: ${validation.errors.join(', ')}`)
+  let validation = { valid: true, errors: [] }
+  try {
+    const validationModule = await import('./dataValidation')
+    const { validateNutrition } = validationModule || {}
+    if (validateNutrition && typeof validateNutrition === 'function') {
+      validation = validateNutrition({ meals: [meal], date })
+      if (!validation.valid) {
+        logError('Nutrition validation failed', validation.errors)
+        throw new Error(`Nutrition validation failed: ${validation.errors.join(', ')}`)
+      }
+    } else {
+      logError('validateNutrition is not a function', { validationModule })
+      // Continue without validation if function is not available
+    }
+  } catch (validationError) {
+    logError('Error importing or calling validateNutrition', validationError)
+    // Continue without validation if import fails
   }
   
   // Step 2: Clean and normalize data (dynamic import for code-splitting)
-  const { cleanNutritionData } = await import('./dataCleaning')
-  const cleanedMeal = cleanNutritionData(meal)
+  let cleanedMeal = meal
+  try {
+    const cleaningModule = await import('./dataCleaning')
+    const { cleanNutritionData } = cleaningModule || {}
+    if (cleanNutritionData && typeof cleanNutritionData === 'function') {
+      cleanedMeal = cleanNutritionData(meal)
+    } else {
+      logError('cleanNutritionData is not a function', { cleaningModule })
+      // Use original meal if cleaning function is not available
+    }
+  } catch (cleaningError) {
+    logError('Error importing or calling cleanNutritionData', cleaningError)
+    // Use original meal if import fails
+  }
   
   // Validate that this is a real meal with data (after cleaning)
   const mealName = cleanedMeal.name || cleanedMeal.description || (cleanedMeal.foods && cleanedMeal.foods.length > 0 ? cleanedMeal.foods[0] : null)

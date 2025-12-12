@@ -68,8 +68,16 @@ export default function ShareModal({ type, data, onClose }) {
     setSharing(true)
     try {
       // Generate achievement-focused share text
-      const { generateAchievementShareText } = await import('../utils/achievements')
-      const text = generateAchievementShareText(type, data, achievements)
+      let text = 'Check out my progress on Echelon!'
+      try {
+        const achievementsModule = await import('../utils/achievements')
+        const { generateAchievementShareText } = achievementsModule || {}
+        if (generateAchievementShareText && typeof generateAchievementShareText === 'function') {
+          text = generateAchievementShareText(type, data, achievements)
+        }
+      } catch (achievementsError) {
+        // Fallback to default text if import fails
+      }
       
       // Track share click
       trackShareClick(platform, type, { image: !!imageDataUrl, achievement: achievements.length > 0 })

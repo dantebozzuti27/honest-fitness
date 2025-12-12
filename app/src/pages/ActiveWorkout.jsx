@@ -20,6 +20,7 @@ import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import ShareModal from '../components/ShareModal'
 import { shareWorkoutToFeed } from '../utils/shareUtils'
+import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import styles from './ActiveWorkout.module.css'
 
 export default function ActiveWorkout() {
@@ -57,6 +58,8 @@ export default function ActiveWorkout() {
   const timeoutRefs = useRef([]) // Track all timeouts for cleanup
   const autoSaveIntervalRef = useRef(null) // Auto-save interval
   const lastSavedExercisesRef = useRef(null) // Track last saved exercises to avoid unnecessary saves
+  const workoutStartMetricsRef = useRef(null) // Track wearable metrics at workout start (calories, steps)
+  const pausedMetricsRef = useRef([]) // Track metrics during paused periods: [{pauseTime, resumeTime, metricsAtPause, metricsAtResume}]
 
   // Auto-save exercises periodically during workout
   useEffect(() => {
@@ -535,24 +538,34 @@ export default function ActiveWorkout() {
                       }
                       // Continue to initialize new workout below
                     } else {
-                      // User wants to resume - restore the workout
-                      setExercises(workoutData.exercises)
-                      lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
-                      restoredExercises = true
-                      
-                      // Restore timer if we have workout start time
-                      if (workoutData.timestamp) {
-                        // Estimate workout start time from timestamp
-                        if (!workoutStartTimeRef.current) {
-                          workoutStartTimeRef.current = workoutData.timestamp - (workoutData.workoutTime || 0) * 1000
-                        }
+                    // User wants to resume - restore the workout
+                    setExercises(workoutData.exercises)
+                    lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                    restoredExercises = true
+                    
+                    // Restore timer if we have workout start time
+                    if (workoutData.timestamp) {
+                      // Estimate workout start time from timestamp
+                      if (!workoutStartTimeRef.current) {
+                        workoutStartTimeRef.current = workoutData.timestamp - (workoutData.workoutTime || 0) * 1000
                       }
-                      
-                      if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
-                      if (workoutData.restTime) setRestTime(workoutData.restTime)
-                      if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
-                      
-                      showToast('Workout progress recovered from backup', 'info')
+                    }
+                    
+                    // Restore start metrics from localStorage if available
+                    try {
+                      const savedMetrics = localStorage.getItem(`workoutStartMetrics_${user.id}`)
+                      if (savedMetrics) {
+                        workoutStartMetricsRef.current = JSON.parse(savedMetrics)
+                      }
+                    } catch (e) {
+                      // Silently fail
+                    }
+                    
+                    if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
+                    if (workoutData.restTime) setRestTime(workoutData.restTime)
+                    if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                    
+                    showToast('Workout progress recovered from backup', 'info')
                     }
                   } else {
                     // Recent workout - restore automatically
@@ -566,6 +579,16 @@ export default function ActiveWorkout() {
                       if (!workoutStartTimeRef.current) {
                         workoutStartTimeRef.current = workoutData.timestamp - (workoutData.workoutTime || 0) * 1000
                       }
+                    }
+                    
+                    // Restore start metrics from localStorage if available
+                    try {
+                      const savedMetrics = localStorage.getItem(`workoutStartMetrics_${user.id}`)
+                      if (savedMetrics) {
+                        workoutStartMetricsRef.current = JSON.parse(savedMetrics)
+                      }
+                    } catch (e) {
+                      // Silently fail
                     }
                     
                     if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
@@ -588,6 +611,17 @@ export default function ActiveWorkout() {
           setWorkoutTime(0)
           setPausedTime(0)
           pausedTimeRef.current = 0
+          
+          // Capture wearable metrics at workout start
+          const startMetrics = await getCurrentWearableMetrics()
+          workoutStartMetricsRef.current = startMetrics
+          
+          // Save start metrics to localStorage for persistence
+          try {
+            localStorage.setItem(`workoutStartMetrics_${user.id}`, JSON.stringify(startMetrics))
+          } catch (e) {
+            // Silently fail
+          }
           
           // Save to database
           try {
@@ -637,6 +671,17 @@ export default function ActiveWorkout() {
                     // User wants to resume
                     setExercises(workoutData.exercises)
                     lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                    
+                    // Restore start metrics from localStorage if available
+                    try {
+                      const savedMetrics = localStorage.getItem(`workoutStartMetrics_${user.id}`)
+                      if (savedMetrics) {
+                        workoutStartMetricsRef.current = JSON.parse(savedMetrics)
+                      }
+                    } catch (e) {
+                      // Silently fail
+                    }
+                    
                     if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
                     if (workoutData.restTime) setRestTime(workoutData.restTime)
                     if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
@@ -647,6 +692,17 @@ export default function ActiveWorkout() {
                   // Recent workout - restore automatically
                   setExercises(workoutData.exercises)
                   lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                  
+                  // Restore start metrics from localStorage if available
+                  try {
+                    const savedMetrics = localStorage.getItem(`workoutStartMetrics_${user.id}`)
+                    if (savedMetrics) {
+                      workoutStartMetricsRef.current = JSON.parse(savedMetrics)
+                    }
+                  } catch (e) {
+                    // Silently fail
+                  }
+                  
                   if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
                   if (workoutData.restTime) setRestTime(workoutData.restTime)
                   if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
@@ -665,6 +721,17 @@ export default function ActiveWorkout() {
         setWorkoutTime(0)
         setPausedTime(0)
         pausedTimeRef.current = 0
+        
+        // Capture wearable metrics at workout start
+        const startMetrics = await getCurrentWearableMetrics()
+        workoutStartMetricsRef.current = startMetrics
+        
+        // Save start metrics to localStorage for persistence
+        try {
+          localStorage.setItem(`workoutStartMetrics_${user.id}`, JSON.stringify(startMetrics))
+        } catch (e) {
+          // Silently fail
+        }
       }
     }
     
@@ -754,6 +821,19 @@ export default function ActiveWorkout() {
               setExercises(session.exercises)
               lastSavedExercisesRef.current = JSON.stringify(session.exercises)
             }
+            
+            // Restore start metrics from localStorage if available
+            try {
+              const savedMetrics = localStorage.getItem(`workoutStartMetrics_${user.id}`)
+              if (savedMetrics) {
+                workoutStartMetricsRef.current = JSON.parse(savedMetrics)
+              }
+            } catch (e) {
+              // Silently fail
+            }
+            
+            // Initialize paused metrics ref (we can't restore paused metrics from storage, so start fresh)
+            pausedMetricsRef.current = []
             
             // Recalculate workout time based on absolute time difference
             const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedMs) / 1000)
@@ -854,6 +934,40 @@ export default function ActiveWorkout() {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
     return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // Get current wearable metrics (calories burned and steps)
+  const getCurrentWearableMetrics = async () => {
+    if (!user) return { calories: null, steps: null }
+    
+    try {
+      const today = getTodayEST()
+      // Try to get today's data first
+      let fitbitData = await getFitbitDaily(user.id, today)
+      
+      // If no data for today, try yesterday
+      if (!fitbitData) {
+        const { getYesterdayEST } = await import('../utils/dateUtils')
+        const yesterday = getYesterdayEST()
+        fitbitData = await getFitbitDaily(user.id, yesterday)
+      }
+      
+      // If still no data, try most recent
+      if (!fitbitData) {
+        fitbitData = await getMostRecentFitbitData(user.id)
+      }
+      
+      if (fitbitData) {
+        return {
+          calories: fitbitData.calories_burned || fitbitData.calories || null,
+          steps: fitbitData.steps || null
+        }
+      }
+    } catch (error) {
+      logError('Error getting wearable metrics', error)
+    }
+    
+    return { calories: null, steps: null }
   }
 
   const startRest = async (duration = 90) => {
@@ -1128,8 +1242,79 @@ export default function ActiveWorkout() {
     if (user) {
       try {
         localStorage.removeItem(`activeWorkout_${user.id}`)
+        localStorage.removeItem(`workoutStartMetrics_${user.id}`)
       } catch (e) {
         // Silently fail
+      }
+    }
+    
+    // Capture wearable metrics at workout end and calculate difference
+    let workoutCaloriesBurned = null
+    let workoutSteps = null
+    if (user && workoutStartMetricsRef.current) {
+      try {
+        const endMetrics = await getCurrentWearableMetrics()
+        const startMetrics = workoutStartMetricsRef.current
+        
+        // If workout is currently paused, close out the last pause period
+        if (isPaused && pausedMetricsRef.current && pausedMetricsRef.current.length > 0) {
+          const lastPause = pausedMetricsRef.current[pausedMetricsRef.current.length - 1]
+          if (lastPause && !lastPause.resumeTime) {
+            // Workout finished while paused - use end metrics as resume metrics
+            lastPause.resumeTime = Date.now()
+            lastPause.metricsAtResume = endMetrics
+          }
+        }
+        
+        // Calculate total difference (end - start)
+        let totalCaloriesDiff = null
+        let totalStepsDiff = null
+        
+        if (endMetrics.calories != null && startMetrics.calories != null) {
+          totalCaloriesDiff = endMetrics.calories - startMetrics.calories
+        }
+        if (endMetrics.steps != null && startMetrics.steps != null) {
+          totalStepsDiff = endMetrics.steps - startMetrics.steps
+        }
+        
+        // Subtract metrics accumulated during paused periods
+        if (pausedMetricsRef.current && pausedMetricsRef.current.length > 0) {
+          let pausedCalories = 0
+          let pausedSteps = 0
+          
+          pausedMetricsRef.current.forEach(pause => {
+            if (pause.metricsAtPause && pause.metricsAtResume) {
+              // Calculate metrics accumulated during this pause period
+              const pauseCalories = pause.metricsAtResume.calories != null && pause.metricsAtPause.calories != null
+                ? pause.metricsAtResume.calories - pause.metricsAtPause.calories
+                : 0
+              const pauseSteps = pause.metricsAtResume.steps != null && pause.metricsAtPause.steps != null
+                ? pause.metricsAtResume.steps - pause.metricsAtPause.steps
+                : 0
+              
+              pausedCalories += Math.max(0, pauseCalories)
+              pausedSteps += Math.max(0, pauseSteps)
+            }
+          })
+          
+          // Subtract paused metrics from total
+          if (totalCaloriesDiff != null) {
+            workoutCaloriesBurned = Math.max(0, totalCaloriesDiff - pausedCalories)
+          }
+          if (totalStepsDiff != null) {
+            workoutSteps = Math.max(0, totalStepsDiff - pausedSteps)
+          }
+        } else {
+          // No pauses, use total difference
+          if (totalCaloriesDiff != null) {
+            workoutCaloriesBurned = Math.max(0, totalCaloriesDiff)
+          }
+          if (totalStepsDiff != null) {
+            workoutSteps = Math.max(0, totalStepsDiff)
+          }
+        }
+      } catch (error) {
+        logError('Error calculating workout wearable metrics', error)
       }
     }
     
@@ -1141,6 +1326,8 @@ export default function ActiveWorkout() {
       moodAfter: feedback.moodAfter,
       notes: feedback.notes,
       dayOfWeek: new Date().getDay(),
+      workoutCaloriesBurned: workoutCaloriesBurned,
+      workoutSteps: workoutSteps,
       // IMPORTANT: Include ALL exercises from the workout, don't filter any out
       // Only filter sets to show valid ones, but keep all exercises
       exercises: exercises.map(ex => ({
@@ -1243,11 +1430,24 @@ export default function ActiveWorkout() {
   // Pause workout functionality
   const pauseWorkout = async () => {
     if (!isPaused) {
+      // Capture metrics at pause time
+      const pauseMetrics = await getCurrentWearableMetrics()
+      const pauseTime = Date.now()
+      
       // Pause: stop timer, save state
       setIsPaused(true)
-      pauseStartTime.current = Date.now()
+      pauseStartTime.current = pauseTime
       clearInterval(workoutTimerRef.current)
       clearInterval(restTimerRef.current)
+      
+      // Store pause metrics
+      if (!pausedMetricsRef.current) {
+        pausedMetricsRef.current = []
+      }
+      pausedMetricsRef.current.push({
+        pauseTime: pauseTime,
+        metricsAtPause: pauseMetrics
+      })
       
       // Save paused workout state
       if (user) {
@@ -1288,8 +1488,21 @@ export default function ActiveWorkout() {
 
   const resumeWorkout = async () => {
     if (isPaused && user) {
+      // Capture metrics at resume time
+      const resumeMetrics = await getCurrentWearableMetrics()
+      const resumeTime = Date.now()
+      
+      // Find the most recent pause entry and update it with resume info
+      if (pausedMetricsRef.current && pausedMetricsRef.current.length > 0) {
+        const lastPause = pausedMetricsRef.current[pausedMetricsRef.current.length - 1]
+        if (lastPause && !lastPause.resumeTime) {
+          lastPause.resumeTime = resumeTime
+          lastPause.metricsAtResume = resumeMetrics
+        }
+      }
+      
       // Resume: adjust paused time by pause duration
-      const pauseDuration = pauseStartTime.current ? Date.now() - pauseStartTime.current : 0
+      const pauseDuration = pauseStartTime.current ? resumeTime - pauseStartTime.current : 0
       const newPausedTime = pausedTime + pauseDuration
       setPausedTime(newPausedTime)
       pausedTimeRef.current = newPausedTime
@@ -1402,12 +1615,15 @@ export default function ActiveWorkout() {
                   pausedTimeRef.current = 0
                   setIsResting(false)
                   setRestTime(0)
+                  workoutStartMetricsRef.current = null
+                  pausedMetricsRef.current = []
                   
                   // Clear from database and localStorage
                   if (user) {
                     try {
                       await deleteActiveWorkoutSession(user.id)
                       localStorage.removeItem(`activeWorkout_${user.id}`)
+                      localStorage.removeItem(`workoutStartMetrics_${user.id}`)
                       showToast('Workout cleared. Starting fresh.', 'info')
                     } catch (error) {
                       // Silently fail
@@ -1624,6 +1840,24 @@ export default function ActiveWorkout() {
             <h2>Workout Complete!</h2>
             <p className={styles.summaryDuration}>{formatTime(workoutTime)}</p>
             
+            {/* Display wearable metrics if available */}
+            {(workoutStartMetricsRef.current?.calories != null || workoutStartMetricsRef.current?.steps != null) && (
+              <div className={styles.summaryMetrics}>
+                {workoutStartMetricsRef.current?.calories != null && (
+                  <div className={styles.summaryMetric}>
+                    <span className={styles.summaryMetricLabel}>Calories (start):</span>
+                    <span className={styles.summaryMetricValue}>{workoutStartMetricsRef.current.calories}</span>
+                  </div>
+                )}
+                {workoutStartMetricsRef.current?.steps != null && (
+                  <div className={styles.summaryMetric}>
+                    <span className={styles.summaryMetricLabel}>Steps (start):</span>
+                    <span className={styles.summaryMetricValue}>{workoutStartMetricsRef.current.steps.toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            
             <div className={styles.feedbackSection}>
               <label>How hard was it? (RPE)</label>
               <div className={styles.rpeSlider}>
@@ -1683,17 +1917,19 @@ export default function ActiveWorkout() {
       {showShareModal && savedWorkout && (
         <ShareModal
           type="workout"
-          data={{
-            workout: {
-              date: savedWorkout.date,
-              duration: savedWorkout.duration || 0,
-              exercises: savedWorkout.exercises || [],
-              templateName: savedWorkout.templateName || 'Freestyle Workout',
-              perceivedEffort: savedWorkout.perceivedEffort,
-              moodAfter: savedWorkout.moodAfter,
-              notes: savedWorkout.notes
-            }
-          }}
+      data={{
+        workout: {
+          date: savedWorkout.date,
+          duration: savedWorkout.duration || 0,
+          exercises: savedWorkout.exercises || [],
+          templateName: savedWorkout.templateName || 'Freestyle Workout',
+          perceivedEffort: savedWorkout.perceivedEffort,
+          moodAfter: savedWorkout.moodAfter,
+          notes: savedWorkout.notes,
+          workoutCaloriesBurned: savedWorkout.workoutCaloriesBurned,
+          workoutSteps: savedWorkout.workoutSteps
+        }
+      }}
           onClose={handleShareClose}
         />
       )}

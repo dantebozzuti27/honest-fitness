@@ -122,6 +122,24 @@ export default function HistoryCard({
             </div>
           </div>
           
+          {/* Display wearable metrics if available */}
+          {(data.workout_calories_burned != null || data.workout_steps != null) && (
+            <div className={styles.metricRow} style={{ marginTop: '12px' }}>
+              {data.workout_calories_burned != null && (
+                <div className={styles.metricItem}>
+                  <span className={styles.metricValue}>{Math.round(data.workout_calories_burned)}</span>
+                  <span className={styles.metricLabel}>Calories</span>
+                </div>
+              )}
+              {data.workout_steps != null && (
+                <div className={styles.metricItem}>
+                  <span className={styles.metricValue}>{data.workout_steps.toLocaleString()}</span>
+                  <span className={styles.metricLabel}>Steps</span>
+                </div>
+              )}
+            </div>
+          )}
+          
           {bodyParts.length > 0 && (
             <div className={styles.tags}>
               {bodyParts.map((part, i) => (

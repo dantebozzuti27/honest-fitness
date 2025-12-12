@@ -36,11 +36,7 @@ export default function InsightsCard({
           {insights.length > 1 && expandable && (
             <button 
               className={styles.expandBtn}
-              onClick={() => {
-                if (handleExpand && typeof handleExpand === 'function') {
-                  handleExpand()
-                }
-              }}
+              onClick={handleExpand}
               aria-label={expanded ? 'Collapse insights' : 'Expand insights'}
             >
               {expanded ? '−' : '+'}
@@ -67,12 +63,18 @@ export default function InsightsCard({
             {insight.icon && <span className={styles.insightIcon}>{insight.icon}</span>}
             <div className={styles.insightContent}>
               <p className={styles.insightMessage}>{insight.message}</p>
-              {insight.action && (
+              {insight.action && typeof insight.action === 'function' && (
                 <button 
                   className={styles.actionBtn}
                   onClick={() => {
-                    triggerHaptic('medium')
-                    insight.action()
+                    try {
+                      triggerHaptic('medium')
+                      if (typeof insight.action === 'function') {
+                        insight.action()
+                      }
+                    } catch (error) {
+                      console.error('Error executing insight action:', error)
+                    }
                   }}
                 >
                   {insight.actionLabel || 'Take Action'}
@@ -86,11 +88,7 @@ export default function InsightsCard({
       {insights.length > 1 && !expanded && (
         <button 
           className={styles.showMoreBtn}
-          onClick={() => {
-            if (handleExpand && typeof handleExpand === 'function') {
-              handleExpand()
-            }
-          }}
+          onClick={handleExpand}
         >
           Show {insights.length - 1} more
         </button>

@@ -8,60 +8,81 @@ import { logError } from '../utils/logger'
 
 /**
  * Cohort Analysis - User retention by signup date
+ * Uses user_events to infer user activity since auth.users is not accessible
  */
 export async function analyzeCohorts(userId = null, startDate = null, endDate = null) {
   try {
+    // Use user_events to get first activity date (proxy for signup)
+    // Get unique users and their first event timestamp
     let query = supabase
-      .from('auth.users')
-      .select('id, created_at')
-      .order('created_at', { ascending: true })
+      .from('user_events')
+      .select('user_id, timestamp')
+      .order('timestamp', { ascending: true })
     
     if (startDate) {
-      query = query.gte('created_at', startDate)
+      query = query.gte('timestamp', startDate)
     }
     if (endDate) {
-      query = query.lte('created_at', endDate)
+      query = query.lte('timestamp', endDate)
     }
     
-    const { data: users, error } = await query
+    const { data: events, error } = await query
     
-    if (error) throw error
-    if (!users || users.length === 0) return null
+    if (error) {
+      // If user_events table doesn't exist, return null gracefully
+      if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+        return null
+      }
+      throw error
+    }
+    
+    if (!events || events.length === 0) return null
+    
+    // Group by user and get first event (proxy for signup)
+    const userFirstEvent = {}
+    events.forEach(event => {
+      if (!userFirstEvent[event.user_id]) {
+        userFirstEvent[event.user_id] = event.timestamp
+      } else if (new Date(event.timestamp) < new Date(userFirstEvent[event.user_id])) {
+        userFirstEvent[event.user_id] = event.timestamp
+      }
+    })
     
     // Group users by signup month (cohort)
     const cohorts = {}
-    users.forEach(user => {
-      const signupDate = new Date(user.created_at)
+    Object.entries(userFirstEvent).forEach(([uid, firstTimestamp]) => {
+      const signupDate = new Date(firstTimestamp)
       const cohortMonth = `${signupDate.getFullYear()}-${String(signupDate.getMonth() + 1).padStart(2, '0')}`
       
       if (!cohorts[cohortMonth]) {
         cohorts[cohortMonth] = {
           signup_month: cohortMonth,
           total_users: 0,
+          user_ids: [],
           retention: {}
         }
       }
       cohorts[cohortMonth].total_users++
+      cohorts[cohortMonth].user_ids.push(uid)
     })
     
     // Calculate retention for each cohort
     for (const cohortMonth of Object.keys(cohorts)) {
-      const cohortUsers = users.filter(u => {
-        const signupDate = new Date(u.created_at)
-        const userCohort = `${signupDate.getFullYear()}-${String(signupDate.getMonth() + 1).padStart(2, '0')}`
-        return userCohort === cohortMonth
-      })
+      const cohortUserIds = cohorts[cohortMonth].user_ids
       
       // Check retention at different time periods
-      const retentionPeriods = [7, 14, 30, 60, 90] // days
+      const retentionPeriods = [7, 30, 90] // days
       
       for (const period of retentionPeriods) {
-        const activeUsers = await countActiveUsers(cohortUsers.map(u => u.id), period)
+        const activeUsers = await countActiveUsersFromEvents(cohortUserIds, cohortMonth, period)
         cohorts[cohortMonth].retention[`day_${period}`] = {
           active_users: activeUsers,
-          retention_rate: (activeUsers / cohortUsers.length) * 100
+          retention_rate: cohortUserIds.length > 0 ? (activeUsers / cohortUserIds.length) * 100 : 0
         }
       }
+      
+      // Clean up user_ids from response
+      delete cohorts[cohortMonth].user_ids
     }
     
     return Object.values(cohorts)
@@ -191,28 +212,27 @@ export async function analyzeRetention(userId = null, period = 30) {
 
 /**
  * User Segmentation
+ * Uses workouts table instead of auth.users
  */
 export async function segmentUsers(segmentationCriteria) {
   try {
-    // Get all users
-    const { data: users } = await supabase
-      .from('auth.users')
-      .select('id, created_at')
+    // Get unique users from workouts table
+    const { data: workouts } = await supabase
+      .from('workouts')
+      .select('user_id, date')
+      .gte('date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
     
-    if (!users || users.length === 0) return null
+    if (!workouts || workouts.length === 0) return null
+    
+    // Count workouts per user
+    const userWorkoutCounts = {}
+    workouts.forEach(workout => {
+      userWorkoutCounts[workout.user_id] = (userWorkoutCounts[workout.user_id] || 0) + 1
+    })
     
     const segments = {}
     
-    for (const user of users) {
-      // Get user activity data
-      const { data: workouts } = await supabase
-        .from('workouts')
-        .select('date')
-        .eq('user_id', user.id)
-        .gte('date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
-      
-      const workoutCount = workouts?.length || 0
-      
+    Object.entries(userWorkoutCounts).forEach(([userId, workoutCount]) => {
       // Segment based on criteria
       let segment = 'inactive'
       
@@ -233,15 +253,15 @@ export async function segmentUsers(segmentationCriteria) {
         }
       }
       
-      segments[segment].users.push(user.id)
+      segments[segment].users.push(userId)
       segments[segment].count++
-    }
+    })
     
     // Calculate averages for each segment
     Object.keys(segments).forEach(segmentName => {
       const segment = segments[segmentName]
-      // Calculate average workouts (simplified)
-      segment.avg_workouts = segment.count > 0 ? segment.count : 0
+      const totalWorkouts = segment.users.reduce((sum, uid) => sum + (userWorkoutCounts[uid] || 0), 0)
+      segment.avg_workouts = segment.count > 0 ? totalWorkouts / segment.count : 0
     })
     
     return Object.values(segments)
@@ -253,35 +273,25 @@ export async function segmentUsers(segmentationCriteria) {
 
 // Helper functions
 
-async function countActiveUsers(userIds, daysAfterSignup) {
+async function countActiveUsersFromEvents(userIds, cohortMonth, daysAfterSignup) {
   if (!userIds || userIds.length === 0) return 0
   
-  // Get signup dates
-  const { data: users } = await supabase
-    .from('auth.users')
-    .select('id, created_at')
-    .in('id', userIds)
+  // Calculate the check date based on cohort month + daysAfterSignup
+  const [year, month] = cohortMonth.split('-').map(Number)
+  const cohortStartDate = new Date(year, month - 1, 1)
+  const checkDate = new Date(cohortStartDate.getTime() + daysAfterSignup * 24 * 60 * 60 * 1000)
   
-  if (!users) return 0
+  // Check if users had activity after checkDate
+  const { data: events } = await supabase
+    .from('user_events')
+    .select('user_id')
+    .in('user_id', userIds)
+    .gte('timestamp', checkDate.toISOString())
   
-  let activeCount = 0
+  if (!events || events.length === 0) return 0
   
-  for (const user of users) {
-    const signupDate = new Date(user.created_at)
-    const checkDate = new Date(signupDate.getTime() + daysAfterSignup * 24 * 60 * 60 * 1000)
-    
-    // Check if user had activity after checkDate
-    const { count } = await supabase
-      .from('user_events')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .gte('timestamp', checkDate.toISOString())
-    
-    if (count && count > 0) {
-      activeCount++
-    }
-  }
-  
-  return activeCount
+  // Count unique active users
+  const activeUserIds = [...new Set(events.map(e => e.user_id))]
+  return activeUserIds.length
 }
 

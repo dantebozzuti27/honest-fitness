@@ -1670,9 +1670,19 @@ export default function Health() {
                                                 e.message?.includes('does not exist')
                         
                         if (!isExpectedError) {
-                          logError('Error saving metrics', { error: e, message: e.message, stack: e.stack })
+                          // Better error logging
+                          const errorDetails = {
+                            message: e.message || 'Unknown error',
+                            code: e.code,
+                            details: e.details,
+                            hint: e.hint,
+                            stack: e.stack
+                          }
+                          logError('Error saving metrics', errorDetails)
+                          console.error('Full error object:', e)
                           if (showToast && typeof showToast === 'function') {
-                            showToast(`Failed to save metrics: ${e.message || 'Unknown error'}. Please check console.`, 'error')
+                            const errorMessage = e.message || e.details || e.hint || 'Unknown error occurred'
+                            showToast(`Failed to save metrics: ${errorMessage}. Please check console.`, 'error')
                           }
                         } else {
                           // For expected errors (table/column missing), show a less alarming message

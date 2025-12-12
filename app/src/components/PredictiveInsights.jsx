@@ -3,7 +3,7 @@
  * Displays ML predictions: goal probability, injury risk, performance forecasts
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { 
   forecastWorkoutPerformance, 
@@ -21,6 +21,19 @@ export default function PredictiveInsights() {
   const [loading, setLoading] = useState(true)
   const [insights, setInsights] = useState([])
   const [dismissed, setDismissed] = useState(new Set())
+  
+  // Stable action handlers - use useCallback to ensure functions are stable
+  const handleViewRecovery = useCallback(() => {
+    console.log('Show recovery recommendations')
+    // Could navigate to recovery page in the future
+  }, [])
+  
+  const handleViewGoal = useCallback((goalId) => {
+    return () => {
+      console.log('Show goal details', goalId)
+      // Could navigate to goals page in the future
+    }
+  }, [])
   
   useEffect(() => {
     if (!user) return
@@ -70,10 +83,7 @@ export default function PredictiveInsights() {
           insights: [{
             message: `Your injury risk is ${injuryRisk.risk_level} (${injuryRisk.risk_score}/100). ${injuryRisk.recommendations?.[0] || 'Continue monitoring your recovery.'}`,
             icon: injuryRisk.risk_level === 'high' ? '⚠️' : '✅',
-            action: () => {
-              // Navigate to recovery page or show details
-              console.log('Show recovery recommendations')
-            },
+            action: handleViewRecovery,
             actionLabel: 'View Recommendations'
           }]
         })
@@ -101,10 +111,7 @@ export default function PredictiveInsights() {
           const goalInsights = validPredictions.map(({ goal, prediction }) => ({
             message: `${goal.custom_name || goal.type}: ${prediction.probability}% chance of achievement. ${prediction.recommendation || ''}`,
             icon: prediction.probability >= 70 ? '🎯' : prediction.probability >= 40 ? '📊' : '⚠️',
-            action: () => {
-              // Navigate to goal details
-              console.log('Show goal details', goal.id)
-            },
+            action: handleViewGoal(goal.id),
             actionLabel: 'View Goal'
           }))
           

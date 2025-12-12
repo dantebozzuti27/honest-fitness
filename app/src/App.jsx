@@ -27,6 +27,7 @@ const Profile = lazy(() => import('./pages/Profile'))
 const ActiveWorkout = lazy(() => import('./pages/ActiveWorkout'))
 const Wearables = lazy(() => import('./pages/Wearables'))
 const Invite = lazy(() => import('./pages/Invite'))
+const DataCatalog = lazy(() => import('./pages/DataCatalog'))
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -200,6 +201,7 @@ export default function App() {
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/wearables" element={<ProtectedRoute><Wearables /></ProtectedRoute>} />
           <Route path="/invite/:identifier" element={<ProtectedRoute><Invite /></ProtectedRoute>} />
+          <Route path="/data-catalog" element={<ProtectedRoute><DataCatalog /></ProtectedRoute>} />
           {/* Legacy routes for backward compatibility */}
           <Route path="/ghost-mode" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
           <Route path="/account" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

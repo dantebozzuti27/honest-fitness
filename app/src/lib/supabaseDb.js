@@ -1768,6 +1768,350 @@ export async function deleteActiveWorkoutSession(userId) {
 /**
  * Delete a feed item
  */
+// ============ MATERIALIZED VIEWS ============
+
+/**
+ * Get daily workout summaries from materialized view
+ */
+export async function getDailyWorkoutSummaries(userId, startDate = null, endDate = null) {
+  try {
+    let query = supabase
+      .from('daily_workout_summaries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('date', { ascending: false })
+    
+    if (startDate) {
+      query = query.gte('date', startDate)
+    }
+    if (endDate) {
+      query = query.lte('date', endDate)
+    }
+    
+    const { data, error } = await query
+    
+    // If view doesn't exist, return empty array gracefully
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('daily_workout_summaries view does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('daily_workout_summaries view does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+/**
+ * Get weekly workout summaries from materialized view
+ */
+export async function getWeeklyWorkoutSummaries(userId, startDate = null, endDate = null) {
+  try {
+    let query = supabase
+      .from('weekly_workout_summaries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('week_start', { ascending: false })
+    
+    if (startDate) {
+      query = query.gte('week_start', startDate)
+    }
+    if (endDate) {
+      query = query.lte('week_start', endDate)
+    }
+    
+    const { data, error } = await query
+    
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('weekly_workout_summaries view does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('weekly_workout_summaries view does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+/**
+ * Get monthly workout summaries from materialized view
+ */
+export async function getMonthlyWorkoutSummaries(userId, startDate = null, endDate = null) {
+  try {
+    let query = supabase
+      .from('monthly_workout_summaries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('month_start', { ascending: false })
+    
+    if (startDate) {
+      query = query.gte('month_start', startDate)
+    }
+    if (endDate) {
+      query = query.lte('month_start', endDate)
+    }
+    
+    const { data, error } = await query
+    
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('monthly_workout_summaries view does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('monthly_workout_summaries view does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+/**
+ * Get daily health summaries from materialized view
+ */
+export async function getDailyHealthSummaries(userId, startDate = null, endDate = null) {
+  try {
+    let query = supabase
+      .from('daily_health_summaries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('date', { ascending: false })
+    
+    if (startDate) {
+      query = query.gte('date', startDate)
+    }
+    if (endDate) {
+      query = query.lte('date', endDate)
+    }
+    
+    const { data, error } = await query
+    
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('daily_health_summaries view does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('daily_health_summaries view does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+/**
+ * Get weekly health summaries from materialized view
+ */
+export async function getWeeklyHealthSummaries(userId, startDate = null, endDate = null) {
+  try {
+    let query = supabase
+      .from('weekly_health_summaries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('week_start', { ascending: false })
+    
+    if (startDate) {
+      query = query.gte('week_start', startDate)
+    }
+    if (endDate) {
+      query = query.lte('week_start', endDate)
+    }
+    
+    const { data, error } = await query
+    
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('weekly_health_summaries view does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('weekly_health_summaries view does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+/**
+ * Get daily nutrition summaries from materialized view
+ */
+export async function getDailyNutritionSummaries(userId, startDate = null, endDate = null) {
+  try {
+    let query = supabase
+      .from('daily_nutrition_summaries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('date', { ascending: false })
+    
+    if (startDate) {
+      query = query.gte('date', startDate)
+    }
+    if (endDate) {
+      query = query.lte('date', endDate)
+    }
+    
+    const { data, error } = await query
+    
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('daily_nutrition_summaries view does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('daily_nutrition_summaries view does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+// ============ ENGINEERED FEATURES ============
+
+/**
+ * Get engineered features for a user
+ */
+export async function getEngineeredFeatures(userId, featureType = null) {
+  try {
+    let query = supabase
+      .from('engineered_features')
+      .select('*')
+      .eq('user_id', userId)
+      .order('calculated_at', { ascending: false })
+    
+    if (featureType) {
+      query = query.eq('feature_type', featureType)
+    }
+    
+    const { data, error } = await query
+    
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('engineered_features table does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('engineered_features table does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+// ============ USER EVENTS ============
+
+/**
+ * Get user events for analytics
+ */
+export async function getUserEvents(userId, startDate = null, endDate = null, eventName = null, limit = 1000) {
+  try {
+    let query = supabase
+      .from('user_events')
+      .select('*')
+      .eq('user_id', userId)
+      .order('timestamp', { ascending: false })
+      .limit(limit)
+    
+    if (startDate) {
+      query = query.gte('timestamp', startDate)
+    }
+    if (endDate) {
+      query = query.lte('timestamp', endDate)
+    }
+    if (eventName) {
+      query = query.eq('event_name', eventName)
+    }
+    
+    const { data, error } = await query
+    
+    if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+      safeLogDebug('user_events table does not exist yet - migration not run')
+      return []
+    }
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      safeLogDebug('user_events table does not exist yet - migration not run')
+      return []
+    }
+    throw error
+  }
+}
+
+/**
+ * Get user event statistics
+ */
+export async function getUserEventStats(userId, days = 30) {
+  try {
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+    const events = await getUserEvents(userId, startDate, null, null, 10000)
+    
+    if (!events || events.length === 0) {
+      return {
+        totalEvents: 0,
+        sessions: 0,
+        mostUsedFeatures: [],
+        dailyActivity: {}
+      }
+    }
+    
+    // Calculate stats
+    const sessions = new Set(events.map(e => e.session_id)).size
+    const featureUsage = {}
+    const dailyActivity = {}
+    
+    events.forEach(event => {
+      // Track feature usage
+      if (event.event_category === 'feature' || event.event_name?.includes('_click')) {
+        const feature = event.event_name || event.event_label || 'unknown'
+        featureUsage[feature] = (featureUsage[feature] || 0) + 1
+      }
+      
+      // Track daily activity
+      const date = new Date(event.timestamp).toISOString().split('T')[0]
+      dailyActivity[date] = (dailyActivity[date] || 0) + 1
+    })
+    
+    const mostUsedFeatures = Object.entries(featureUsage)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }))
+    
+    return {
+      totalEvents: events.length,
+      sessions,
+      mostUsedFeatures,
+      dailyActivity
+    }
+  } catch (error) {
+    logError('Error getting user event stats', error)
+    return {
+      totalEvents: 0,
+      sessions: 0,
+      mostUsedFeatures: [],
+      dailyActivity: {}
+    }
+  }
+}
+
 export async function deleteFeedItemFromSupabase(feedItemId, userId) {
   try {
     const { error } = await supabase

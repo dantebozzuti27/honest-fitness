@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { exportUserDataJSON, exportWorkoutsCSV, exportHealthMetricsCSV, downloadData } from '../lib/dataExport'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
-import { getUserPreferences, saveUserPreferences } from '../lib/supabaseDb'
+import { getUserPreferences, saveUserPreferences, getUserEventStats } from '../lib/supabaseDb'
 import { getUserProfile, updateUserProfile, getOrCreateUserProfile, getFriends, getFriendCount, getPendingFriendRequests } from '../lib/friendsDb'
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
@@ -519,6 +519,48 @@ export default function Profile() {
             </>
           )}
         </div>
+
+        {/* User Activity Stats */}
+        {userEventStats && userEventStats.totalEvents > 0 && (
+          <div className={styles.section}>
+            <h2 className={styles.sectionTitle}>Activity</h2>
+            <div className={styles.activityStats}>
+              <div className={styles.activityStat}>
+                <div className={styles.activityStatValue}>{userEventStats.sessions}</div>
+                <div className={styles.activityStatLabel}>Sessions (30 days)</div>
+              </div>
+              <div className={styles.activityStat}>
+                <div className={styles.activityStatValue}>{userEventStats.totalEvents}</div>
+                <div className={styles.activityStatLabel}>Total Actions</div>
+              </div>
+              {userEventStats.mostUsedFeatures.length > 0 && (
+                <div className={styles.activityStat}>
+                  <div className={styles.activityStatValue}>
+                    {userEventStats.mostUsedFeatures[0].count}
+                  </div>
+                  <div className={styles.activityStatLabel}>
+                    {userEventStats.mostUsedFeatures[0].name.replace(/_/g, ' ')}
+                  </div>
+                </div>
+              )}
+            </div>
+            {userEventStats.mostUsedFeatures.length > 1 && (
+              <div className={styles.topFeatures}>
+                <h3 className={styles.topFeaturesTitle}>Most Used Features</h3>
+                <ul className={styles.topFeaturesList}>
+                  {userEventStats.mostUsedFeatures.slice(0, 5).map((feature, idx) => (
+                    <li key={idx} className={styles.topFeatureItem}>
+                      <span className={styles.topFeatureName}>
+                        {feature.name.replace(/_/g, ' ')}
+                      </span>
+                      <span className={styles.topFeatureCount}>{feature.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Data Export</h2>

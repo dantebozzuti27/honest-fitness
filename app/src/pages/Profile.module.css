@@ -488,6 +488,78 @@
   animation: slideDown 0.2s ease-out;
 }
 
+/* Activity Stats */
+.activityStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.activityStat {
+  text-align: center;
+  padding: 16px;
+  background: var(--glass-card-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+}
+
+.activityStatValue {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.activityStatLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.topFeatures {
+  margin-top: 24px;
+}
+
+.topFeaturesTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+}
+
+.topFeaturesList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.topFeatureItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--glass-card-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+}
+
+.topFeatureName {
+  font-size: 14px;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.topFeatureCount {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
 @keyframes slideDown {
   from {
     opacity: 0;

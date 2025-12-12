@@ -12,7 +12,15 @@ import {
   getDetailedBodyPartStats,
   deleteWorkoutFromSupabase,
   updateWorkoutInSupabase,
-  saveMetricsToSupabase
+  saveMetricsToSupabase,
+  getDailyWorkoutSummaries,
+  getWeeklyWorkoutSummaries,
+  getMonthlyWorkoutSummaries,
+  getDailyHealthSummaries,
+  getWeeklyHealthSummaries,
+  getDailyNutritionSummaries,
+  getEngineeredFeatures,
+  getUserEventStats
 } from '../lib/supabaseDb'
 import { getAllTemplates } from '../db'
 import { getReadinessScore } from '../lib/readiness'
@@ -41,7 +49,7 @@ import UnifiedChart from '../components/UnifiedChart'
 import { enrichWorkoutData, enrichNutritionData } from '../lib/dataEnrichment'
 import { getInsights } from '../lib/backend'
 import { logError, logWarn } from '../utils/logger'
-import { comparePeriods, compareGoalVsActual } from '../lib/comparativeAnalytics'
+import { comparePeriods, compareGoalVsActual, compareToPeers, compareToBenchmarks } from '../lib/comparativeAnalytics'
 import { analyzeCohorts, analyzeFunnel, analyzeRetention } from '../lib/advancedAnalytics'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
@@ -106,6 +114,16 @@ export default function Analytics() {
   const [comparativeData, setComparativeData] = useState(null)
   const [advancedAnalytics, setAdvancedAnalytics] = useState(null)
   const [lastDataUpdate, setLastDataUpdate] = useState(new Date())
+  const [engineeredFeatures, setEngineeredFeatures] = useState(null)
+  const [userEventStats, setUserEventStats] = useState(null)
+  const [materializedViewData, setMaterializedViewData] = useState({
+    dailyWorkouts: null,
+    weeklyWorkouts: null,
+    monthlyWorkouts: null,
+    dailyHealth: null,
+    weeklyHealth: null,
+    dailyNutrition: null
+  })
 
   useEffect(() => {
     async function loadData() {
@@ -165,6 +183,15 @@ export default function Analytics() {
         
         // Load advanced analytics
         loadAdvancedAnalytics()
+        
+        // Load materialized views (performance optimization)
+        loadMaterializedViews()
+        
+        // Load engineered features
+        loadEngineeredFeatures()
+        
+        // Load user event stats
+        loadUserEventStats()
         
         // Calculate nutrition quality
         if (nutrition) {
@@ -305,14 +332,75 @@ export default function Analytics() {
 
   const [nutritionQuality, setNutritionQuality] = useState(null)
 
+  async function loadMaterializedViews() {
+    if (!user) return
+    try {
+      const today = getTodayEST()
+      const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      
+      const [dailyWorkouts, weeklyWorkouts, monthlyWorkouts, dailyHealth, weeklyHealth, dailyNutrition] = await Promise.all([
+        getDailyWorkoutSummaries(user.id, startDate, today),
+        getWeeklyWorkoutSummaries(user.id, startDate, today),
+        getMonthlyWorkoutSummaries(user.id, startDate, today),
+        getDailyHealthSummaries(user.id, startDate, today),
+        getWeeklyHealthSummaries(user.id, startDate, today),
+        getDailyNutritionSummaries(user.id, startDate, today)
+      ])
+      
+      setMaterializedViewData({
+        dailyWorkouts,
+        weeklyWorkouts,
+        monthlyWorkouts,
+        dailyHealth,
+        weeklyHealth,
+        dailyNutrition
+      })
+    } catch (error) {
+      logWarn('Materialized views unavailable', error)
+    }
+  }
+
+  async function loadEngineeredFeatures() {
+    if (!user) return
+    try {
+      const features = await getEngineeredFeatures(user.id)
+      setEngineeredFeatures(features)
+    } catch (error) {
+      logWarn('Engineered features unavailable', error)
+    }
+  }
+
+  async function loadUserEventStats() {
+    if (!user) return
+    try {
+      const stats = await getUserEventStats(user.id, 30)
+      setUserEventStats(stats)
+    } catch (error) {
+      logWarn('User event stats unavailable', error)
+    }
+  }
+
   async function loadAdvancedAnalytics() {
     if (!user) return
     try {
-      // Load retention analysis
-      const retention = await analyzeRetention(user.id, 30)
-      if (retention) {
-        setAdvancedAnalytics(prev => ({ ...prev, retention }))
-      }
+      // Load retention, cohort, and funnel analysis
+      const [retention, cohorts, funnel] = await Promise.all([
+        analyzeRetention(user.id, 30).catch(() => null),
+        analyzeCohorts(user.id).catch(() => null),
+        analyzeFunnel([
+          { name: 'signup', event: 'user_created' },
+          { name: 'first_workout', event: 'workout_completed' },
+          { name: 'first_meal', event: 'meal_logged' },
+          { name: 'first_goal', event: 'goal_created' }
+        ]).catch(() => null)
+      ])
+      
+      setAdvancedAnalytics(prev => ({
+        ...prev,
+        retention,
+        cohorts,
+        funnel
+      }))
     } catch (error) {
       logWarn('Advanced analytics unavailable', error)
     }
@@ -370,21 +458,29 @@ export default function Analytics() {
       const lastWeekEnd = new Date(thisWeekStart)
       lastWeekEnd.setDate(lastWeekEnd.getDate() - 1)
 
-      const comparison = await comparePeriods(
-        user.id,
-        'workout_count',
-        {
-          start: lastWeekStart.toISOString().split('T')[0],
-          end: lastWeekEnd.toISOString().split('T')[0]
-        },
-        {
-          start: thisWeekStart.toISOString().split('T')[0],
-          end: today.toISOString().split('T')[0]
-        }
-      )
+      const [comparison, peerComparison, benchmarkComparison] = await Promise.all([
+        comparePeriods(
+          user.id,
+          'workout_count',
+          {
+            start: lastWeekStart.toISOString().split('T')[0],
+            end: lastWeekEnd.toISOString().split('T')[0]
+          },
+          {
+            start: thisWeekStart.toISOString().split('T')[0],
+            end: today.toISOString().split('T')[0]
+          }
+        ).catch(() => null),
+        compareToPeers(user.id, 'workout_count', 30).catch(() => null),
+        compareToBenchmarks(user.id, 'workout_frequency').catch(() => null)
+      ])
 
-      if (comparison) {
-        setComparativeData(comparison)
+      if (comparison || peerComparison || benchmarkComparison) {
+        setComparativeData({
+          periodComparison: comparison,
+          peerComparison,
+          benchmarkComparison
+        })
       }
     } catch (error) {
       logWarn('Comparative analytics unavailable', error)
@@ -626,26 +722,72 @@ export default function Analytics() {
         </div>
 
         {/* Comparative Analytics Card */}
-        {comparativeData && (
+        {comparativeData?.periodComparison && (
           <div className={styles.comparativeCard}>
             <h3 className={styles.comparativeTitle}>This Week vs Last Week</h3>
             <div className={styles.comparativeStats}>
               <div className={styles.comparativeStat}>
                 <span className={styles.comparativeLabel}>Last Week</span>
-                <span className={styles.comparativeValue}>{comparativeData.period1.value}</span>
+                <span className={styles.comparativeValue}>{comparativeData.periodComparison.period1.value}</span>
               </div>
               <div className={styles.comparativeArrow}>
-                {comparativeData.change > 0 ? '↑' : comparativeData.change < 0 ? '↓' : '→'}
+                {comparativeData.periodComparison.change > 0 ? '↑' : comparativeData.periodComparison.change < 0 ? '↓' : '→'}
               </div>
               <div className={styles.comparativeStat}>
                 <span className={styles.comparativeLabel}>This Week</span>
-                <span className={styles.comparativeValue}>{comparativeData.period2.value}</span>
+                <span className={styles.comparativeValue}>{comparativeData.periodComparison.period2.value}</span>
               </div>
               <div className={styles.comparativeChange}>
-                <span className={comparativeData.change > 0 ? styles.positiveChange : styles.negativeChange}>
-                  {comparativeData.change > 0 ? '+' : ''}{comparativeData.change_percent}%
+                <span className={comparativeData.periodComparison.change > 0 ? styles.positiveChange : styles.negativeChange}>
+                  {comparativeData.periodComparison.change > 0 ? '+' : ''}{comparativeData.periodComparison.change_percent}%
                 </span>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Peer Comparison Card */}
+        {comparativeData?.peerComparison && (
+          <div className={styles.comparativeCard}>
+            <h3 className={styles.comparativeTitle}>Peer Comparison</h3>
+            <div className={styles.comparativeStats}>
+              <div className={styles.comparativeStat}>
+                <span className={styles.comparativeLabel}>Your Value</span>
+                <span className={styles.comparativeValue}>{comparativeData.peerComparison.user_value}</span>
+              </div>
+              <div className={styles.comparativeStat}>
+                <span className={styles.comparativeLabel}>Peer Average</span>
+                <span className={styles.comparativeValue}>{Math.round(comparativeData.peerComparison.peer_average)}</span>
+              </div>
+              {comparativeData.peerComparison.peer_percentile !== undefined && (
+                <div className={styles.comparativeStat}>
+                  <span className={styles.comparativeLabel}>Percentile</span>
+                  <span className={styles.comparativeValue}>
+                    Top {Math.round(100 - comparativeData.peerComparison.peer_percentile)}%
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Benchmark Comparison Card */}
+        {comparativeData?.benchmarkComparison && (
+          <div className={styles.comparativeCard}>
+            <h3 className={styles.comparativeTitle}>Benchmark Comparison</h3>
+            <div className={styles.comparativeStats}>
+              <div className={styles.comparativeStat}>
+                <span className={styles.comparativeLabel}>Your Value</span>
+                <span className={styles.comparativeValue}>{comparativeData.benchmarkComparison.user_value}</span>
+              </div>
+              {comparativeData.benchmarkComparison.comparison && (
+                <div className={styles.comparativeStat}>
+                  <span className={styles.comparativeLabel}>Rating</span>
+                  <span className={styles.comparativeValue}>
+                    {comparativeData.benchmarkComparison.comparison.replace('_', ' ').toUpperCase()}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -673,6 +815,125 @@ export default function Analytics() {
                   {Math.round(advancedAnalytics.retention.avg_return_rate * 10) / 10}/week
                 </span>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cohort Analysis Visualization */}
+        {advancedAnalytics?.cohorts && advancedAnalytics.cohorts.length > 0 && (
+          <div className={styles.advancedAnalyticsCard}>
+            <h3 className={styles.advancedAnalyticsTitle}>Cohort Retention</h3>
+            <div className={styles.cohortTable}>
+              <div className={styles.cohortHeader}>
+                <span>Cohort</span>
+                <span>Users</span>
+                <span>7d</span>
+                <span>30d</span>
+                <span>90d</span>
+              </div>
+              {advancedAnalytics.cohorts.slice(0, 5).map((cohort, idx) => (
+                <div key={idx} className={styles.cohortRow}>
+                  <span>{cohort.signup_month}</span>
+                  <span>{cohort.total_users}</span>
+                  <span>{cohort.retention?.day_7 ? Math.round(cohort.retention.day_7.retention_rate) + '%' : 'N/A'}</span>
+                  <span>{cohort.retention?.day_30 ? Math.round(cohort.retention.day_30.retention_rate) + '%' : 'N/A'}</span>
+                  <span>{cohort.retention?.day_90 ? Math.round(cohort.retention.day_90.retention_rate) + '%' : 'N/A'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Funnel Analysis Visualization */}
+        {advancedAnalytics?.funnel && advancedAnalytics.funnel.funnel && (
+          <div className={styles.advancedAnalyticsCard}>
+            <h3 className={styles.advancedAnalyticsTitle}>User Journey Funnel</h3>
+            <div className={styles.funnelContainer}>
+              {advancedAnalytics.funnel.funnel.map((step, idx) => (
+                <div key={idx} className={styles.funnelStep}>
+                  <div className={styles.funnelStepBar} style={{ width: `${step.conversion_rate}%` }}>
+                    <span className={styles.funnelStepLabel}>{step.step}</span>
+                    <span className={styles.funnelStepValue}>{step.user_count} users ({Math.round(step.conversion_rate)}%)</span>
+                  </div>
+                </div>
+              ))}
+              <div className={styles.funnelOverall}>
+                Overall Conversion: {Math.round(advancedAnalytics.funnel.overall_conversion)}%
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Engineered Features Insights */}
+        {engineeredFeatures && engineeredFeatures.length > 0 && (
+          <div className={styles.engineeredFeaturesCard}>
+            <h3 className={styles.engineeredFeaturesTitle}>Data Insights</h3>
+            <div className={styles.engineeredFeaturesList}>
+              {engineeredFeatures.slice(0, 3).map((feature, idx) => {
+                if (feature.feature_type === 'rolling_stats' && feature.features) {
+                  const stats = feature.features
+                  return (
+                    <div key={idx} className={styles.engineeredFeatureItem}>
+                      <span className={styles.featureLabel}>7-Day Average</span>
+                      <span className={styles.featureValue}>
+                        {stats.rolling_average ? Math.round(stats.rolling_average) : 'N/A'}
+                        {stats.trend && (
+                          <span className={stats.trend > 0 ? styles.positiveTrend : styles.negativeTrend}>
+                            {stats.trend > 0 ? ' ↑' : ' ↓'}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )
+                } else if (feature.feature_type === 'ratio_features' && feature.features) {
+                  const ratios = feature.features
+                  return (
+                    <div key={idx} className={styles.engineeredFeatureItem}>
+                      <span className={styles.featureLabel}>Volume/Intensity Ratio</span>
+                      <span className={styles.featureValue}>
+                        {ratios.volume_intensity_ratio ? Math.round(ratios.volume_intensity_ratio * 100) / 100 : 'N/A'}
+                      </span>
+                    </div>
+                  )
+                } else if (feature.feature_type === 'interaction_features' && feature.features) {
+                  const interactions = feature.features
+                  return (
+                    <div key={idx} className={styles.engineeredFeatureItem}>
+                      <span className={styles.featureLabel}>Workout × Sleep Correlation</span>
+                      <span className={styles.featureValue}>
+                        {interactions.workout_sleep_correlation ? 
+                          `r=${Math.round(interactions.workout_sleep_correlation * 100) / 100}` : 'N/A'}
+                      </span>
+                    </div>
+                  )
+                }
+                return null
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* User Event Stats */}
+        {userEventStats && userEventStats.totalEvents > 0 && (
+          <div className={styles.userEventStatsCard}>
+            <h3 className={styles.userEventStatsTitle}>App Usage</h3>
+            <div className={styles.userEventStatsGrid}>
+              <div className={styles.userEventStat}>
+                <span className={styles.userEventStatLabel}>Sessions</span>
+                <span className={styles.userEventStatValue}>{userEventStats.sessions}</span>
+              </div>
+              <div className={styles.userEventStat}>
+                <span className={styles.userEventStatLabel}>Total Events</span>
+                <span className={styles.userEventStatValue}>{userEventStats.totalEvents}</span>
+              </div>
+              {userEventStats.mostUsedFeatures.length > 0 && (
+                <div className={styles.userEventStat}>
+                  <span className={styles.userEventStatLabel}>Top Feature</span>
+                  <span className={styles.userEventStatValue}>
+                    {userEventStats.mostUsedFeatures[0].name.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1002,6 +1263,16 @@ export default function Analytics() {
   }
 
   const weeklyWorkoutData = useMemo(() => {
+    // Use materialized views if available (much faster)
+    if (materializedViewData.weeklyWorkouts && materializedViewData.weeklyWorkouts.length > 0) {
+      const weeks = {}
+      materializedViewData.weeklyWorkouts.forEach(w => {
+        weeks[w.week_start] = w.workout_count || 0
+      })
+      return weeks
+    }
+    
+    // Fallback to raw data aggregation
     const sortedWorkouts = [...data.workouts].sort((a, b) => new Date(a.date) - new Date(b.date))
     const weeks = {}
     sortedWorkouts.forEach(w => {
@@ -1012,7 +1283,7 @@ export default function Analytics() {
       weeks[weekKey] = (weeks[weekKey] || 0) + 1
     })
     return weeks
-  }, [data.workouts])
+  }, [data.workouts, materializedViewData.weeklyWorkouts])
 
   const frequencyChartData = useMemo(() => {
     const sorted = Object.entries(data.frequency).sort((a, b) => a[0].localeCompare(b[0]))

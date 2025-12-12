@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAllTemplates } from '../db'
-import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan, deleteWorkoutFromSupabase, scheduleWorkoutSupabase, getScheduledWorkoutByDateFromSupabase } from '../lib/supabaseDb'
+import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan, deleteWorkoutFromSupabase, scheduleWorkoutSupabase, getScheduledWorkoutByDateFromSupabase, getScheduledWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
 import SideMenu from '../components/SideMenu'
@@ -28,6 +28,18 @@ export default function Calendar() {
       setWorkoutDates(dates)
       const s = await calculateStreakFromSupabase(user.id)
       setStreak(s)
+      
+      // Load scheduled workouts
+      try {
+        const scheduled = await getScheduledWorkoutsFromSupabase(user.id)
+        const scheduledMap = {}
+        scheduled.forEach(sw => {
+          scheduledMap[sw.date] = sw.template_id
+        })
+        setScheduledDates(scheduledMap)
+      } catch (error) {
+        // Silently fail
+      }
     }
   }
 
@@ -90,16 +102,19 @@ export default function Calendar() {
     const todayEST = getTodayEST()
     for (let i = 1; i <= lastDay.getDate(); i++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`
+      const isScheduled = scheduledDates[dateStr] !== undefined
       days.push({
         day: i,
         date: dateStr,
         hasWorkout: workoutDates.includes(dateStr),
+        isScheduled: isScheduled,
+        scheduledTemplateId: scheduledDates[dateStr],
         isToday: dateStr === todayEST
       })
     }
     
     return days
-  }, [currentDate, workoutDates])
+  }, [currentDate, workoutDates, scheduledDates])
 
   const monthName = currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })
 
@@ -200,11 +215,13 @@ export default function Calendar() {
           {calendarDays.map((day, idx) => (
             <button
               key={idx}
-              className={`${styles.day} ${day?.hasWorkout ? styles.hasWorkout : ''} ${day?.isToday ? styles.today : ''}`}
+              className={`${styles.day} ${day?.hasWorkout ? styles.hasWorkout : ''} ${day?.isScheduled ? styles.isScheduled : ''} ${day?.isToday ? styles.today : ''}`}
               onClick={() => selectDay(day)}
               disabled={!day}
+              title={day?.isScheduled ? `Scheduled: ${templates.find(t => t.id === day.scheduledTemplateId)?.name || 'Workout'}` : ''}
             >
               {day?.day}
+              {day?.isScheduled && !day?.hasWorkout && <span className={styles.scheduledDot}>●</span>}
             </button>
           ))}
         </div>

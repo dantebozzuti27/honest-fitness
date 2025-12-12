@@ -22,7 +22,7 @@ import HistoryCard from '../components/HistoryCard'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
-const TABS = ['Today', 'History', 'Plan', 'Goals']
+const TABS = ['Today', 'History', 'Plan', 'Goals', 'Settings']
 const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snacks']
 const COMMON_FOODS = [
   { name: 'Banana', calories: 105, macros: { protein: 1, carbs: 27, fat: 0 } },
@@ -55,6 +55,8 @@ export default function Nutrition() {
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [showManualEntry, setShowManualEntry] = useState(false)
   const [showFoodSuggestions, setShowFoodSuggestions] = useState(false)
+  const [foodSearchQuery, setFoodSearchQuery] = useState('')
+  const [showFoodLibrary, setShowFoodLibrary] = useState(false)
   const [selectedMealType, setSelectedMealType] = useState('Snacks')
   const [manualEntry, setManualEntry] = useState({
     name: '',
@@ -178,7 +180,7 @@ export default function Nutrition() {
     try {
       const [categories, systemFoods, favoriteFoods, recentFoods] = await Promise.all([
         getFoodCategories(),
-        getSystemFoods({ search: '' }),
+        getSystemFoods({ search: foodSearchQuery }),
         getFavoriteFoods(user.id),
         getRecentFoods(user.id, 10)
       ])
@@ -194,6 +196,13 @@ export default function Nutrition() {
       logError('Error loading food suggestions', error)
     }
   }
+
+  // Reload food suggestions when search query changes
+  useEffect(() => {
+    if (showFoodSuggestions || showFoodLibrary) {
+      loadFoodSuggestions()
+    }
+  }, [foodSearchQuery, showFoodSuggestions, showFoodLibrary, user])
 
   const loadWeeklyMealPlan = async () => {
     if (!user) return
@@ -763,11 +772,27 @@ export default function Nutrition() {
             </div>
 
             {/* Food Suggestions */}
-            {showFoodSuggestions && foodSuggestions.length > 0 && (
+            {showFoodSuggestions && (
               <div className={styles.foodSuggestionsCard}>
-                <h3>Food Suggestions</h3>
-                <div className={styles.foodSuggestionsGrid}>
-                  {foodSuggestions.map(food => {
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h3>Food Library</h3>
+                  <button
+                    className={styles.closeBtn}
+                    onClick={() => setShowFoodSuggestions(false)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search foods..."
+                  value={foodSearchQuery}
+                  onChange={(e) => setFoodSearchQuery(e.target.value)}
+                  className={styles.foodSearchInput}
+                />
+                {foodSuggestions.length > 0 ? (
+                  <div className={styles.foodSuggestionsGrid}>
+                    {foodSuggestions.map(food => {
                     // Calculate calories and macros for 100g
                     const calories = food.calories_per_100g || 0
                     const protein = food.protein_per_100g || 0
@@ -806,7 +831,10 @@ export default function Nutrition() {
                       </button>
                     )
                   })}
-                </div>
+                  </div>
+                ) : (
+                  <p className={styles.emptyHint}>No foods found. Try a different search term.</p>
+                )}
               </div>
             )}
 
@@ -1358,6 +1386,186 @@ export default function Nutrition() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'Settings' && (
+          <div className={styles.settingsContent}>
+            <h2 className={styles.sectionTitle}>Nutrition Settings</h2>
+            
+            {/* Calorie Target */}
+            <div className={styles.settingsSection}>
+              <h3>Daily Calorie Target</h3>
+              <div className={styles.settingsInputGroup}>
+                <label>Target Calories</label>
+                <input
+                  type="number"
+                  value={targetCalories || ''}
+                  onChange={async (e) => {
+                    const value = e.target.value ? parseInt(e.target.value) : null
+                    setTargetCalories(value)
+                    try {
+                      const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+                      await saveNutritionSettingsToSupabase(user.id, {
+                        targetCalories: value,
+                        targetMacros: targetMacros,
+                        favorites: favorites,
+                        fastingEnabled: fastingEnabled,
+                        fastingStartTime: fastingStartTime?.toISOString() || null
+                      })
+                      showToast('Settings saved', 'success')
+                    } catch (error) {
+                      logError('Error saving calorie target', error)
+                    }
+                  }}
+                  placeholder="Set target"
+                  min="1000"
+                  max="5000"
+                  className={styles.settingsInput}
+                />
+                <p className={styles.settingsHint}>Recommended: 2000-2500 calories for most adults</p>
+              </div>
+            </div>
+
+            {/* Macro Targets */}
+            <div className={styles.settingsSection}>
+              <h3>Macro Targets (grams per day)</h3>
+              <div className={styles.settingsInputGroup}>
+                <label>Protein (g)</label>
+                <input
+                  type="number"
+                  value={targetMacros?.protein || ''}
+                  onChange={async (e) => {
+                    const value = e.target.value ? parseInt(e.target.value) : 0
+                    const newMacros = { ...targetMacros, protein: value }
+                    setTargetMacros(newMacros)
+                    try {
+                      const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+                      await saveNutritionSettingsToSupabase(user.id, {
+                        targetCalories: targetCalories,
+                        targetMacros: newMacros,
+                        favorites: favorites,
+                        fastingEnabled: fastingEnabled,
+                        fastingStartTime: fastingStartTime?.toISOString() || null
+                      })
+                      showToast('Settings saved', 'success')
+                    } catch (error) {
+                      logError('Error saving macro targets', error)
+                    }
+                  }}
+                  placeholder="0"
+                  min="0"
+                  className={styles.settingsInput}
+                />
+              </div>
+              <div className={styles.settingsInputGroup}>
+                <label>Carbs (g)</label>
+                <input
+                  type="number"
+                  value={targetMacros?.carbs || ''}
+                  onChange={async (e) => {
+                    const value = e.target.value ? parseInt(e.target.value) : 0
+                    const newMacros = { ...targetMacros, carbs: value }
+                    setTargetMacros(newMacros)
+                    try {
+                      const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+                      await saveNutritionSettingsToSupabase(user.id, {
+                        targetCalories: targetCalories,
+                        targetMacros: newMacros,
+                        favorites: favorites,
+                        fastingEnabled: fastingEnabled,
+                        fastingStartTime: fastingStartTime?.toISOString() || null
+                      })
+                      showToast('Settings saved', 'success')
+                    } catch (error) {
+                      logError('Error saving macro targets', error)
+                    }
+                  }}
+                  placeholder="0"
+                  min="0"
+                  className={styles.settingsInput}
+                />
+              </div>
+              <div className={styles.settingsInputGroup}>
+                <label>Fat (g)</label>
+                <input
+                  type="number"
+                  value={targetMacros?.fat || ''}
+                  onChange={async (e) => {
+                    const value = e.target.value ? parseInt(e.target.value) : 0
+                    const newMacros = { ...targetMacros, fat: value }
+                    setTargetMacros(newMacros)
+                    try {
+                      const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+                      await saveNutritionSettingsToSupabase(user.id, {
+                        targetCalories: targetCalories,
+                        targetMacros: newMacros,
+                        favorites: favorites,
+                        fastingEnabled: fastingEnabled,
+                        fastingStartTime: fastingStartTime?.toISOString() || null
+                      })
+                      showToast('Settings saved', 'success')
+                    } catch (error) {
+                      logError('Error saving macro targets', error)
+                    }
+                  }}
+                  placeholder="0"
+                  min="0"
+                  className={styles.settingsInput}
+                />
+              </div>
+            </div>
+
+            {/* Intermittent Fasting */}
+            <div className={styles.settingsSection}>
+              <h3>Intermittent Fasting</h3>
+              <div className={styles.settingsInputGroup}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={fastingEnabled}
+                    onChange={async (e) => {
+                      const enabled = e.target.checked
+                      setFastingEnabled(enabled)
+                      if (enabled && !fastingStartTime) {
+                        setFastingStartTime(new Date())
+                      }
+                      try {
+                        const { saveNutritionSettingsToSupabase } = await import('../lib/nutritionDb')
+                        await saveNutritionSettingsToSupabase(user.id, {
+                          targetCalories: targetCalories,
+                          targetMacros: targetMacros,
+                          favorites: favorites,
+                          fastingEnabled: enabled,
+                          fastingStartTime: enabled && fastingStartTime ? fastingStartTime.toISOString() : null
+                        })
+                        showToast('Settings saved', 'success')
+                      } catch (error) {
+                        logError('Error saving fasting settings', error)
+                      }
+                    }}
+                  />
+                  Enable Intermittent Fasting
+                </label>
+                <p className={styles.settingsHint}>
+                  Track your fasting periods and get reminders
+                </p>
+              </div>
+            </div>
+
+            {/* Link to Data Catalog */}
+            <div className={styles.settingsSection}>
+              <h3>Learn More</h3>
+              <button
+                className={styles.linkButton}
+                onClick={() => navigate('/data-catalog')}
+              >
+                View Data Catalog →
+              </button>
+              <p className={styles.settingsHint}>
+                Understand how metrics are calculated and what your data means
+              </p>
+            </div>
           </div>
         )}
       </div>

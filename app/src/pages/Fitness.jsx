@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getAllTemplates, saveTemplate, deleteTemplate } from '../db'
-import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase, deleteWorkoutFromSupabase, getScheduledWorkoutsFromSupabase } from '../lib/supabaseDb'
+import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase, deleteWorkoutFromSupabase, getScheduledWorkoutsFromSupabase, getPausedWorkoutFromSupabase } from '../lib/supabaseDb'
 // Dynamic import for code-splitting
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
@@ -20,7 +20,7 @@ import HomeButton from '../components/HomeButton'
 import HistoryCard from '../components/HistoryCard'
 import styles from './Fitness.module.css'
 
-const TABS = ['Workout', 'Templates', 'History', 'Goals']
+const TABS = ['Workout', 'Templates', 'History', 'Scheduled', 'Goals']
 
 export default function Fitness() {
   const navigate = useNavigate()
@@ -34,6 +34,7 @@ export default function Fitness() {
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [workoutHistory, setWorkoutHistory] = useState([])
   const [fitnessGoals, setFitnessGoals] = useState([])
+  const [scheduledWorkouts, setScheduledWorkouts] = useState([])
   const { toast, showToast, hideToast } = useToast()
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedWorkoutForShare, setSelectedWorkoutForShare] = useState(null)
@@ -42,6 +43,7 @@ export default function Fitness() {
   const [todaysScheduledWorkout, setTodaysScheduledWorkout] = useState(null)
   const [isGeneratingWorkout, setIsGeneratingWorkout] = useState(false)
   const subscriptionRef = useRef(null)
+  const [pausedWorkout, setPausedWorkout] = useState(null)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -79,6 +81,43 @@ export default function Fitness() {
       logError('Error loading workout history', e)
     }
   }, [user])
+
+  const loadPausedWorkout = useCallback(async () => {
+    if (!user) return
+    try {
+      const paused = await getPausedWorkoutFromSupabase(user.id)
+      setPausedWorkout(paused)
+    } catch (e) {
+      // Silently fail - table might not exist
+      if (e.code !== 'PGRST205' && !e.message?.includes('Could not find the table')) {
+        logError('Error loading paused workout', e)
+      }
+      setPausedWorkout(null)
+    }
+  }, [user])
+
+  const handleResumePausedWorkout = () => {
+    if (pausedWorkout) {
+      navigate('/workout/active', { state: { resumePaused: true } })
+    }
+  }
+
+  const handleDismissPausedWorkout = async () => {
+    if (!user || !pausedWorkout) return
+    try {
+      const { deletePausedWorkoutFromSupabase } = await import('../lib/supabaseDb')
+      await deletePausedWorkoutFromSupabase(user.id)
+      setPausedWorkout(null)
+      if (showToast && typeof showToast === 'function') {
+        showToast('Paused workout dismissed', 'info')
+      }
+    } catch (error) {
+      logError('Error dismissing paused workout', error)
+      if (showToast && typeof showToast === 'function') {
+        showToast('Failed to dismiss paused workout', 'error')
+      }
+    }
+  }
 
   useEffect(() => {
     // Check if AI workout was passed from Planner
@@ -119,6 +158,7 @@ export default function Fitness() {
           // Load today's scheduled workout
           const today = getTodayEST()
           const scheduled = await getScheduledWorkoutsFromSupabase(user.id)
+          setScheduledWorkouts(scheduled || [])
           const todaysScheduled = Array.isArray(scheduled) ? scheduled.find(s => s && s.date === today) : null
           if (todaysScheduled) {
             setTodaysScheduledWorkout(todaysScheduled)
@@ -146,7 +186,8 @@ export default function Fitness() {
       }
     }
     load()
-  }, [user, location.state])
+    loadPausedWorkout()
+  }, [user, location.state, loadPausedWorkout])
 
   // Refresh goals when page becomes visible or when navigating back from Goals page
   useEffect(() => {
@@ -308,6 +349,37 @@ export default function Fitness() {
       <div className={styles.content}>
         {activeTab === 'Workout' && (
           <div>
+            {/* Paused Workout Banner */}
+            {pausedWorkout && (
+              <div className={styles.pausedWorkoutBanner}>
+                <div className={styles.pausedWorkoutInfo}>
+                  <span className={styles.pausedWorkoutIcon}>⏸</span>
+                  <div className={styles.pausedWorkoutDetails}>
+                    <div className={styles.pausedWorkoutTitle}>Paused Workout</div>
+                    <div className={styles.pausedWorkoutSubtext}>
+                      {pausedWorkout.exercises?.length || 0} exercises • {Math.floor((pausedWorkout.workout_time || 0) / 60)} min
+                      {pausedWorkout.paused_at && ` • Paused ${new Date(pausedWorkout.paused_at).toLocaleDateString()}`}
+                    </div>
+                  </div>
+                </div>
+                <div className={styles.pausedWorkoutActions}>
+                  <button
+                    className={styles.resumePausedBtn}
+                    onClick={handleResumePausedWorkout}
+                  >
+                    Resume
+                  </button>
+                  <button
+                    className={styles.dismissPausedBtn}
+                    onClick={handleDismissPausedWorkout}
+                    title="Dismiss paused workout"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Start Workout Button */}
             <button
               className={styles.startWorkoutBtn}
@@ -618,6 +690,108 @@ export default function Fitness() {
                   })}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'Scheduled' && (
+          <div className={styles.scheduledContent}>
+            <h2 className={styles.sectionTitle}>Scheduled Workouts</h2>
+            <div style={{ marginBottom: '16px' }}>
+              <button
+                className={styles.goalsBtn}
+                onClick={() => navigate('/calendar')}
+              >
+                Schedule Workout
+              </button>
+            </div>
+            {(() => {
+              const today = getTodayEST()
+              const upcoming = scheduledWorkouts.filter(s => s.date >= today).sort((a, b) => a.date.localeCompare(b.date))
+              const past = scheduledWorkouts.filter(s => s.date < today).sort((a, b) => b.date.localeCompare(a.date))
+              
+              if (upcoming.length === 0 && past.length === 0) {
+                return (
+                  <div className={styles.emptyState}>
+                    <div className={styles.emptyStateIcon}>📅</div>
+                    <div className={styles.emptyStateTitle}>No Scheduled Workouts</div>
+                    <div className={styles.emptyStateMessage}>Schedule workouts in the Calendar to see them here</div>
+                    <button
+                      className={styles.actionBtn}
+                      onClick={() => navigate('/calendar')}
+                    >
+                      Go to Calendar
+                    </button>
+                  </div>
+                )
+              }
+              
+              return (
+                <>
+                  {upcoming.length > 0 && (
+                    <div style={{ marginBottom: '24px' }}>
+                      <h3 className={styles.subsectionTitle}>Upcoming</h3>
+                      <div className={styles.scheduledList}>
+                        {upcoming.map((scheduled, idx) => {
+                          const date = new Date(scheduled.date + 'T12:00:00')
+                          const isToday = scheduled.date === today
+                          const isTomorrow = scheduled.date === new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                          let dateLabel = ''
+                          if (isToday) {
+                            dateLabel = 'Today'
+                          } else if (isTomorrow) {
+                            dateLabel = 'Tomorrow'
+                          } else {
+                            dateLabel = date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+                          }
+                          const template = templates.find(t => t.id === scheduled.template_id)
+                          return (
+                            <div key={idx} className={styles.scheduledCard}>
+                              <div className={styles.scheduledDate}>{dateLabel}</div>
+                              <div className={styles.scheduledName}>
+                                {scheduled.template_id === 'freestyle' ? 'Freestyle' : template?.name || 'Workout'}
+                              </div>
+                              <button
+                                className={styles.scheduledAction}
+                                onClick={() => navigate('/calendar')}
+                              >
+                                View
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {past.length > 0 && (
+                    <div>
+                      <h3 className={styles.subsectionTitle}>Past</h3>
+                      <div className={styles.scheduledList}>
+                        {past.slice(0, 10).map((scheduled, idx) => {
+                          const date = new Date(scheduled.date + 'T12:00:00')
+                          const template = templates.find(t => t.id === scheduled.template_id)
+                          return (
+                            <div key={idx} className={styles.scheduledCard}>
+                              <div className={styles.scheduledDate}>
+                                {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </div>
+                              <div className={styles.scheduledName}>
+                                {scheduled.template_id === 'freestyle' ? 'Freestyle' : template?.name || 'Workout'}
+                              </div>
+                              <button
+                                className={styles.scheduledAction}
+                                onClick={() => navigate('/calendar')}
+                              >
+                                View
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </div>
         )}
 

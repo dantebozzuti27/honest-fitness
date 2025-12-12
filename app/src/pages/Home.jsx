@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences, getSocialFeedItems } from '../lib/supabaseDb'
+import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences, getSocialFeedItems, getScheduledWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
@@ -31,6 +31,7 @@ export default function Home() {
   const [pendingRequestCount, setPendingRequestCount] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [pullDistance, setPullDistance] = useState(0)
+  const [scheduledWorkouts, setScheduledWorkouts] = useState([])
   const feedContainerRef = useRef(null)
   const pullStartY = useRef(0)
   const isPulling = useRef(false)
@@ -282,6 +283,20 @@ export default function Home() {
           if (mounted) {
             await loadRecentLogs(user.id)
           }
+          
+          // Load scheduled workouts
+          if (mounted) {
+            try {
+              const scheduled = await getScheduledWorkoutsFromSupabase(user.id)
+              const today = getTodayEST()
+              const upcoming = (scheduled || []).filter(s => s.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 5)
+              if (mounted) {
+                setScheduledWorkouts(upcoming)
+              }
+            } catch (e) {
+              // Silently fail
+            }
+          }
         } catch (e) {
           // Silently fail - data will load on retry
         }
@@ -461,6 +476,42 @@ export default function Home() {
         
         {/* Predictive Insights */}
         {user && <PredictiveInsights />}
+        
+        {/* Upcoming Scheduled Workouts */}
+        {scheduledWorkouts.length > 0 && (
+          <div className={styles.scheduledWorkoutsSection}>
+            <h2 className={styles.sectionTitle}>Upcoming Workouts</h2>
+            <div className={styles.scheduledWorkoutsList}>
+              {scheduledWorkouts.map((scheduled, idx) => {
+                const date = new Date(scheduled.date + 'T12:00:00')
+                const isToday = scheduled.date === getTodayEST()
+                const isTomorrow = scheduled.date === new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                let dateLabel = ''
+                if (isToday) {
+                  dateLabel = 'Today'
+                } else if (isTomorrow) {
+                  dateLabel = 'Tomorrow'
+                } else {
+                  dateLabel = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                }
+                return (
+                  <div key={idx} className={styles.scheduledWorkoutCard}>
+                    <div className={styles.scheduledWorkoutDate}>{dateLabel}</div>
+                    <div className={styles.scheduledWorkoutName}>
+                      {scheduled.template_id === 'freestyle' ? 'Freestyle' : 'Workout'}
+                    </div>
+                    <button
+                      className={styles.scheduledWorkoutAction}
+                      onClick={() => navigate('/calendar')}
+                    >
+                      View Calendar
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
         
         {/* Recent Activity Feed */}
         <div className={styles.feed}>

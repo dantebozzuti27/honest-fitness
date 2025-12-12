@@ -270,7 +270,8 @@ h1 {
 
 .historyTableCol.actionsCol > * {
   display: block;
-  -webkit-line-clamp: none;
+  line-clamp: unset;
+  -webkit-line-clamp: unset;
   -webkit-box-orient: horizontal;
   max-height: none;
   white-space: normal;
@@ -596,6 +597,99 @@ h1 {
 }
 
 /* Start Workout Button */
+.pausedWorkoutBanner {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.pausedWorkoutInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.pausedWorkoutIcon {
+  font-size: 24px;
+  opacity: 0.8;
+}
+
+.pausedWorkoutDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pausedWorkoutTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pausedWorkoutSubtext {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.pausedWorkoutActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resumePausedBtn {
+  padding: 8px 16px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.resumePausedBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.resumePausedBtn:active {
+  transform: translateY(0);
+}
+
+.dismissPausedBtn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dismissPausedBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
 .startWorkoutBtn {
   width: 100%;
   padding: var(--space-md) var(--space-xl);
@@ -685,6 +779,63 @@ h1 {
   flex-direction: column;
   gap: 12px;
   margin-top: 12px;
+}
+
+.scheduledContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md, 16px);
+  width: 100%;
+}
+
+.subsectionTitle {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+}
+
+.scheduledList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scheduledCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.scheduledDate {
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 120px;
+}
+
+.scheduledName {
+  flex: 1;
+  color: var(--text-secondary);
+  margin: 0 12px;
+}
+
+.scheduledAction {
+  padding: 6px 12px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.scheduledAction:hover {
+  opacity: 0.9;
 }
 
 .goalCard {

@@ -1,0 +1,266 @@
+.container {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding-bottom: 80px;
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.content {
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.searchSection {
+  margin-bottom: 24px;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.searchResults {
+  margin-bottom: 32px;
+}
+
+.searchResults h3 {
+  margin-bottom: 12px;
+  font-size: 18px;
+}
+
+.searchResultItem {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.searchResultItem:hover {
+  background: var(--bg-secondary);
+}
+
+.resultType {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--accent);
+  color: white;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.resultName {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.resultDescription {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.section {
+  margin-bottom: 48px;
+}
+
+.sectionTitle {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.sectionDescription {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.tablesList,
+.metricsList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tableCard,
+.metricCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tableCard:hover,
+.metricCard:hover {
+  border-color: var(--accent);
+}
+
+.tableCard.selected,
+.metricCard.selected {
+  border-color: var(--accent);
+  background: var(--bg-primary);
+}
+
+.tableHeader,
+.metricHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.tableName,
+.metricName {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.tableToggle,
+.metricToggle {
+  font-size: 24px;
+  color: var(--accent-color);
+  font-weight: 300;
+}
+
+.tableDescription,
+.metricDescription {
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.tableDetails,
+.metricDetails {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.tableDetails h4,
+.metricDetails h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.columnsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.columnItem {
+  padding: 12px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.columnHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.columnName {
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.columnType {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.columnDescription {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin: 4px 0;
+}
+
+.columnExample {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+  margin: 4px 0 0 0;
+}
+
+.relationshipsList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.relationshipItem {
+  padding: 8px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.relationshipName {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.relationshipDesc {
+  color: var(--text-secondary);
+}
+
+.metricCalculation,
+.metricUnit,
+.metricExample {
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.metricCalculation strong,
+.metricUnit strong,
+.metricExample strong {
+  margin-right: 8px;
+}
+

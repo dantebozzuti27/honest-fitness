@@ -242,7 +242,8 @@ export default function ActiveWorkout() {
             const paused = await getPausedWorkoutFromSupabase(user.id)
             if (!mounted) return
             if (paused) {
-              const shouldResume = window.confirm('You have a paused workout. Would you like to resume it?')
+              // If user clicked "Resume" from Fitness page, automatically resume
+              const shouldResume = location.state?.resumePaused || window.confirm('You have a paused workout. Would you like to resume it?')
               if (shouldResume) {
                 setExercises(Array.isArray(paused.exercises) ? paused.exercises : [])
                 setWorkoutTime(paused.workout_time || 0)
@@ -404,17 +405,52 @@ export default function ActiveWorkout() {
         const session = await getActiveWorkoutSession(user.id)
         
         if (session) {
-          // Restore existing workout timer from database
-          workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
-          const pausedMs = session.paused_time_ms || 0
-          setPausedTime(pausedMs)
-          pausedTimeRef.current = pausedMs
+          // Check if session is recent (within last 2 hours) - if older, ask user
+          const sessionAge = Date.now() - new Date(session.workout_start_time).getTime()
+          const isRecent = sessionAge < 7200000 // 2 hours
           
-          // Restore exercises if they exist in session
-          if (session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0) {
+          // If session has exercises and is not recent, ask user if they want to resume
+          if (session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0 && !isRecent) {
+            const shouldResume = window.confirm(
+              `You have an old workout in progress from ${new Date(session.workout_start_time).toLocaleString()}.\n\n` +
+              `Would you like to resume it, or start a fresh workout?\n\n` +
+              `Click OK to resume, or Cancel to start fresh.`
+            )
+            
+            if (!shouldResume) {
+              // User wants to start fresh - delete the old session
+              try {
+                await deleteActiveWorkoutSession(user.id)
+                localStorage.removeItem(`activeWorkout_${user.id}`)
+              } catch (error) {
+                // Silently fail
+              }
+              // Continue to initialize new workout below
+            } else {
+              // User wants to resume - restore the session
+              workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
+              const pausedMs = session.paused_time_ms || 0
+              setPausedTime(pausedMs)
+              pausedTimeRef.current = pausedMs
+              setExercises(session.exercises)
+              lastSavedExercisesRef.current = JSON.stringify(session.exercises)
+              restoredExercises = true
+            }
+          } else if (session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0 && isRecent) {
+            // Recent session - restore automatically
+            workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
+            const pausedMs = session.paused_time_ms || 0
+            setPausedTime(pausedMs)
+            pausedTimeRef.current = pausedMs
             setExercises(session.exercises)
             lastSavedExercisesRef.current = JSON.stringify(session.exercises)
             restoredExercises = true
+          } else {
+            // Session exists but no exercises - restore timer only
+            workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
+            const pausedMs = session.paused_time_ms || 0
+            setPausedTime(pausedMs)
+            pausedTimeRef.current = pausedMs
           }
           
           // Restore rest timer if it was running
@@ -474,27 +510,70 @@ export default function ActiveWorkout() {
             const saved = localStorage.getItem(`activeWorkout_${user.id}`)
             if (saved) {
               const workoutData = JSON.parse(saved)
-              // Restore if it's recent (within last 24 hours - extended from 1 hour)
-              if (workoutData.timestamp && (Date.now() - workoutData.timestamp) < 86400000) {
+              // Restore if it's recent (within last 2 hours - reduced from 24 hours)
+              const workoutAge = workoutData.timestamp ? (Date.now() - workoutData.timestamp) : Infinity
+              const isRecent = workoutAge < 7200000 // 2 hours
+              
+              if (workoutData.timestamp && workoutAge < 86400000) { // Still check up to 24 hours for prompt
                 if (workoutData.exercises && Array.isArray(workoutData.exercises) && workoutData.exercises.length > 0) {
-                  setExercises(workoutData.exercises)
-                  lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
-                  restoredExercises = true
-                  
-                  // Restore timer if we have workout start time
-                  if (workoutData.timestamp) {
-                    // Estimate workout start time from timestamp
-                    if (!workoutStartTimeRef.current) {
-                      workoutStartTimeRef.current = workoutData.timestamp - (workoutData.workoutTime || 0) * 1000
+                  // If not recent, ask user if they want to resume
+                  if (!isRecent) {
+                    const workoutDate = new Date(workoutData.timestamp).toLocaleString()
+                    const shouldResume = window.confirm(
+                      `You have an old workout saved from ${workoutDate}.\n\n` +
+                      `Would you like to resume it, or start a fresh workout?\n\n` +
+                      `Click OK to resume, or Cancel to start fresh and delete the old workout.`
+                    )
+                    
+                    if (!shouldResume) {
+                      // User wants to start fresh - delete the old workout
+                      localStorage.removeItem(`activeWorkout_${user.id}`)
+                      try {
+                        await deleteActiveWorkoutSession(user.id)
+                      } catch (error) {
+                        // Silently fail
+                      }
+                      // Continue to initialize new workout below
+                    } else {
+                      // User wants to resume - restore the workout
+                      setExercises(workoutData.exercises)
+                      lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                      restoredExercises = true
+                      
+                      // Restore timer if we have workout start time
+                      if (workoutData.timestamp) {
+                        // Estimate workout start time from timestamp
+                        if (!workoutStartTimeRef.current) {
+                          workoutStartTimeRef.current = workoutData.timestamp - (workoutData.workoutTime || 0) * 1000
+                        }
+                      }
+                      
+                      if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
+                      if (workoutData.restTime) setRestTime(workoutData.restTime)
+                      if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                      
+                      showToast('Workout progress recovered from backup', 'info')
                     }
+                  } else {
+                    // Recent workout - restore automatically
+                    setExercises(workoutData.exercises)
+                    lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                    restoredExercises = true
+                    
+                    // Restore timer if we have workout start time
+                    if (workoutData.timestamp) {
+                      // Estimate workout start time from timestamp
+                      if (!workoutStartTimeRef.current) {
+                        workoutStartTimeRef.current = workoutData.timestamp - (workoutData.workoutTime || 0) * 1000
+                      }
+                    }
+                    
+                    if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
+                    if (workoutData.restTime) setRestTime(workoutData.restTime)
+                    if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                    
+                    showToast('Workout progress recovered from backup', 'info')
                   }
-                  
-                  if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
-                  if (workoutData.restTime) setRestTime(workoutData.restTime)
-                  if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
-                  
-                  // Show notification that workout was recovered
-                  showToast('Workout progress recovered from backup', 'info')
                 }
               }
             }
@@ -531,15 +610,49 @@ export default function ActiveWorkout() {
           const saved = localStorage.getItem(`activeWorkout_${user.id}`)
           if (saved) {
             const workoutData = JSON.parse(saved)
-            if (workoutData.timestamp && (Date.now() - workoutData.timestamp) < 86400000) {
+            const workoutAge = workoutData.timestamp ? (Date.now() - workoutData.timestamp) : Infinity
+            const isRecent = workoutAge < 7200000 // 2 hours
+            
+            if (workoutData.timestamp && workoutAge < 86400000) {
               if (workoutData.exercises && Array.isArray(workoutData.exercises) && workoutData.exercises.length > 0) {
-                setExercises(workoutData.exercises)
-                lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
-                if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
-                if (workoutData.restTime) setRestTime(workoutData.restTime)
-                if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
-                showToast('Workout progress recovered from backup', 'info')
-                return // Don't initialize new timer if we recovered
+                // If not recent, ask user if they want to resume
+                if (!isRecent) {
+                  const workoutDate = new Date(workoutData.timestamp).toLocaleString()
+                  const shouldResume = window.confirm(
+                    `You have an old workout saved from ${workoutDate}.\n\n` +
+                    `Would you like to resume it, or start a fresh workout?\n\n` +
+                    `Click OK to resume, or Cancel to start fresh and delete the old workout.`
+                  )
+                  
+                  if (!shouldResume) {
+                    // User wants to start fresh - delete the old workout
+                    localStorage.removeItem(`activeWorkout_${user.id}`)
+                    try {
+                      await deleteActiveWorkoutSession(user.id)
+                    } catch (error) {
+                      // Silently fail
+                    }
+                    // Continue to initialize new timer below
+                  } else {
+                    // User wants to resume
+                    setExercises(workoutData.exercises)
+                    lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                    if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
+                    if (workoutData.restTime) setRestTime(workoutData.restTime)
+                    if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                    showToast('Workout progress recovered from backup', 'info')
+                    return // Don't initialize new timer if we recovered
+                  }
+                } else {
+                  // Recent workout - restore automatically
+                  setExercises(workoutData.exercises)
+                  lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                  if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
+                  if (workoutData.restTime) setRestTime(workoutData.restTime)
+                  if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                  showToast('Workout progress recovered from backup', 'info')
+                  return // Don't initialize new timer if we recovered
+                }
               }
             }
           }
@@ -1277,6 +1390,36 @@ export default function ActiveWorkout() {
       )}
       <header className={styles.header}>
         <div className={styles.headerTop}>
+          {exercises.length > 0 && (
+            <button 
+              className={styles.clearBtn}
+              onClick={async () => {
+                if (window.confirm('Clear all exercises and start fresh? This will delete your current workout progress.')) {
+                  setExercises([])
+                  workoutStartTimeRef.current = Date.now()
+                  setWorkoutTime(0)
+                  setPausedTime(0)
+                  pausedTimeRef.current = 0
+                  setIsResting(false)
+                  setRestTime(0)
+                  
+                  // Clear from database and localStorage
+                  if (user) {
+                    try {
+                      await deleteActiveWorkoutSession(user.id)
+                      localStorage.removeItem(`activeWorkout_${user.id}`)
+                      showToast('Workout cleared. Starting fresh.', 'info')
+                    } catch (error) {
+                      // Silently fail
+                    }
+                  }
+                }
+              }}
+              title="Clear workout and start fresh"
+            >
+              Clear
+            </button>
+          )}
           <button className={styles.cancelBtn} onClick={async () => {
             // Warn user before canceling if there's progress
             const hasProgress = exercises.some(ex => 

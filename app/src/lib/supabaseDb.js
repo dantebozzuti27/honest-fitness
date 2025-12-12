@@ -52,17 +52,21 @@ export async function saveWorkoutToSupabase(workout, userId) {
     // Use original workout if import fails
   }
   
-  // Validate that this is a real workout with exercises (after cleaning)
-  if (!cleanedWorkout.exercises || cleanedWorkout.exercises.length === 0) {
-    throw new Error('Cannot save workout with no exercises')
+  // Allow workouts with 0 exercises (user may want to log a workout session without exercises)
+  // Only validate that exercises is an array if it exists
+  if (cleanedWorkout.exercises && !Array.isArray(cleanedWorkout.exercises)) {
+    throw new Error('Workout exercises must be an array')
   }
   
-  // Validate that exercises have actual data (sets with weight/reps/time)
-  const hasValidData = cleanedWorkout.exercises.some(ex => 
-    ex.sets && ex.sets.length > 0 && ex.sets.some(s => s.weight || s.reps || s.time)
-  )
-  if (!hasValidData) {
-    throw new Error('Cannot save workout with no exercise data')
+  // If exercises exist, ensure they have valid structure (but allow empty array)
+  if (cleanedWorkout.exercises && cleanedWorkout.exercises.length > 0) {
+    // Validate exercise structure if exercises are provided
+    const hasInvalidExercise = cleanedWorkout.exercises.some(ex => 
+      !ex || typeof ex !== 'object' || !ex.name
+    )
+    if (hasInvalidExercise) {
+      throw new Error('All exercises must have a name')
+    }
   }
   
   // Track event
@@ -365,14 +369,15 @@ export async function getWorkoutsFromSupabase(userId) {
 
   if (error) throw error
   
-  // Filter out workouts without valid exercise data (dummy data cleanup)
+  // Allow workouts with 0 exercises (user may want to log a workout session without exercises)
+  // Filter out only workouts that are clearly invalid (have exercises but no valid sets data)
   const validWorkouts = (data || []).filter(workout => {
-    // Must have exercises
+    // If workout has no exercises, that's valid (allow 0 exercises)
     if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
-      return false
+      return true
     }
     
-    // Must have at least one exercise with sets that have actual data
+    // If workout has exercises, at least one must have valid sets data
     const hasValidExercise = workout.workout_exercises.some(ex => {
       if (!ex.workout_sets || ex.workout_sets.length === 0) return false
       return ex.workout_sets.some(s => s.weight || s.reps || s.time)
@@ -382,10 +387,13 @@ export async function getWorkoutsFromSupabase(userId) {
   })
   
   // Auto-delete invalid workouts in background (don't wait for it)
+  // Only delete workouts that have exercises but no valid sets data (dummy data)
   const invalidWorkouts = (data || []).filter(workout => {
+    // Workouts with 0 exercises are valid, don't delete them
     if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
-      return true
+      return false
     }
+    // Only delete if workout has exercises but none have valid sets data
     const hasValidExercise = workout.workout_exercises.some(ex => {
       if (!ex.workout_sets || ex.workout_sets.length === 0) return false
       return ex.workout_sets.some(s => s.weight || s.reps || s.time)
@@ -543,17 +551,21 @@ export async function getWorkoutsByDateFromSupabase(userId, date) {
 }
 
 export async function updateWorkoutInSupabase(workoutId, workout, userId) {
-  // Validate that this is a real workout with exercises (same validation as saveWorkoutToSupabase)
-  if (!workout.exercises || workout.exercises.length === 0) {
-    throw new Error('Cannot update workout with no exercises')
+  // Allow workouts with 0 exercises (user may want to log a workout session without exercises)
+  // Only validate that exercises is an array if it exists
+  if (workout.exercises !== undefined && workout.exercises !== null && !Array.isArray(workout.exercises)) {
+    throw new Error('Workout exercises must be an array')
   }
   
-  // Validate that exercises have actual data (sets with weight/reps/time)
-  const hasValidData = workout.exercises.some(ex => 
-    ex.sets && ex.sets.length > 0 && ex.sets.some(s => s.weight || s.reps || s.time)
-  )
-  if (!hasValidData) {
-    throw new Error('Cannot update workout with no exercise data')
+  // If exercises exist, ensure they have valid structure (but allow empty array)
+  if (workout.exercises && workout.exercises.length > 0) {
+    // Validate exercise structure if exercises are provided
+    const hasInvalidExercise = workout.exercises.some(ex => 
+      !ex || typeof ex !== 'object' || !ex.name
+    )
+    if (hasInvalidExercise) {
+      throw new Error('All exercises must have a name')
+    }
   }
   
   // Verify workout belongs to user (security check)

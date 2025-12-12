@@ -16,8 +16,10 @@ export function validateWorkout(workout) {
     errors.push('Workout date is required')
   }
   
-  if (!workout.exercises || !Array.isArray(workout.exercises) || workout.exercises.length === 0) {
-    errors.push('Workout must have at least one exercise')
+  // Allow workouts with 0 exercises (user may want to log a workout session without exercises)
+  // Only validate that exercises is an array if it exists
+  if (workout.exercises !== undefined && workout.exercises !== null && !Array.isArray(workout.exercises)) {
+    errors.push('Workout exercises must be an array')
   }
   
   // Range validation

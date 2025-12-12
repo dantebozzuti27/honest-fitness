@@ -944,8 +944,8 @@ export default function Fitness() {
                 perceivedEffort: selectedWorkoutForShare.perceived_effort,
                 moodAfter: selectedWorkoutForShare.mood_after,
                 notes: selectedWorkoutForShare.notes,
-                workoutCaloriesBurned: selectedWorkoutForShare.workout_calories_burned,
-                workoutSteps: selectedWorkoutForShare.workout_steps
+                workoutCaloriesBurned: selectedWorkoutForShare.workout_calories_burned != null ? selectedWorkoutForShare.workout_calories_burned : null,
+                workoutSteps: selectedWorkoutForShare.workout_steps != null ? selectedWorkoutForShare.workout_steps : null
               }
             }}
             onClose={() => {

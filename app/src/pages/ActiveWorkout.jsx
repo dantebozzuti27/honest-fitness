@@ -1350,12 +1350,8 @@ export default function ActiveWorkout() {
       // REMOVED: .filter(ex => ex.sets.length > 0) - this was removing exercises!
     }
     
-    // ONLY save workout if user has at least one exercise
+    // Allow workouts with 0 exercises (user may want to log a workout session without exercises)
     // Note: Exercises can have no sets, that's okay - we show all exercises
-    if (workout.exercises.length === 0) {
-      showToast('Cannot save workout with no exercises. Please add at least one exercise.', 'error')
-      return
-    }
     
     setIsSaving(true)
     try {

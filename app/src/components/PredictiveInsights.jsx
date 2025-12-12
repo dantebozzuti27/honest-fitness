@@ -10,7 +10,7 @@ import {
   predictInjuryRisk, 
   estimateGoalAchievementProbability 
 } from '../lib/advancedML'
-import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
+// Dynamic import for code-splitting
 import InsightsCard from './InsightsCard'
 import styles from './PredictiveInsights.module.css'
 import { logError } from '../utils/logger'
@@ -33,6 +33,7 @@ export default function PredictiveInsights() {
     
     setLoading(true)
     try {
+      const { getActiveGoalsFromSupabase } = await import('../lib/goalsDb')
       const [forecast, injuryRisk, goals] = await Promise.all([
         forecastWorkoutPerformance(user.id),
         predictInjuryRisk(user.id),

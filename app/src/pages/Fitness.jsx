@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getAllTemplates, saveTemplate, deleteTemplate } from '../db'
 import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase, deleteWorkoutFromSupabase, getScheduledWorkoutsFromSupabase } from '../lib/supabaseDb'
-import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
+// Dynamic import for code-splitting
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
@@ -61,6 +61,7 @@ export default function Fitness() {
       })
       
       // Then load the updated goals
+      const { getActiveGoalsFromSupabase } = await import('../lib/goalsDb')
       const goals = await getActiveGoalsFromSupabase(user.id, 'fitness')
       setFitnessGoals(goals)
     } catch (e) {
@@ -177,6 +178,16 @@ export default function Fitness() {
 
     subscriptionRef.current = { workoutsChannel }
     
+    // Listen for workoutSaved event from ActiveWorkout page
+    const handleWorkoutSaved = () => {
+      // Small delay to ensure database write is complete
+      setTimeout(() => {
+        loadWorkoutHistory()
+      }, 500)
+    }
+    
+    window.addEventListener('workoutSaved', handleWorkoutSaved)
+    
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         loadFitnessGoals()
@@ -197,6 +208,7 @@ export default function Fitness() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('workoutSaved', handleWorkoutSaved)
       
       // Clean up subscription
       if (subscriptionRef.current?.workoutsChannel) {

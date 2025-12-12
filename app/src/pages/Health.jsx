@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getWorkoutsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/supabaseDb'
 import { toInteger, toNumber } from '../utils/numberUtils'
-import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
+// Dynamic import for code-splitting
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, syncOuraData, mergeWearableDataToMetrics } from '../lib/wearables'
 import { supabase } from '../lib/supabase'
@@ -60,6 +60,7 @@ export default function Health() {
       }
       
       // Then load the updated goals
+      const { getActiveGoalsFromSupabase } = await import('../lib/goalsDb')
       const goals = await getActiveGoalsFromSupabase(user.id, 'health')
       setHealthGoals(goals)
     } catch (error) {

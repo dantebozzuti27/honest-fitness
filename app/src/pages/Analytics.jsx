@@ -18,7 +18,7 @@ import { getAllTemplates } from '../db'
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
-import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
+// Dynamic import for code-splitting
 import { getTodayEST, getYesterdayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
 import { supabase } from '../lib/supabase'
 import { formatGoalName } from '../utils/formatUtils'
@@ -126,7 +126,7 @@ export default function Analytics() {
           getReadinessScore(user.id),
           getAllConnectedAccounts(user.id),
           Promise.resolve(getTodayEST()),
-          getActiveGoalsFromSupabase(user.id)
+          (await import('../lib/goalsDb')).getActiveGoalsFromSupabase(user.id)
         ])
         
         // Load Fitbit data

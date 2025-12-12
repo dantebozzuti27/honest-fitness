@@ -2,8 +2,6 @@ import { supabase } from './supabase'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug } from '../utils/logger'
-import { validateWorkout } from './dataValidation'
-import { cleanWorkoutData } from './dataCleaning'
 import { saveEnrichedData } from './dataEnrichment'
 import { trackEvent } from './eventTracking'
 
@@ -18,14 +16,16 @@ const safeLogDebug = logDebug || (() => {})
 export async function saveWorkoutToSupabase(workout, userId) {
   // Data pipeline: Validate -> Clean -> Enrich -> Save
   
-  // Step 1: Validate data
+  // Step 1: Validate data (dynamic import for code-splitting)
+  const { validateWorkout } = await import('./dataValidation')
   const validation = validateWorkout(workout)
   if (!validation.valid) {
     logError('Workout validation failed', validation.errors)
     throw new Error(`Workout validation failed: ${validation.errors.join(', ')}`)
   }
   
-  // Step 2: Clean and normalize data
+  // Step 2: Clean and normalize data (dynamic import for code-splitting)
+  const { cleanWorkoutData } = await import('./dataCleaning')
   const cleanedWorkout = cleanWorkoutData(workout)
   
   // Validate that this is a real workout with exercises (after cleaning)

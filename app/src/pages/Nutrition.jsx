@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getActiveGoalsFromSupabase } from '../lib/goalsDb'
+// Dynamic import for code-splitting
 import { getTodayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { logError, logDebug } from '../utils/logger'
@@ -145,6 +145,7 @@ export default function Nutrition() {
       })
       
       // Then load the updated goals
+      const { getActiveGoalsFromSupabase } = await import('../lib/goalsDb')
       const goals = await getActiveGoalsFromSupabase(user.id, 'nutrition')
       setNutritionGoals(goals)
       

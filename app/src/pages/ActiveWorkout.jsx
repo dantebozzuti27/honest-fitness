@@ -398,6 +398,8 @@ export default function ActiveWorkout() {
     async function loadWorkoutSession() {
       if (!user) return
       
+      let restoredExercises = false
+      
       try {
         const session = await getActiveWorkoutSession(user.id)
         
@@ -412,26 +414,7 @@ export default function ActiveWorkout() {
           if (session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0) {
             setExercises(session.exercises)
             lastSavedExercisesRef.current = JSON.stringify(session.exercises)
-          } else {
-            // Fallback: try to restore from localStorage
-            try {
-              const saved = localStorage.getItem(`activeWorkout_${user.id}`)
-              if (saved) {
-                const workoutData = JSON.parse(saved)
-                // Only restore if it's recent (within last hour)
-                if (workoutData.timestamp && (Date.now() - workoutData.timestamp) < 3600000) {
-                  if (workoutData.exercises && Array.isArray(workoutData.exercises) && workoutData.exercises.length > 0) {
-                    setExercises(workoutData.exercises)
-                    lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
-                    if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
-                    if (workoutData.restTime) setRestTime(workoutData.restTime)
-                    if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
-                  }
-                }
-              }
-            } catch (e) {
-              logError('Error restoring from localStorage', e)
-            }
+            restoredExercises = true
           }
           
           // Restore rest timer if it was running
@@ -483,25 +466,88 @@ export default function ActiveWorkout() {
           // Calculate current elapsed time based on stored start time
           const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - (session.paused_time_ms || 0)) / 1000)
           setWorkoutTime(Math.max(0, elapsed))
-        } else {
-          // Initialize new workout timer
+        }
+        
+        // If no exercises were restored from database, try localStorage (even if session was null)
+        if (!restoredExercises) {
+          try {
+            const saved = localStorage.getItem(`activeWorkout_${user.id}`)
+            if (saved) {
+              const workoutData = JSON.parse(saved)
+              // Restore if it's recent (within last 24 hours - extended from 1 hour)
+              if (workoutData.timestamp && (Date.now() - workoutData.timestamp) < 86400000) {
+                if (workoutData.exercises && Array.isArray(workoutData.exercises) && workoutData.exercises.length > 0) {
+                  setExercises(workoutData.exercises)
+                  lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                  restoredExercises = true
+                  
+                  // Restore timer if we have workout start time
+                  if (workoutData.timestamp) {
+                    // Estimate workout start time from timestamp
+                    if (!workoutStartTimeRef.current) {
+                      workoutStartTimeRef.current = workoutData.timestamp - (workoutData.workoutTime || 0) * 1000
+                    }
+                  }
+                  
+                  if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
+                  if (workoutData.restTime) setRestTime(workoutData.restTime)
+                  if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                  
+                  // Show notification that workout was recovered
+                  showToast('Workout progress recovered from backup', 'info')
+                }
+              }
+            }
+          } catch (e) {
+            logError('Error restoring from localStorage', e)
+          }
+        }
+        
+        // If still no session and no restored exercises, initialize new workout
+        if (!session && !restoredExercises) {
           workoutStartTimeRef.current = Date.now()
           setWorkoutTime(0)
           setPausedTime(0)
           pausedTimeRef.current = 0
           
           // Save to database
-          await saveActiveWorkoutSession(user.id, {
-            workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
-            pausedTimeMs: 0,
-            restStartTime: null,
-            restDurationSeconds: null,
-            isResting: false
-          })
+          try {
+            await saveActiveWorkoutSession(user.id, {
+              workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+              pausedTimeMs: 0,
+              restStartTime: null,
+              restDurationSeconds: null,
+              isResting: false
+            })
+          } catch (error) {
+            // Silently fail - localStorage will be used
+          }
         }
       } catch (error) {
         logError('Error loading workout session', error)
-        // Fallback: initialize new timer
+        
+        // Fallback: try localStorage even on error
+        try {
+          const saved = localStorage.getItem(`activeWorkout_${user.id}`)
+          if (saved) {
+            const workoutData = JSON.parse(saved)
+            if (workoutData.timestamp && (Date.now() - workoutData.timestamp) < 86400000) {
+              if (workoutData.exercises && Array.isArray(workoutData.exercises) && workoutData.exercises.length > 0) {
+                setExercises(workoutData.exercises)
+                lastSavedExercisesRef.current = JSON.stringify(workoutData.exercises)
+                if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
+                if (workoutData.restTime) setRestTime(workoutData.restTime)
+                if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                showToast('Workout progress recovered from backup', 'info')
+                return // Don't initialize new timer if we recovered
+              }
+            }
+          }
+        } catch (e) {
+          logError('Error restoring from localStorage fallback', e)
+        }
+        
+        // Last resort: initialize new timer
         workoutStartTimeRef.current = Date.now()
         setWorkoutTime(0)
         setPausedTime(0)
@@ -535,10 +581,53 @@ export default function ActiveWorkout() {
       }
     })
     
-    // Handle visibility change to recalculate time when app comes to foreground
+    // Handle visibility change - save when backgrounded, restore when foregrounded
     const handleVisibilityChange = async () => {
-      if (!document.hidden && user) {
-        // Reload session from database to get latest state
+      if (!user) return
+      
+      if (document.hidden) {
+        // App is being backgrounded - SAVE exercises immediately
+        if (exercises.length > 0 && workoutStartTimeRef.current) {
+          try {
+            // Save to database
+            await saveActiveWorkoutSession(user.id, {
+              workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
+              pausedTimeMs: pausedTimeRef.current || 0,
+              restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+              restDurationSeconds: restDurationRef.current || null,
+              isResting: isResting,
+              exercises: exercises
+            })
+            
+            // Also save to localStorage as backup
+            localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
+              exercises,
+              workoutTime,
+              restTime,
+              isResting,
+              templateId,
+              date: getTodayEST(),
+              timestamp: Date.now()
+            }))
+          } catch (error) {
+            // Silently fail - at least try localStorage
+            try {
+              localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
+                exercises,
+                workoutTime,
+                restTime,
+                isResting,
+                templateId,
+                date: getTodayEST(),
+                timestamp: Date.now()
+              }))
+            } catch (e) {
+              logError('Error saving to localStorage on background', e)
+            }
+          }
+        }
+      } else {
+        // App is coming to foreground - restore and recalculate
         try {
           const session = await getActiveWorkoutSession(user.id)
           if (session) {
@@ -546,6 +635,12 @@ export default function ActiveWorkout() {
             const pausedMs = session.paused_time_ms || 0
             setPausedTime(pausedMs)
             pausedTimeRef.current = pausedMs
+            
+            // Restore exercises if they exist
+            if (session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0) {
+              setExercises(session.exercises)
+              lastSavedExercisesRef.current = JSON.stringify(session.exercises)
+            }
             
             // Recalculate workout time based on absolute time difference
             const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedMs) / 1000)
@@ -976,6 +1071,9 @@ export default function ActiveWorkout() {
             await saveWorkoutToSupabase(workout, user.id)
             saved = true
             showToast('Workout saved successfully!', 'success')
+            
+            // Trigger history refresh event for Fitness page
+            window.dispatchEvent(new CustomEvent('workoutSaved', { detail: { workout } }))
           } catch (err) {
             retries--
             logError(`Error saving workout to Supabase (${3 - retries}/3 attempts)`, err)
@@ -1025,7 +1123,8 @@ export default function ActiveWorkout() {
   const handleShareClose = () => {
     setShowShareModal(false)
     setSavedWorkout(null)
-    navigate('/')
+    // Navigate to fitness page to see the saved workout in history
+    navigate('/fitness', { state: { refreshHistory: true } })
   }
 
   // Pause workout functionality
@@ -1249,16 +1348,35 @@ export default function ActiveWorkout() {
             Cancel
           </button>
           <div className={styles.workoutTimer}>{formatTime(workoutTime)}</div>
-          <button 
-            className={styles.finishBtn} 
-            onClick={() => {
-              if (handleFinishClick && typeof handleFinishClick === 'function') {
-                handleFinishClick()
-              }
-            }}
-          >
-            Finish
-          </button>
+          <div className={styles.headerRight}>
+            <button 
+              className={`${styles.pauseBtn} ${isPaused ? styles.paused : ''}`}
+              onClick={() => {
+                if (isPaused) {
+                  if (resumeWorkout && typeof resumeWorkout === 'function') {
+                    resumeWorkout()
+                  }
+                } else {
+                  if (pauseWorkout && typeof pauseWorkout === 'function') {
+                    pauseWorkout()
+                  }
+                }
+              }}
+              title={isPaused ? 'Resume Workout' : 'Pause Workout'}
+            >
+              {isPaused ? '▶ Resume' : '⏸ Pause'}
+            </button>
+            <button 
+              className={styles.finishBtn} 
+              onClick={() => {
+                if (handleFinishClick && typeof handleFinishClick === 'function') {
+                  handleFinishClick()
+                }
+              }}
+            >
+              Finish
+            </button>
+          </div>
         </div>
         
         {adjustmentInfo && adjustmentInfo.factor < 1.0 && (

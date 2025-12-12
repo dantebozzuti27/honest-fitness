@@ -5,8 +5,6 @@
 
 import { supabase } from './supabase'
 import { logError, logDebug } from '../utils/logger'
-import { validateNutrition } from './dataValidation'
-import { cleanNutritionData } from './dataCleaning'
 import { saveEnrichedData } from './dataEnrichment'
 import { trackEvent } from './eventTracking'
 
@@ -23,14 +21,16 @@ const safeLogDebug = logDebug || (() => {})
 export async function saveMealToSupabase(userId, date, meal) {
   // Data pipeline: Validate -> Clean -> Save -> Enrich
   
-  // Step 1: Validate data
+  // Step 1: Validate data (dynamic import for code-splitting)
+  const { validateNutrition } = await import('./dataValidation')
   const validation = validateNutrition({ meals: [meal], date })
   if (!validation.valid) {
     logError('Nutrition validation failed', validation.errors)
     throw new Error(`Nutrition validation failed: ${validation.errors.join(', ')}`)
   }
   
-  // Step 2: Clean and normalize data
+  // Step 2: Clean and normalize data (dynamic import for code-splitting)
+  const { cleanNutritionData } = await import('./dataCleaning')
   const cleanedMeal = cleanNutritionData(meal)
   
   // Validate that this is a real meal with data (after cleaning)

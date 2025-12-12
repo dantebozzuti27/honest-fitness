@@ -53,6 +53,13 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
+  gap: 8px;
+}
+
+.headerRight {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .cancelBtn {
@@ -88,8 +95,7 @@
   align-items: center;
 }
 
-.pauseBtn,
-.resumeBtn {
+.pauseBtn {
   font-size: 14px;
   font-weight: 600;
   padding: 6px 12px;
@@ -97,6 +103,24 @@
   border: 1px solid var(--border);
   background: var(--bg-tertiary);
   color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.pauseBtn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+}
+
+.pauseBtn.paused {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+}
+
+.pauseBtn.paused:hover {
+  opacity: 0.9;
 }
 
 .pauseBtn:hover {

@@ -1,13 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import {
-  getGoalsFromSupabase,
-  getActiveGoalsFromSupabase,
-  saveGoalToSupabase,
-  archiveGoal,
-  deleteGoalFromSupabase
-} from '../lib/goalsDb'
+// Dynamic imports for code-splitting - functions loaded as needed
 import { getWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
@@ -79,6 +73,7 @@ export default function Goals() {
     if (!user) return
     setLoading(true)
     try {
+      const { getActiveGoalsFromSupabase, getGoalsFromSupabase } = await import('../lib/goalsDb')
       const [activeGoals, allGoals] = await Promise.all([
         getActiveGoalsFromSupabase(user.id),
         getGoalsFromSupabase(user.id, { status: 'archived' })
@@ -304,7 +299,7 @@ export default function Goals() {
           totalDays: uniqueHealthDates.length,
           uniqueDates: uniqueHealthDates
         },
-        goals: (await getActiveGoalsFromSupabase(user.id)).map(g => ({
+        goals: (await (await import('../lib/goalsDb')).getActiveGoalsFromSupabase(user.id)).map(g => ({
           category: g.category,
           type: g.type || g.custom_name,
           target: g.target_value,
@@ -344,6 +339,7 @@ export default function Goals() {
 
     setIsArchiving(goalId)
     try {
+      const { archiveGoal } = await import('../lib/goalsDb')
       await archiveGoal(user.id, goalId)
       await loadGoals()
       showToast('Goal archived successfully', 'success')
@@ -361,6 +357,7 @@ export default function Goals() {
 
     setIsDeleting(goalId)
     try {
+      const { deleteGoalFromSupabase } = await import('../lib/goalsDb')
       await deleteGoalFromSupabase(user.id, goalId)
       await loadGoals()
       showToast('Goal deleted successfully', 'success')

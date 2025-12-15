@@ -5,6 +5,14 @@ import { analyzeMealFromImage, analyzeMealFromText, calculateActivityNeeded } fr
 import { getTodayEST } from '../utils/dateUtils'
 import BarChart from '../components/BarChart'
 import LineChart from '../components/LineChart'
+import { logError } from '../utils/logger'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
+import EmptyState from '../components/EmptyState'
+import BackButton from '../components/BackButton'
+import TextAreaField from '../components/TextAreaField'
+import Button from '../components/Button'
 import styles from './GhostMode.module.css'
 
 const TABS = ['Today', 'History', 'Analytics', 'Settings']
@@ -23,6 +31,8 @@ const COMMON_FOODS = [
 export default function GhostMode() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null })
   const [activeTab, setActiveTab] = useState('Today')
   const [targetCalories, setTargetCalories] = useState(2000)
   const [targetMacros, setTargetMacros] = useState({ protein: 150, carbs: 200, fat: 67 })
@@ -293,7 +303,7 @@ export default function GhostMode() {
         imageUrl: URL.createObjectURL(file)
       })
     } catch (error) {
-      alert(`Error analyzing meal: ${error.message}`)
+      showToast(`Error analyzing meal: ${error.message}`, 'error')
     } finally {
       setAnalyzing(false)
       if (fileInputRef.current) {
@@ -318,7 +328,7 @@ export default function GhostMode() {
       setTextInput('')
       setShowTextInput(false)
     } catch (error) {
-      alert(`Error analyzing meal: ${error.message}`)
+      showToast(`Error analyzing meal: ${error.message}`, 'error')
     } finally {
       setAnalyzing(false)
     }
@@ -344,7 +354,7 @@ export default function GhostMode() {
       if (validateCalories && typeof validateCalories === 'function') {
         const caloriesValidation = validateCalories(manualEntry.calories)
         if (!caloriesValidation.valid) {
-          alert(caloriesValidation.error)
+          showToast(caloriesValidation.error, 'error')
           return
         }
       }
@@ -356,7 +366,7 @@ export default function GhostMode() {
         const fatValidation = validateMacro(manualEntry.fat || 0)
         
         if (!proteinValidation.valid || !carbsValidation.valid || !fatValidation.valid) {
-          alert('Please enter valid macro values (0-1000g)')
+          showToast('Please enter valid macro values (0-1000g)', 'error')
           return
         }
       }
@@ -507,13 +517,12 @@ export default function GhostMode() {
   }
 
   const resetDay = () => {
-    if (confirm('Reset today\'s data?')) {
-      setMeals([])
-      setCurrentCalories(0)
-      setCurrentMacros({ protein: 0, carbs: 0, fat: 0 })
-      setWaterIntake(0)
-      saveData()
-    }
+    setConfirmState({
+      open: true,
+      title: 'Reset today?',
+      message: 'This will clear meals and water for the selected date.',
+      action: 'reset_day'
+    })
   }
 
   const getFastingTime = () => {
@@ -585,10 +594,16 @@ export default function GhostMode() {
 
   return (
     <div className={styles.container}>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          duration={toast.duration}
+          onClose={hideToast}
+        />
+      )}
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <BackButton fallbackPath="/" />
         <h1>Food Intake</h1>
         {activeTab === 'Today' && (
           <button className={styles.resetBtn} onClick={resetDay}>
@@ -609,6 +624,30 @@ export default function GhostMode() {
           </button>
         ))}
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.action === 'reset_day' ? 'Reset' : 'Confirm'}
+        cancelText="Cancel"
+        isDestructive={confirmState.action === 'reset_day'}
+        onClose={() => setConfirmState({ open: false, title: '', message: '', action: null })}
+        onConfirm={() => {
+          try {
+            if (confirmState.action === 'reset_day') {
+              setMeals([])
+              setCurrentCalories(0)
+              setCurrentMacros({ protein: 0, carbs: 0, fat: 0 })
+              setWaterIntake(0)
+              saveData()
+              showToast('Reset complete', 'success')
+            }
+          } finally {
+            setConfirmState({ open: false, title: '', message: '', action: null })
+          }
+        }}
+      />
 
       <div className={styles.content}>
         {/* TODAY TAB */}
@@ -936,7 +975,7 @@ export default function GhostMode() {
             {/* Text Input */}
             {showTextInput && (
               <div className={styles.textInputCard}>
-                <textarea
+                <TextAreaField
                   className={styles.textInput}
                   placeholder="Describe your meal..."
                   value={textInput}
@@ -944,7 +983,8 @@ export default function GhostMode() {
                   rows={3}
                 />
                 <div className={styles.textInputActions}>
-                  <button
+                  <Button
+                    unstyled
                     className={styles.cancelBtn}
                     onClick={() => {
                       setShowTextInput(false)
@@ -952,8 +992,9 @@ export default function GhostMode() {
                     }}
                   >
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    unstyled
                     className={styles.submitBtn}
                     onClick={() => {
                       if (handleTextSubmit && typeof handleTextSubmit === 'function') {
@@ -963,7 +1004,7 @@ export default function GhostMode() {
                     disabled={!textInput.trim() || analyzing}
                   >
                     Analyze
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -990,10 +1031,12 @@ export default function GhostMode() {
             })}
 
             {meals.length === 0 && (
-              <div className={styles.emptyState}>
-                <p>No meals logged today</p>
-                <p className={styles.emptyHint}>Click "Add Meal" to get started, or use AI analysis for quick entry!</p>
-              </div>
+              <EmptyState
+                title="No meals logged today"
+                message="Add your first meal, or use AI analysis for quick entry."
+                actionLabel="Add meal"
+                onAction={() => setShowManualEntry(true)}
+              />
             )}
           </>
         )}
@@ -1029,7 +1072,15 @@ export default function GhostMode() {
                   </div>
                 ))}
               {Object.keys(historyData).length === 0 && (
-                <div className={styles.emptyState}>No history yet</div>
+                <EmptyState
+                  title="No history yet"
+                  message="Start logging meals to build your history."
+                  actionLabel="Add meal"
+                  onAction={() => {
+                    setActiveTab('Today')
+                    setShowManualEntry(true)
+                  }}
+                />
               )}
             </div>
           </div>

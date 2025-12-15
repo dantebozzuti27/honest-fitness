@@ -12,18 +12,23 @@ import TemplateEditor from '../components/TemplateEditor'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import { chatWithAI } from '../lib/chatApi'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import styles from './Workout.module.css'
 
 export default function Workout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [templates, setTemplates] = useState([])
   const [todaysPlan, setTodaysPlan] = useState(null)
   const [aiWorkout, setAiWorkout] = useState(null)
   const [showTemplateEditor, setShowTemplateEditor] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [showExercisePicker, setShowExercisePicker] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, templateId: null })
   const [metrics, setMetrics] = useState({
     sleepScore: '',
     sleepTime: '',
@@ -170,7 +175,7 @@ export default function Workout() {
         if (validateWeight && typeof validateWeight === 'function') {
           const validation = validateWeight(value)
           if (!validation.valid) {
-            alert(validation.error)
+            showToast(validation.error, 'error', 6000)
             return
           }
           validatedValue = validation.value
@@ -179,7 +184,7 @@ export default function Workout() {
         if (validateSteps && typeof validateSteps === 'function') {
           const validation = validateSteps(value)
           if (!validation.valid) {
-            alert(validation.error)
+            showToast(validation.error, 'error', 6000)
             return
           }
           validatedValue = validation.value
@@ -188,7 +193,7 @@ export default function Workout() {
         if (validateHRV && typeof validateHRV === 'function') {
           const validation = validateHRV(value)
           if (!validation.valid) {
-            alert(validation.error)
+            showToast(validation.error, 'error', 6000)
             return
           }
           validatedValue = validation.value
@@ -197,7 +202,7 @@ export default function Workout() {
         if (validateCalories && typeof validateCalories === 'function') {
           const validation = validateCalories(value)
           if (!validation.valid) {
-            alert(validation.error)
+            showToast(validation.error, 'error', 6000)
             return
           }
           validatedValue = validation.value
@@ -206,7 +211,7 @@ export default function Workout() {
         if (validateSleepScore && typeof validateSleepScore === 'function') {
           const validation = validateSleepScore(value)
           if (!validation.valid) {
-            alert(validation.error)
+            showToast(validation.error, 'error', 6000)
             return
           }
           validatedValue = validation.value
@@ -238,7 +243,10 @@ export default function Workout() {
       // Save to Supabase if logged in
       if (user) {
         try {
-          await saveMetricsToSupabase(user.id, yesterday, metricsToSave)
+          const res = await saveMetricsToSupabase(user.id, yesterday, metricsToSave)
+          if (res?.queued) {
+            showToast('Metrics saved locally — will sync when online.', 'info', 5000)
+          }
         } catch (err) {
           // Silently fail - metrics will be saved on next attempt
         }
@@ -261,7 +269,7 @@ export default function Workout() {
         return
       }
     } catch (e) {
-      alert('Failed to generate workout. Please try again.')
+      showToast('Failed to generate workout. Please try again.', 'error')
     }
     // Fallback to local random
     navigate('/workout/active', { state: { randomWorkout: true } })
@@ -448,14 +456,7 @@ export default function Workout() {
               setEditingTemplate(null)
             }}
             onDelete={async (id) => {
-              if (confirm('Delete this template?')) {
-                await deleteTemplate(id)
-                const updated = await getAllTemplates()
-                setTemplates(updated)
-                if (editingTemplate?.id === id) {
-                  setEditingTemplate(null)
-                }
-              }
+              setDeleteConfirm({ open: true, templateId: id })
             }}
             onEdit={(template) => {
               setEditingTemplate(template)
@@ -466,6 +467,34 @@ export default function Workout() {
         )}
       </div>
 
+      <ConfirmDialog
+        isOpen={deleteConfirm.open}
+        title="Delete template?"
+        message="This will remove the template from your device."
+        confirmText="Delete"
+        cancelText="Cancel"
+        isDestructive
+        onClose={() => setDeleteConfirm({ open: false, templateId: null })}
+        onConfirm={async () => {
+          const id = deleteConfirm.templateId
+          if (!id) return
+          try {
+            await deleteTemplate(id)
+            const updated = await getAllTemplates()
+            setTemplates(updated)
+            if (editingTemplate?.id === id) {
+              setEditingTemplate(null)
+            }
+            showToast('Template deleted', 'success')
+          } catch (e) {
+            showToast('Failed to delete template', 'error')
+          } finally {
+            setDeleteConfirm({ open: false, templateId: null })
+          }
+        }}
+      />
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
     </div>
   )
 }

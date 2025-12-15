@@ -68,7 +68,7 @@ export async function disconnectAccount(userId, provider) {
 
 /**
  * Connect Oura using Personal Access Token (PAT)
- * ⚠️ DEVELOPMENT/TESTING ONLY - NOT FOR PRODUCTION USE
+ * DEVELOPMENT/TESTING ONLY - NOT FOR PRODUCTION USE
  * 
  * PATs are not compliant with industry standards for production:
  * - Long-lived tokens (security risk)
@@ -263,14 +263,13 @@ export async function syncOuraData(userId, date = null) {
 
     const result = await response.json()
 
-    console.log('Oura sync response:', result)
+    logDebug('Oura sync response', { success: result?.success, date: result?.date })
 
     if (!result.success) {
       throw new Error(result.message || 'Oura sync failed')
     }
 
-    console.log('Oura sync successful, data received:', result.data)
-    console.log('Oura sync saved to DB:', result.saved)
+    logDebug('Oura sync successful', { hasData: Boolean(result?.data), saved: result?.saved })
 
     return {
       synced: true,

@@ -1,0 +1,14 @@
+.backButton { gap: 6px; }
+
+.chevron {
+  font-size: 20px;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+

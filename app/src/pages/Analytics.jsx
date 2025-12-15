@@ -40,6 +40,7 @@ import DataSummaryCard from '../components/DataSummaryCard'
 import DataFreshnessIndicator from '../components/DataFreshnessIndicator'
 import HelpTooltip from '../components/HelpTooltip'
 import EmptyState from '../components/EmptyState'
+import Skeleton from '../components/Skeleton'
 import ChartContext from '../components/ChartContext'
 import LineChart from '../components/LineChart'
 import PieChart from '../components/PieChart'
@@ -48,11 +49,16 @@ import ChartCard from '../components/ChartCard'
 import UnifiedChart from '../components/UnifiedChart'
 import { enrichWorkoutData, enrichNutritionData } from '../lib/dataEnrichment'
 import { getInsights } from '../lib/backend'
-import { logError, logWarn } from '../utils/logger'
+import { logDebug, logError, logWarn } from '../utils/logger'
 import { comparePeriods, compareGoalVsActual, compareToPeers, compareToBenchmarks } from '../lib/comparativeAnalytics'
 import { analyzeCohorts, analyzeFunnel, analyzeRetention } from '../lib/advancedAnalytics'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
+import ConfirmDialog from '../components/ConfirmDialog'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
+import TextAreaField from '../components/TextAreaField'
+import Button from '../components/Button'
 import styles from './Analytics.module.css'
 
 const TABS = ['Overview', 'Scan', 'History', 'Metrics', 'Trends']
@@ -69,6 +75,7 @@ export default function Analytics() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const subscriptionRef = useRef(null)
   const [activeTab, setActiveTab] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -106,6 +113,8 @@ export default function Analytics() {
   })
   const [templates, setTemplates] = useState([])
   const [selectedWorkout, setSelectedWorkout] = useState(null)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [showPredictiveInsights, setShowPredictiveInsights] = useState(false)
   const [selectedBodyPart, setSelectedBodyPart] = useState(null)
   const [editingWorkout, setEditingWorkout] = useState(null)
   const [editingMetric, setEditingMetric] = useState(null)
@@ -280,7 +289,7 @@ export default function Analytics() {
           },
           (payload) => {
             // Refresh data when workout changes
-            console.log('Workout change detected:', payload.eventType)
+            logDebug('Workout change detected', { eventType: payload?.eventType })
             refreshData()
           }
         )
@@ -548,15 +557,8 @@ export default function Analytics() {
 
   const handleDeleteWorkout = async (workoutId) => {
     if (!user) return
-    if (!confirm('Are you sure you want to delete this workout?')) return
-    try {
-      await deleteWorkoutFromSupabase(workoutId, user.id)
-      await refreshData()
-      setSelectedWorkout(null)
-    } catch (e) {
-      logError('Error deleting workout', e)
-      alert('Failed to delete workout')
-    }
+    setSelectedWorkout(prev => prev || { id: workoutId })
+    setDeleteConfirmOpen(true)
   }
 
   const handleEditWorkout = () => {
@@ -594,7 +596,7 @@ export default function Analytics() {
       setSelectedWorkout(null)
     } catch (e) {
       logError('Error updating workout', e)
-      alert('Failed to update workout')
+      showToast('Failed to update workout', 'error')
     }
   }
 
@@ -605,7 +607,7 @@ export default function Analytics() {
   const handleSaveMetric = async () => {
     if (!editingMetric || !user) return
     try {
-      await saveMetricsToSupabase(user.id, editingMetric.date, {
+      const res = await saveMetricsToSupabase(user.id, editingMetric.date, {
         sleepScore: toNumber(editingMetric.sleep_score),
         sleepTime: toNumber(editingMetric.sleep_time),
         hrv: toNumber(editingMetric.hrv),
@@ -615,9 +617,14 @@ export default function Analytics() {
       })
       await refreshData()
       setEditingMetric(null)
+      if (res?.queued) {
+        showToast('Saved locally — will sync when online.', 'info', 5000)
+      } else {
+        showToast('Metric saved', 'success')
+      }
     } catch (e) {
       logError('Error updating metric', e)
-      alert('Failed to update metric')
+      showToast('Failed to update metric', 'error')
     }
   }
 
@@ -938,8 +945,27 @@ export default function Analytics() {
           </div>
         )}
 
-        {/* Predictive Insights */}
-        <PredictiveInsights />
+        {/* Predictive Insights (opt-in) */}
+        {!showPredictiveInsights ? (
+          <div className={styles.userEventStatsCard}>
+            <h3 className={styles.userEventStatsTitle}>Predictive Insights</h3>
+            <div className={styles.userEventStatsGrid}>
+              <div className={styles.userEventStat} style={{ gridColumn: '1 / -1' }}>
+                <span className={styles.userEventStatLabel}>Optional</span>
+                <span className={styles.userEventStatValue}>Run predictions</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className={styles.scheduleBtn}
+              onClick={() => setShowPredictiveInsights(true)}
+            >
+              Show Predictive Insights
+            </button>
+          </div>
+        ) : (
+          <PredictiveInsights />
+        )}
         
         {/* ML Insights at Top */}
         {(mlInsights || mlLoading) && (
@@ -1548,7 +1574,8 @@ export default function Analytics() {
                     }
                   }
                 } catch (error) {
-                  console.error('Error sharing chart:', error)
+                  logError('Error sharing chart', error)
+                  showToast('Failed to share chart. Please try again.', 'error')
                 }
               }}
               onExport={() => {
@@ -1560,7 +1587,8 @@ export default function Analytics() {
                   const csv = csvRows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n')
                   downloadData(csv, `workout-${historyCategory.toLowerCase()}-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
                 } catch (error) {
-                  console.error('Error exporting chart:', error)
+                  logError('Error exporting chart', error)
+                  showToast('Failed to export chart.', 'error')
                 }
               }}
               dataFreshness={lastDataUpdate ? `${Math.round((new Date() - lastDataUpdate) / (1000 * 60 * 60))} hours ago` : null}
@@ -1574,9 +1602,7 @@ export default function Analytics() {
                 showValues={true}
                 xAxisLabel={historyCategory === 'Frequency' ? 'Week' : 'Date'}
                 yAxisLabel={historyCategory === 'Frequency' ? 'Workouts' : 'Duration (min)'}
-                onDateRangeChange={(range) => {
-                  console.log('Date range changed:', range)
-                }}
+                onDateRangeChange={() => {}}
               />
             </ChartCard>
             
@@ -1865,11 +1891,11 @@ export default function Analytics() {
                   secondaryActions={[
                     {
                       label: 'View Details',
-                      onClick: () => console.log('View metric details')
+                      onClick: () => showToast('Details coming soon.', 'info')
                     }
                   ]}
-                  onShare={() => console.log('Share metrics chart')}
-                  onExport={() => console.log('Export metrics chart')}
+                  onShare={() => showToast('Sharing coming soon.', 'info')}
+                  onExport={() => showToast('Export coming soon.', 'info')}
                   dataFreshness={lastDataUpdate ? `${Math.round((new Date() - lastDataUpdate) / (1000 * 60 * 60))} hours ago` : null}
                 >
                   <UnifiedChart
@@ -1881,9 +1907,7 @@ export default function Analytics() {
                     showValues={true}
                     xAxisLabel="Date"
                     yAxisLabel={selectedCategoryData?.label || 'Value'}
-                    onDateRangeChange={(range) => {
-                      console.log('Metrics date range changed:', range)
-                    }}
+                    onDateRangeChange={() => {}}
                   />
                 </ChartCard>
               )
@@ -1929,12 +1953,12 @@ export default function Analytics() {
         <h3 className={styles.sectionTitle}>Scheduled Workouts</h3>
         
         {data.scheduled.length === 0 ? (
-          <div className={styles.emptyState}>
-            <p className={styles.emptyText}>No upcoming workouts scheduled</p>
-            <button className={styles.scheduleBtn} onClick={() => navigate('/calendar')}>
-              Schedule a Workout
-            </button>
-          </div>
+          <EmptyState
+            title="No upcoming workouts scheduled"
+            message="Schedule workouts in Calendar to keep your plan consistent."
+            actionLabel="Schedule a workout"
+            onAction={() => navigate('/calendar')}
+          />
         ) : (
           <div className={styles.upcomingList}>
             {data.scheduled.map(s => (
@@ -2219,11 +2243,11 @@ export default function Analytics() {
               secondaryActions={[
                 {
                   label: 'View Details',
-                  onClick: () => console.log('View trend details')
+                  onClick: () => showToast('Details coming soon.', 'info')
                 }
               ]}
-              onShare={() => console.log('Share trends chart')}
-              onExport={() => console.log('Export trends chart')}
+              onShare={() => showToast('Sharing coming soon.', 'info')}
+              onExport={() => showToast('Export coming soon.', 'info')}
               dataFreshness={lastDataUpdate ? `${Math.round((new Date() - lastDataUpdate) / (1000 * 60 * 60))} hours ago` : null}
             >
               {trendsCategory === 'Exercises' ? (
@@ -2260,9 +2284,7 @@ export default function Analytics() {
                   showValues={true}
                   xAxisLabel={trendsCategory === 'Frequency' ? 'Date' : 'Week'}
                   yAxisLabel={trendsCategory === 'Frequency' ? 'Workouts' : 'Sets'}
-                  onDateRangeChange={(range) => {
-                    console.log('Trends date range changed:', range)
-                  }}
+                  onDateRangeChange={() => {}}
                 />
               )}
             </ChartCard>
@@ -2272,7 +2294,6 @@ export default function Analytics() {
         <h3 className={styles.sectionTitle}>Top Exercises List</h3>
         {data.topExercises.length === 0 ? (
           <EmptyState
-            icon="🏋️"
             title="No Exercise Data"
             message="Complete workouts with exercises to see your most performed exercises and training patterns."
             actionLabel="Start Workout"
@@ -2295,6 +2316,7 @@ export default function Analytics() {
 
   return (
     <div className={styles.container}>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
       <header className={styles.header}>
         <SideMenu />
         <h1 className={styles.title}>Analytics</h1>
@@ -2315,7 +2337,14 @@ export default function Analytics() {
 
       <div className={styles.content}>
         {loading ? (
-          <div className={styles.loading}>Loading...</div>
+          <div className={styles.loading} style={{ width: '100%' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <Skeleton style={{ width: '45%', height: 16 }} />
+              <Skeleton style={{ width: '100%', height: 120 }} />
+              <Skeleton style={{ width: '100%', height: 120 }} />
+              <Skeleton style={{ width: '70%', height: 16 }} />
+            </div>
+          </div>
         ) : (
           <>
             {activeTab === 0 && renderOverview()}
@@ -2389,6 +2418,30 @@ export default function Analytics() {
         </div>
       )}
 
+      <ConfirmDialog
+        isOpen={deleteConfirmOpen}
+        title="Delete workout?"
+        message="This will permanently remove it from your history."
+        confirmText="Delete"
+        cancelText="Cancel"
+        isDestructive
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={async () => {
+          if (!selectedWorkout?.id || !user) return
+          try {
+            await deleteWorkoutFromSupabase(selectedWorkout.id, user.id)
+            await refreshData()
+            setSelectedWorkout(null)
+            showToast('Workout deleted', 'success')
+          } catch (e) {
+            logError('Error deleting workout', e)
+            showToast('Failed to delete workout', 'error')
+          } finally {
+            setDeleteConfirmOpen(false)
+          }
+        }}
+      />
+
       {/* Edit Workout Modal */}
       {editingWorkout && (
         <div className={styles.overlay} onClick={() => setEditingWorkout(null)}>
@@ -2426,15 +2479,16 @@ export default function Analytics() {
               </div>
               <div className={styles.formGroup}>
                 <label>Notes</label>
-                <textarea
+                <TextAreaField
                   value={editingWorkout.notes || ''}
                   onChange={(e) => setEditingWorkout({ ...editingWorkout, notes: e.target.value })}
                   rows={3}
                 />
               </div>
               <div className={styles.formActions}>
-                <button 
-                  className={styles.saveBtn} 
+                <Button
+                  unstyled
+                  className={styles.saveBtn}
                   onClick={() => {
                     if (handleSaveWorkout && typeof handleSaveWorkout === 'function') {
                       handleSaveWorkout()
@@ -2442,10 +2496,10 @@ export default function Analytics() {
                   }}
                 >
                   Save
-                </button>
-                <button className={styles.cancelBtn} onClick={() => setEditingWorkout(null)}>
+                </Button>
+                <Button unstyled className={styles.cancelBtn} onClick={() => setEditingWorkout(null)}>
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           </div>

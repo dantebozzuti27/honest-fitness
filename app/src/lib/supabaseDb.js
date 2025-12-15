@@ -1,9 +1,10 @@
 import { supabase } from './supabase'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
-import { logError, logDebug } from '../utils/logger'
+import { logError, logDebug, logWarn } from '../utils/logger'
 import { saveEnrichedData } from './dataEnrichment'
 import { trackEvent } from './eventTracking'
+import { enqueueOutboxItem } from './syncOutbox'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -81,6 +82,23 @@ export async function saveWorkoutToSupabase(workout, userId) {
   
   // Use cleaned workout from here on
   const workoutToSave = cleanedWorkout
+
+  // -------------------------
+  // Session type: 'workout' | 'recovery'
+  // - If caller provided a sessionType, use it.
+  // - Otherwise infer: recovery if ALL exercises are Recovery category.
+  // -------------------------
+  const inferSessionType = () => {
+    const exs = Array.isArray(workoutToSave.exercises) ? workoutToSave.exercises : []
+    if (exs.length === 0) return 'workout'
+    const nonRecovery = exs.some(e => (e?.category || '').toString().toLowerCase() !== 'recovery')
+    return nonRecovery ? 'workout' : 'recovery'
+  }
+  const sessionType = (workoutToSave.sessionType || workoutToSave.session_type || inferSessionType())
+    .toString()
+    .toLowerCase() === 'recovery'
+    ? 'recovery'
+    : 'workout'
   
   // Use upsert with conflict resolution to prevent race conditions
   // First, check for existing workouts to handle duplicates
@@ -151,9 +169,7 @@ export async function saveWorkoutToSupabase(workout, userId) {
     }
     
     // Update the workout
-    const { data: updatedWorkout, error: updateError } = await supabase
-      .from('workouts')
-      .update({
+    const updatePayload = {
         duration: workoutToSave.duration,
         template_name: workoutToSave.templateName || null,
         perceived_effort: workoutToSave.perceivedEffort || null,
@@ -163,18 +179,39 @@ export async function saveWorkoutToSupabase(workout, userId) {
         workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
         workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null,
         updated_at: new Date().toISOString()
-      })
-      .eq('id', existingId)
-      .select()
-      .single()
+    }
+
+    // Try to set session_type if column exists; if not, retry without it.
+    let updatedWorkout = null
+    let updateError = null
+    try {
+      const { data, error } = await supabase
+        .from('workouts')
+        .update({ ...updatePayload, session_type: sessionType })
+        .eq('id', existingId)
+        .select()
+        .single()
+      updatedWorkout = data
+      updateError = error
+      if (updateError && (updateError.code === '42703' || `${updateError.message || ''}`.toLowerCase().includes('session_type'))) {
+        const retry = await supabase
+          .from('workouts')
+          .update(updatePayload)
+          .eq('id', existingId)
+          .select()
+          .single()
+        updatedWorkout = retry.data
+        updateError = retry.error
+      }
+    } catch (e) {
+      updateError = e
+    }
 
     if (updateError) throw updateError
     workoutData = updatedWorkout
   } else {
     // No duplicate, insert new workout
-    const { data: newWorkout, error: workoutError } = await supabase
-      .from('workouts')
-      .insert({
+    const insertPayload = {
         user_id: userId,
         date: workoutToSave.date,
         duration: workoutToSave.duration,
@@ -185,9 +222,30 @@ export async function saveWorkoutToSupabase(workout, userId) {
         day_of_week: workoutToSave.dayOfWeek ?? null,
         workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
         workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null
-      })
-      .select()
-      .single()
+    }
+
+    let newWorkout = null
+    let workoutError = null
+    try {
+      const { data, error } = await supabase
+        .from('workouts')
+        .insert({ ...insertPayload, session_type: sessionType })
+        .select()
+        .single()
+      newWorkout = data
+      workoutError = error
+      if (workoutError && (workoutError.code === '42703' || `${workoutError.message || ''}`.toLowerCase().includes('session_type'))) {
+        const retry = await supabase
+          .from('workouts')
+          .insert(insertPayload)
+          .select()
+          .single()
+        newWorkout = retry.data
+        workoutError = retry.error
+      }
+    } catch (e) {
+      workoutError = e
+    }
 
     if (workoutError) throw workoutError
     workoutData = newWorkout
@@ -311,8 +369,10 @@ export async function saveWorkoutToSupabase(workout, userId) {
     const today = workout.date || getTodayEST()
     const minutes = Math.floor((workout.duration || 0) / 60)
     const seconds = (workout.duration || 0) % 60
-    const title = workout.templateName || 'Freestyle Workout'
+    const isRecoverySession = sessionType === 'recovery'
+    const title = isRecoverySession ? 'Recovery Session' : (workout.templateName || 'Freestyle Workout')
     const subtitle = `${minutes}:${String(seconds).padStart(2, '0')}`
+    const defaultVisibility = await getDefaultVisibilityPreference(userId).catch(() => 'public')
 
     const feedItem = {
       type: 'workout',
@@ -321,6 +381,7 @@ export async function saveWorkoutToSupabase(workout, userId) {
       subtitle,
       data: {
         ...workout,
+        sessionType,
         id: workoutData.id,
         date: workoutData.date,
         duration: workoutData.duration,
@@ -328,7 +389,7 @@ export async function saveWorkoutToSupabase(workout, userId) {
         exercises: workout.exercises
       },
       shared: true, // All workouts are automatically shared
-      visibility: 'public' // Default to public for all workouts
+      visibility: defaultVisibility // User default (public-by-default)
     }
 
     await saveFeedItemToSupabase(feedItem, userId)
@@ -865,7 +926,8 @@ export async function cleanupDuplicateWorkouts(userId) {
 // This function is ONLY called when the user manually logs health metrics or when Fitbit syncs real data.
 // NEVER call this function automatically or with dummy/test data.
 
-export async function saveMetricsToSupabase(userId, date, metrics) {
+export async function saveMetricsToSupabase(userId, date, metrics, options = {}) {
+  const allowOutbox = options?.allowOutbox !== false
   safeLogDebug('saveMetricsToSupabase called with:', { userId, date, metrics })
   
   // Data pipeline: Validate -> Clean -> Save -> Enrich
@@ -992,6 +1054,10 @@ export async function saveMetricsToSupabase(userId, date, metrics) {
     return data
   } catch (err) {
     logError('saveMetricsToSupabase: Error', err)
+    if (allowOutbox && userId) {
+      enqueueOutboxItem({ userId, kind: 'metrics', payload: { date, metrics } })
+      return { queued: true }
+    }
     throw err
   }
 }
@@ -1201,6 +1267,11 @@ export async function saveUserPreferences(userId, prefs) {
   if (prefs.onboarding_completed !== undefined) {
     upsertData.onboarding_completed = prefs.onboarding_completed || false
   }
+
+  // Only include default_visibility if provided (column may not exist yet)
+  if (prefs.defaultVisibility !== undefined) {
+    upsertData.default_visibility = prefs.defaultVisibility || 'public'
+  }
   
   const { data, error } = await supabase
     .from('user_preferences')
@@ -1208,10 +1279,15 @@ export async function saveUserPreferences(userId, prefs) {
     .select()
 
   // If error is about missing columns, try without them
-  if (error && (error.message?.includes('profile_picture') || error.message?.includes('username'))) {
+  if (error && (
+    error.message?.includes('profile_picture') ||
+    error.message?.includes('username') ||
+    error.message?.includes('default_visibility')
+  )) {
     // Remove the problematic fields and try again
     delete upsertData.username
     delete upsertData.profile_picture
+    delete upsertData.default_visibility
     
     const { data: retryData, error: retryError } = await supabase
       .from('user_preferences')
@@ -1221,12 +1297,61 @@ export async function saveUserPreferences(userId, prefs) {
     if (retryError) throw retryError
     
     // Warn user about missing columns
-    console.warn('Profile columns (username/profile_picture) not found. Please run the migration: app/supabase_migrations_user_profile.sql')
+    logWarn('Profile columns not found. Run migration: app/supabase_migrations_user_profile.sql')
     return retryData
   }
 
   if (error) throw error
   return data
+}
+
+// ============ PRIVACY / VISIBILITY PREFERENCES ============
+
+const normalizeVisibility = (v) => {
+  const s = (v || 'public').toString().toLowerCase()
+  if (s === 'friends') return 'friends'
+  if (s === 'private') return 'private'
+  return 'public'
+}
+
+/**
+ * Get default visibility for feed shares (public-by-default, user-controllable).
+ * Uses Supabase user_preferences.default_visibility when available, otherwise falls back to localStorage.
+ */
+export async function getDefaultVisibilityPreference(userId) {
+  if (!userId) return 'public'
+  try {
+    const prefs = await getUserPreferences(userId).catch(() => null)
+    if (prefs?.default_visibility) return normalizeVisibility(prefs.default_visibility)
+  } catch (e) {
+    // ignore
+  }
+  try {
+    const raw = localStorage.getItem(`defaultVisibility_${userId}`)
+    if (raw) return normalizeVisibility(raw)
+  } catch (e) {
+    // ignore
+  }
+  return 'public'
+}
+
+/**
+ * Set default visibility preference. Best-effort writes to Supabase; always writes to localStorage fallback.
+ */
+export async function setDefaultVisibilityPreference(userId, visibility) {
+  if (!userId) return
+  const v = normalizeVisibility(visibility)
+  try {
+    localStorage.setItem(`defaultVisibility_${userId}`, v)
+  } catch (e) {
+    // ignore
+  }
+  try {
+    const prefs = (await getUserPreferences(userId).catch(() => null)) || {}
+    await saveUserPreferences(userId, { ...prefs, defaultVisibility: v })
+  } catch (e) {
+    // If column/table missing, localStorage fallback is enough for now
+  }
 }
 
 // ============ WORKOUT PLAN GENERATOR ============
@@ -1383,7 +1508,8 @@ export async function getDetailedBodyPartStats(userId) {
 /**
  * Save a feed item to the database
  */
-export async function saveFeedItemToSupabase(feedItem, userId) {
+export async function saveFeedItemToSupabase(feedItem, userId, options = {}) {
+  const allowOutbox = options?.allowOutbox !== false
   try {
     const { data, error } = await supabase
       .from('feed_items')
@@ -1407,6 +1533,10 @@ export async function saveFeedItemToSupabase(feedItem, userId) {
     if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
       safeLogDebug('feed_items table does not exist yet - migration not run')
       return null
+    }
+    if (allowOutbox && userId) {
+      enqueueOutboxItem({ userId, kind: 'feed_item', payload: { feedItem } })
+      return { queued: true }
     }
     throw error
   }
@@ -1454,7 +1584,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
   try {
     // Get friend IDs efficiently (single query for both directions)
     let friendIds = []
-    if (filter === 'friends') {
+    if (filter === 'friends' || filter === 'all') {
       try {
         // Use optimized query that checks both user_id and friend_id in one go
         const { data: friends, error: friendError } = await supabase
@@ -1465,7 +1595,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
         
         if (friendError) {
           logError('Error loading friends for feed', friendError)
-          return []
+          friendIds = []
         }
         
         // Extract friend IDs (both directions)
@@ -1473,12 +1603,9 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
           f.user_id === userId ? f.friend_id : f.user_id
         ).filter(id => id !== userId)
         
-        if (friendIds.length === 0) {
-          return [] // No friends, return empty
-        }
       } catch (friendError) {
         logError('Error loading friends for feed', friendError)
-        return []
+        friendIds = []
       }
     }
 
@@ -1487,39 +1614,62 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
     let feedItemsError = null
     
     try {
-      let feedItemsQuery = supabase
-        .from('feed_items')
-        .select('*')
-        .eq('shared', true)
-        .order('created_at', { ascending: false })
-      
-      // Apply filter
-      if (filter === 'me') {
-        feedItemsQuery = feedItemsQuery.eq('user_id', userId)
-      } else if (filter === 'friends') {
-        if (friendIds.length > 0) {
-          feedItemsQuery = feedItemsQuery.in('user_id', friendIds)
-        } else {
-          // No friends, skip feed items query
-          feedItems = []
-        }
-      } else if (filter === 'all') {
-        // Show user's own items only for now (until RLS is fully configured)
-        feedItemsQuery = feedItemsQuery.eq('user_id', userId)
+      const base = () => {
+        let q = supabase
+          .from('feed_items')
+          .select('*')
+          .eq('shared', true)
+          .order('created_at', { ascending: false })
+        if (cursor) q = q.lt('created_at', cursor)
+        return q
       }
-      
-      // Only execute query if we have a valid query
-      if (filter !== 'friends' || friendIds.length > 0) {
-        // Add pagination cursor if provided
-        if (cursor) {
-          feedItemsQuery = feedItemsQuery.lt('created_at', cursor)
-        }
-        
-        feedItemsQuery = feedItemsQuery.limit(limit)
-        
-        const { data, error } = await feedItemsQuery
+
+      // Privacy-correct approach:
+      // - 'me': all my items (including private)
+      // - 'friends': friend items that are visibility public OR friends
+      // - 'all': public from anyone + my own (any visibility) + friends-only from friends
+      if (filter === 'me') {
+        const { data, error } = await base().eq('user_id', userId).limit(limit)
         feedItems = data || []
         feedItemsError = error
+      } else if (filter === 'friends') {
+        if (friendIds.length === 0) {
+          feedItems = []
+        } else {
+          const { data, error } = await base()
+            .in('user_id', friendIds)
+            .in('visibility', ['public', 'friends'])
+            .limit(limit)
+          feedItems = data || []
+          feedItemsError = error
+        }
+      } else if (filter === 'all') {
+        // Merge results from multiple queries (safer than complex OR syntax across PostgREST).
+        const perQueryLimit = Math.max(limit, Math.ceil(limit * 0.75))
+        const queries = []
+        queries.push(base().eq('visibility', 'public').limit(perQueryLimit))
+        queries.push(base().eq('user_id', userId).limit(perQueryLimit))
+        if (friendIds.length > 0) {
+          queries.push(base().in('user_id', friendIds).eq('visibility', 'friends').limit(perQueryLimit))
+        }
+
+        const results = await Promise.all(queries.map(async (q) => {
+          const { data, error } = await q
+          if (error) throw error
+          return data || []
+        }))
+
+        const merged = new Map()
+        results.flat().forEach(item => {
+          if (item?.id) merged.set(item.id, item)
+        })
+        feedItems = Array.from(merged.values())
+          .sort((a, b) => {
+            const aTime = a.created_at ? new Date(a.created_at).getTime() : 0
+            const bTime = b.created_at ? new Date(b.created_at).getTime() : 0
+            return bTime - aTime
+          })
+          .slice(0, limit)
       }
     } catch (err) {
       feedItemsError = err
@@ -1539,39 +1689,45 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
       }
     }
     
-    // Build workout query - fetch user profiles separately for compatibility
-    let workoutQuery = supabase
-      .from('workouts')
-      .select(`
-        *,
-        workout_exercises (
-          *,
-          workout_sets (*)
-        )
-      `)
-      .order('created_at', { ascending: false })
+    // If feed_items table exists, we should use it as the source of truth for the social feed
+    // (privacy/visibility lives there). Only fall back to workouts if feed_items table is missing.
+    let workouts = []
+    const feedItemsTableMissing = feedItemsError && (feedItemsError.code === 'PGRST205' || feedItemsError.message?.includes('Could not find the table'))
+    if (feedItemsTableMissing) {
+      try {
+        let workoutQuery = supabase
+          .from('workouts')
+          .select(`
+            *,
+            workout_exercises (
+              *,
+              workout_sets (*)
+            )
+          `)
+          .order('created_at', { ascending: false })
 
-    // Apply filter
-    if (filter === 'me') {
-      workoutQuery = workoutQuery.eq('user_id', userId)
-    } else if (filter === 'friends') {
-      workoutQuery = workoutQuery.in('user_id', friendIds)
-    } else if (filter === 'all') {
-      workoutQuery = workoutQuery.eq('user_id', userId) // For now, only own workouts
-    }
-    
-    // Add pagination cursor if provided
-    if (cursor) {
-      workoutQuery = workoutQuery.lt('created_at', cursor)
-    }
-    
-    workoutQuery = workoutQuery.limit(limit)
+        if (filter === 'me' || filter === 'all') {
+          workoutQuery = workoutQuery.eq('user_id', userId)
+        } else if (filter === 'friends') {
+          if (friendIds.length === 0) {
+            workouts = []
+          } else {
+            workoutQuery = workoutQuery.in('user_id', friendIds)
+          }
+        }
 
-    const { data: workouts, error: workoutError } = await workoutQuery
+        if (cursor) workoutQuery = workoutQuery.lt('created_at', cursor)
+        workoutQuery = workoutQuery.limit(limit)
 
-    if (workoutError) {
-      logError('Error loading workouts for feed', workoutError)
-      // Continue with feed items only
+        const { data: w, error: workoutError } = await workoutQuery
+        if (workoutError) {
+          logError('Error loading workouts for feed (fallback)', workoutError)
+        } else {
+          workouts = w || []
+        }
+      } catch (e) {
+        // ignore
+      }
     }
 
     // Get unique user IDs from workouts and feed items
@@ -1658,13 +1814,16 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
 
         const minutes = Math.floor((workout.duration || 0) / 60)
         const seconds = (workout.duration || 0) % 60
+        const sessionType = (workout.session_type || 'workout').toString().toLowerCase() === 'recovery'
+          ? 'recovery'
+          : 'workout'
 
         return {
           id: `workout_${workout.id}`,
           user_id: workout.user_id,
           type: 'workout',
           date: workout.date,
-          title: workout.template_name || 'Freestyle Workout',
+          title: sessionType === 'recovery' ? 'Recovery Session' : (workout.template_name || 'Freestyle Workout'),
           subtitle: `${minutes}:${String(seconds).padStart(2, '0')}`,
           data: {
             workout: {
@@ -1673,6 +1832,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
               duration: workout.duration || 0,
               exercises: exercises,
               templateName: workout.template_name || 'Freestyle Workout',
+              sessionType,
               perceivedEffort: workout.perceived_effort,
               moodAfter: workout.mood_after,
               notes: workout.notes
@@ -1685,7 +1845,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
         }
       })
 
-    // Combine feed items and workout items, then sort by created_at
+    // Combine feed items and workout items (fallback only), then sort by created_at
     const allFeedItems = [...transformedFeedItems, ...workoutFeedItems]
       .sort((a, b) => {
         const aTime = a.created_at ? new Date(a.created_at).getTime() : 0

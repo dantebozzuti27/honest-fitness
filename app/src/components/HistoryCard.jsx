@@ -69,7 +69,9 @@ export default function HistoryCard({
     const durationSeconds = duration % 60
     const durationFormatted = `${durationMinutes}:${String(durationSeconds).padStart(2, '0')}`
     const exerciseCount = data.workout_exercises?.length || 0
-    const templateName = data.template_name || 'Freestyle'
+    const sessionType = (data.session_type || data.sessionType || 'workout').toString().toLowerCase()
+    const isRecovery = sessionType === 'recovery'
+    const templateName = isRecovery ? 'Recovery Session' : (data.template_name || 'Freestyle')
     
     // Calculate total volume (handle both workout_sets and sets)
     const totalVolume = data.workout_exercises?.reduce((sum, ex) => {
@@ -94,6 +96,9 @@ export default function HistoryCard({
         <div className={styles.cardHeader}>
           <div className={styles.dateSection}>
             <span className={styles.dateLabel}>{formatDate(date)}</span>
+            {isRecovery && (
+              <span className={styles.sessionPill}>Recovery</span>
+            )}
             {durationTrend && (
               <span className={styles.trend} style={{ color: durationTrend.color }}>
                 {durationTrend.direction} {durationTrend.value}

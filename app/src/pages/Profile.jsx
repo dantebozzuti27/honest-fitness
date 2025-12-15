@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
 import { exportUserDataJSON, exportWorkoutsCSV, exportHealthMetricsCSV, downloadData } from '../lib/dataExport'
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
-import { getUserPreferences, saveUserPreferences, getUserEventStats } from '../lib/supabaseDb'
+import { getDefaultVisibilityPreference, setDefaultVisibilityPreference, getUserPreferences, saveUserPreferences, getUserEventStats } from '../lib/supabaseDb'
 import { getUserProfile, updateUserProfile, getOrCreateUserProfile, getFriends, getFriendCount, getPendingFriendRequests } from '../lib/friendsDb'
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
@@ -13,6 +13,13 @@ import InviteFriends from '../components/InviteFriends'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import EmptyState from '../components/EmptyState'
+import BackButton from '../components/BackButton'
+import Skeleton from '../components/Skeleton'
+import InputField from '../components/InputField'
+import TextAreaField from '../components/TextAreaField'
+import Button from '../components/Button'
+import { logError } from '../utils/logger'
 import styles from './Profile.module.css'
 
 export default function Profile() {
@@ -38,6 +45,7 @@ export default function Profile() {
   const [loadingSocial, setLoadingSocial] = useState(true)
   const [showInviteFriends, setShowInviteFriends] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [defaultVisibility, setDefaultVisibility] = useState('public')
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [disconnectConfirm, setDisconnectConfirm] = useState({ open: false, provider: null })
   const [finalDeleteConfirmOpen, setFinalDeleteConfirmOpen] = useState(false)
@@ -48,6 +56,13 @@ export default function Profile() {
       loadProfile()
       loadSocialData()
     }
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    getDefaultVisibilityPreference(user.id).then(v => {
+      setDefaultVisibility(v || 'public')
+    }).catch(() => {})
   }, [user])
 
   const loadProfile = async () => {
@@ -94,7 +109,7 @@ export default function Profile() {
           setProfilePictureUrl(base64String)
           setProfilePicture(base64String)
         } catch (error) {
-          console.error('Profile picture read error:', error)
+          logError('Profile picture read error', error)
           showToast('Failed to read image file. Please try again.', 'error')
         }
       }
@@ -103,7 +118,7 @@ export default function Profile() {
       }
       reader.readAsDataURL(file)
     } catch (error) {
-      console.error('Profile picture upload error:', error)
+      logError('Profile picture upload error', error)
       showToast(`Failed to upload profile picture: ${error.message || 'Please try again.'}`, 'error')
     }
   }
@@ -156,7 +171,7 @@ export default function Profile() {
       
       showToast('Profile updated successfully!', 'success')
     } catch (error) {
-      console.error('Profile save error:', error)
+      logError('Profile save error', error)
       showToast(`Failed to update profile: ${error.message || 'Please try again.'}`, 'error')
     } finally {
       setSaving(false)
@@ -240,7 +255,7 @@ export default function Profile() {
       }
       setShowExportMenu(false)
     } catch (err) {
-      console.error('Export error:', err)
+      logError('Export error', err)
       showToast('Failed to export data. Please try again.', 'error')
     }
     setExporting(false)
@@ -281,7 +296,7 @@ export default function Profile() {
       showToast('Your account and all data have been permanently deleted.', 'success', 6000)
       navigate('/auth')
     } catch (error) {
-      console.error('Account deletion error:', error)
+      logError('Account deletion error', error)
       showToast(`Failed to delete account: ${error.message || 'Please try again or contact support.'}`, 'error', 7000)
       setDeleting(false)
       setShowDeleteConfirm(false)
@@ -293,9 +308,7 @@ export default function Profile() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <BackButton fallbackPath="/" />
         <h1>Profile</h1>
         <HomeButton />
       </div>
@@ -393,8 +406,8 @@ export default function Profile() {
                     </div>
 
                     <div className={styles.formGroup}>
-                      <label className={styles.label}>Phone Number *</label>
-                      <input
+                      <InputField
+                        label="Phone Number"
                         type="tel"
                         value={phoneNumber}
                         onChange={(e) => setPhoneNumber(e.target.value)}
@@ -405,8 +418,8 @@ export default function Profile() {
                     </div>
 
                     <div className={styles.formGroup}>
-                      <label className={styles.label}>Display Name</label>
-                      <input
+                      <InputField
+                        label="Display Name"
                         type="text"
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
@@ -416,8 +429,8 @@ export default function Profile() {
                     </div>
 
                     <div className={styles.formGroup}>
-                      <label className={styles.label}>Bio</label>
-                      <textarea
+                      <TextAreaField
+                        label="Bio"
                         value={bio}
                         onChange={(e) => setBio(e.target.value)}
                         placeholder="Tell us about yourself..."
@@ -427,7 +440,8 @@ export default function Profile() {
                       />
                     </div>
 
-                    <button
+                    <Button
+                      unstyled
                       className={styles.saveBtn}
                       onClick={async () => {
                         await handleSaveProfile()
@@ -436,7 +450,7 @@ export default function Profile() {
                       disabled={saving}
                     >
                       {saving ? 'Saving...' : 'Save Changes'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -448,7 +462,12 @@ export default function Profile() {
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Social</h2>
           {loadingSocial ? (
-            <div className={styles.loading}>Loading...</div>
+            <div className={styles.loading} style={{ width: '100%' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <Skeleton style={{ width: '50%', height: 16 }} />
+                <Skeleton style={{ width: '100%', height: 120 }} />
+              </div>
+            </div>
           ) : (
             <>
               <div className={styles.socialStats}>
@@ -496,22 +515,20 @@ export default function Profile() {
               )}
               
               {friends.length === 0 && (
-                <div className={styles.emptyState}>
-                  <p className={styles.emptyText}>No friends yet</p>
-                  <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', justifyContent: 'center' }}>
-                    <button
-                      className={styles.actionBtn}
-                      onClick={() => setShowInviteFriends(true)}
-                    >
-                      Invite Friends
-                    </button>
-                    <button
-                      className={styles.actionBtn}
-                      onClick={() => navigate('/')}
-                    >
-                      Find Friends
-                    </button>
-                  </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <EmptyState
+                    title="No friends yet"
+                    message="Invite friends or search by username to start building your circle."
+                    actionLabel="Invite friends"
+                    onAction={() => setShowInviteFriends(true)}
+                  />
+                  <button
+                    className={styles.actionBtn}
+                    onClick={() => navigate('/', { state: { openAddFriend: true } })}
+                    style={{ marginTop: '-22px' }}
+                  >
+                    Find friends
+                  </button>
                 </div>
               )}
               
@@ -526,6 +543,43 @@ export default function Profile() {
               )}
             </>
           )}
+        </div>
+
+        {/* Privacy Section */}
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>Privacy</h2>
+          <div className={styles.privacyCard}>
+            <div className={styles.privacyRow}>
+              <div>
+                <div className={styles.privacyLabel}>Default visibility</div>
+                <div className={styles.privacySubtext}>
+                  New sessions you share to your feed will use this by default.
+                </div>
+              </div>
+              <div className={styles.visibilityToggle}>
+                {['public', 'friends', 'private'].map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={`${styles.visibilityBtn} ${defaultVisibility === v ? styles.visibilityActive : ''}`}
+                    onClick={async () => {
+                      setDefaultVisibility(v)
+                      if (user) {
+                        await setDefaultVisibilityPreference(user.id, v)
+                      }
+                      showToast('Default visibility updated', 'success')
+                    }}
+                  >
+                    {v === 'public' ? 'Public' : v === 'friends' ? 'Friends' : 'Private'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles.privacyNote}>
+              Public-by-default helps the social feed feel alive—but you’re always in control. You can override visibility each time you share.
+            </div>
+          </div>
         </div>
 
         {/* User Activity Stats */}
@@ -586,7 +640,7 @@ export default function Profile() {
                   className={styles.exportOption}
                   onClick={() => handleExport('json')}
                 >
-                  <span className={styles.exportIcon}>📦</span>
+                  <span className={styles.exportIcon} aria-hidden="true">JSON</span>
                   <div>
                     <div className={styles.exportTitle}>All Data (JSON)</div>
                     <div className={styles.exportDesc}>Complete backup of all your data</div>
@@ -596,7 +650,7 @@ export default function Profile() {
                   className={styles.exportOption}
                   onClick={() => handleExport('workouts-csv')}
                 >
-                  <span className={styles.exportIcon}>💪</span>
+                  <span className={styles.exportIcon} aria-hidden="true">CSV</span>
                   <div>
                     <div className={styles.exportTitle}>Workouts (CSV)</div>
                     <div className={styles.exportDesc}>Workout history in spreadsheet format</div>
@@ -606,7 +660,7 @@ export default function Profile() {
                   className={styles.exportOption}
                   onClick={() => handleExport('metrics-csv')}
                 >
-                  <span className={styles.exportIcon}>📊</span>
+                  <span className={styles.exportIcon} aria-hidden="true">CSV</span>
                   <div>
                     <div className={styles.exportTitle}>Health Metrics (CSV)</div>
                     <div className={styles.exportDesc}>Sleep, HRV, steps, weight, etc.</div>
@@ -616,7 +670,7 @@ export default function Profile() {
                   className={styles.exportOption}
                   onClick={() => handleExport('excel')}
                 >
-                  <span className={styles.exportIcon}>📧</span>
+                  <span className={styles.exportIcon} aria-hidden="true">XLSX</span>
                   <div>
                     <div className={styles.exportTitle}>Excel (Legacy)</div>
                     <div className={styles.exportDesc}>Opens email with Excel attachment</div>
@@ -633,17 +687,19 @@ export default function Profile() {
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Connected Accounts</h2>
           {loading ? (
-            <div className={styles.loading}>Loading...</div>
-          ) : connectedAccounts.length === 0 ? (
-            <div className={styles.emptyState}>
-              <p className={styles.emptyText}>No accounts connected</p>
-              <button
-                className={styles.actionBtn}
-                onClick={() => navigate('/wearables')}
-              >
-                Connect Account
-              </button>
+            <div className={styles.loading} style={{ width: '100%' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <Skeleton style={{ width: '45%', height: 16 }} />
+                <Skeleton style={{ width: '100%', height: 120 }} />
+              </div>
             </div>
+          ) : connectedAccounts.length === 0 ? (
+            <EmptyState
+              title="No accounts connected"
+              message="Connect Fitbit or Oura to populate readiness and daily metrics."
+              actionLabel="Connect account"
+              onAction={() => navigate('/wearables')}
+            />
           ) : (
             <div className={styles.accountsList}>
               {connectedAccounts.map(account => (

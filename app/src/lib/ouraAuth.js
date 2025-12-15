@@ -3,6 +3,7 @@
  */
 
 import { getConnectedAccount } from './wearables'
+import { logDebug } from '../utils/logger'
 
 // Get Oura config from environment
 const OURA_CLIENT_ID = import.meta.env.VITE_OURA_CLIENT_ID || ''
@@ -11,8 +12,8 @@ const OURA_REDIRECT_URI = import.meta.env.VITE_OURA_REDIRECT_URI ||
 
 // Debug logging (only in development)
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
-  console.log('[Oura Auth] Client ID:', OURA_CLIENT_ID ? 'SET' : 'NOT SET')
-  console.log('[Oura Auth] Redirect URI:', OURA_REDIRECT_URI)
+  logDebug('[Oura Auth] Client ID configured', { configured: Boolean(OURA_CLIENT_ID) })
+  logDebug('[Oura Auth] Redirect URI', { redirectUri: OURA_REDIRECT_URI })
 }
 
 /**
@@ -43,30 +44,24 @@ export function getOuraAuthUrl(userId) {
  */
 export function connectOura(userId) {
   if (import.meta.env.DEV) {
-    console.log('connectOura called with userId:', userId)
-    console.log('OURA_CLIENT_ID:', OURA_CLIENT_ID ? 'SET' : 'NOT SET')
-    console.log('OURA_REDIRECT_URI:', OURA_REDIRECT_URI)
+    logDebug('connectOura called', { hasUserId: Boolean(userId), clientConfigured: Boolean(OURA_CLIENT_ID) })
+    logDebug('OURA_REDIRECT_URI', { redirectUri: OURA_REDIRECT_URI })
   }
   
   if (!OURA_CLIENT_ID) {
     const error = 'Oura Client ID not configured. Set VITE_OURA_CLIENT_ID in environment variables.'
-    if (import.meta.env.DEV) console.error(error)
+    if (import.meta.env.DEV) logDebug('Oura config error', { message: error })
     throw new Error(error)
   }
   
   if (!userId) {
     const error = 'User ID is required to connect Oura'
-    if (import.meta.env.DEV) console.error(error)
+    if (import.meta.env.DEV) logDebug('Oura connect error', { message: error })
     throw new Error(error)
   }
   
   const authUrl = getOuraAuthUrl(userId)
-  if (import.meta.env.DEV) {
-    // Debug logging only in development
-    if (import.meta.env.DEV) {
-      console.log('Redirecting to Oura OAuth:', authUrl)
-    }
-  }
+  if (import.meta.env.DEV) logDebug('Redirecting to Oura OAuth', { authUrl })
   
   // Use window.location.assign for better error handling
   window.location.assign(authUrl)

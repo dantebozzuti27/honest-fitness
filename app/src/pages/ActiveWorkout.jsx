@@ -16,6 +16,10 @@ import { logError } from '../utils/logger'
 import { getAutoAdjustmentFactor, applyAutoAdjustment, getWorkoutRecommendation } from '../lib/autoAdjust'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
+import Button from '../components/Button'
+import TextAreaField from '../components/TextAreaField'
+import { enqueueOutboxItem } from '../lib/syncOutbox'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import ShareModal from '../components/ShareModal'
@@ -31,6 +35,9 @@ export default function ActiveWorkout() {
   const templateId = location.state?.templateId
   const randomWorkout = location.state?.randomWorkout
   const aiWorkout = location.state?.aiWorkout
+  const initialSessionType = location.state?.sessionType
+  const openPickerOnLoad = location.state?.openPicker === true
+  const quickAddExerciseName = location.state?.quickAddExerciseName
   
   const [exercises, setExercises] = useState([])
   const [allExercises, setAllExercises] = useState([])
@@ -45,6 +52,42 @@ export default function ActiveWorkout() {
   const [adjustmentInfo, setAdjustmentInfo] = useState(null)
   const [showShareModal, setShowShareModal] = useState(false)
   const [savedWorkout, setSavedWorkout] = useState(null)
+  const confirmResolverRef = useRef(null)
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: 'Confirm',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    isDestructive: false
+  })
+
+  const confirmAsync = ({ title, message, confirmText = 'Confirm', cancelText = 'Cancel', isDestructive = false }) => {
+    return new Promise((resolve) => {
+      confirmResolverRef.current = resolve
+      setConfirmDialog({
+        open: true,
+        title,
+        message,
+        confirmText,
+        cancelText,
+        isDestructive
+      })
+    })
+  }
+
+  const resolveConfirm = (result) => {
+    setConfirmDialog(prev => ({ ...prev, open: false }))
+    const resolve = confirmResolverRef.current
+    confirmResolverRef.current = null
+    if (resolve) resolve(result)
+  }
+  const [sessionType, setSessionType] = useState(
+    (initialSessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout'
+  ) // 'workout' | 'recovery'
+  const [sessionTypeMode, setSessionTypeMode] = useState(
+    initialSessionType ? 'manual' : 'auto'
+  ) // 'auto' | 'manual'
   const [isPaused, setIsPaused] = useState(false)
   const [pausedTime, setPausedTime] = useState(0) // Accumulated paused time
   const [isSaving, setIsSaving] = useState(false)
@@ -61,6 +104,58 @@ export default function ActiveWorkout() {
   const lastSavedExercisesRef = useRef(null) // Track last saved exercises to avoid unnecessary saves
   const workoutStartMetricsRef = useRef(null) // Track wearable metrics at workout start (calories, steps)
   const pausedMetricsRef = useRef([]) // Track metrics during paused periods: [{pauseTime, resumeTime, metricsAtPause, metricsAtResume}]
+  const didQuickAddRef = useRef(false)
+
+  const inferSessionTypeFromExercises = (exs) => {
+    const list = Array.isArray(exs) ? exs : []
+    if (list.length === 0) return 'workout'
+    const nonRecovery = list.some(e => (e?.category || '').toString().toLowerCase() !== 'recovery')
+    return nonRecovery ? 'workout' : 'recovery'
+  }
+
+  // Auto-detect session type unless user explicitly sets it
+  useEffect(() => {
+    if (sessionTypeMode !== 'auto') return
+    setSessionType(inferSessionTypeFromExercises(exercises))
+  }, [exercises, sessionTypeMode])
+
+  // One-tap recovery logging: if user explicitly started a Recovery session, open the picker immediately.
+  useEffect(() => {
+    if (initialSessionType !== 'recovery') return
+    if (exercises.length > 0) return
+    if (templateId || randomWorkout || aiWorkout) return
+    const t = setTimeout(() => setShowPicker(true), 200)
+    return () => clearTimeout(t)
+  }, [initialSessionType, exercises.length, templateId, randomWorkout, aiWorkout])
+
+  // Command palette / shortcuts: open exercise picker immediately
+  useEffect(() => {
+    if (!openPickerOnLoad) return
+    const t = setTimeout(() => setShowPicker(true), 0)
+    return () => clearTimeout(t)
+  }, [openPickerOnLoad])
+
+  // Command palette: quick-add an exercise by name (one-enter logging)
+  useEffect(() => {
+    if (!quickAddExerciseName) return
+    if (didQuickAddRef.current) return
+    if (!Array.isArray(allExercises) || allExercises.length === 0) return
+
+    const match = allExercises.find(e => (e?.name || '').toString().toLowerCase() === quickAddExerciseName.toString().toLowerCase())
+    if (match) {
+      if ((match.category || '').toString().toLowerCase() === 'recovery') {
+        setSessionType('recovery')
+        setSessionTypeMode('manual')
+      }
+      addExercise(match)
+      didQuickAddRef.current = true
+      return
+    }
+
+    // If not found, still allow adding a custom entry (keeps flow unblocked)
+    addExercise({ name: quickAddExerciseName, category: 'Strength', bodyPart: 'Other', equipment: '' })
+    didQuickAddRef.current = true
+  }, [quickAddExerciseName, allExercises])
 
   // Auto-save exercises periodically during workout
   useEffect(() => {
@@ -92,6 +187,8 @@ export default function ActiveWorkout() {
               workoutTime,
               restTime,
               isResting,
+              sessionType,
+              sessionTypeMode,
               templateId,
               date: getTodayEST(),
               timestamp: Date.now()
@@ -117,6 +214,8 @@ export default function ActiveWorkout() {
               workoutTime,
               restTime,
               isResting,
+              sessionType,
+              sessionTypeMode,
               templateId,
               date: getTodayEST(),
               timestamp: Date.now()
@@ -164,6 +263,8 @@ export default function ActiveWorkout() {
           workoutTime,
           restTime,
           isResting,
+          sessionType,
+          sessionTypeMode,
           templateId,
           date: getTodayEST(),
           timestamp: Date.now()
@@ -188,6 +289,8 @@ export default function ActiveWorkout() {
             workoutTime,
             restTime,
             isResting,
+            sessionType,
+            sessionTypeMode,
             templateId,
             date: getTodayEST(),
             timestamp: Date.now()
@@ -247,7 +350,13 @@ export default function ActiveWorkout() {
             if (!mounted) return
             if (paused) {
               // If user clicked "Resume" from Fitness page, automatically resume
-              const shouldResume = location.state?.resumePaused || window.confirm('You have a paused workout. Would you like to resume it?')
+              const shouldResume = location.state?.resumePaused || await confirmAsync({
+                title: 'Resume workout?',
+                message: 'You have a paused workout. Would you like to resume it?',
+                confirmText: 'Resume',
+                cancelText: 'Discard',
+                isDestructive: true
+              })
               if (shouldResume) {
                 setExercises(Array.isArray(paused.exercises) ? paused.exercises : [])
                 setWorkoutTime(paused.workout_time || 0)
@@ -415,11 +524,14 @@ export default function ActiveWorkout() {
           
           // If session has exercises and is not recent, ask user if they want to resume
           if (session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0 && !isRecent) {
-            const shouldResume = window.confirm(
-              `You have an old workout in progress from ${new Date(session.workout_start_time).toLocaleString()}.\n\n` +
-              `Would you like to resume it, or start a fresh workout?\n\n` +
-              `Click OK to resume, or Cancel to start fresh.`
-            )
+            const startTimeLabel = new Date(session.workout_start_time).toLocaleString()
+            const shouldResume = await confirmAsync({
+              title: 'Resume workout?',
+              message: `You have an older workout in progress from ${startTimeLabel}. Resume it or start fresh?`,
+              confirmText: 'Resume',
+              cancelText: 'Start fresh',
+              isDestructive: true
+            })
             
             if (!shouldResume) {
               // User wants to start fresh - delete the old session
@@ -523,11 +635,13 @@ export default function ActiveWorkout() {
                   // If not recent, ask user if they want to resume
                   if (!isRecent) {
                     const workoutDate = new Date(workoutData.timestamp).toLocaleString()
-                    const shouldResume = window.confirm(
-                      `You have an old workout saved from ${workoutDate}.\n\n` +
-                      `Would you like to resume it, or start a fresh workout?\n\n` +
-                      `Click OK to resume, or Cancel to start fresh and delete the old workout.`
-                    )
+                    const shouldResume = await confirmAsync({
+                      title: 'Resume workout?',
+                      message: `You have an older workout saved from ${workoutDate}. Resume it or start fresh and delete it?`,
+                      confirmText: 'Resume',
+                      cancelText: 'Start fresh',
+                      isDestructive: true
+                    })
                     
                     if (!shouldResume) {
                       // User wants to start fresh - delete the old workout
@@ -565,6 +679,12 @@ export default function ActiveWorkout() {
                     if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
                     if (workoutData.restTime) setRestTime(workoutData.restTime)
                     if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                    if (workoutData.sessionType) {
+                      setSessionType((workoutData.sessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout')
+                      if (workoutData.sessionTypeMode) {
+                        setSessionTypeMode(workoutData.sessionTypeMode === 'manual' ? 'manual' : 'auto')
+                      }
+                    }
                     
                     showToast('Workout progress recovered from backup', 'info')
                     }
@@ -595,6 +715,12 @@ export default function ActiveWorkout() {
                     if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
                     if (workoutData.restTime) setRestTime(workoutData.restTime)
                     if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                    if (workoutData.sessionType) {
+                      setSessionType((workoutData.sessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout')
+                      if (workoutData.sessionTypeMode) {
+                        setSessionTypeMode(workoutData.sessionTypeMode === 'manual' ? 'manual' : 'auto')
+                      }
+                    }
                     
                     showToast('Workout progress recovered from backup', 'info')
                   }
@@ -653,11 +779,13 @@ export default function ActiveWorkout() {
                 // If not recent, ask user if they want to resume
                 if (!isRecent) {
                   const workoutDate = new Date(workoutData.timestamp).toLocaleString()
-                  const shouldResume = window.confirm(
-                    `You have an old workout saved from ${workoutDate}.\n\n` +
-                    `Would you like to resume it, or start a fresh workout?\n\n` +
-                    `Click OK to resume, or Cancel to start fresh and delete the old workout.`
-                  )
+                  const shouldResume = await confirmAsync({
+                    title: 'Resume workout?',
+                    message: `You have an older workout saved from ${workoutDate}. Resume it or start fresh and delete it?`,
+                    confirmText: 'Resume',
+                    cancelText: 'Start fresh',
+                    isDestructive: true
+                  })
                   
                   if (!shouldResume) {
                     // User wants to start fresh - delete the old workout
@@ -686,6 +814,12 @@ export default function ActiveWorkout() {
                     if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
                     if (workoutData.restTime) setRestTime(workoutData.restTime)
                     if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                    if (workoutData.sessionType) {
+                      setSessionType((workoutData.sessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout')
+                      if (workoutData.sessionTypeMode) {
+                        setSessionTypeMode(workoutData.sessionTypeMode === 'manual' ? 'manual' : 'auto')
+                      }
+                    }
                     showToast('Workout progress recovered from backup', 'info')
                     return // Don't initialize new timer if we recovered
                   }
@@ -1089,6 +1223,11 @@ export default function ActiveWorkout() {
     setShowPicker(false)
   }
 
+  const quickAddRecovery = (name) => {
+    const match = allExercises.find(e => (e?.name || '').toString().toLowerCase() === name.toLowerCase())
+    addExercise(match || { name, category: 'Recovery', bodyPart: 'Recovery', equipment: '' })
+  }
+
   const removeExercise = (id) => {
     setExercises(prev => prev.filter(ex => ex.id !== id))
   }
@@ -1399,7 +1538,8 @@ export default function ActiveWorkout() {
     const workout = {
       date: getTodayEST(),
       duration: workoutTime,
-      templateName: templateId || 'Freestyle',
+      templateName: sessionType === 'recovery' ? 'Recovery Session' : (templateId || 'Freestyle'),
+      sessionType: sessionType,
       perceivedEffort: feedback.rpe,
       moodAfter: feedback.moodAfter,
       notes: feedback.notes,
@@ -1444,7 +1584,7 @@ export default function ActiveWorkout() {
           try {
             await saveWorkoutToSupabase(workout, user.id)
             saved = true
-            showToast('Workout saved successfully!', 'success')
+            showToast(sessionType === 'recovery' ? 'Recovery session saved successfully!' : 'Workout saved successfully!', 'success')
             
             // Trigger history refresh event for Fitness page
             window.dispatchEvent(new CustomEvent('workoutSaved', { detail: { workout } }))
@@ -1457,17 +1597,13 @@ export default function ActiveWorkout() {
             } else {
               // All retries failed
               showToast('Workout saved locally. Syncing to cloud failed - will retry later.', 'warning')
-              // Store in localStorage for manual recovery
-              try {
-                localStorage.setItem(`failedWorkout_${user.id}_${Date.now()}`, JSON.stringify(workout))
-              } catch (e) {
-                logError('Error storing failed workout in localStorage', e)
-              }
+              // Persist for eventual sync
+              enqueueOutboxItem({ userId: user.id, kind: 'workout', payload: { workout } })
             }
           }
         }
       } else {
-        showToast('Workout saved locally!', 'success')
+        showToast(sessionType === 'recovery' ? 'Recovery session saved locally!' : 'Workout saved locally!', 'success')
       }
       
       // Automatically share workout to feed
@@ -1681,7 +1817,14 @@ export default function ActiveWorkout() {
             <button 
               className={styles.clearBtn}
               onClick={async () => {
-                if (window.confirm('Clear all exercises and start fresh? This will delete your current workout progress.')) {
+                const ok = await confirmAsync({
+                  title: 'Clear workout?',
+                  message: 'Clear all exercises and start fresh? This will delete your current workout progress.',
+                  confirmText: 'Clear',
+                  cancelText: 'Cancel',
+                  isDestructive: true
+                })
+                if (ok) {
                   setExercises([])
                   workoutStartTimeRef.current = Date.now()
                   setWorkoutTime(0)
@@ -1721,7 +1864,13 @@ export default function ActiveWorkout() {
             )
             
             if (hasProgress) {
-              const confirmCancel = window.confirm('You have workout progress. Are you sure you want to cancel? Your progress will be saved for recovery.')
+              const confirmCancel = await confirmAsync({
+                title: 'Cancel session?',
+                message: 'You have workout progress. Cancel the session? Your progress will be saved for recovery.',
+                confirmText: 'Cancel session',
+                cancelText: 'Keep going',
+                isDestructive: false
+              })
               if (!confirmCancel) return
             }
             
@@ -1742,6 +1891,8 @@ export default function ActiveWorkout() {
                   workoutTime,
                   restTime,
                   isResting,
+                  sessionType,
+                  sessionTypeMode,
                   templateId,
                   date: getTodayEST(),
                   timestamp: Date.now()
@@ -1782,7 +1933,8 @@ export default function ActiveWorkout() {
           </button>
           <div className={styles.workoutTimer}>{formatTime(workoutTime)}</div>
           <div className={styles.headerRight}>
-            <button 
+            <Button
+              unstyled
               className={`${styles.pauseBtn} ${isPaused ? styles.paused : ''}`}
               onClick={() => {
                 if (isPaused) {
@@ -1798,9 +1950,10 @@ export default function ActiveWorkout() {
               title={isPaused ? 'Resume Workout' : 'Pause Workout'}
             >
               {isPaused ? '▶ Resume' : '⏸ Pause'}
-            </button>
-            <button 
-              className={styles.finishBtn} 
+            </Button>
+            <Button
+              unstyled
+              className={styles.finishBtn}
               onClick={() => {
                 if (handleFinishClick && typeof handleFinishClick === 'function') {
                   handleFinishClick()
@@ -1808,6 +1961,37 @@ export default function ActiveWorkout() {
               }}
             >
               Finish
+            </Button>
+          </div>
+        </div>
+
+        <div className={styles.sessionTypeRow}>
+          <div className={styles.sessionTypeLabel}>
+            {sessionType === 'recovery' ? 'Recovery Session' : 'Workout'}
+            {sessionTypeMode === 'auto' && (
+              <span className={styles.sessionTypeAuto}>Auto</span>
+            )}
+          </div>
+          <div className={styles.sessionTypeToggle}>
+            <button
+              type="button"
+              className={`${styles.sessionTypeBtn} ${sessionType === 'workout' ? styles.sessionTypeActive : ''}`}
+              onClick={() => {
+                setSessionType('workout')
+                setSessionTypeMode('manual')
+              }}
+            >
+              Workout
+            </button>
+            <button
+              type="button"
+              className={`${styles.sessionTypeBtn} ${sessionType === 'recovery' ? styles.sessionTypeActive : ''}`}
+              onClick={() => {
+                setSessionType('recovery')
+                setSessionTypeMode('manual')
+              }}
+            >
+              Recovery
             </button>
           </div>
         </div>
@@ -1894,9 +2078,18 @@ export default function ActiveWorkout() {
             />
           )
         })}
-        
+
+        {exercises.length === 0 && sessionType === 'recovery' && (
+          <div className={styles.quickAddRow}>
+            <button className={styles.quickAddChip} onClick={() => quickAddRecovery('Sauna')}>Sauna</button>
+            <button className={styles.quickAddChip} onClick={() => quickAddRecovery('Cold Plunge')}>Cold Plunge</button>
+            <button className={styles.quickAddChip} onClick={() => quickAddRecovery('Breathwork')}>Breathwork</button>
+            <button className={styles.quickAddChip} onClick={() => quickAddRecovery('Stretching (Full Body)')}>Stretch</button>
+          </div>
+        )}
+
         <button className={styles.addExerciseBtn} onClick={() => setShowPicker(true)}>
-          + Add Exercise
+          {sessionType === 'recovery' ? '+ Add Recovery' : '+ Add Exercise'}
         </button>
       </div>
 
@@ -1971,18 +2164,19 @@ export default function ActiveWorkout() {
             </div>
 
             <div className={styles.feedbackSection}>
-              <label>Notes (optional)</label>
-              <textarea
+              <TextAreaField
+                label="Notes (optional)"
                 className={styles.notesInput}
                 placeholder="How did it go? Any PRs?"
                 value={feedback.notes}
                 onChange={(e) => setFeedback(f => ({ ...f, notes: e.target.value }))}
+                rows={3}
               />
             </div>
 
-            <button className={styles.saveBtn} onClick={finishWorkout}>
+            <Button unstyled className={styles.saveBtn} onClick={finishWorkout}>
               Save Workout
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -2017,6 +2211,17 @@ export default function ActiveWorkout() {
           onClose={hideToast}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+        cancelText={confirmDialog.cancelText}
+        isDestructive={confirmDialog.isDestructive}
+        onClose={() => resolveConfirm(false)}
+        onConfirm={() => resolveConfirm(true)}
+      />
     </div>
   )
 }

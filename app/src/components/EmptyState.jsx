@@ -4,9 +4,10 @@
  */
 
 import styles from './EmptyState.module.css'
+import Button from './Button'
 
 export default function EmptyState({ 
-  icon = '📊',
+  icon = null,
   title,
   message,
   actionLabel,
@@ -17,14 +18,14 @@ export default function EmptyState({
     <div className={styles.emptyState}>
       {illustration ? (
         <div className={styles.illustration}>{illustration}</div>
-      ) : (
+      ) : icon ? (
         <div className={styles.icon}>{icon}</div>
-      )}
+      ) : null}
       {title && <h3 className={styles.title}>{title}</h3>}
       {message && <p className={styles.message}>{message}</p>}
       {actionLabel && onAction && typeof onAction === 'function' && (
-        <button 
-          className={styles.actionBtn} 
+        <Button
+          variant="primary"
           onClick={() => {
             if (onAction && typeof onAction === 'function') {
               onAction()
@@ -32,7 +33,7 @@ export default function EmptyState({
           }}
         >
           {actionLabel}
-        </button>
+        </Button>
       )}
     </div>
   )

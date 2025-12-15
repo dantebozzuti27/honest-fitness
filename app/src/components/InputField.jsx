@@ -14,13 +14,15 @@ export default function InputField({
   disabled = false,
   id,
   name,
+  containerClassName = '',
+  className = '',
   ...props
 }) {
   const [focused, setFocused] = useState(false)
   const inputId = id || name || `input-${label?.toLowerCase().replace(/\s+/g, '-')}`
 
   return (
-    <div className={styles.inputField}>
+    <div className={`${styles.inputField} ${containerClassName}`}>
       {label && (
         <label htmlFor={inputId} className={styles.label}>
           {label}
@@ -41,7 +43,7 @@ export default function InputField({
         placeholder={placeholder}
         disabled={disabled}
         required={required}
-        className={`${styles.input} ${error ? styles.error : ''} ${success ? styles.success : ''} ${focused ? styles.focused : ''}`}
+        className={`${styles.input} ${error ? styles.error : ''} ${success ? styles.success : ''} ${focused ? styles.focused : ''} ${className}`}
         aria-invalid={!!error}
         aria-describedby={error ? `${inputId}-error` : undefined}
         {...props}

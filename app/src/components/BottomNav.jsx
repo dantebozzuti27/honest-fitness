@@ -1,91 +1,64 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { createPortal } from 'react-dom'
-import { FitnessIcon, NutritionIcon, HealthIcon, AnalyticsIcon } from './Icons'
+import { HomeIcon, AnalyticsIcon, ProfileIcon } from './Icons'
+import { useAuth } from '../context/AuthContext'
+import { getOutboxPendingCount } from '../lib/syncOutbox'
 import styles from './BottomNav.module.css'
 
 export default function BottomNav() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [showQuickLog, setShowQuickLog] = useState(false)
+  const { user } = useAuth()
+  const [pendingSyncCount, setPendingSyncCount] = useState(0)
+
+  useEffect(() => {
+    if (!user) return
+    const refresh = () => setPendingSyncCount(getOutboxPendingCount())
+    refresh()
+    window.addEventListener('outboxUpdated', refresh)
+    window.addEventListener('online', refresh)
+    return () => {
+      window.removeEventListener('outboxUpdated', refresh)
+      window.removeEventListener('online', refresh)
+    }
+  }, [user])
 
   const navItems = [
     { 
-      id: 'fitness', 
-      label: 'Fitness', 
-      path: '/fitness', 
-      icon: <FitnessIcon />
+      id: 'today', 
+      label: 'Today', 
+      path: '/', 
+      icon: <HomeIcon />
     },
     { 
-      id: 'nutrition', 
-      label: 'Nutrition', 
-      path: '/nutrition', 
-      icon: <NutritionIcon />
-    },
-    { 
-      id: 'plus', 
-      label: 'Quick Log', 
-      path: null, 
-      isPlus: true,
+      id: 'log',
+      label: 'Log',
+      path: '/log',
       icon: '+'
     },
     { 
-      id: 'health', 
-      label: 'Health', 
-      path: '/health', 
-      icon: <HealthIcon />
-    },
-    { 
-      id: 'analytics', 
-      label: 'Analytics', 
-      path: '/analytics', 
+      id: 'progress',
+      label: 'Progress',
+      path: '/progress',
       icon: <AnalyticsIcon />
-    }
-  ]
-
-  const quickLogOptions = [
-    { 
-      label: 'Start workout', 
-      action: 'workout',
-      description: 'Start a new workout'
     },
-    { 
-      label: 'Log meal', 
-      action: 'meal',
-      description: 'Add a meal to nutrition'
-    },
-    { 
-      label: 'Log metrics', 
-      action: 'health',
-      description: 'Log weight, sleep, etc.'
+    {
+      id: 'profile',
+      label: 'Profile',
+      path: '/profile',
+      icon: <ProfileIcon />
     }
   ]
 
   const handleNavClick = (item) => {
-    if (item.isPlus) {
-      setShowQuickLog(true)
-    } else if (item.path) {
+    if (item.path) {
       navigate(item.path)
-    }
-  }
-
-  const handleQuickLog = async (option) => {
-    setShowQuickLog(false)
-    
-    if (option.action === 'workout') {
-      // Navigate to fitness page and trigger workout modal
-      navigate('/fitness', { state: { openWorkoutModal: true } })
-    } else if (option.action === 'meal') {
-      // Navigate to nutrition page and trigger meal modal
-      navigate('/nutrition', { state: { openMealModal: true } })
-    } else if (option.action === 'health') {
-      // Navigate to health page and trigger log modal
-      navigate('/health', { state: { openLogModal: true } })
     }
   }
 
   const isActive = (path) => {
     if (!path) return false
+    if (path === '/') return location.pathname === '/'
     return location.pathname.startsWith(path)
   }
 
@@ -95,12 +68,18 @@ export default function BottomNav() {
         {navItems.map((item) => (
           <button
             key={item.id}
-            className={`${styles.navButton} ${isActive(item.path) ? styles.active : ''} ${item.isPlus ? styles.plusButton : ''}`}
+            className={`${styles.navButton} ${isActive(item.path) ? styles.active : ''}`}
             onClick={() => handleNavClick(item)}
             aria-label={item.label}
           >
-            {item.isPlus ? (
-              <span className={styles.plusIcon}>{item.icon}</span>
+            {item.id === 'log' ? (
+              <>
+                <span className={styles.plusIcon}>{item.icon}</span>
+                <span className={styles.navLabel}>{item.label}</span>
+                {pendingSyncCount > 0 && (
+                  <span className={styles.badge} aria-label={`${pendingSyncCount} items pending sync`} />
+                )}
+              </>
             ) : (
               <>
                 <span className={styles.navIcon}>{item.icon}</span>
@@ -110,27 +89,6 @@ export default function BottomNav() {
           </button>
         ))}
       </nav>
-
-      {/* Quick Log Menu */}
-      {showQuickLog && createPortal(
-        <>
-          <div className={styles.quickLogOverlay} onClick={() => setShowQuickLog(false)} />
-          <div className={styles.quickLogMenu}>
-            <div className={styles.quickLogOptions}>
-              {quickLogOptions.map((option) => (
-                <button
-                  key={option.action}
-                  className={styles.quickLogOption}
-                  onClick={() => handleQuickLog(option)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </>,
-        document.body
-      )}
     </>
   )
 }

@@ -441,6 +441,62 @@
   gap: var(--space-md);
 }
 
+.privacyCard {
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-card-shadow);
+  padding: var(--space-md);
+}
+
+.privacyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.privacyLabel {
+  font-size: var(--text-base);
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.privacySubtext {
+  margin-top: 4px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.privacyNote {
+  margin-top: 12px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--line-height-normal);
+}
+
+.visibilityToggle {
+  display: flex;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.visibilityBtn {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.visibilityActive {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text-primary);
+}
+
 .sectionTitle {
   font-size: 18px;
   font-weight: 600;
@@ -972,6 +1028,20 @@
   
   .sectionTitle {
     font-size: 14px;
+  }
+}
+
+@media (max-width: var(--breakpoint-sm)) {
+  .privacyRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .visibilityToggle {
+    width: 100%;
+    justify-content: center;
+  }
+  .visibilityBtn {
+    flex: 1;
   }
 }
 

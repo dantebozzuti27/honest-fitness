@@ -106,6 +106,8 @@ export async function shareNative(title, text, url, imageUrl = null) {
   }
 }
 
+import { logError, logWarn } from './logger'
+
 /**
  * Copy image to clipboard (works on Apple devices)
  */
@@ -123,7 +125,7 @@ export async function copyImageToClipboard(dataUrl) {
     await navigator.clipboard.write([clipboardItem])
     return true
   } catch (error) {
-    console.error('Clipboard copy error:', error)
+    logWarn('Clipboard copy error', { message: error?.message })
     // Fallback: try using native share API
     try {
       if (navigator.share) {
@@ -139,7 +141,7 @@ export async function copyImageToClipboard(dataUrl) {
         }
       }
     } catch (shareError) {
-      console.error('Share fallback error:', shareError)
+      logWarn('Share fallback error', { message: shareError?.message })
     }
     return false
   }
@@ -283,7 +285,8 @@ export async function shareWorkoutToFeed(workout, userId) {
     const duration = workout.duration || 0
     const minutes = Math.floor(duration / 60)
     const seconds = duration % 60
-    const title = workout.templateName || 'Freestyle Workout'
+    const sessionType = (workout.sessionType || workout.session_type || 'workout').toString().toLowerCase()
+    const title = sessionType === 'recovery' ? 'Recovery Session' : (workout.templateName || 'Freestyle Workout')
     const subtitle = `${minutes}:${String(seconds).padStart(2, '0')}`
 
     const feedItem = {
@@ -299,6 +302,10 @@ export async function shareWorkoutToFeed(workout, userId) {
     const { saveFeedItemToSupabase } = await import('../lib/supabaseDb')
     const saved = await saveFeedItemToSupabase(feedItem, userId)
     
+    if (saved?.queued) {
+      // Queued for eventual sync (offline-safe). Home feed will update when it flushes.
+      return true
+    }
     if (saved) {
       // Trigger a custom event to refresh the feed
       window.dispatchEvent(new CustomEvent('feedUpdated'))
@@ -310,7 +317,7 @@ export async function shareWorkoutToFeed(workout, userId) {
   } catch (error) {
     // Silently ignore PGRST205 errors (table doesn't exist)
     if (error.code !== 'PGRST205' && !error.message?.includes('Could not find the table')) {
-      console.error('Error sharing workout to feed:', error)
+      logError('Error sharing workout to feed', error)
     }
     // Fallback to localStorage on error
     return shareWorkoutToFeedLocalStorage(workout)
@@ -326,7 +333,8 @@ function shareWorkoutToFeedLocalStorage(workout) {
     const duration = workout.duration || 0
     const minutes = Math.floor(duration / 60)
     const seconds = duration % 60
-    const title = workout.templateName || 'Freestyle Workout'
+    const sessionType = (workout.sessionType || workout.session_type || 'workout').toString().toLowerCase()
+    const title = sessionType === 'recovery' ? 'Recovery Session' : (workout.templateName || 'Freestyle Workout')
     const subtitle = `${minutes}:${String(seconds).padStart(2, '0')}`
 
     const feedItem = {
@@ -343,7 +351,7 @@ function shareWorkoutToFeedLocalStorage(workout) {
     try {
       existing = JSON.parse(localStorage.getItem('sharedToFeed') || '[]')
     } catch (parseError) {
-      console.error('Error parsing localStorage feed data', parseError)
+      logWarn('Error parsing localStorage feed data', { message: parseError?.message })
       localStorage.removeItem('sharedToFeed')
       existing = []
     }
@@ -368,7 +376,7 @@ function shareWorkoutToFeedLocalStorage(workout) {
     }
     return false
   } catch (error) {
-    console.error('Error sharing workout to localStorage:', error)
+    logError('Error sharing workout to localStorage', error)
     return false
   }
 }

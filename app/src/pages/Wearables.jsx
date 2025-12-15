@@ -14,6 +14,8 @@ import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import BackButton from '../components/BackButton'
+import Skeleton from '../components/Skeleton'
 import styles from './Wearables.module.css'
 
 export default function Wearables() {
@@ -294,7 +296,13 @@ export default function Wearables() {
   if (loading) {
     return (
       <div className={styles.container}>
-        <div className={styles.loading}>Loading...</div>
+        <div className={styles.loading} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Skeleton style={{ width: '40%', height: 16 }} />
+            <Skeleton style={{ width: '100%', height: 140 }} />
+            <Skeleton style={{ width: '100%', height: 140 }} />
+          </div>
+        </div>
       </div>
     )
   }
@@ -302,9 +310,7 @@ export default function Wearables() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <BackButton fallbackPath="/" />
         <h1>Wearables</h1>
         <div style={{ width: 60 }} /> {/* Spacer */}
       </div>

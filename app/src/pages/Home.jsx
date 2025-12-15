@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { calculateStreakFromSupabase, getWorkoutsFromSupabase, getUserPreferences, getSocialFeedItems, getScheduledWorkoutsFromSupabase } from '../lib/supabaseDb'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
@@ -14,11 +14,19 @@ import AddFriend from '../components/AddFriend'
 import FriendRequests from '../components/FriendRequests'
 import Spinner from '../components/Spinner'
 import { getPendingFriendRequests } from '../lib/friendsDb'
+import { getReadinessScore } from '../lib/readiness'
+import { PeopleIcon } from '../components/Icons'
+import Skeleton from '../components/Skeleton'
+import EmptyState from '../components/EmptyState'
+import Button from '../components/Button'
+import { useHaptic } from '../hooks/useHaptic'
 import styles from './Home.module.css'
 
 export default function Home() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
+  const haptic = useHaptic()
   const [streak, setStreak] = useState(0)
   const [loading, setLoading] = useState(true)
   const [fitbitSteps, setFitbitSteps] = useState(null)
@@ -26,11 +34,15 @@ export default function Home() {
   const [profilePicture, setProfilePicture] = useState(null)
   const [feedFilter, setFeedFilter] = useState('all') // 'all', 'me', 'friends'
   const [showAddFriend, setShowAddFriend] = useState(false)
+  const [addFriendPrefill, setAddFriendPrefill] = useState('')
   const [showFriendRequests, setShowFriendRequests] = useState(false)
   const [pendingRequestCount, setPendingRequestCount] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [pullDistance, setPullDistance] = useState(0)
   const [scheduledWorkouts, setScheduledWorkouts] = useState([])
+  const [readiness, setReadiness] = useState(null) // { score, zone, date, ... } or null
+  const [resumeSession, setResumeSession] = useState(null) // { sessionType: 'workout'|'recovery', timestamp, hasExercises }
+  const [privateModeUntil, setPrivateModeUntil] = useState(null) // timestamp ms; when set, redact timestamps/notes in feed
   const feedContainerRef = useRef(null)
   const pullStartY = useRef(0)
   const isPulling = useRef(false)
@@ -41,6 +53,18 @@ export default function Home() {
       loadRecentLogs(user.id)
     }
   }, [feedFilter, user])
+
+  // Deep-link: allow Command Palette (or other surfaces) to open Add Friend directly
+  useEffect(() => {
+    const state = location?.state
+    if (state?.openAddFriend) {
+      setAddFriendPrefill(typeof state.addFriendQuery === 'string' ? state.addFriendQuery : '')
+      setShowAddFriend(true)
+      // Clear state so refresh/back doesn't reopen
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location?.state])
 
   const loadRecentLogs = async (userId, showRefreshIndicator = false, cursor = null) => {
     try {
@@ -104,11 +128,16 @@ export default function Home() {
               subtitle: item.subtitle || '',
               data: cardData,
               shared: true,
+              visibility: item.visibility || 'public',
               timestamp: item.created_at || new Date(itemDate + 'T12:00').toISOString(),
               authorId: authorId,
               authorName: authorName,
               authorProfile: userProfile,
               isOwnPost: isOwnPost
+            }
+            // Safety rail: never show someone else's private posts, even if a backend policy misconfiguration leaks them.
+            if (logEntry.visibility === 'private' && !isOwnPost) {
+              return
             }
             logs.push(logEntry)
           })
@@ -175,17 +204,11 @@ export default function Home() {
     const threshold = 60 // Distance needed to trigger refresh
     
     if (pullDistance >= threshold && user) {
-      // Haptic feedback on release
-      if (navigator.vibrate) {
-        navigator.vibrate([10, 20, 10]) // Success haptic pattern
-      }
+      haptic?.success?.()
       // Trigger refresh
       loadRecentLogs(user.id, true)
     } else if (pullDistance > 10) {
-      // Light haptic for insufficient pull
-      if (navigator.vibrate) {
-        navigator.vibrate(5)
-      }
+      haptic?.light?.()
     }
     
     // Reset
@@ -282,6 +305,11 @@ export default function Home() {
           if (mounted) {
             await loadRecentLogs(user.id)
           }
+
+          // Load readiness snapshot (non-blocking)
+          getReadinessScore(user.id).then(r => {
+            if (mounted) setReadiness(r || null)
+          }).catch(() => {})
           
           // Load scheduled workouts
           if (mounted) {
@@ -363,6 +391,64 @@ export default function Home() {
       window.removeEventListener('feedUpdated', handleFeedUpdate)
     }
   }, [user, navigate, feedFilter]) // Add feedFilter to dependencies
+
+  // Detect resumable in-progress session (IndexedDB active session has localStorage backup too)
+  useEffect(() => {
+    if (!user) {
+      setResumeSession(null)
+      return
+    }
+    try {
+      const raw = localStorage.getItem(`activeWorkout_${user.id}`)
+      if (!raw) {
+        setResumeSession(null)
+        return
+      }
+      const parsed = JSON.parse(raw)
+      const ageMs = parsed?.timestamp ? (Date.now() - Number(parsed.timestamp)) : Infinity
+      // Treat as resumable if within 24h and has exercises
+      const hasExercises = Array.isArray(parsed?.exercises) && parsed.exercises.length > 0
+      if (!hasExercises || ageMs > 24 * 60 * 60 * 1000) {
+        setResumeSession(null)
+        return
+      }
+      const st = (parsed.sessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout'
+      setResumeSession({
+        sessionType: st,
+        timestamp: parsed.timestamp,
+        hasExercises
+      })
+    } catch {
+      setResumeSession(null)
+    }
+  }, [user])
+
+  // Private mode (temporary): keep it local-only for now (safety rail, immediate value)
+  useEffect(() => {
+    if (!user) return
+    try {
+      const raw = localStorage.getItem(`privateModeUntil_${user.id}`)
+      if (!raw) return
+      const ts = Number(raw)
+      if (!Number.isFinite(ts)) return
+      setPrivateModeUntil(ts)
+    } catch {}
+  }, [user])
+
+  const isPrivateModeOn = privateModeUntil != null && Date.now() < privateModeUntil
+
+  const togglePrivateMode = () => {
+    if (!user) return
+    const next = isPrivateModeOn ? null : (Date.now() + 24 * 60 * 60 * 1000)
+    setPrivateModeUntil(next)
+    try {
+      if (next == null) {
+        localStorage.removeItem(`privateModeUntil_${user.id}`)
+      } else {
+        localStorage.setItem(`privateModeUntil_${user.id}`, String(next))
+      }
+    } catch {}
+  }
   
   // Add event listeners for pull-to-refresh
   useEffect(() => {
@@ -390,7 +476,14 @@ export default function Home() {
   if (loading) {
     return (
       <div className={styles.container}>
-        <div className={styles.loading}>Loading...</div>
+        <div className={styles.loading} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Skeleton style={{ width: '45%', height: 16 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '60%', height: 14 }} />
+          </div>
+        </div>
       </div>
     )
   }
@@ -472,6 +565,101 @@ export default function Home() {
             </span>
           </div>
         )}
+
+        {/* Today Hero */}
+        <div className={styles.todayHero}>
+          <div className={styles.primaryCtaCard}>
+            <div className={styles.primaryCtaTop}>
+              <div className={styles.primaryCtaTitle}>Today</div>
+              <div className={styles.primaryCtaMeta}>
+                {streak > 0 ? (
+                  <span className={styles.primaryCtaMetaItem}>{streak} day streak</span>
+                ) : (
+                  <span className={styles.primaryCtaMetaItem}>Start your streak</span>
+                )}
+                {fitbitSteps?.steps != null && (
+                  <span className={styles.primaryCtaMetaItem}>{fitbitSteps.steps.toLocaleString()} steps</span>
+                )}
+                <Button
+                  unstyled
+                  type="button"
+                  className={`${styles.privateModeChip} ${isPrivateModeOn ? styles.privateModeChipOn : ''}`}
+                  onClick={togglePrivateMode}
+                  title={isPrivateModeOn ? 'Private mode is ON (local only). Tap to turn off.' : 'Turn on Private mode for 24h (local only).'}
+                >
+                  {isPrivateModeOn ? 'Private: ON' : 'Private: Off'}
+                </Button>
+              </div>
+            </div>
+            <Button
+              unstyled
+              className={styles.primaryCtaButton}
+              onClick={() => {
+                if (resumeSession?.hasExercises) {
+                  navigate('/workout/active', { state: { resumePaused: true, sessionType: resumeSession.sessionType } })
+                } else {
+                  navigate('/workout/active')
+                }
+              }}
+            >
+              {resumeSession?.hasExercises
+                ? (resumeSession.sessionType === 'recovery' ? 'Resume Recovery' : 'Resume Workout')
+                : 'Start Session'}
+            </Button>
+            <div className={styles.primaryCtaSubActions}>
+              <Button
+                unstyled
+                className={styles.secondaryCtaButton}
+                onClick={() => navigate('/workout/active', { state: { sessionType: 'workout' } })}
+              >
+                Start workout
+              </Button>
+              <Button
+                unstyled
+                className={styles.secondaryCtaButton}
+                onClick={() => navigate('/workout/active', { state: { sessionType: 'recovery' } })}
+              >
+                Start recovery
+              </Button>
+            </div>
+          </div>
+
+          <div className={styles.todayRow}>
+            <div className={styles.readinessCard}>
+              <div className={styles.cardLabel}>Readiness</div>
+              {readiness?.score != null ? (
+                <div className={styles.readinessValueRow}>
+                  <div className={styles.readinessScore}>{readiness.score}</div>
+                  <div className={`${styles.readinessZone} ${styles[`zone_${readiness.zone || 'yellow'}`]}`}>
+                    {(readiness.zone || 'yellow').toString().toUpperCase()}
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.readinessEmpty}>Connect a wearable or log health metrics</div>
+              )}
+              <Button unstyled className={styles.readinessLink} onClick={() => navigate('/health')}>
+                View details
+              </Button>
+            </div>
+
+            <div className={styles.planCard}>
+              <div className={styles.cardLabel}>Plan</div>
+              {scheduledWorkouts.length > 0 ? (
+                <div className={styles.planLine}>
+                  Next: <span className={styles.planStrong}>{scheduledWorkouts[0]?.template_id === 'freestyle' ? 'Freestyle' : 'Workout'}</span>
+                  <span className={styles.planMuted}> · {formatDate(scheduledWorkouts[0]?.date)}</span>
+                </div>
+              ) : (
+                <div className={styles.planLine}>
+                  No workout scheduled <span className={styles.planMuted}>· add one in Calendar</span>
+                </div>
+              )}
+              <button className={styles.readinessLink} onClick={() => navigate('/calendar')}>
+                Open calendar
+              </button>
+            </div>
+          </div>
+        </div>
         
         {/* Upcoming Scheduled Workouts */}
         {scheduledWorkouts.length > 0 && (
@@ -496,12 +684,13 @@ export default function Home() {
                     <div className={styles.scheduledWorkoutName}>
                       {scheduled.template_id === 'freestyle' ? 'Freestyle' : 'Workout'}
                     </div>
-                    <button
+                    <Button
+                      unstyled
                       className={styles.scheduledWorkoutAction}
                       onClick={() => navigate('/calendar')}
                     >
                       View Calendar
-                    </button>
+                    </Button>
                   </div>
                 )
               })}
@@ -520,7 +709,7 @@ export default function Home() {
                   onClick={() => setShowFriendRequests(true)}
                   aria-label="Friend Requests"
                 >
-                  <span className={styles.friendRequestsIcon}>👥</span>
+                  <span className={styles.friendRequestsIcon}><PeopleIcon size={18} /></span>
                   {pendingRequestCount > 0 && (
                     <span className={styles.friendRequestsBadge}>{pendingRequestCount}</span>
                   )}
@@ -559,13 +748,29 @@ export default function Home() {
           </div>
           {loading ? (
             <div className={styles.emptyFeed}>
-              <p>Loading...</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className={styles.feedCardItem}>
+                    <div className={styles.feedAuthor}>
+                      <Skeleton style={{ width: 40, height: 40, borderRadius: 999 }} />
+                      <div style={{ flex: 1 }}>
+                        <Skeleton style={{ width: '40%', height: 12, marginBottom: 8 }} />
+                        <Skeleton style={{ width: '25%', height: 10 }} />
+                      </div>
+                    </div>
+                    <Skeleton style={{ width: '100%', height: 120, marginTop: 10 }} />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : recentLogs.length === 0 ? (
             <div className={styles.emptyFeed}>
-              <p>No recent activity</p>
-              <p className={styles.emptyFeedSubtext}>Start logging workouts, meals, or health metrics to see them here</p>
-              <p className={styles.emptyFeedSubtext} style={{fontSize: '12px', marginTop: '8px'}}>Or share items to your feed using the share button</p>
+              <EmptyState
+                title="No recent activity"
+                message="Start logging sessions, meals, or metrics — then share to your feed when you want."
+                actionLabel="Log something"
+                onAction={() => navigate('/log')}
+              />
             </div>
           ) : (
             <div className={styles.feedList}>
@@ -592,14 +797,27 @@ export default function Home() {
                             {log.isOwnPost ? 'You' : (log.authorName || 'User')}
                           </span>
                           <span className={styles.authorTimestamp}>
-                            {formatDate(log.date)} · {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}
+                          {formatDate(log.date)}
+                          {!isPrivateModeOn && log.timestamp ? ` · ${new Date(log.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
                           </span>
                         </div>
                       </div>
                       {/* Show ShareCard for workout, nutrition, or health */}
                       <ShareCard 
                         type={log.type} 
-                        data={log.data}
+                      data={{
+                        ...(log.data || {}),
+                        // Redaction: hide notes while private mode is ON
+                        workout: log.type === 'workout'
+                          ? { ...(log.data?.workout || {}), notes: isPrivateModeOn ? '' : (log.data?.workout?.notes || '') }
+                          : log.data?.workout,
+                        nutrition: log.type === 'nutrition'
+                          ? { ...(log.data?.nutrition || {}) }
+                          : log.data?.nutrition,
+                        health: log.type === 'health'
+                          ? { ...(log.data?.health || {}) }
+                          : log.data?.health
+                      }}
                       />
                     </div>
                   )
@@ -616,6 +834,7 @@ export default function Home() {
       {showAddFriend && (
         <AddFriend 
           onClose={() => setShowAddFriend(false)}
+          initialSearchTerm={addFriendPrefill}
           onFriendAdded={() => {
             setShowAddFriend(false)
             if (user) {

@@ -6,6 +6,7 @@
 import { useState } from 'react'
 import styles from './InsightsCard.module.css'
 import { useHaptic } from '../hooks/useHaptic'
+import { logError } from '../utils/logger'
 
 export default function InsightsCard({ 
   title, 
@@ -73,7 +74,7 @@ export default function InsightsCard({
                         insight.action()
                       }
                     } catch (error) {
-                      console.error('Error executing insight action:', error)
+                      logError('Error executing insight action', error)
                     }
                   }}
                 >

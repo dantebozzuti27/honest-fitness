@@ -53,3 +53,33 @@ export function AnalyticsIcon({ size = 20 }) {
   )
 }
 
+export function HomeIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 11.5L12 4l9 7.5" />
+      <path d="M5.5 10.5V20h13V10.5" />
+      <path d="M10 20v-6h4v6" />
+    </svg>
+  )
+}
+
+export function ProfileIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21a8 8 0 0 0-16 0" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  )
+}
+
+export function PeopleIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="3" />
+      <path d="M2.5 20a6 6 0 0 1 11 0" />
+      <circle cx="17" cy="9" r="2.5" />
+      <path d="M14 20a5 5 0 0 1 7.5-0.2" />
+    </svg>
+  )
+}
+

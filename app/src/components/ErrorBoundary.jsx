@@ -39,7 +39,7 @@ class ErrorBoundary extends React.Component {
             marginBottom: '16px', 
             color: 'var(--danger, #ff453a)',
             fontFamily: 'var(--font-display, -apple-system, sans-serif)'
-          }}>⚠️ Error</h1>
+          }}>Error</h1>
           <p style={{ 
             marginBottom: '24px', 
             color: 'var(--text-secondary, #a1a1a6)',

@@ -15,10 +15,12 @@ const safeLogDebug = logDebug || (() => {})
 import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import ShareModal from '../components/ShareModal'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import HistoryCard from '../components/HistoryCard'
+import EmptyState from '../components/EmptyState'
 import { chatWithAI } from '../lib/chatApi'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
@@ -41,6 +43,7 @@ export default function Nutrition() {
   const location = useLocation()
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null, payload: null })
   const [activeTab, setActiveTab] = useState('Today')
   const [targetCalories, setTargetCalories] = useState(null)
   const [targetMacros, setTargetMacros] = useState(null)
@@ -239,7 +242,7 @@ export default function Nutrition() {
       setShowMealPlanEditor(false)
     } catch (error) {
       logError('Error saving weekly meal plan', error)
-      alert('Failed to save meal plan. Please try again.')
+      showToast('Failed to save meal plan. Please try again.', 'error')
     }
   }
 
@@ -388,13 +391,45 @@ export default function Nutrition() {
       }
       
       safeLogDebug('addMeal: Saving meal', newMeal)
-      
-      // Save to database first
+
+      // Local-first: update UI immediately (offline-safe)
+      const protein = Number(newMeal.macros?.protein ?? newMeal.protein ?? 0) || 0
+      const carbs = Number(newMeal.macros?.carbs ?? newMeal.carbs ?? 0) || 0
+      const fat = Number(newMeal.macros?.fat ?? newMeal.fat ?? 0) || 0
+      const calories = Number(newMeal.calories ?? 0) || 0
+
+      const updatedMeals = [...meals, newMeal]
+      const updatedCalories = (Number(currentCalories) || 0) + calories
+      const updatedMacros = {
+        protein: (Number(currentMacros?.protein) || 0) + protein,
+        carbs: (Number(currentMacros?.carbs) || 0) + carbs,
+        fat: (Number(currentMacros?.fat) || 0) + fat
+      }
+
+      setMeals(updatedMeals)
+      setCurrentCalories(updatedCalories)
+      setCurrentMacros(updatedMacros)
+      setHistoryData(prev => ({
+        ...(prev || {}),
+        [selectedDate]: {
+          meals: updatedMeals,
+          calories: updatedCalories,
+          macros: updatedMacros,
+          water: waterIntake
+        }
+      }))
+
+      // Try to sync to Supabase; if it queues, we keep the local state and move on.
       const { saveMealToSupabase } = await import('../lib/nutritionDb')
       const result = await saveMealToSupabase(user.id, selectedDate, newMeal)
       safeLogDebug('addMeal: Save result', result)
-      
-      // Reload data from database to ensure consistency
+
+      if (result?.queued) {
+        showToast('Meal saved locally — will sync when online.', 'info', 5000)
+        return
+      }
+
+      // Reload from Supabase for canonical totals when online
       await loadDateDataFromSupabase(selectedDate)
       safeLogDebug('addMeal: Data reloaded successfully')
     } catch (error) {
@@ -583,13 +618,13 @@ export default function Nutrition() {
   }
 
   const resetDay = () => {
-    if (confirm('Reset today\'s data?')) {
-      setMeals([])
-      setCurrentCalories(0)
-      setCurrentMacros({ protein: 0, carbs: 0, fat: 0 })
-      setWaterIntake(0)
-      saveData()
-    }
+    setConfirmState({
+      open: true,
+      title: 'Reset today?',
+      message: 'This will clear today’s meals and water for the selected date.',
+      action: 'reset_day',
+      payload: null
+    })
   }
 
   const getFastingTime = () => {
@@ -650,7 +685,7 @@ export default function Nutrition() {
 
   const handleDieticianAnalysis = async () => {
     if (!user || !canUseDietician) {
-      alert('You need at least 7 days of full meals (3+ meals per day) to use the Dietician feature.')
+      showToast('You need at least 7 days of full meals (3+ meals per day) to use the Dietician feature.', 'info', 6000)
       return
     }
 
@@ -1124,10 +1159,12 @@ export default function Nutrition() {
             })}
 
             {meals.length === 0 && (
-              <div className={styles.emptyState}>
-                <p>No meals logged today</p>
-                <p className={styles.emptyHint}>Click "Log Meal" to get started!</p>
-              </div>
+              <EmptyState
+                title="No meals logged today"
+                message="Log your first meal to start building a clean nutrition history."
+                actionLabel="Log meal"
+                onAction={() => setShowManualEntry(true)}
+              />
             )}
           </div>
         )}
@@ -1136,17 +1173,15 @@ export default function Nutrition() {
           <div className={styles.historyContent}>
             <h2 className={styles.sectionTitle}>History</h2>
             {Object.keys(historyData).length === 0 ? (
-              <div className={styles.emptyState}>
-                <div className={styles.emptyStateIcon}>🍽️</div>
-                <div className={styles.emptyStateTitle}>No Nutrition Data Yet</div>
-                <div className={styles.emptyStateMessage}>Start logging meals to see your nutrition history here</div>
-                <button
-                  className={styles.actionBtn}
-                  onClick={() => setActiveTab('Today')}
-                >
-                  Log Meal
-                </button>
-              </div>
+              <EmptyState
+                title="No nutrition data yet"
+                message="Start logging meals to see your nutrition history here."
+                actionLabel="Log meal"
+                onAction={() => {
+                  setActiveTab('Today')
+                  setShowManualEntry(true)
+                }}
+              />
             ) : (
               <div className={styles.historyCards}>
                 {Object.entries(historyData)
@@ -1199,23 +1234,13 @@ export default function Nutrition() {
                           }
                         }}
                         onDelete={async () => {
-                          if (confirm(`Delete all nutrition data for ${date}?`)) {
-                            try {
-                              const { deleteMealFromSupabase, getMealsFromSupabase, updateWaterIntake } = await import('../lib/nutritionDb')
-                              const dayData = await getMealsFromSupabase(user.id, date)
-                              if (dayData.meals && dayData.meals.length > 0) {
-                                for (const meal of dayData.meals) {
-                                  await deleteMealFromSupabase(user.id, date, meal.id)
-                                }
-                              }
-                              await updateWaterIntake(user.id, date, 0)
-                              await loadDateDataFromSupabase(selectedDate)
-                              showToast('Nutrition data deleted', 'success')
-                            } catch (error) {
-                              logError('Error deleting nutrition data', error)
-                              showToast('Failed to delete nutrition data', 'error')
-                            }
-                          }
+                          setConfirmState({
+                            open: true,
+                            title: 'Delete nutrition data?',
+                            message: `Delete all meals and water for ${date}?`,
+                            action: 'delete_day',
+                            payload: { date }
+                          })
                         }}
                       />
                     )
@@ -1240,18 +1265,13 @@ export default function Nutrition() {
                     <button
                       className={styles.deletePlanBtn}
                       onClick={async () => {
-                        if (confirm('Are you sure you want to delete this meal plan?')) {
-                          if (user) {
-                            try {
-                              const { saveWeeklyMealPlanToSupabase } = await import('../lib/nutritionDb')
-                              await saveWeeklyMealPlanToSupabase(user.id, null)
-                              setWeeklyMealPlan(null)
-                            } catch (error) {
-                              logError('Error deleting meal plan', error)
-                              alert('Failed to delete meal plan')
-                            }
-                          }
-                        }
+                        setConfirmState({
+                          open: true,
+                          title: 'Delete meal plan?',
+                          message: 'This will remove your weekly meal plan.',
+                          action: 'delete_meal_plan',
+                          payload: null
+                        })
                       }}
                     >
                       Delete Plan
@@ -1915,6 +1935,54 @@ export default function Nutrition() {
           onClose={hideToast}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.action?.startsWith('delete') ? 'Delete' : 'Confirm'}
+        cancelText="Cancel"
+        isDestructive={confirmState.action?.startsWith('delete')}
+        onClose={() => setConfirmState({ open: false, title: '', message: '', action: null, payload: null })}
+        onConfirm={async () => {
+          const action = confirmState.action
+          const payload = confirmState.payload
+          try {
+            if (action === 'reset_day') {
+              setMeals([])
+              setCurrentCalories(0)
+              setCurrentMacros({ protein: 0, carbs: 0, fat: 0 })
+              setWaterIntake(0)
+              saveData()
+              showToast('Reset complete', 'success')
+            } else if (action === 'delete_day') {
+              const date = payload?.date
+              if (!user || !date) return
+              const { deleteMealFromSupabase, getMealsFromSupabase, updateWaterIntake } = await import('../lib/nutritionDb')
+              const dayData = await getMealsFromSupabase(user.id, date)
+              if (dayData?.meals && dayData.meals.length > 0) {
+                for (const meal of dayData.meals) {
+                  await deleteMealFromSupabase(user.id, date, meal.id)
+                }
+              }
+              await updateWaterIntake(user.id, date, 0)
+              await loadDateDataFromSupabase(selectedDate)
+              showToast('Nutrition data deleted', 'success')
+            } else if (action === 'delete_meal_plan') {
+              if (!user) return
+              const { saveWeeklyMealPlanToSupabase } = await import('../lib/nutritionDb')
+              await saveWeeklyMealPlanToSupabase(user.id, null)
+              setWeeklyMealPlan(null)
+              showToast('Meal plan deleted', 'success')
+            }
+          } catch (error) {
+            logError('Confirm action failed', error)
+            showToast('Action failed. Please try again.', 'error')
+          } finally {
+            setConfirmState({ open: false, title: '', message: '', action: null, payload: null })
+          }
+        }}
+      />
 
       {/* Share Modal */}
       {showShareModal && (() => {

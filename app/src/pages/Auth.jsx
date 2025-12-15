@@ -4,11 +4,17 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator'
 import EmailCapture from '../components/EmailCapture'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
+import InputField from '../components/InputField'
+import { useHaptic } from '../hooks/useHaptic'
 import styles from './Auth.module.css'
 
 export default function Auth() {
   const navigate = useNavigate()
   const { signIn, signUp } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
+  const haptic = useHaptic()
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -54,26 +60,31 @@ export default function Auth() {
 
     if (isSignUp && password !== confirmPassword) {
       setError('Passwords do not match')
+      haptic?.error?.()
       return
     }
 
     if (password.length < 8) {
       setError('Password must be at least 8 characters')
+      haptic?.error?.()
       return
     }
 
     if (isSignUp && (!consentPrivacy || !consentTerms)) {
       setError('You must accept the Privacy Policy and Terms of Service to create an account')
+      haptic?.error?.()
       return
     }
 
     if (isSignUp && !username.trim()) {
       setError('Username is required')
+      haptic?.error?.()
       return
     }
 
     if (isSignUp && !phoneNumber.trim()) {
       setError('Phone number is required')
+      haptic?.error?.()
       return
     }
 
@@ -82,6 +93,7 @@ export default function Auth() {
       const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/
       if (!usernameRegex.test(username.trim())) {
         setError('Username must be 3-20 characters and contain only letters, numbers, underscores, or hyphens')
+        haptic?.error?.()
         return
       }
     }
@@ -92,6 +104,7 @@ export default function Auth() {
       const digitsOnly = phoneNumber.replace(/\D/g, '')
       if (digitsOnly.length < 10) {
         setError('Please enter a valid phone number')
+        haptic?.error?.()
         return
       }
     }
@@ -106,12 +119,15 @@ export default function Auth() {
         }
         await signUp(email, password, username.trim().toLowerCase(), phoneNumber.trim())
         setMessage('Check your email to confirm your account!')
+        haptic?.success?.()
       } else {
         await signIn(email, password)
         navigate('/')
+        haptic?.success?.()
       }
     } catch (err) {
       setError(err.message)
+      haptic?.error?.()
     } finally {
       setLoading(false)
     }
@@ -137,6 +153,14 @@ export default function Auth() {
 
   return (
     <div className={styles.container}>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          duration={toast.duration}
+          onClose={hideToast}
+        />
+      )}
       {/* Hero Section with Value Propositions */}
       <div className={styles.heroSection}>
         <div className={styles.heroContent}>
@@ -228,20 +252,19 @@ export default function Auth() {
         </div>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <div className={styles.inputGroup}>
-            <label>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              required
-            />
-          </div>
+          <InputField
+            containerClassName={styles.inputGroup}
+            label="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+          />
 
           <div className={styles.inputGroup}>
-            <label>Password</label>
-            <input
+            <InputField
+              label="Password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -260,8 +283,8 @@ export default function Auth() {
           {isSignUp && (
             <>
               <div className={styles.inputGroup}>
-                <label>Username</label>
-                <input
+                <InputField
+                  label="Username"
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -275,8 +298,8 @@ export default function Auth() {
               </div>
 
               <div className={styles.inputGroup}>
-                <label>Phone Number</label>
-                <input
+                <InputField
+                  label="Phone Number"
                   type="tel"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
@@ -288,21 +311,20 @@ export default function Auth() {
                 </small>
               </div>
 
-              <div className={styles.inputGroup}>
-                <label>Confirm Password</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
+              <InputField
+                containerClassName={styles.inputGroup}
+                label="Confirm Password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+              />
 
               {/* Referral Code Input */}
               <div className={styles.inputGroup}>
-                <label>Referral Code (Optional)</label>
-                <input
+                <InputField
+                  label="Referral Code (Optional)"
                   type="text"
                   value={referralCode}
                   onChange={(e) => setReferralCode(e.target.value)}
@@ -391,7 +413,7 @@ export default function Auth() {
               className={styles.previewBtn}
               onClick={() => {
                 // Could open a modal or navigate to a tour
-                alert('Take a tour coming soon!')
+                showToast('Take a tour coming soon!', 'info')
               }}
             >
               Take a Tour →

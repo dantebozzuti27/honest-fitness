@@ -51,31 +51,31 @@ export default function PasswordStrengthIndicator({ password }) {
         <div className={styles.requirements}>
           <div className={styles.requirement}>
             <span className={password.length >= 8 ? styles.check : styles.cross}>
-              {password.length >= 8 ? '✓' : '✗'}
+              {password.length >= 8 ? 'OK' : 'No'}
             </span>
             <span>8+ characters</span>
           </div>
           <div className={styles.requirement}>
             <span className={/[a-z]/.test(password) ? styles.check : styles.cross}>
-              {/[a-z]/.test(password) ? '✓' : '✗'}
+              {/[a-z]/.test(password) ? 'OK' : 'No'}
             </span>
             <span>Lowercase</span>
           </div>
           <div className={styles.requirement}>
             <span className={/[A-Z]/.test(password) ? styles.check : styles.cross}>
-              {/[A-Z]/.test(password) ? '✓' : '✗'}
+              {/[A-Z]/.test(password) ? 'OK' : 'No'}
             </span>
             <span>Uppercase</span>
           </div>
           <div className={styles.requirement}>
             <span className={/[0-9]/.test(password) ? styles.check : styles.cross}>
-              {/[0-9]/.test(password) ? '✓' : '✗'}
+              {/[0-9]/.test(password) ? 'OK' : 'No'}
             </span>
             <span>Number</span>
           </div>
           <div className={styles.requirement}>
             <span className={/[^a-zA-Z0-9]/.test(password) ? styles.check : styles.cross}>
-              {/[^a-zA-Z0-9]/.test(password) ? '✓' : '✗'}
+              {/[^a-zA-Z0-9]/.test(password) ? 'OK' : 'No'}
             </span>
             <span>Special character</span>
           </div>

@@ -87,7 +87,7 @@ if (!rootElement) {
     
     const h1 = document.createElement('h1')
     h1.style.cssText = 'color: #ff453a; margin-bottom: 20px;'
-    h1.textContent = '⚠️ Error Loading App'
+    h1.textContent = 'Error Loading App'
     container.appendChild(h1)
     
     const p1 = document.createElement('p')

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { getUserProfile } from '../lib/friendsDb'
 import { getWorkoutsFromSupabase, calculateStreakFromSupabase } from '../lib/supabaseDb'
 import { calculateWorkoutAchievements, calculateNutritionAchievements, calculateHealthAchievements } from '../utils/achievements'
+import { logWarn } from '../utils/logger'
 import styles from './ShareCard.module.css'
 
 export default function ShareCard({ type, data, theme = 'default', showAchievements = true, showBranding = true, showSocial = true, customStats = null }) {
@@ -66,6 +67,9 @@ export default function ShareCard({ type, data, theme = 'default', showAchieveme
 
   const renderWorkoutCard = () => {
     const { workout } = data
+    const sessionType = (workout?.sessionType || workout?.session_type || 'workout').toString().toLowerCase() === 'recovery'
+      ? 'recovery'
+      : 'workout'
     
     // IMPORTANT: Show ALL exercises from the workout, don't filter any out
     // Only filter sets to show valid ones, but keep all exercises
@@ -73,7 +77,7 @@ export default function ShareCard({ type, data, theme = 'default', showAchieveme
     if (workout?.exercises && Array.isArray(workout.exercises)) {
       workout.exercises.forEach((ex, exIdx) => {
         if (!ex || !ex.name) {
-          console.warn(`ShareCard: Exercise at index ${exIdx} is missing name`, ex)
+          logWarn('ShareCard: Exercise missing name', { index: exIdx })
           return
         }
         
@@ -98,7 +102,7 @@ export default function ShareCard({ type, data, theme = 'default', showAchieveme
         })
       })
     } else {
-      console.warn('ShareCard: workout.exercises is missing or not an array', workout)
+      logWarn('ShareCard: workout.exercises is missing or not an array')
     }
     
     // Group stacked exercises together and merge them
@@ -251,7 +255,7 @@ export default function ShareCard({ type, data, theme = 'default', showAchieveme
         <div className={styles.cardHeader}>
           <div className={styles.logo}>ECHELON</div>
           <div className={styles.headerRight}>
-            <div className={styles.cardType}>WORKOUT</div>
+            <div className={styles.cardType}>{sessionType === 'recovery' ? 'RECOVERY' : 'WORKOUT'}</div>
             <div className={styles.cardDateHeader}>{formatDate(workout?.date)}</div>
           </div>
         </div>

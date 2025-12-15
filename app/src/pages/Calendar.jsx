@@ -6,11 +6,15 @@ import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
+import ConfirmDialog from '../components/ConfirmDialog'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 import styles from './Calendar.module.css'
 
 export default function Calendar() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [currentDate, setCurrentDate] = useState(new Date())
   const [workoutDates, setWorkoutDates] = useState([])
   const [scheduledDates, setScheduledDates] = useState({})
@@ -21,6 +25,7 @@ export default function Calendar() {
   const [showScheduler, setShowScheduler] = useState(false) // false, 'workout', 'meal', 'goal'
   const [scheduledInfo, setScheduledInfo] = useState(null)
   const [weeklyPlan, setWeeklyPlan] = useState(null)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
   const refreshData = async () => {
     if (user) {
@@ -173,16 +178,7 @@ export default function Calendar() {
 
   const handleDeleteWorkout = async () => {
     if (!selectedWorkout || !user) return
-    if (!confirm('Are you sure you want to delete this workout?')) return
-    
-    try {
-      await deleteWorkoutFromSupabase(selectedWorkout.id, user?.id)
-      await refreshData()
-      closeModal()
-    } catch (e) {
-      alert('Failed to delete workout. Please try again.')
-      alert('Failed to delete workout')
-    }
+    setDeleteConfirmOpen(true)
   }
 
   return (
@@ -199,6 +195,7 @@ export default function Calendar() {
       </header>
 
       <div className={styles.content}>
+        {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
         <div className={styles.monthNav}>
           <button onClick={prevMonth}>←</button>
           <span className={styles.monthName}>{monthName}</span>
@@ -391,6 +388,29 @@ export default function Calendar() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={deleteConfirmOpen}
+        title="Delete workout?"
+        message="This will permanently remove it from your history."
+        confirmText="Delete"
+        cancelText="Cancel"
+        isDestructive
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={async () => {
+          if (!selectedWorkout || !user) return
+          try {
+            await deleteWorkoutFromSupabase(selectedWorkout.id, user.id)
+            await refreshData()
+            closeModal()
+            showToast('Workout deleted', 'success')
+          } catch (e) {
+            showToast('Failed to delete workout. Please try again.', 'error')
+          } finally {
+            setDeleteConfirmOpen(false)
+          }
+        }}
+      />
 
     </div>
   )

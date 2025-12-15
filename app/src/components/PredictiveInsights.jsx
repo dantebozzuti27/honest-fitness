@@ -13,7 +13,7 @@ import {
 // Dynamic import for code-splitting
 import InsightsCard from './InsightsCard'
 import styles from './PredictiveInsights.module.css'
-import { logError } from '../utils/logger'
+import { logDebug, logError } from '../utils/logger'
 import Spinner from './Spinner'
 
 export default function PredictiveInsights() {
@@ -24,13 +24,13 @@ export default function PredictiveInsights() {
   
   // Stable action handlers - use useCallback to ensure functions are stable
   const handleViewRecovery = useCallback(() => {
-    console.log('Show recovery recommendations')
+    logDebug('Show recovery recommendations')
     // Could navigate to recovery page in the future
   }, [])
   
   const handleViewGoal = useCallback((goalId) => {
     return () => {
-      console.log('Show goal details', goalId)
+      logDebug('Show goal details', { goalId })
       // Could navigate to goals page in the future
     }
   }, [])
@@ -71,7 +71,7 @@ export default function PredictiveInsights() {
               : forecast.trend === 'decreasing'
               ? `Your workout volume is trending down. Consider adjusting your training intensity.`
               : `Your workout volume is stable. Next workout likely ${Math.round(forecast.forecasted_volume)} lbs total volume.`,
-            icon: '📈'
+            icon: null
           }]
         })
       }
@@ -87,7 +87,7 @@ export default function PredictiveInsights() {
           title: 'Injury Risk Assessment',
           insights: [{
             message: `Your injury risk is ${injuryRisk.risk_level} (${injuryRisk.risk_score}/100). ${injuryRisk.recommendations?.[0] || 'Continue monitoring your recovery.'}`,
-            icon: injuryRisk.risk_level === 'high' ? '⚠️' : '✅',
+            icon: null,
             action: handleViewRecovery,
             actionLabel: 'View Recommendations'
           }]
@@ -115,7 +115,7 @@ export default function PredictiveInsights() {
         if (validPredictions.length > 0) {
           const goalInsights = validPredictions.map(({ goal, prediction }) => ({
             message: `${goal.custom_name || goal.type}: ${prediction.probability}% chance of achievement. ${prediction.recommendation || ''}`,
-            icon: prediction.probability >= 70 ? '🎯' : prediction.probability >= 40 ? '📊' : '⚠️',
+            icon: null,
             action: handleViewGoal(goal.id),
             actionLabel: 'View Goal'
           }))

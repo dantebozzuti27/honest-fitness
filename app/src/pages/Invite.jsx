@@ -3,6 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getUserProfile, sendFriendRequest, getFriendshipStatus } from '../lib/friendsDb'
 import HomeButton from '../components/HomeButton'
+import BackButton from '../components/BackButton'
+import Skeleton from '../components/Skeleton'
+import { logError } from '../utils/logger'
 import styles from './Invite.module.css'
 
 export default function Invite() {
@@ -56,7 +59,7 @@ export default function Invite() {
       const status = await getFriendshipStatus(user.id, profileData.user_id)
       setFriendshipStatus(status)
     } catch (err) {
-      console.error('Error loading profile:', err)
+      logError('Error loading profile', err)
       setError('Failed to load profile. Please try again.')
     } finally {
       setLoading(false)
@@ -76,7 +79,7 @@ export default function Invite() {
       const status = await getFriendshipStatus(user.id, profile.user_id)
       setFriendshipStatus(status)
     } catch (err) {
-      console.error('Error sending friend request:', err)
+      logError('Error sending friend request', err)
       setError(err.message || 'Failed to send friend request. Please try again.')
     } finally {
       setSending(false)
@@ -87,13 +90,18 @@ export default function Invite() {
     return (
       <div className={styles.container}>
         <div className={styles.header}>
-          <button className={styles.backBtn} onClick={() => navigate('/')}>
-            ← Back
-          </button>
+          <BackButton fallbackPath="/" />
           <h1>Add Friend</h1>
           <HomeButton />
         </div>
-        <div className={styles.loading}>Loading...</div>
+        <div className={styles.loading} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Skeleton style={{ width: '50%', height: 16 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '70%', height: 14 }} />
+            <Skeleton style={{ width: '40%', height: 40, borderRadius: 999 }} />
+          </div>
+        </div>
       </div>
     )
   }
@@ -102,9 +110,7 @@ export default function Invite() {
     return (
       <div className={styles.container}>
         <div className={styles.header}>
-          <button className={styles.backBtn} onClick={() => navigate('/')}>
-            ← Back
-          </button>
+          <BackButton fallbackPath="/" />
           <h1>Add Friend</h1>
           <HomeButton />
         </div>
@@ -121,9 +127,7 @@ export default function Invite() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <BackButton fallbackPath="/" />
         <h1>Add Friend</h1>
         <HomeButton />
       </div>
@@ -159,7 +163,7 @@ export default function Invite() {
 
             {success && (
               <div className={styles.successMessage}>
-                ✓ Friend request sent!
+                Friend request sent
               </div>
             )}
 
@@ -172,13 +176,13 @@ export default function Invite() {
             <div className={styles.actions}>
               {friendshipStatus?.status === 'accepted' ? (
                 <div className={styles.statusMessage}>
-                  ✓ You are already friends
+                  You are already friends
                 </div>
               ) : friendshipStatus?.status === 'pending' ? (
                 <div className={styles.statusMessage}>
                   {friendshipStatus.requestedBy === 'me' 
-                    ? '⏳ Friend request pending'
-                    : '📬 You have a pending request from this user'}
+                    ? 'Friend request pending'
+                    : 'You have a pending request from this user'}
                 </div>
               ) : (
                 <button

@@ -283,7 +283,7 @@ export async function saveReadinessScore(userId, readinessData) {
     // Handle PGRST116 error (table not found in schema cache) gracefully
     if (error) {
       if (error.code === 'PGRST116' || error.message?.includes('Could not find the table')) {
-        console.warn('honest_readiness table not available, skipping save:', error.message)
+        logWarn('honest_readiness table not available, skipping save', { message: error.message })
         return null
       }
       throw error
@@ -291,7 +291,7 @@ export async function saveReadinessScore(userId, readinessData) {
     return data
   } catch (error) {
     // Fallback for any other errors
-    console.warn('Error saving readiness score:', error)
+    logWarn('Error saving readiness score', { message: error?.message, code: error?.code })
     return null
   }
 }
@@ -314,7 +314,7 @@ export async function getReadinessScore(userId, date = null) {
     if (error) {
       // If table doesn't exist, return null instead of throwing
       if (error.code === 'PGRST116' || error.message?.includes('Could not find the table')) {
-        console.warn('honest_readiness table not available:', error.message)
+        logWarn('honest_readiness table not available', { message: error.message })
         return null
       }
       throw error
@@ -322,7 +322,7 @@ export async function getReadinessScore(userId, date = null) {
     return data
   } catch (error) {
     // Fallback for any other errors
-    console.warn('Error fetching readiness score:', error)
+    logWarn('Error fetching readiness score', { message: error?.message, code: error?.code })
     return null
   }
 }
@@ -343,7 +343,7 @@ export async function getReadinessScores(userId, startDate, endDate) {
     // Handle PGRST116 error (table not found in schema cache) gracefully
     if (error) {
       if (error.code === 'PGRST116' || error.message?.includes('Could not find the table')) {
-        console.warn('honest_readiness table not available:', error.message)
+        logWarn('honest_readiness table not available', { message: error.message })
         return []
       }
       throw error
@@ -351,7 +351,7 @@ export async function getReadinessScores(userId, startDate, endDate) {
     return data || []
   } catch (error) {
     // Fallback for any other errors
-    console.warn('Error fetching readiness scores:', error)
+    logWarn('Error fetching readiness scores', { message: error?.message, code: error?.code })
     return []
   }
 }

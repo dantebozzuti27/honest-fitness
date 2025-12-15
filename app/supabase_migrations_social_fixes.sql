@@ -178,15 +178,45 @@ CREATE POLICY "Users can delete own feed items" ON feed_items
 -- 3. USER_PROFILES TABLE FIXES
 -- ============================================================================
 
+-- Ensure trigram extension exists before creating gin_trgm_ops indexes.
+-- If you don't have permission to create extensions, these indexes will be skipped (no hard failure).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+    BEGIN
+      EXECUTE 'CREATE EXTENSION IF NOT EXISTS pg_trgm';
+    EXCEPTION
+      WHEN insufficient_privilege THEN
+        RAISE NOTICE 'Skipping pg_trgm extension creation (insufficient privilege).';
+      WHEN OTHERS THEN
+        RAISE NOTICE 'Skipping pg_trgm extension creation (error: %).', SQLERRM;
+    END;
+  END IF;
+END $$;
+
 -- Add full-text search index for username and display_name
 -- This enables fast searches using PostgreSQL full-text search
-CREATE INDEX IF NOT EXISTS idx_user_profiles_username_trgm 
-  ON user_profiles USING gin(username gin_trgm_ops) 
-  WHERE username IS NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+    CREATE INDEX IF NOT EXISTS idx_user_profiles_username_trgm
+      ON user_profiles USING gin(username gin_trgm_ops)
+      WHERE username IS NOT NULL;
+  ELSE
+    RAISE NOTICE 'pg_trgm extension not enabled; skipping idx_user_profiles_username_trgm.';
+  END IF;
+END $$;
 
-CREATE INDEX IF NOT EXISTS idx_user_profiles_display_name_trgm 
-  ON user_profiles USING gin(display_name gin_trgm_ops) 
-  WHERE display_name IS NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+    CREATE INDEX IF NOT EXISTS idx_user_profiles_display_name_trgm
+      ON user_profiles USING gin(display_name gin_trgm_ops)
+      WHERE display_name IS NOT NULL;
+  ELSE
+    RAISE NOTICE 'pg_trgm extension not enabled; skipping idx_user_profiles_display_name_trgm.';
+  END IF;
+END $$;
 
 -- Note: Requires pg_trgm extension
 -- Run this first if extension doesn't exist:

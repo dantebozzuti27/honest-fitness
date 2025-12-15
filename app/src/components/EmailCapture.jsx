@@ -5,6 +5,8 @@
 
 import { useState } from 'react'
 import styles from './EmailCapture.module.css'
+import { logError } from '../utils/logger'
+import Button from './Button'
 
 export default function EmailCapture({ onEmailCaptured, onSkip }) {
   const [email, setEmail] = useState('')
@@ -31,7 +33,7 @@ export default function EmailCapture({ onEmailCaptured, onSkip }) {
       }
       setSubmitted(true)
     } catch (err) {
-      console.error('Error saving email:', err)
+      logError('Error saving email', err)
       setError('Failed to save email. Please try again.')
     }
   }
@@ -40,7 +42,6 @@ export default function EmailCapture({ onEmailCaptured, onSkip }) {
     return (
       <div className={styles.container}>
         <div className={styles.successMessage}>
-          <span className={styles.successIcon}>✓</span>
           <p>Thanks! We'll notify you when new features are available.</p>
         </div>
       </div>
@@ -65,17 +66,13 @@ export default function EmailCapture({ onEmailCaptured, onSkip }) {
           />
           {error && <p className={styles.error}>{error}</p>}
           <div className={styles.actions}>
-            <button type="submit" className={styles.submitBtn}>
+            <Button unstyled type="submit" className={styles.submitBtn}>
               Notify Me
-            </button>
+            </Button>
             {onSkip && typeof onSkip === 'function' && (
-              <button 
-                type="button" 
-                className={styles.skipBtn}
-                onClick={onSkip}
-              >
+              <Button unstyled type="button" className={styles.skipBtn} onClick={onSkip}>
                 Skip
-              </button>
+              </Button>
             )}
           </div>
         </form>

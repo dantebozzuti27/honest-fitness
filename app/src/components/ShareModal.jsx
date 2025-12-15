@@ -5,10 +5,12 @@ import { generateShareImage, shareNative, copyImageToClipboard, downloadImage, g
 import { trackShareClick } from '../utils/shareAnalytics'
 import { calculateWorkoutAchievements, calculateNutritionAchievements, calculateHealthAchievements } from '../utils/achievements'
 import { useAuth } from '../context/AuthContext'
-import { saveFeedItemToSupabase, getWorkoutsFromSupabase, calculateStreakFromSupabase } from '../lib/supabaseDb'
+import { getDefaultVisibilityPreference, saveFeedItemToSupabase, getWorkoutsFromSupabase, calculateStreakFromSupabase } from '../lib/supabaseDb'
 import { useToast } from '../hooks/useToast'
 import Toast from './Toast'
+import Button from './Button'
 import styles from './ShareModal.module.css'
+import { logError, logWarn } from '../utils/logger'
 
 export default function ShareModal({ type, data, onClose }) {
   const { user } = useAuth()
@@ -16,11 +18,20 @@ export default function ShareModal({ type, data, onClose }) {
   const [sharing, setSharing] = useState(false)
   const [imageDataUrl, setImageDataUrl] = useState(null)
   const [sharedToFeed, setSharedToFeed] = useState(false)
+  const [visibility, setVisibility] = useState('public') // 'public' | 'friends' | 'private'
   const [theme, setTheme] = useState('default')
   const [template, setTemplate] = useState('standard')
   const [achievements, setAchievements] = useState([])
   const [userStats, setUserStats] = useState({})
   const cardRef = useRef(null)
+
+  // Set default visibility from user preference (public-by-default but user-controllable)
+  useEffect(() => {
+    if (!user) return
+    getDefaultVisibilityPreference(user.id).then(v => {
+      setVisibility(v || 'public')
+    }).catch(() => {})
+  }, [user])
 
   // Load user stats for achievements
   useEffect(() => {
@@ -99,7 +110,8 @@ export default function ShareModal({ type, data, onClose }) {
         onClose()
       }
     } catch (error) {
-      console.error('Share error:', error)
+      logError('Share error', error)
+      showToast('Unable to share. Please try again.', 'error')
     } finally {
       setSharing(false)
     }
@@ -132,7 +144,7 @@ export default function ShareModal({ type, data, onClose }) {
         }
       }
     } catch (error) {
-      console.error('Error copying image:', error)
+      logError('Error copying image', error)
       showToast('Unable to copy image. Try using the Share button instead.', 'error')
     }
   }
@@ -166,7 +178,8 @@ export default function ShareModal({ type, data, onClose }) {
         const duration = workout.duration || 0
         const minutes = Math.floor(duration / 60)
         const seconds = duration % 60
-        title = workout.templateName || 'Freestyle Workout'
+        const sessionType = (workout.sessionType || workout.session_type || 'workout').toString().toLowerCase()
+        title = sessionType === 'recovery' ? 'Recovery Session' : (workout.templateName || 'Freestyle Workout')
         subtitle = `${minutes}:${String(seconds).padStart(2, '0')}`
       } else if (type === 'nutrition') {
         const nutrition = data.nutrition
@@ -192,7 +205,8 @@ export default function ShareModal({ type, data, onClose }) {
         title,
         subtitle,
         data: type === 'workout' ? data.workout : type === 'nutrition' ? data.nutrition : data.health,
-        shared: true
+        shared: true,
+        visibility
       }
 
       // Save to database
@@ -202,10 +216,15 @@ export default function ShareModal({ type, data, onClose }) {
       } catch (dbError) {
         // Silently ignore PGRST205 errors (table doesn't exist)
         if (dbError.code !== 'PGRST205' && !dbError.message?.includes('Could not find the table')) {
-          console.error('Error saving to database:', dbError)
+          logError('Error saving to database', dbError)
         }
       }
       
+      if (saved?.queued) {
+        setSharedToFeed(true)
+        showToast('Shared locally — will sync when online.', 'info', 5000)
+        return
+      }
       if (saved) {
         setSharedToFeed(true)
         
@@ -232,7 +251,7 @@ export default function ShareModal({ type, data, onClose }) {
           setSharedToFeed(true)
           window.dispatchEvent(new CustomEvent('feedUpdated'))
         } catch (parseError) {
-          console.error('Error parsing localStorage feed data', parseError)
+          logWarn('Error parsing localStorage feed data', { message: parseError?.message })
           localStorage.removeItem('sharedToFeed')
           setSharedToFeed(false)
         }
@@ -240,7 +259,7 @@ export default function ShareModal({ type, data, onClose }) {
     } catch (error) {
       // Silently ignore PGRST205 errors (table doesn't exist)
       if (error.code !== 'PGRST205' && !error.message?.includes('Could not find the table')) {
-        console.error('Error sharing to feed:', error)
+        logError('Error sharing to feed', error)
         showToast('Failed to share to feed', 'error')
       } else {
         // Fallback to localStorage for PGRST205 errors (only if feedItem was defined)
@@ -254,7 +273,8 @@ export default function ShareModal({ type, data, onClose }) {
             const duration = workout.duration || 0
             const minutes = Math.floor(duration / 60)
             const seconds = duration % 60
-            title = workout.templateName || 'Freestyle Workout'
+            const sessionType = (workout.sessionType || workout.session_type || 'workout').toString().toLowerCase()
+            title = sessionType === 'recovery' ? 'Recovery Session' : (workout.templateName || 'Freestyle Workout')
             subtitle = `${minutes}:${String(seconds).padStart(2, '0')}`
           } else if (type === 'nutrition') {
             const nutrition = data.nutrition
@@ -291,13 +311,13 @@ export default function ShareModal({ type, data, onClose }) {
             localStorage.setItem('sharedToFeed', JSON.stringify(recent))
             setSharedToFeed(true)
           } catch (parseError) {
-            console.error('Error parsing localStorage feed data', parseError)
+            logWarn('Error parsing localStorage feed data', { message: parseError?.message })
             localStorage.removeItem('sharedToFeed')
             setSharedToFeed(false)
           }
           window.dispatchEvent(new CustomEvent('feedUpdated'))
         } catch (fallbackError) {
-          console.error('Error in fallback to localStorage:', fallbackError)
+          logError('Error in fallback to localStorage', fallbackError)
         }
       }
     }
@@ -327,8 +347,9 @@ export default function ShareModal({ type, data, onClose }) {
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <h2>Share Your {type === 'workout' ? 'Workout' : type === 'nutrition' ? 'Nutrition' : 'Health'} Summary</h2>
-          <button 
-            className={styles.closeBtn} 
+          <Button
+            unstyled
+            className={styles.closeBtn}
             onClick={() => {
               if (onClose && typeof onClose === 'function') {
                 onClose()
@@ -336,7 +357,7 @@ export default function ShareModal({ type, data, onClose }) {
             }}
           >
             ✕
-          </button>
+          </Button>
         </div>
         
         {/* Customization Options */}
@@ -384,9 +405,41 @@ export default function ShareModal({ type, data, onClose }) {
         </div>
 
         <div className={styles.shareOptions}>
+          {/* Visibility (public-by-default safety rail) */}
+          <div className={styles.visibilityRow}>
+            <div className={styles.visibilityLabel}>Visibility</div>
+            <div className={styles.visibilityToggle}>
+              <Button
+                unstyled
+                type="button"
+                className={`${styles.visibilityBtn} ${visibility === 'public' ? styles.visibilityActive : ''}`}
+                onClick={() => setVisibility('public')}
+              >
+                Public
+              </Button>
+              <Button
+                unstyled
+                type="button"
+                className={`${styles.visibilityBtn} ${visibility === 'friends' ? styles.visibilityActive : ''}`}
+                onClick={() => setVisibility('friends')}
+              >
+                Friends
+              </Button>
+              <Button
+                unstyled
+                type="button"
+                className={`${styles.visibilityBtn} ${visibility === 'private' ? styles.visibilityActive : ''}`}
+                onClick={() => setVisibility('private')}
+              >
+                Private
+              </Button>
+            </div>
+          </div>
+
           {/* Native Share (Mobile) */}
           {navigator.share && (
-            <button 
+            <Button
+              unstyled
               className={styles.shareBtn}
               onClick={() => {
                 if (handleNativeShare && typeof handleNativeShare === 'function') {
@@ -396,11 +449,12 @@ export default function ShareModal({ type, data, onClose }) {
               disabled={sharing}
             >
               Share
-            </button>
+            </Button>
           )}
 
           {/* Copy Image */}
-          <button 
+          <Button
+            unstyled
             className={styles.shareBtn}
             onClick={() => {
               if (handleCopyImage && typeof handleCopyImage === 'function') {
@@ -409,10 +463,11 @@ export default function ShareModal({ type, data, onClose }) {
             }}
           >
             Copy Image
-          </button>
+          </Button>
 
           {/* Download */}
-          <button 
+          <Button
+            unstyled
             className={styles.shareBtn}
             onClick={() => {
               if (handleDownload && typeof handleDownload === 'function') {
@@ -421,10 +476,11 @@ export default function ShareModal({ type, data, onClose }) {
             }}
           >
             Download
-          </button>
+          </Button>
 
           {/* Share to Feed */}
-          <button 
+          <Button
+            unstyled
             className={`${styles.shareBtn} ${sharedToFeed ? styles.sharedToFeed : ''}`}
             onClick={() => {
               if (handleShareToFeed && typeof handleShareToFeed === 'function') {
@@ -433,12 +489,13 @@ export default function ShareModal({ type, data, onClose }) {
             }}
             disabled={sharedToFeed}
           >
-            {sharedToFeed ? '✓ Shared to Feed' : 'Share to Feed'}
-          </button>
+            {sharedToFeed ? 'Shared to Feed' : 'Share to Feed'}
+          </Button>
 
           {/* Social Platforms */}
           <div className={styles.socialGrid}>
-            <button 
+            <Button
+              unstyled
               className={styles.socialBtn}
               onClick={() => {
                 trackShareClick('twitter', type, { image: !!imageDataUrl, achievement: achievements.length > 0 })
@@ -447,8 +504,9 @@ export default function ShareModal({ type, data, onClose }) {
               title="Share on X (Twitter)"
             >
               <span className={styles.socialIcon}>X</span>
-            </button>
-            <button 
+            </Button>
+            <Button
+              unstyled
               className={styles.socialBtn}
               onClick={() => {
                 trackShareClick('facebook', type, { image: !!imageDataUrl, achievement: achievements.length > 0 })
@@ -457,8 +515,9 @@ export default function ShareModal({ type, data, onClose }) {
               title="Share on Facebook"
             >
               <span className={styles.socialIcon}>f</span>
-            </button>
-            <button 
+            </Button>
+            <Button
+              unstyled
               className={styles.socialBtn}
               onClick={async () => {
                 trackShareClick('instagram', type, { image: true, achievement: achievements.length > 0 })
@@ -477,7 +536,7 @@ export default function ShareModal({ type, data, onClose }) {
                       return
                     }
                   } catch (e) {
-                    console.error('Instagram share error:', e)
+                    logError('Instagram share error', e)
                   }
                 }
                 // Fallback to download
@@ -486,8 +545,9 @@ export default function ShareModal({ type, data, onClose }) {
               title="Share to Instagram (opens share sheet)"
             >
               <span className={styles.socialIcon}>IG</span>
-            </button>
-            <button 
+            </Button>
+            <Button
+              unstyled
               className={styles.socialBtn}
               onClick={async () => {
                 trackShareClick('imessage', type, { image: !!imageDataUrl, achievement: achievements.length > 0 })
@@ -506,7 +566,7 @@ export default function ShareModal({ type, data, onClose }) {
                       return
                     }
                   } catch (e) {
-                    console.error('iMessage share error:', e)
+                    logError('iMessage share error', e)
                   }
                 }
                 // Fallback to SMS link
@@ -515,7 +575,7 @@ export default function ShareModal({ type, data, onClose }) {
               title="Share via iMessage"
             >
               <span className={styles.socialIcon}>Msg</span>
-            </button>
+            </Button>
           </div>
           <p className={styles.instagramNote}>
             Tap Copy Image to paste in any app, or use Share to open the native share sheet

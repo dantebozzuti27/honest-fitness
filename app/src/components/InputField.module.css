@@ -35,6 +35,26 @@
   min-height: 44px;
 }
 
+/* Make textarea feel consistent while allowing multi-line */
+textarea.input {
+  min-height: 120px;
+  resize: vertical;
+}
+
+/* Select inherits .input styling, but needs a readable caret */
+select.input {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(255, 255, 255, 0.65) 50%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.65) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(1em + 2px),
+    calc(100% - 13px) calc(1em + 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
 .input:focus {
   outline: none;
   border-color: var(--glass-form-border-focus);
@@ -79,7 +99,7 @@
 }
 
 .errorMessage::before {
-  content: '⚠';
+  content: '!';
   font-size: var(--text-base);
 }
 
@@ -95,7 +115,7 @@
 }
 
 .successMessage::before {
-  content: '✓';
+  content: 'OK';
   font-size: var(--text-base);
 }
 

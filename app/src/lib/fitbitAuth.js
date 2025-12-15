@@ -3,6 +3,7 @@
  */
 
 import { getConnectedAccount } from './wearables'
+import { logDebug } from '../utils/logger'
 
 // Get Fitbit config from environment
 const FITBIT_CLIENT_ID = import.meta.env.VITE_FITBIT_CLIENT_ID || ''
@@ -11,8 +12,8 @@ const FITBIT_REDIRECT_URI = import.meta.env.VITE_FITBIT_REDIRECT_URI ||
 
 // Debug logging (only in development)
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
-  console.log('[Fitbit Auth] Client ID:', FITBIT_CLIENT_ID ? 'SET' : 'NOT SET')
-  console.log('[Fitbit Auth] Redirect URI:', FITBIT_REDIRECT_URI)
+  logDebug('[Fitbit Auth] Client ID configured', { configured: Boolean(FITBIT_CLIENT_ID) })
+  logDebug('[Fitbit Auth] Redirect URI', { redirectUri: FITBIT_REDIRECT_URI })
 }
 
 /**
@@ -44,30 +45,24 @@ export function getFitbitAuthUrl(userId) {
  */
 export function connectFitbit(userId) {
   if (import.meta.env.DEV) {
-    console.log('connectFitbit called with userId:', userId)
-    console.log('FITBIT_CLIENT_ID:', FITBIT_CLIENT_ID ? 'SET' : 'NOT SET')
-    console.log('FITBIT_REDIRECT_URI:', FITBIT_REDIRECT_URI)
+    logDebug('connectFitbit called', { hasUserId: Boolean(userId), clientConfigured: Boolean(FITBIT_CLIENT_ID) })
+    logDebug('FITBIT_REDIRECT_URI', { redirectUri: FITBIT_REDIRECT_URI })
   }
   
   if (!FITBIT_CLIENT_ID) {
     const error = 'Fitbit Client ID not configured. Set VITE_FITBIT_CLIENT_ID in environment variables.'
-    if (import.meta.env.DEV) console.error(error)
+    if (import.meta.env.DEV) logDebug('Fitbit config error', { message: error })
     throw new Error(error)
   }
   
   if (!userId) {
     const error = 'User ID is required to connect Fitbit'
-    if (import.meta.env.DEV) console.error(error)
+    if (import.meta.env.DEV) logDebug('Fitbit connect error', { message: error })
     throw new Error(error)
   }
   
   const authUrl = getFitbitAuthUrl(userId)
-  if (import.meta.env.DEV) {
-    // Debug logging only in development
-    if (import.meta.env.DEV) {
-      console.log('Redirecting to Fitbit OAuth:', authUrl)
-    }
-  }
+  if (import.meta.env.DEV) logDebug('Redirecting to Fitbit OAuth', { authUrl })
   
   // Use window.location.assign for better error handling
   window.location.assign(authUrl)

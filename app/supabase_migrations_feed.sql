@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS feed_items (
 ALTER TABLE feed_items ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies: Users can view their own feed items and eventually others' (for social)
+DROP POLICY IF EXISTS "Users can view own feed items" ON feed_items;
 CREATE POLICY "Users can view own feed items" ON feed_items
   FOR SELECT USING (auth.uid() = user_id);
 
@@ -27,12 +28,15 @@ CREATE POLICY "Users can view own feed items" ON feed_items
 -- CREATE POLICY "Users can view public feed items" ON feed_items
 --   FOR SELECT USING (is_public = true OR auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own feed items" ON feed_items;
 CREATE POLICY "Users can insert own feed items" ON feed_items
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own feed items" ON feed_items;
 CREATE POLICY "Users can update own feed items" ON feed_items
   FOR UPDATE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own feed items" ON feed_items;
 CREATE POLICY "Users can delete own feed items" ON feed_items
   FOR DELETE USING (auth.uid() = user_id);
 
@@ -51,6 +55,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_feed_items_updated_at ON feed_items;
 CREATE TRIGGER update_feed_items_updated_at
   BEFORE UPDATE ON feed_items
   FOR EACH ROW

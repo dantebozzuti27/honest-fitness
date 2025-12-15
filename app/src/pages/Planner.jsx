@@ -7,6 +7,11 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import { logError } from '../utils/logger'
 import { chatWithAI } from '../lib/chatApi'
+import ConfirmDialog from '../components/ConfirmDialog'
+import BackButton from '../components/BackButton'
+import Skeleton from '../components/Skeleton'
+import TextAreaField from '../components/TextAreaField'
+import Button from '../components/Button'
 import styles from './Planner.module.css'
 
 const GOALS = [
@@ -32,10 +37,12 @@ const EQUIPMENT = [
 export default function Planner() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [activeTab, setActiveTab] = useState(0) // 0: My Plan, 1: Create, 2: AI
   const [loading, setLoading] = useState(true)
   const [templates, setTemplates] = useState([])
   const [currentPlan, setCurrentPlan] = useState(null)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   
   // Create plan state
   const [step, setStep] = useState(1)
@@ -169,33 +176,7 @@ export default function Planner() {
   }
 
   const handleDeletePlan = async () => {
-    if (!confirm('Are you sure you want to delete this plan?')) return
-    try {
-      if (user) {
-        await saveUserPreferences(user.id, {
-          planName: '',
-          fitnessGoal: '',
-          experienceLevel: '',
-          availableDays: [],
-          sessionDuration: 60,
-          equipmentAvailable: [],
-          injuries: ''
-        })
-      }
-      setPrefs({
-        planName: '',
-        fitnessGoal: '',
-        experienceLevel: '',
-        availableDays: [],
-        sessionDuration: 60,
-        equipmentAvailable: [],
-        injuries: ''
-      })
-      setCurrentPlan(null)
-    } catch (e) {
-      logError('Error deleting plan', e)
-      showToast('Failed to delete plan. Please try again.', 'error')
-    }
+    setDeleteConfirmOpen(true)
   }
 
   // AI Chat functions
@@ -249,7 +230,14 @@ export default function Planner() {
   if (loading) {
     return (
       <div className={styles.container}>
-        <div className={styles.loading}>Loading...</div>
+        <div className={styles.loading} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Skeleton style={{ width: '40%', height: 16 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '70%', height: 16 }} />
+          </div>
+        </div>
       </div>
     )
   }
@@ -264,11 +252,49 @@ export default function Planner() {
           onClose={hideToast}
         />
       )}
+      <ConfirmDialog
+        isOpen={deleteConfirmOpen}
+        title="Delete plan?"
+        message="This will clear your current plan and preferences."
+        confirmText="Delete"
+        cancelText="Cancel"
+        isDestructive
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={async () => {
+          try {
+            if (user) {
+              await saveUserPreferences(user.id, {
+                planName: '',
+                fitnessGoal: '',
+                experienceLevel: '',
+                availableDays: [],
+                sessionDuration: 60,
+                equipmentAvailable: [],
+                injuries: ''
+              })
+            }
+            setPrefs({
+              planName: '',
+              fitnessGoal: '',
+              experienceLevel: '',
+              availableDays: [],
+              sessionDuration: 60,
+              equipmentAvailable: [],
+              injuries: ''
+            })
+            setCurrentPlan(null)
+            showToast('Plan deleted', 'success')
+          } catch (e) {
+            logError('Error deleting plan', e)
+            showToast('Failed to delete plan. Please try again.', 'error')
+          } finally {
+            setDeleteConfirmOpen(false)
+          }
+        }}
+      />
       <div className={styles.container}>
       <header className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <BackButton fallbackPath="/progress" />
         <h1 className={styles.title}>Plan</h1>
       </header>
 
@@ -424,35 +450,38 @@ export default function Planner() {
               <h2>Equipment</h2>
               <div className={styles.equipmentGrid}>
                 {EQUIPMENT.map(eq => (
-                  <button
+                  <Button
+                    unstyled
                     key={eq}
                     className={`${styles.equipBtn} ${prefs.equipmentAvailable.includes(eq) ? styles.selected : ''}`}
                     onClick={() => toggleEquipment(eq)}
                   >
                     {eq}
-                  </button>
+                  </Button>
                 ))}
               </div>
-              <textarea
+              <TextAreaField
                 className={styles.injuryInput}
                 placeholder="Any injuries? (optional)"
                 value={prefs.injuries}
                 onChange={(e) => setPrefs(p => ({ ...p, injuries: e.target.value }))}
+                rows={3}
               />
             </div>
           )}
 
           <div className={styles.footer}>
             {step > 1 && (
-              <button className={styles.prevBtn} onClick={() => setStep(step - 1)}>Back</button>
+              <Button unstyled className={styles.prevBtn} onClick={() => setStep(step - 1)}>Back</Button>
             )}
-            <button 
-              className={styles.nextBtn} 
+            <Button
+              unstyled
+              className={styles.nextBtn}
               onClick={handleNext}
               disabled={!canProceed() || generating}
             >
               {generating ? 'Creating...' : step === 4 ? 'Create Plan' : 'Next'}
-            </button>
+            </Button>
           </div>
         </div>
       )}

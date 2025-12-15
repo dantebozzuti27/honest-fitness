@@ -10,7 +10,7 @@ import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, syncOuraData, 
 import { supabase } from '../lib/supabase'
 import { getTodayEST, getYesterdayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
-import { logError, logDebug } from '../utils/logger'
+import { logError, logDebug, logWarn } from '../utils/logger'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -18,10 +18,16 @@ const safeLogDebug = logDebug || (() => {})
 import BarChart from '../components/BarChart'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import ShareModal from '../components/ShareModal'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import HistoryCard from '../components/HistoryCard'
+import EmptyState from '../components/EmptyState'
+import Skeleton from '../components/Skeleton'
+import Button from '../components/Button'
+import InputField from '../components/InputField'
+import SelectField from '../components/SelectField'
 import styles from './Health.module.css'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
@@ -47,6 +53,42 @@ export default function Health() {
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedMetricForShare, setSelectedMetricForShare] = useState(null)
   const { toast, showToast, hideToast } = useToast()
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null, payload: null })
+
+  const recoveryStreak = useMemo(() => {
+    // Recovery session: session_type === 'recovery' OR all exercises are category Recovery
+    const dates = new Set()
+    ;(workouts || []).forEach(w => {
+      if (!w?.date) return
+      const sessionType = (w.session_type || '').toString().toLowerCase()
+      if (sessionType === 'recovery') {
+        dates.add(w.date)
+        return
+      }
+      const exs = w.workout_exercises || []
+      if (Array.isArray(exs) && exs.length > 0) {
+        const allRecovery = exs.every(ex => (ex?.category || '').toString().toLowerCase() === 'recovery')
+        if (allRecovery) dates.add(w.date)
+      }
+    })
+
+    if (dates.size === 0) return 0
+    const sorted = Array.from(dates).sort((a, b) => new Date(b) - new Date(a))
+    const today = getTodayEST()
+    const yesterday = getYesterdayEST()
+    if (sorted[0] !== today && sorted[0] !== yesterday) return 0
+
+    let streak = 0
+    let cursor = sorted[0] === today ? today : yesterday
+    const has = (d) => dates.has(d)
+    while (has(cursor)) {
+      streak += 1
+      const dt = new Date(cursor + 'T12:00:00')
+      dt.setDate(dt.getDate() - 1)
+      cursor = dt.toISOString().split('T')[0]
+    }
+    return streak
+  }, [workouts])
 
   const loadHealthGoals = async () => {
     if (!user) return
@@ -55,7 +97,7 @@ export default function Health() {
       const { updateCategoryGoals } = await import('../lib/goalsDb')
       const result = await updateCategoryGoals(user.id, 'health')
       if (result.errors && result.errors.length > 0) {
-        console.error('Goal update errors:', result.errors)
+        logWarn('Goal update errors', { errors: result.errors })
         logError('Some goals failed to update', result.errors)
       }
       
@@ -65,7 +107,7 @@ export default function Health() {
       setHealthGoals(goals)
     } catch (error) {
       logError('Error loading health goals', error)
-      console.error('Error loading health goals:', error)
+      logError('Error loading health goals', error)
     }
   }
 
@@ -418,7 +460,14 @@ export default function Health() {
   if (loading) {
     return (
       <div className={styles.container}>
-        <div className={styles.loading}>Loading health data...</div>
+        <div className={styles.loading} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Skeleton style={{ width: '45%', height: 16 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '70%', height: 16 }} />
+          </div>
+        </div>
       </div>
     )
   }
@@ -431,7 +480,8 @@ export default function Health() {
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <HomeButton />
           {activeTab === 'Today' && (
-            <button 
+            <Button
+              unstyled
               className={styles.plusBtn}
               onClick={() => {
                 const newMetric = {
@@ -452,20 +502,21 @@ export default function Health() {
               aria-label="Log health metrics"
             >
               <span className={styles.plusIcon}>+</span>
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
       <div className={styles.tabs}>
         {TABS.map(tab => (
-          <button
+          <Button
+            unstyled
             key={tab}
             className={`${styles.tab} ${activeTab === tab ? styles.activeTab : ''}`}
             onClick={() => setActiveTab(tab)}
           >
             {tab}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -517,14 +568,61 @@ export default function Health() {
           
           return (
             <div className={styles.dashboardContainer}>
+              {/* Recovery quick-start (first-class) */}
+              <div className={styles.dashboardGrid}>
+                <div
+                  className={styles.dashboardCard}
+                  onClick={() => navigate('/workout/active', { state: { sessionType: 'recovery' } })}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      navigate('/workout/active', { state: { sessionType: 'recovery' } })
+                    }
+                  }}
+                >
+                  <div className={styles.dashboardStat}>
+                    <div className={styles.dashboardStatLabel}>Recovery</div>
+                    <div className={styles.dashboardStatValue}>
+                      {recoveryStreak > 0 ? `${recoveryStreak} day streak` : 'Start today'}
+                    </div>
+                  </div>
+                  <Button unstyled className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); navigate('/workout/active', { state: { sessionType: 'recovery' } }) }}>
+                    Start
+                  </Button>
+                </div>
+                <div
+                  className={styles.dashboardCard}
+                  onClick={() => navigate('/workout/active', { state: { sessionType: 'workout' } })}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      navigate('/workout/active', { state: { sessionType: 'workout' } })
+                    }
+                  }}
+                >
+                  <div className={styles.dashboardStat}>
+                    <div className={styles.dashboardStatLabel}>Train</div>
+                    <div className={styles.dashboardStatValue}>Log a session</div>
+                  </div>
+                  <Button unstyled className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); navigate('/workout/active', { state: { sessionType: 'workout' } }) }}>
+                    Start
+                  </Button>
+                </div>
+              </div>
+
               {/* Share Button */}
               {todayMetric && (todayMetric.steps || todayMetric.hrv || todayMetric.sleep_time || todayMetric.calories_burned || todayMetric.weight) && (
-                <button
+                <Button
+                  unstyled
                   className={styles.shareBtn}
                   onClick={() => setShowShareModal(true)}
                 >
                   Share Health Summary
-                </button>
+                </Button>
               )}
               
               {/* Oura Readiness Score Card - Show if Oura is connected */}
@@ -635,7 +733,8 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button 
+                  <Button
+                    unstyled
                     className={styles.dashboardLogBtn} 
                     onClick={(e) => { 
                       e.stopPropagation()
@@ -645,7 +744,7 @@ export default function Health() {
                     }}
                   >
                     {todayMetric?.steps != null ? 'Edit' : 'Log'}
-                  </button>
+                  </Button>
                 </div>
 
                 {/* Calories Card - Clickable to edit just calories */}
@@ -675,7 +774,8 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button 
+                  <Button
+                    unstyled
                     className={styles.dashboardLogBtn} 
                     onClick={(e) => { 
                       e.stopPropagation()
@@ -685,7 +785,7 @@ export default function Health() {
                     }}
                   >
                     {todayMetric?.calories_burned != null ? 'Edit' : 'Log'}
-                  </button>
+                  </Button>
                 </div>
 
                 {/* HRV Card - Clickable to edit just HRV */}
@@ -715,7 +815,8 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button 
+                  <Button
+                    unstyled
                     className={styles.dashboardLogBtn} 
                     onClick={(e) => { 
                       e.stopPropagation()
@@ -725,7 +826,7 @@ export default function Health() {
                     }}
                   >
                     {todayMetric?.hrv != null ? 'Edit' : 'Log'}
-                  </button>
+                  </Button>
                 </div>
 
                 {/* Sleep Duration Card - Clickable to edit just sleep duration */}
@@ -760,13 +861,13 @@ export default function Health() {
                         
                         // Log for debugging
                         if (todayMetric?.source_provider === 'oura' && sleepMinutes < 60) {
-                          console.warn('Oura sleep duration seems low:', sleepMinutes, 'minutes. Raw sleep_duration:', todayMetric?.sleep_duration, 'sleep_time:', todayMetric?.sleep_time)
+                          logWarn('Oura sleep duration seems low', { minutes: sleepMinutes })
                         }
                         
                         // Safety check: ensure valid range
                         if (sleepMinutes < 0) sleepMinutes = 0
                         if (sleepMinutes > 1440) {
-                          console.warn('Sleep duration seems too high:', sleepMinutes, 'minutes, capping at 1440')
+                          logWarn('Sleep duration seems too high, capping', { minutes: sleepMinutes })
                           sleepMinutes = 1440
                         }
                         
@@ -776,8 +877,9 @@ export default function Health() {
                       })()}
                     </span>
                   </div>
-                  <button 
-                    className={styles.dashboardLogBtn} 
+                  <Button
+                    unstyled
+                    className={styles.dashboardLogBtn}
                     onClick={(e) => { 
                       e.stopPropagation()
                       setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
@@ -786,7 +888,7 @@ export default function Health() {
                     }}
                   >
                     {todayMetric?.sleep_time != null ? 'Edit' : 'Log'}
-                  </button>
+                  </Button>
                 </div>
 
                 {/* Sleep Score Card - Clickable to edit just sleep score */}
@@ -808,8 +910,9 @@ export default function Health() {
                           : '-'}
                       </span>
                     </div>
-                    <button 
-                      className={styles.dashboardLogBtn} 
+                    <Button
+                      unstyled
+                      className={styles.dashboardLogBtn}
                       onClick={(e) => { 
                         e.stopPropagation()
                         setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
@@ -818,7 +921,7 @@ export default function Health() {
                       }}
                     >
                       Edit
-                    </button>
+                    </Button>
                   </div>
                 )}
 
@@ -840,8 +943,9 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button 
-                    className={styles.dashboardLogBtn} 
+                  <Button
+                    unstyled
+                    className={styles.dashboardLogBtn}
                     onClick={(e) => { 
                       e.stopPropagation()
                       setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
@@ -850,7 +954,7 @@ export default function Health() {
                     }}
                   >
                     {todayMetric?.weight != null ? 'Edit' : 'Log'}
-                  </button>
+                  </Button>
                 </div>
 
                 {/* Resting HR Card - Clickable to edit just resting HR */}
@@ -871,8 +975,9 @@ export default function Health() {
                         : '-'}
                     </span>
                   </div>
-                  <button 
-                    className={styles.dashboardLogBtn} 
+                  <Button
+                    unstyled
+                    className={styles.dashboardLogBtn}
                     onClick={(e) => { 
                       e.stopPropagation()
                       setEditingMetric({ ...todayMetric, date: todayMetric.date || getTodayEST() })
@@ -881,7 +986,7 @@ export default function Health() {
                     }}
                   >
                     {todayMetric?.resting_heart_rate != null ? 'Edit' : 'Log'}
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -1125,7 +1230,8 @@ export default function Health() {
                 <div className={styles.syncCard}>
                   <div className={styles.syncHeader}>
                     <h3>Fitbit Sync</h3>
-                    <button
+                    <Button
+                      unstyled
                       className={styles.actionBtn}
                       onClick={() => {
                         if (handleSyncFitbit && typeof handleSyncFitbit === 'function') {
@@ -1135,7 +1241,7 @@ export default function Health() {
                       disabled={syncing}
                     >
                       {syncing ? 'Syncing...' : 'Sync Now'}
-                    </button>
+                    </Button>
                   </div>
                   {syncError && (
                     <div className={styles.syncError}>
@@ -1153,42 +1259,39 @@ export default function Health() {
             <div className={styles.metricsCard}>
               <div className={styles.sectionHeader}>
                 <h3>Health Metrics History</h3>
-                <select
+                <SelectField
                   className={styles.periodSelect}
                   value={selectedPeriod}
                   onChange={(e) => setSelectedPeriod(e.target.value)}
-                >
-                  <option value="week">Last 7 Days</option>
-                  <option value="month">Last 30 Days</option>
-                  <option value="90days">Last 90 Days</option>
-                </select>
+                  options={[
+                    { value: 'week', label: 'Last 7 Days' },
+                    { value: 'month', label: 'Last 30 Days' },
+                    { value: '90days', label: 'Last 90 Days' }
+                  ]}
+                />
               </div>
               {metrics.length === 0 ? (
-                <div className={styles.emptyState}>
-                  <p className={styles.emptyText}>No metrics recorded yet</p>
-                  <button
-                    className={styles.actionBtn}
-                    onClick={() => {
-                      const newMetric = {
-                        date: getTodayEST(),
-                        steps: null,
-                        sleep_time: null,
-                        sleep_score: null,
-                        hrv: null,
-                        calories: null,
-                        weight: null,
-                        resting_heart_rate: null,
-                        body_temp: null
-                      }
-                      setEditingMetric(newMetric)
-                      setEditingMetricType(null) // Show all fields
-                      setShowLogModal(true)
-                    }}
-                    style={{ marginTop: '12px' }}
-                  >
-                    Log Metrics
-                  </button>
-                </div>
+                <EmptyState
+                  title="No metrics recorded yet"
+                  message="Log your first metrics to see history and trends here."
+                  actionLabel="Log metrics"
+                  onAction={() => {
+                    const newMetric = {
+                      date: getTodayEST(),
+                      steps: null,
+                      sleep_time: null,
+                      sleep_score: null,
+                      hrv: null,
+                      calories: null,
+                      weight: null,
+                      resting_heart_rate: null,
+                      body_temp: null
+                    }
+                    setEditingMetric(newMetric)
+                    setEditingMetricType(null) // Show all fields
+                    setShowLogModal(true)
+                  }}
+                />
               ) : (
                 <div className={styles.historyCards}>
                   {metrics
@@ -1218,25 +1321,13 @@ export default function Health() {
                             setShowShareModal(true)
                           }}
                           onDelete={async () => {
-                            if (confirm(`Delete all health metrics for ${metric.date}?`)) {
-                              try {
-                                const { supabase } = await import('../lib/supabase')
-                                await supabase
-                                  .from('daily_metrics')
-                                  .delete()
-                                  .eq('user_id', user.id)
-                                  .eq('date', metric.date)
-                                await loadAllData()
-                                if (showToast && typeof showToast === 'function') {
-                                  showToast('Health metrics deleted', 'success')
-                                }
-                              } catch (error) {
-                                logError('Error deleting health metrics', error)
-                                if (showToast && typeof showToast === 'function') {
-                                  showToast('Failed to delete health metrics', 'error')
-                                }
-                              }
-                            }
+                            setConfirmState({
+                              open: true,
+                              title: 'Delete health metrics?',
+                              message: `Delete all health metrics for ${metric.date}?`,
+                              action: 'delete_metrics',
+                              payload: { date: metric.date }
+                            })
                           }}
                         />
                       )
@@ -1255,7 +1346,8 @@ export default function Health() {
               </div>
               <p className={styles.sectionNote}>Select a category to log</p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginTop: '16px' }}>
-                <button
+                <Button
+                  unstyled
                   className={styles.actionBtn}
                   onClick={() => {
                     setEditingMetricType('weight')
@@ -1265,8 +1357,9 @@ export default function Health() {
                   style={{ padding: '16px', textAlign: 'center' }}
                 >
                   Weight
-                </button>
-                <button
+                </Button>
+                <Button
+                  unstyled
                   className={styles.actionBtn}
                   onClick={() => {
                     setEditingMetricType('steps')
@@ -1276,8 +1369,9 @@ export default function Health() {
                   style={{ padding: '16px', textAlign: 'center' }}
                 >
                   Steps
-                </button>
-                <button
+                </Button>
+                <Button
+                  unstyled
                   className={styles.actionBtn}
                   onClick={() => {
                     setEditingMetricType('sleep')
@@ -1287,8 +1381,9 @@ export default function Health() {
                   style={{ padding: '16px', textAlign: 'center' }}
                 >
                   Sleep
-                </button>
-                <button
+                </Button>
+                <Button
+                  unstyled
                   className={styles.actionBtn}
                   onClick={() => {
                     setEditingMetricType('calories')
@@ -1298,8 +1393,9 @@ export default function Health() {
                   style={{ padding: '16px', textAlign: 'center' }}
                 >
                   Calories Burned
-                </button>
-                <button
+                </Button>
+                <Button
+                  unstyled
                   className={styles.actionBtn}
                   onClick={() => {
                     setEditingMetricType('hrv')
@@ -1309,8 +1405,9 @@ export default function Health() {
                   style={{ padding: '16px', textAlign: 'center' }}
                 >
                   HRV
-                </button>
-                <button
+                </Button>
+                <Button
+                  unstyled
                   className={styles.actionBtn}
                   onClick={() => {
                     setEditingMetricType('resting_heart_rate')
@@ -1320,8 +1417,9 @@ export default function Health() {
                   style={{ padding: '16px', textAlign: 'center' }}
                 >
                   Heart Rate
-                </button>
-                <button
+                </Button>
+                <Button
+                  unstyled
                   className={styles.actionBtn}
                   onClick={() => {
                     setEditingMetricType('body_temp')
@@ -1331,8 +1429,9 @@ export default function Health() {
                   style={{ padding: '16px', textAlign: 'center' }}
                 >
                   Body Temp
-                </button>
-                <button
+                </Button>
+                <Button
+                  unstyled
                   className={styles.actionBtn}
                   onClick={() => {
                     setEditingMetricType('sleep_score')
@@ -1342,7 +1441,7 @@ export default function Health() {
                   style={{ padding: '16px', textAlign: 'center' }}
                 >
                   Sleep Score
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -1355,7 +1454,8 @@ export default function Health() {
                 <div className={styles.sectionHeader}>
                   <h3>Health Goals</h3>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button
+                    <Button
+                      unstyled
                       className={styles.linkBtn}
                       onClick={async () => {
                         if (user) {
@@ -1376,13 +1476,14 @@ export default function Health() {
                       }}
                     >
                       Refresh
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      unstyled
                       className={styles.linkBtn}
                       onClick={() => navigate('/goals')}
                     >
                       View All →
-                    </button>
+                    </Button>
                   </div>
                 </div>
                 <div className={styles.goalsList}>
@@ -1413,14 +1514,12 @@ export default function Health() {
               </div>
             ) : (
               <div className={styles.metricsCard}>
-                <p className={styles.emptyText}>No health goals set yet</p>
-                <button
-                  className={styles.actionBtn}
-                  onClick={() => navigate('/goals')}
-                  style={{ marginTop: '12px' }}
-                >
-                  Create Goal
-                </button>
+                <EmptyState
+                  title="No health goals yet"
+                  message="Create your first goal to start tracking progress over time."
+                  actionLabel="Create goal"
+                  onAction={() => navigate('/goals')}
+                />
               </div>
             )}
           </div>
@@ -1442,153 +1541,142 @@ export default function Health() {
                   ? `Log ${editingMetricType === 'weight' ? 'Weight' : editingMetricType === 'steps' ? 'Steps' : editingMetricType === 'sleep' ? 'Sleep' : editingMetricType === 'calories' ? 'Calories Burned' : editingMetricType === 'hrv' ? 'HRV' : editingMetricType === 'resting_heart_rate' ? 'Heart Rate' : editingMetricType === 'body_temp' ? 'Body Temperature' : editingMetricType === 'sleep_score' ? 'Sleep Score' : editingMetricType}${editingMetric?.date ? ` - ${new Date(editingMetric.date + 'T12:00:00').toLocaleDateString()}` : ''}`
                   : editingMetric?.date ? `Log Health Metrics - ${new Date(editingMetric.date + 'T12:00:00').toLocaleDateString()}` : 'Log Health Metrics'}
               </h2>
-              <button onClick={() => {
-                setEditingMetric(null)
-                setEditingMetricType(null)
-                setShowLogModal(false)
-              }}>✕</button>
+              <Button
+                unstyled
+                onClick={() => {
+                  setEditingMetric(null)
+                  setEditingMetricType(null)
+                  setShowLogModal(false)
+                }}
+              >
+                ✕
+              </Button>
             </div>
             <div className={styles.editForm}>
-              <div className={styles.formGroup}>
-                <label>Date *</label>
-                <input
-                  type="date"
-                  value={(editingMetric && editingMetric.date) || (showLogModal ? getTodayEST() : getTodayEST())}
-                  onChange={(e) => {
-                    const currentMetric = editingMetric || {}
-                    setEditingMetric({ ...currentMetric, date: e.target.value })
-                  }}
-                  max={getTodayEST()}
-                />
-              </div>
+              <InputField
+                label="Date"
+                type="date"
+                required
+                value={(editingMetric && editingMetric.date) || (showLogModal ? getTodayEST() : getTodayEST())}
+                onChange={(e) => {
+                  const currentMetric = editingMetric || {}
+                  setEditingMetric({ ...currentMetric, date: e.target.value })
+                }}
+                max={getTodayEST()}
+              />
               {/* Only show the field being edited, or all fields if editingMetricType is null */}
               {(!editingMetricType || editingMetricType === 'weight') && (
-                <div className={styles.formGroup}>
-                  <label>Weight (lbs)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={(editingMetric && editingMetric.weight) || ''}
-                    onChange={(e) => {
-                      const currentMetric = editingMetric || {}
-                      setEditingMetric({ ...currentMetric, weight: parseFloat(e.target.value) || null })
-                    }}
-                    placeholder="Enter weight"
-                  />
-                </div>
+                <InputField
+                  label="Weight (lbs)"
+                  type="number"
+                  step="0.1"
+                  value={(editingMetric && editingMetric.weight) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, weight: parseFloat(e.target.value) || null })
+                  }}
+                  placeholder="Enter weight"
+                />
               )}
               {(!editingMetricType || editingMetricType === 'steps') && (
-                <div className={styles.formGroup}>
-                  <label>Steps</label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={(editingMetric && editingMetric.steps) || ''}
-                    onChange={(e) => {
-                      const currentMetric = editingMetric || {}
-                      const val = e.target.value
-                      setEditingMetric({ ...currentMetric, steps: val === '' ? null : Math.round(Number(val)) })
-                    }}
-                    placeholder="Enter steps"
-                  />
-                </div>
+                <InputField
+                  label="Steps"
+                  type="number"
+                  step="1"
+                  value={(editingMetric && editingMetric.steps) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    const val = e.target.value
+                    setEditingMetric({ ...currentMetric, steps: val === '' ? null : Math.round(Number(val)) })
+                  }}
+                  placeholder="Enter steps"
+                />
               )}
               {(!editingMetricType || editingMetricType === 'hrv') && (
-                <div className={styles.formGroup}>
-                  <label>HRV (ms)</label>
-                  <input
-                    type="number"
-                    value={(editingMetric && editingMetric.hrv) || ''}
-                    onChange={(e) => {
-                      const currentMetric = editingMetric || {}
-                      setEditingMetric({ ...currentMetric, hrv: parseInt(e.target.value) || null })
-                    }}
-                    placeholder="Enter HRV"
-                  />
-                </div>
+                <InputField
+                  label="HRV (ms)"
+                  type="number"
+                  value={(editingMetric && editingMetric.hrv) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, hrv: parseInt(e.target.value) || null })
+                  }}
+                  placeholder="Enter HRV"
+                />
               )}
               {(!editingMetricType || editingMetricType === 'calories') && (
-                <div className={styles.formGroup}>
-                  <label>Calories Burned</label>
-                  <input
-                    type="number"
-                    value={(editingMetric && (editingMetric.calories_burned || editingMetric.calories)) || ''}
-                    onChange={(e) => {
-                      const currentMetric = editingMetric || {}
-                      const val = parseInt(e.target.value) || null
-                      setEditingMetric({ ...currentMetric, calories_burned: val, calories: val })
-                    }}
-                    placeholder="Enter calories burned"
-                  />
-                </div>
+                <InputField
+                  label="Calories Burned"
+                  type="number"
+                  value={(editingMetric && (editingMetric.calories_burned || editingMetric.calories)) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    const val = parseInt(e.target.value) || null
+                    setEditingMetric({ ...currentMetric, calories_burned: val, calories: val })
+                  }}
+                  placeholder="Enter calories burned"
+                />
               )}
               {(!editingMetricType || editingMetricType === 'sleep') && (
-                <div className={styles.formGroup}>
-                  <label>Sleep Duration (minutes)</label>
-                  <input
-                    type="number"
-                    value={(editingMetric && editingMetric.sleep_time) || ''}
-                    onChange={(e) => {
-                      const currentMetric = editingMetric || {}
-                      setEditingMetric({ ...currentMetric, sleep_time: e.target.value })
-                    }}
-                    placeholder="Enter minutes (e.g., 480 for 8 hours)"
-                  />
-                </div>
+                <InputField
+                  label="Sleep Duration (minutes)"
+                  type="number"
+                  value={(editingMetric && editingMetric.sleep_time) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, sleep_time: e.target.value })
+                  }}
+                  placeholder="Enter minutes (e.g., 480 for 8 hours)"
+                />
               )}
               {(!editingMetricType || editingMetricType === 'sleep_score') && (
-                <div className={styles.formGroup}>
-                  <label>Sleep Score (0-100)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={(editingMetric && editingMetric.sleep_score) || ''}
-                    onChange={(e) => {
-                      const currentMetric = editingMetric || {}
-                      setEditingMetric({ ...currentMetric, sleep_score: parseInt(e.target.value) || null })
-                    }}
-                    placeholder="0-100"
-                  />
-                </div>
+                <InputField
+                  label="Sleep Score (0-100)"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={(editingMetric && editingMetric.sleep_score) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, sleep_score: parseInt(e.target.value) || null })
+                  }}
+                  placeholder="0-100"
+                />
               )}
               {(!editingMetricType || editingMetricType === 'resting_heart_rate') && (
-                <div className={styles.formGroup}>
-                  <label>Resting Heart Rate (bpm)</label>
-                  <input
-                    type="number"
-                    value={(editingMetric && editingMetric.resting_heart_rate) || ''}
-                    onChange={(e) => {
-                      const currentMetric = editingMetric || {}
-                      setEditingMetric({ ...currentMetric, resting_heart_rate: parseInt(e.target.value) || null })
-                    }}
-                    placeholder="Enter resting heart rate"
-                  />
-                </div>
+                <InputField
+                  label="Resting Heart Rate (bpm)"
+                  type="number"
+                  value={(editingMetric && editingMetric.resting_heart_rate) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, resting_heart_rate: parseInt(e.target.value) || null })
+                  }}
+                  placeholder="Enter resting heart rate"
+                />
               )}
               {(!editingMetricType || editingMetricType === 'body_temp') && (
-                <div className={styles.formGroup}>
-                  <label>Body Temperature (°F)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={(editingMetric && editingMetric.body_temp) || ''}
-                    onChange={(e) => {
-                      const currentMetric = editingMetric || {}
-                      setEditingMetric({ ...currentMetric, body_temp: parseFloat(e.target.value) || null })
-                    }}
-                    placeholder="Enter body temperature"
-                  />
-                </div>
+                <InputField
+                  label="Body Temperature (°F)"
+                  type="number"
+                  step="0.1"
+                  value={(editingMetric && editingMetric.body_temp) || ''}
+                  onChange={(e) => {
+                    const currentMetric = editingMetric || {}
+                    setEditingMetric({ ...currentMetric, body_temp: parseFloat(e.target.value) || null })
+                  }}
+                  placeholder="Enter body temperature"
+                />
               )}
               <div className={styles.formActions}>
-                <button 
-                  className={styles.saveBtn} 
+                <Button
+                  unstyled
+                  className={styles.saveBtn}
                   onClick={() => {
                     (async () => {
                       if (!user) return
                       if (!showToast || typeof showToast !== 'function') {
-                        console.error('showToast is not a function')
+                        // showToast should always be provided by hook; keep silent if not
                         return
                       }
                       const metricToSave = editingMetric || { date: getTodayEST() }
@@ -1686,7 +1774,7 @@ export default function Health() {
                         setEditingMetricType(null)
                         setShowLogModal(false)
                         if (showToast && typeof showToast === 'function') {
-                          showToast('Health metrics saved successfully!', 'success')
+                          showToast(result?.queued ? 'Saved locally — will sync when online.' : 'Health metrics saved successfully!', result?.queued ? 'info' : 'success', result?.queued ? 5000 : undefined)
                         }
                       } catch (e) {
                         // Only log unexpected errors (not table/column missing errors)
@@ -1707,7 +1795,7 @@ export default function Health() {
                             stack: e.stack
                           }
                           logError('Error saving metrics', errorDetails)
-                          console.error('Full error object:', e)
+                          logError('Health share error', e)
                           if (showToast && typeof showToast === 'function') {
                             const errorMessage = e.message || e.details || e.hint || 'Unknown error occurred'
                             showToast(`Failed to save metrics: ${errorMessage}. Please check console.`, 'error')
@@ -1723,9 +1811,10 @@ export default function Health() {
                   }}
                 >
                   Save
-                </button>
-                <button 
-                  className={styles.cancelBtn} 
+                </Button>
+                <Button
+                  unstyled
+                  className={styles.cancelBtn}
                   onClick={() => {
                     setEditingMetric(null)
                     setEditingMetricType(null)
@@ -1733,7 +1822,7 @@ export default function Health() {
                   }}
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -1751,6 +1840,40 @@ export default function Health() {
           onClose={hideToast}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.action?.startsWith('delete') ? 'Delete' : 'Confirm'}
+        cancelText="Cancel"
+        isDestructive={confirmState.action?.startsWith('delete')}
+        onClose={() => setConfirmState({ open: false, title: '', message: '', action: null, payload: null })}
+        onConfirm={async () => {
+          const action = confirmState.action
+          const payload = confirmState.payload
+          try {
+            if (!user) return
+            if (action === 'delete_metrics') {
+              const date = payload?.date
+              if (!date) return
+              const { supabase } = await import('../lib/supabase')
+              await supabase
+                .from('daily_metrics')
+                .delete()
+                .eq('user_id', user.id)
+                .eq('date', date)
+              await loadAllData()
+              showToast('Health metrics deleted', 'success')
+            }
+          } catch (error) {
+            logError('Error deleting health metrics', error)
+            showToast('Failed to delete health metrics', 'error')
+          } finally {
+            setConfirmState({ open: false, title: '', message: '', action: null, payload: null })
+          }
+        }}
+      />
 
       {showShareModal && (() => {
         // Use selected metric from history, or fallback to today's metric

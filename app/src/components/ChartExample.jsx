@@ -6,6 +6,7 @@
 import { useState } from 'react'
 import ChartCard from './ChartCard'
 import UnifiedChart from './UnifiedChart'
+import { logDebug } from '../utils/logger'
 
 export default function ChartExample() {
   const [selectedCategory, setSelectedCategory] = useState('Workouts')
@@ -83,16 +84,16 @@ export default function ChartExample() {
       insights={insights}
       primaryAction={{
         label: 'Log Workout',
-        onClick: () => console.log('Log workout clicked')
+        onClick: () => logDebug('ChartExample: log workout clicked')
       }}
       secondaryActions={[
         {
           label: 'View Details',
-          onClick: () => console.log('View details clicked')
+          onClick: () => logDebug('ChartExample: view details clicked')
         }
       ]}
-      onShare={() => console.log('Share clicked')}
-      onExport={() => console.log('Export clicked')}
+      onShare={() => logDebug('ChartExample: share clicked')}
+      onExport={() => logDebug('ChartExample: export clicked')}
       dataFreshness="2 hours ago"
     >
       <UnifiedChart
@@ -104,9 +105,7 @@ export default function ChartExample() {
         showValues={true}
         xAxisLabel="Date"
         yAxisLabel={selectedCategory}
-        onDateRangeChange={(range) => {
-          console.log('Date range changed:', range)
-        }}
+        onDateRangeChange={() => {}}
       />
     </ChartCard>
   )

@@ -3,6 +3,8 @@
  * Tracks share button clicks, platform usage, and share card generation
  */
 
+import { logWarn } from './logger'
+
 /**
  * Track share button click
  */
@@ -33,7 +35,7 @@ export function trackShareClick(platform, type, data) {
       })
     }
   } catch (error) {
-    console.error('Error tracking share click:', error)
+    logWarn('Error tracking share click', { message: error?.message })
   }
 }
 
@@ -54,7 +56,7 @@ export function trackShareCardGeneration(type, success) {
     const recent = existing.slice(-100)
     localStorage.setItem('share_analytics', JSON.stringify(recent))
   } catch (error) {
-    console.error('Error tracking share card generation:', error)
+    logWarn('Error tracking share card generation', { message: error?.message })
   }
 }
 
@@ -88,7 +90,7 @@ export function getShareAnalytics() {
     
     return summary
   } catch (error) {
-    console.error('Error getting share analytics:', error)
+    logWarn('Error getting share analytics', { message: error?.message })
     return {
       totalShares: 0,
       platformBreakdown: {},

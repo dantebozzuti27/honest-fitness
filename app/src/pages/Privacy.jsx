@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import HomeButton from '../components/HomeButton'
+import BackButton from '../components/BackButton'
 import styles from './Privacy.module.css'
 
 export default function Privacy() {
@@ -8,9 +9,7 @@ export default function Privacy() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate(-1)}>
-          ← Back
-        </button>
+        <BackButton fallbackPath="/" />
         <h1>Privacy Policy</h1>
         <HomeButton />
       </div>

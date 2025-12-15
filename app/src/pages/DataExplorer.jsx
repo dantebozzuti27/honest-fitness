@@ -12,11 +12,17 @@ import {
   getExtremes
 } from '../lib/dataAccess'
 import { getTodayEST } from '../utils/dateUtils'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
+import BackButton from '../components/BackButton'
+import Skeleton from '../components/Skeleton'
+import SelectField from '../components/SelectField'
 import styles from './DataExplorer.module.css'
 
 export default function DataExplorer() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState(null)
   const [filters, setFilters] = useState({
@@ -43,7 +49,7 @@ export default function DataExplorer() {
       setData(allData)
     } catch (error) {
       // Error loading data, will retry
-      alert('Failed to load data')
+      showToast('Failed to load data', 'error')
     } finally {
       setLoading(false)
     }
@@ -82,17 +88,23 @@ export default function DataExplorer() {
   if (loading) {
     return (
       <div className={styles.container}>
-        <div className={styles.loading}>Loading data...</div>
+        <div className={styles.loading} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Skeleton style={{ width: '45%', height: 16 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '70%', height: 16 }} />
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
     <div className={styles.container}>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={() => navigate('/')}>
-          ← Back
-        </button>
+        <BackButton fallbackPath="/" />
         <h1>Data Explorer</h1>
         <div style={{ width: 60 }} />
       </div>
@@ -120,42 +132,42 @@ export default function DataExplorer() {
             </label>
             <label>
               Period:
-              <select
+              <SelectField
                 value={filters.period}
                 onChange={(e) => setFilters({ ...filters, period: e.target.value })}
-              >
-                <option value="day">Daily</option>
-                <option value="week">Weekly</option>
-                <option value="month">Monthly</option>
-                <option value="year">Yearly</option>
-              </select>
+                options={[
+                  { value: 'day', label: 'Daily' },
+                  { value: 'week', label: 'Weekly' },
+                  { value: 'month', label: 'Monthly' },
+                  { value: 'year', label: 'Yearly' }
+                ]}
+              />
             </label>
           </div>
           <div className={styles.filterRow}>
             <label>
               Metric:
-              <select
+              <SelectField
                 value={selectedMetric}
                 onChange={(e) => setSelectedMetric(e.target.value)}
-              >
-                {availableMetrics.map(metric => (
-                  <option key={metric} value={metric}>
-                    {metric.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                  </option>
-                ))}
-              </select>
+                options={availableMetrics.map(metric => ({
+                  value: metric,
+                  label: metric.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+                }))}
+              />
             </label>
             <label>
               View:
-              <select
+              <SelectField
                 value={view}
                 onChange={(e) => setView(e.target.value)}
-              >
-                <option value="overview">Overview</option>
-                <option value="trends">Trends</option>
-                <option value="compare">Compare Periods</option>
-                <option value="extremes">Top/Bottom Days</option>
-              </select>
+                options={[
+                  { value: 'overview', label: 'Overview' },
+                  { value: 'trends', label: 'Trends' },
+                  { value: 'compare', label: 'Compare Periods' },
+                  { value: 'extremes', label: 'Top/Bottom Days' }
+                ]}
+              />
             </label>
           </div>
         </div>

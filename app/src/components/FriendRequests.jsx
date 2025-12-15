@@ -2,10 +2,13 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getPendingFriendRequests, acceptFriendRequest, declineFriendRequest } from '../lib/friendsDb'
 import { logError } from '../utils/logger'
+import { useToast } from '../hooks/useToast'
+import Toast from './Toast'
 import styles from './FriendRequests.module.css'
 
 export default function FriendRequests({ onClose, onRequestHandled }) {
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [handling, setHandling] = useState(null)
@@ -42,7 +45,7 @@ export default function FriendRequests({ onClose, onRequestHandled }) {
       window.dispatchEvent(new CustomEvent('feedUpdated'))
     } catch (error) {
       logError('Error accepting friend request', error)
-      alert('Failed to accept friend request. Please try again.')
+      showToast('Failed to accept friend request. Please try again.', 'error')
     } finally {
       setHandling(null)
     }
@@ -59,7 +62,7 @@ export default function FriendRequests({ onClose, onRequestHandled }) {
       }
     } catch (error) {
       logError('Error declining friend request', error)
-      alert('Failed to decline friend request. Please try again.')
+      showToast('Failed to decline friend request. Please try again.', 'error')
     } finally {
       setHandling(null)
     }
@@ -153,6 +156,8 @@ export default function FriendRequests({ onClose, onRequestHandled }) {
             </div>
           )}
         </div>
+
+        {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
       </div>
     </div>
   )

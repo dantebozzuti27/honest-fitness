@@ -93,6 +93,206 @@
   min-height: 0;
 }
 
+.todayHero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.primaryCtaCard {
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-card-shadow);
+  padding: var(--space-md);
+}
+
+.primaryCtaTop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.primaryCtaTitle {
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  letter-spacing: var(--letter-tight);
+}
+
+.primaryCtaMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.primaryCtaMetaItem {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.privateModeChip {
+  font-size: var(--text-sm);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--text-secondary);
+  font-weight: 800;
+}
+
+.privateModeChipOn {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: rgba(254, 202, 202, 0.95);
+}
+
+.primaryCtaButton {
+  width: 100%;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-weight: 800;
+  font-size: var(--text-md);
+  letter-spacing: var(--letter-wide);
+  background: var(--accent);
+  color: #000;
+  box-shadow: var(--shadow-lg);
+}
+
+.primaryCtaButton:active {
+  transform: scale(0.99);
+}
+
+.primaryCtaSubActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.secondaryCtaButton {
+  border-radius: var(--radius-md);
+  padding: 12px 12px;
+  font-weight: 700;
+  font-size: var(--text-sm);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.secondaryCtaButton:hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.todayRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.readinessCard,
+.planCard {
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-card-shadow);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cardLabel {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-weight: 700;
+  letter-spacing: var(--letter-wide);
+  text-transform: uppercase;
+}
+
+.readinessValueRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.readinessScore {
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: var(--letter-tight);
+}
+
+.readinessZone {
+  padding: 6px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+
+.zone_green {
+  color: rgba(167, 243, 208, 0.95);
+  border-color: rgba(16, 185, 129, 0.22);
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.zone_yellow {
+  color: rgba(253, 230, 138, 0.95);
+  border-color: rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.zone_red {
+  color: rgba(254, 202, 202, 0.95);
+  border-color: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.readinessEmpty {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-normal);
+}
+
+.readinessLink {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.planLine {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: var(--line-height-normal);
+}
+
+.planStrong {
+  font-weight: 800;
+}
+
+.planMuted {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 480px) {
+  .todayRow {
+    grid-template-columns: 1fr;
+  }
+}
+
 .feed {
   display: flex;
   flex-direction: column;

@@ -3,10 +3,15 @@ import { useAuth } from '../context/AuthContext'
 import { getUserProfile } from '../lib/friendsDb'
 import { generateInviteLink, getInviteText } from '../lib/friendsDb'
 import { shareNative } from '../utils/shareUtils'
+import { useToast } from '../hooks/useToast'
+import Toast from './Toast'
+import { logError } from '../utils/logger'
+import Button from './Button'
 import styles from './InviteFriends.module.css'
 
 export default function InviteFriends({ onClose }) {
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [loading, setLoading] = useState(false)
   const [inviteLink, setInviteLink] = useState('')
   const [inviteText, setInviteText] = useState('')
@@ -36,7 +41,7 @@ export default function InviteFriends({ onClose }) {
         setInviteText(text)
       }
     } catch (error) {
-      console.error('Error loading invite data:', error)
+      logError('Error loading invite data', error)
       // Fallback to userId if profile fails
       const link = generateInviteLink(user.id, null)
       const text = `Join me on Echelon Fitness! Add me as a friend: ${link}`
@@ -51,8 +56,8 @@ export default function InviteFriends({ onClose }) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (error) {
-      console.error('Failed to copy:', error)
-      alert('Failed to copy link. Please try again.')
+      logError('Failed to copy invite link', error)
+      showToast('Failed to copy link. Please try again.', 'error')
     }
   }
 
@@ -72,7 +77,7 @@ export default function InviteFriends({ onClose }) {
         window.location.href = smsUrl
       }
     } catch (error) {
-      console.error('Error sharing:', error)
+      logError('Error sharing invite', error)
       // Fallback: open SMS app
       const smsUrl = `sms:?body=${encodeURIComponent(inviteText)}`
       window.location.href = smsUrl
@@ -103,8 +108,9 @@ export default function InviteFriends({ onClose }) {
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Invite Friends</h2>
-          <button 
-            className={styles.closeBtn} 
+          <Button
+            unstyled
+            className={styles.closeBtn}
             onClick={() => {
               if (onClose && typeof onClose === 'function') {
                 onClose()
@@ -112,7 +118,7 @@ export default function InviteFriends({ onClose }) {
             }}
           >
             ×
-          </button>
+          </Button>
         </div>
         
         <div className={styles.content}>
@@ -129,7 +135,8 @@ export default function InviteFriends({ onClose }) {
                 readOnly
                 className={styles.linkInput}
               />
-              <button
+              <Button
+                unstyled
                 className={styles.copyBtn}
                 onClick={() => {
                   if (handleCopyLink && typeof handleCopyLink === 'function') {
@@ -137,15 +144,16 @@ export default function InviteFriends({ onClose }) {
                   }
                 }}
               >
-                {copied ? '✓ Copied!' : 'Copy'}
-              </button>
+                {copied ? 'Copied' : 'Copy'}
+              </Button>
             </div>
           </div>
 
           <div className={styles.shareSection}>
             <label className={styles.label}>Share via Text</label>
             <div className={styles.shareButtons}>
-              <button
+              <Button
+                unstyled
                 className={styles.shareBtn}
                 onClick={() => {
                   if (handleShareText && typeof handleShareText === 'function') {
@@ -154,9 +162,10 @@ export default function InviteFriends({ onClose }) {
                 }}
                 disabled={loading}
               >
-                {loading ? 'Opening...' : '📱 Share via Text'}
-              </button>
-              <button
+                {loading ? 'Opening...' : 'Share via Text'}
+              </Button>
+              <Button
+                unstyled
                 className={styles.shareBtn}
                 onClick={() => {
                   if (handleShareSMS && typeof handleShareSMS === 'function') {
@@ -164,8 +173,8 @@ export default function InviteFriends({ onClose }) {
                   }
                 }}
               >
-                📲 Open SMS
-              </button>
+                Open SMS
+              </Button>
             </div>
           </div>
 
@@ -176,6 +185,8 @@ export default function InviteFriends({ onClose }) {
             </div>
           </div>
         </div>
+
+        {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
       </div>
     </div>
   )

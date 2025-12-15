@@ -121,6 +121,17 @@
   justify-content: center;
 }
 
+.badge {
+  position: absolute;
+  top: 8px;
+  right: 22px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+
 .quickLogOverlay {
   position: fixed;
   top: 0;
@@ -145,8 +156,8 @@
   -webkit-backdrop-filter: var(--glass-blur-strong);
   border: 1px solid var(--glass-modal-border);
   border-radius: var(--radius-md);
-  padding: 3px;
-  width: 170px;
+  padding: 10px;
+  width: min(320px, calc(100vw - 24px));
   box-shadow: var(--glass-modal-shadow);
   z-index: var(--z-toast);
   animation: modalSlideUp 300ms ease-out;
@@ -215,11 +226,11 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  /* Total height: 3 buttons (32px each) + 2 gaps (2px each) = 100px */
+  /* height grows with content; keep it tight and readable */
 }
 
 .quickLogOption {
-  padding: 0;
+  padding: 10px 12px;
   /* Apple Liquid Glass Effect */
   background: var(--glass-card-bg);
   backdrop-filter: var(--glass-blur-soft);
@@ -227,21 +238,15 @@
   border: 1px solid var(--glass-card-border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-base);
-  text-align: center;
   letter-spacing: -0.01em;
-  height: 30px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-start;
   box-shadow: var(--glass-card-shadow);
   position: relative;
   flex-shrink: 0;
-  white-space: nowrap;
-  line-height: 1;
   margin: 0;
 }
 
@@ -269,9 +274,28 @@
   transform: translateY(0);
 }
 
-.quickLogOptionLabel {
+.quickLogOptionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   width: 100%;
   text-align: left;
+  min-width: 0;
+}
+
+.quickLogOptionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quickLogOptionDescription {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -330,15 +354,13 @@
 
   .quickLogMenu {
     bottom: calc(72px + env(safe-area-inset-bottom, 0px) + 4px);
-    padding: 3px;
-    width: 150px;
+    padding: 10px;
+    width: min(320px, calc(100vw - 24px));
     max-height: calc(100vh - 80px - env(safe-area-inset-bottom, 0px));
   }
   
   .quickLogOption {
-    padding: 0;
-    font-size: 12px;
-    height: 28px;
+    padding: 10px 12px;
   }
 }
 

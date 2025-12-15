@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { getOrCreateUserProfile } from '../lib/friendsDb'
+import { logError, logWarn } from '../utils/logger'
 
 const AuthContext = createContext({})
 
@@ -14,7 +15,7 @@ export function AuthProvider({ children }) {
     // Set a timeout to stop loading even if Supabase fails
     const timeoutId = setTimeout(() => {
       if (mounted && loading) {
-        console.warn('AuthContext: Loading timeout, proceeding without auth')
+        logWarn('AuthContext: Loading timeout, proceeding without auth')
         setLoading(false)
       }
     }, 5000) // 5 second timeout
@@ -24,7 +25,7 @@ export function AuthProvider({ children }) {
       .then(({ data: { session }, error }) => {
         if (!mounted) return
         if (error) {
-          console.warn('AuthContext: Session error (non-critical):', error)
+          logWarn('AuthContext: Session error (non-critical)', { message: error?.message, code: error?.code })
         }
         setUser(session?.user ?? null)
         setLoading(false)
@@ -32,7 +33,7 @@ export function AuthProvider({ children }) {
       })
       .catch((error) => {
         if (!mounted) return
-        console.warn('AuthContext: Session fetch failed (non-critical):', error)
+        logWarn('AuthContext: Session fetch failed (non-critical)', { message: error?.message, code: error?.code })
         setUser(null)
         setLoading(false)
         clearTimeout(timeoutId)
@@ -49,7 +50,7 @@ export function AuthProvider({ children }) {
       })
       subscription = data?.subscription
     } catch (error) {
-      console.warn('AuthContext: Failed to set up auth listener (non-critical):', error)
+      logWarn('AuthContext: Failed to set up auth listener (non-critical)', { message: error?.message, code: error?.code })
     }
 
     return () => {
@@ -79,7 +80,7 @@ export function AuthProvider({ children }) {
         })
       } catch (profileError) {
         // Log error but don't fail signup - profile can be created later
-        console.error('Error creating user profile:', profileError)
+        logError('Error creating user profile', profileError)
       }
     }
     

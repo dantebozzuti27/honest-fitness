@@ -7,12 +7,18 @@ import { getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/supabaseDb'
 import { getTodayEST, getYesterdayEST, formatDateShort } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
-import { logError } from '../utils/logger'
+import { logDebug, logError } from '../utils/logger'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import { chatWithAI } from '../lib/chatApi'
+import Skeleton from '../components/Skeleton'
+import SelectField from '../components/SelectField'
+import TextAreaField from '../components/TextAreaField'
+import InputField from '../components/InputField'
+import Button from '../components/Button'
 import styles from './Goals.module.css'
 
 const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
@@ -63,6 +69,7 @@ export default function Goals() {
   const [isDeleting, setIsDeleting] = useState(null)
   const [editingGoal, setEditingGoal] = useState(null)
   const [editGoal, setEditGoal] = useState(null)
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null, payload: null })
 
   useEffect(() => {
     if (user) {
@@ -124,45 +131,25 @@ export default function Goals() {
     // Show confirmation dialog
     const goalTypeLabel = getGoalTypes(newGoal.category).find(t => t.type === newGoal.type)?.label || newGoal.type
     const confirmMessage = `Create ${goalTypeLabel} goal with target of ${newGoal.targetValue} ${newGoal.unit || ''}?`
-    if (!window.confirm(confirmMessage)) {
-      return
+    const goalData = {
+      category: newGoal.category,
+      type: newGoal.category === 'custom' ? 'custom' : newGoal.type,
+      customName: newGoal.category === 'custom' ? newGoal.customName : null,
+      targetValue: Number(newGoal.targetValue),
+      unit: newGoal.unit || getGoalTypes(newGoal.category).find(t => t.type === newGoal.type)?.unit || '',
+      startDate: newGoal.startDate,
+      endDate: newGoal.endDate || null,
+      description: newGoal.description,
+      status: 'active'
     }
-    
-    setIsCreating(true)
 
-    try {
-      const goalData = {
-        category: newGoal.category,
-        type: newGoal.category === 'custom' ? 'custom' : newGoal.type,
-        customName: newGoal.category === 'custom' ? newGoal.customName : null,
-        targetValue: Number(newGoal.targetValue),
-        unit: newGoal.unit || getGoalTypes(newGoal.category).find(t => t.type === newGoal.type)?.unit || '',
-        startDate: newGoal.startDate,
-        endDate: newGoal.endDate || null,
-        description: newGoal.description,
-        status: 'active'
-      }
-
-      await saveGoalToSupabase(user.id, goalData)
-      await loadGoals()
-      setShowNewGoal(false)
-      setNewGoal({
-        category: 'fitness',
-        type: '',
-        customName: '',
-        targetValue: '',
-        unit: '',
-        startDate: getTodayEST(),
-        endDate: '',
-        description: ''
-      })
-      showToast('Goal created successfully!', 'success')
-    } catch (error) {
-      logError('Error creating goal', error)
-      showToast('Failed to create goal. Please try again.', 'error')
-    } finally {
-      setIsCreating(false)
-    }
+    setConfirmState({
+      open: true,
+      title: 'Create goal?',
+      message: confirmMessage,
+      action: 'create_goal',
+      payload: { goalData }
+    })
   }
 
   const handleEditGoal = (goal) => {
@@ -325,44 +312,37 @@ export default function Goals() {
 
   const handleArchiveGoal = async (goalId) => {
     if (!user || isArchiving) return
-    if (!window.confirm('Archive this goal?')) return
-
-    setIsArchiving(goalId)
-    try {
-      const { archiveGoal } = await import('../lib/goalsDb')
-      await archiveGoal(user.id, goalId)
-      await loadGoals()
-      showToast('Goal archived successfully', 'success')
-    } catch (error) {
-      logError('Error archiving goal', error)
-      showToast('Failed to archive goal. Please try again.', 'error')
-    } finally {
-      setIsArchiving(null)
-    }
+    setConfirmState({
+      open: true,
+      title: 'Archive goal?',
+      message: 'Archive this goal? You can still view it in past goals.',
+      action: 'archive_goal',
+      payload: { goalId }
+    })
   }
 
   const handleDeleteGoal = async (goalId) => {
     if (!user || isDeleting) return
-    if (!window.confirm('Delete this goal permanently?')) return
-
-    setIsDeleting(goalId)
-    try {
-      const { deleteGoalFromSupabase } = await import('../lib/goalsDb')
-      await deleteGoalFromSupabase(user.id, goalId)
-      await loadGoals()
-      showToast('Goal deleted successfully', 'success')
-    } catch (error) {
-      logError('Error deleting goal', error)
-      showToast('Failed to delete goal. Please try again.', 'error')
-    } finally {
-      setIsDeleting(null)
-    }
+    setConfirmState({
+      open: true,
+      title: 'Delete goal?',
+      message: 'Delete this goal permanently?',
+      action: 'delete_goal',
+      payload: { goalId }
+    })
   }
 
   if (loading) {
     return (
       <div className={styles.container}>
-        <div className={styles.loading}>Loading goals...</div>
+        <div className={styles.loading} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Skeleton style={{ width: '45%', height: 16 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '100%', height: 120 }} />
+            <Skeleton style={{ width: '70%', height: 16 }} />
+          </div>
+        </div>
       </div>
     )
   }
@@ -377,6 +357,63 @@ export default function Goals() {
           onClose={hideToast}
         />
       )}
+      <ConfirmDialog
+        isOpen={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.action?.startsWith('delete') ? 'Delete' : 'Confirm'}
+        cancelText="Cancel"
+        isDestructive={confirmState.action?.startsWith('delete')}
+        onClose={() => setConfirmState({ open: false, title: '', message: '', action: null, payload: null })}
+        onConfirm={async () => {
+          const action = confirmState.action
+          const payload = confirmState.payload
+          try {
+            if (!user) return
+            if (action === 'create_goal') {
+              setIsCreating(true)
+              await saveGoalToSupabase(user.id, payload?.goalData)
+              await loadGoals()
+              setShowNewGoal(false)
+              setNewGoal({
+                category: 'fitness',
+                type: '',
+                customName: '',
+                targetValue: '',
+                unit: '',
+                startDate: getTodayEST(),
+                endDate: '',
+                description: ''
+              })
+              showToast('Goal created successfully!', 'success')
+            } else if (action === 'archive_goal') {
+              const goalId = payload?.goalId
+              if (!goalId) return
+              setIsArchiving(goalId)
+              const { archiveGoal } = await import('../lib/goalsDb')
+              await archiveGoal(user.id, goalId)
+              await loadGoals()
+              showToast('Goal archived successfully', 'success')
+            } else if (action === 'delete_goal') {
+              const goalId = payload?.goalId
+              if (!goalId) return
+              setIsDeleting(goalId)
+              const { deleteGoalFromSupabase } = await import('../lib/goalsDb')
+              await deleteGoalFromSupabase(user.id, goalId)
+              await loadGoals()
+              showToast('Goal deleted successfully', 'success')
+            }
+          } catch (error) {
+            logError('Confirm action failed', error)
+            showToast('Action failed. Please try again.', 'error')
+          } finally {
+            setIsCreating(false)
+            setIsArchiving(null)
+            setIsDeleting(null)
+            setConfirmState({ open: false, title: '', message: '', action: null, payload: null })
+          }
+        }}
+      />
     <div className={styles.container}>
       <header className={styles.header}>
         <SideMenu />
@@ -418,12 +455,11 @@ export default function Goals() {
                     showToast('Refreshing goals...', 'info')
                     const { updateCategoryGoals } = await import('../lib/goalsDb')
                     const result = await updateCategoryGoals(user.id, activeCategory)
-                    console.log(`Goal update result for ${activeCategory}:`, result)
+                    logDebug('Goal update result', { category: activeCategory, updated: result?.updated })
                     await loadGoals()
                     showToast(`Goals refreshed! Updated ${result.updated} goals.`, 'success')
                   } catch (error) {
                     logError('Error refreshing goals', error)
-                    console.error('Full error:', error)
                     showToast(`Error: ${error.message || 'Failed to refresh goals. Check console for details.'}`, 'error')
                   }
                 }
@@ -450,7 +486,7 @@ export default function Goals() {
                       <div className={styles.editGoalForm}>
                         <div className={styles.formGroup}>
                           <label>Target Value</label>
-                          <input
+                          <InputField
                             type="number"
                             value={editGoal?.targetValue || ''}
                             onChange={(e) => setEditGoal({ ...editGoal, targetValue: e.target.value })}
@@ -459,7 +495,7 @@ export default function Goals() {
                         </div>
                         <div className={styles.formGroup}>
                           <label>Start Date</label>
-                          <input
+                          <InputField
                             type="date"
                             value={editGoal?.startDate || ''}
                             onChange={(e) => setEditGoal({ ...editGoal, startDate: e.target.value })}
@@ -467,7 +503,7 @@ export default function Goals() {
                         </div>
                         <div className={styles.formGroup}>
                           <label>End Date (optional)</label>
-                          <input
+                          <InputField
                             type="date"
                             value={editGoal?.endDate || ''}
                             onChange={(e) => setEditGoal({ ...editGoal, endDate: e.target.value })}
@@ -475,7 +511,7 @@ export default function Goals() {
                         </div>
                         <div className={styles.formGroup}>
                           <label>Description (optional)</label>
-                          <textarea
+                          <TextAreaField
                             value={editGoal?.description || ''}
                             onChange={(e) => setEditGoal({ ...editGoal, description: e.target.value })}
                             rows={3}
@@ -483,8 +519,9 @@ export default function Goals() {
                           />
                         </div>
                         <div className={styles.editActions}>
-                          <button 
-                            className={styles.cancelBtn} 
+                          <Button
+                            unstyled
+                            className={styles.cancelBtn}
                             onClick={() => {
                               if (handleCancelEdit && typeof handleCancelEdit === 'function') {
                                 handleCancelEdit()
@@ -492,9 +529,10 @@ export default function Goals() {
                             }}
                           >
                             Cancel
-                          </button>
-                          <button 
-                            className={styles.saveBtn} 
+                          </Button>
+                          <Button
+                            unstyled
+                            className={styles.saveBtn}
                             onClick={() => {
                               if (handleSaveEdit && typeof handleSaveEdit === 'function') {
                                 handleSaveEdit()
@@ -502,7 +540,7 @@ export default function Goals() {
                             }}
                           >
                             Save
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     ) : (
@@ -560,7 +598,7 @@ export default function Goals() {
                               {Math.round(progress)}%
                             </span>
                             {progress >= 100 && (
-                              <span className={styles.celebration}>🎉</span>
+                              <span className={styles.celebration}>Complete</span>
                             )}
                           </div>
                           {goal.end_date && (() => {
@@ -574,7 +612,7 @@ export default function Goals() {
                             return (
                               <div className={styles.progressRate}>
                                 {onTrack ? (
-                                  <span className={styles.onTrack}>✓ On track</span>
+                                  <span className={styles.onTrack}>On track</span>
                                 ) : (
                                   <span className={styles.offTrack}>
                                     {daysRemaining > 0 ? `${daysRemaining} days left` : 'Time expired'}
@@ -647,25 +685,26 @@ export default function Goals() {
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>New Goal - {newGoal.category.charAt(0).toUpperCase() + newGoal.category.slice(1)}</h2>
-              <button onClick={() => setShowNewGoal(false)}>✕</button>
+              <Button unstyled onClick={() => setShowNewGoal(false)}>✕</Button>
             </div>
             <div className={styles.modalContent}>
               <div className={styles.formGroup}>
                 <label>Category</label>
-                <select
+                <SelectField
                   value={newGoal.category}
                   onChange={(e) => {
                     setNewGoal({ ...newGoal, category: e.target.value, type: '', unit: '' })
                   }}
-                >
-                  <option value="fitness">Fitness</option>
-                  <option value="health">Health</option>
-                  <option value="nutrition">Nutrition</option>
-                </select>
+                  options={[
+                    { value: 'fitness', label: 'Fitness' },
+                    { value: 'health', label: 'Health' },
+                    { value: 'nutrition', label: 'Nutrition' }
+                  ]}
+                />
               </div>
               <div className={styles.formGroup}>
                 <label>Goal Type</label>
-                <select
+                <SelectField
                   value={newGoal.type}
                   onChange={(e) => {
                     const selected = getGoalTypes(newGoal.category).find(t => t.type === e.target.value)
@@ -676,16 +715,15 @@ export default function Goals() {
                     })
                   }}
                   disabled={!newGoal.category}
-                >
-                  <option value="">Select goal type</option>
-                  {getGoalTypes(newGoal.category).map(gt => (
-                    <option key={gt.type} value={gt.type}>{gt.label}</option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: 'Select goal type' },
+                    ...getGoalTypes(newGoal.category).map(gt => ({ value: gt.type, label: gt.label }))
+                  ]}
+                />
               </div>
               <div className={styles.formGroup}>
                 <label>Target Value</label>
-                <input
+                <InputField
                   type="number"
                   value={newGoal.targetValue}
                   onChange={(e) => setNewGoal({ ...newGoal, targetValue: e.target.value })}
@@ -694,7 +732,7 @@ export default function Goals() {
               </div>
               <div className={styles.formGroup}>
                 <label>Start Date</label>
-                <input
+                <InputField
                   type="date"
                   value={newGoal.startDate}
                   onChange={(e) => setNewGoal({ ...newGoal, startDate: e.target.value })}
@@ -702,7 +740,7 @@ export default function Goals() {
               </div>
               <div className={styles.formGroup}>
                 <label>End Date (optional)</label>
-                <input
+                <InputField
                   type="date"
                   value={newGoal.endDate}
                   onChange={(e) => setNewGoal({ ...newGoal, endDate: e.target.value })}
@@ -710,7 +748,7 @@ export default function Goals() {
               </div>
               <div className={styles.formGroup}>
                 <label>Description (optional)</label>
-                <textarea
+                <TextAreaField
                   value={newGoal.description}
                   onChange={(e) => setNewGoal({ ...newGoal, description: e.target.value })}
                   rows={3}
@@ -718,10 +756,11 @@ export default function Goals() {
                 />
               </div>
               <div className={styles.modalActions}>
-                <button className={styles.cancelBtn} onClick={() => setShowNewGoal(false)}>
+                <Button unstyled className={styles.cancelBtn} onClick={() => setShowNewGoal(false)}>
                   Cancel
-                </button>
-                <button 
+                </Button>
+                <Button
+                  unstyled
                   className={styles.saveBtn} 
                   onClick={() => {
                     if (handleCreateGoal && typeof handleCreateGoal === 'function') {
@@ -730,7 +769,7 @@ export default function Goals() {
                   }}
                 >
                   Create Goal
-                </button>
+                </Button>
               </div>
             </div>
           </div>

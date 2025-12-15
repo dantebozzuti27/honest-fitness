@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../context/AuthContext'
 import { getUserPreferences, saveUserPreferences } from '../lib/supabaseDb'
+import { logError } from '../utils/logger'
 import styles from './Onboarding.module.css'
 
 export default function Onboarding({ onComplete }) {
@@ -24,7 +25,7 @@ export default function Onboarding({ onComplete }) {
       })
       onComplete?.()
     } catch (error) {
-      console.error('Error saving onboarding completion:', error)
+      logError('Error saving onboarding completion', error)
       onComplete?.()
     } finally {
       setSkipping(false)
@@ -70,7 +71,7 @@ export default function Onboarding({ onComplete }) {
         <div className={styles.content}>
           {step === 1 && (
             <div className={styles.step}>
-              <div className={styles.icon}>🏋️</div>
+              <div className={styles.icon} aria-hidden="true">Train</div>
               <h3>Track Your Workouts</h3>
               <p>Log exercises, sets, reps, and weights. Build your fitness history and see your progress over time.</p>
               <button className={styles.actionBtn} onClick={() => handleAction('workout')}>
@@ -81,7 +82,7 @@ export default function Onboarding({ onComplete }) {
 
           {step === 2 && (
             <div className={styles.step}>
-              <div className={styles.icon}>⌚</div>
+              <div className={styles.icon} aria-hidden="true">Sync</div>
               <h3>Connect Your Wearables</h3>
               <p>Sync data from Fitbit, Oura, or Apple Watch to automatically track your health metrics.</p>
               <button className={styles.actionBtn} onClick={() => handleAction('wearable')}>
@@ -92,7 +93,7 @@ export default function Onboarding({ onComplete }) {
 
           {step === 3 && (
             <div className={styles.step}>
-              <div className={styles.icon}>🎯</div>
+              <div className={styles.icon} aria-hidden="true">Goals</div>
               <h3>Set Your Goals</h3>
               <p>Create fitness, nutrition, and health goals. Track your progress and stay motivated.</p>
               <button className={styles.actionBtn} onClick={() => handleAction('goal')}>

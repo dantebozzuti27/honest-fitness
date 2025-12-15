@@ -159,6 +159,46 @@
   gap: var(--space-sm);
 }
 
+.visibilityRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.visibilityLabel {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: var(--letter-wide);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.visibilityToggle {
+  display: flex;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.visibilityBtn {
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.visibilityActive {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text-primary);
+}
+
 .shareBtn {
   display: flex;
   align-items: center;

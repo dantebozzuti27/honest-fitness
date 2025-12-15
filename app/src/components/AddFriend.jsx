@@ -3,15 +3,22 @@ import { useAuth } from '../context/AuthContext'
 import { searchUsers, sendFriendRequest, getFriendshipStatus, getUserProfile } from '../lib/friendsDb'
 import { useToast } from '../hooks/useToast'
 import { logError } from '../utils/logger'
+import Button from './Button'
 import styles from './AddFriend.module.css'
 
-export default function AddFriend({ onClose, onFriendAdded }) {
+export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = '' }) {
   const { user } = useAuth()
   const { showToast } = useToast()
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [friendStatuses, setFriendStatuses] = useState({})
+
+  useEffect(() => {
+    if (typeof initialSearchTerm === 'string' && initialSearchTerm.trim()) {
+      setSearchTerm(initialSearchTerm.trim())
+    }
+  }, [initialSearchTerm])
 
   useEffect(() => {
     if (searchTerm.length >= 2) {
@@ -110,8 +117,9 @@ export default function AddFriend({ onClose, onFriendAdded }) {
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Add Friend</h2>
-          <button 
-            className={styles.closeBtn} 
+          <Button
+            unstyled
+            className={styles.closeBtn}
             onClick={() => {
               if (onClose && typeof onClose === 'function') {
                 onClose()
@@ -120,7 +128,7 @@ export default function AddFriend({ onClose, onFriendAdded }) {
             aria-label="Close"
           >
             ×
-          </button>
+          </Button>
         </div>
         
         <div className={styles.searchSection}>
@@ -137,13 +145,9 @@ export default function AddFriend({ onClose, onFriendAdded }) {
                 }
               }}
             />
-            <button
-              className={styles.searchBtn}
-              onClick={handleSearchByUsername}
-              disabled={searching || !searchTerm.trim()}
-            >
+            <Button unstyled className={styles.searchBtn} onClick={handleSearchByUsername} disabled={searching || !searchTerm.trim()}>
               Search
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -195,12 +199,9 @@ export default function AddFriend({ onClose, onFriendAdded }) {
                     ) : isBlocked ? (
                       <span className={styles.blockedStatus}>Blocked</span>
                     ) : (
-                      <button
-                        className={styles.addBtn}
-                        onClick={() => handleAddFriend(user.user_id)}
-                      >
+                      <Button unstyled className={styles.addBtn} onClick={() => handleAddFriend(user.user_id)}>
                         Add Friend
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>

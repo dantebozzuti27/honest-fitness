@@ -4,9 +4,10 @@
  */
 
 import { supabase } from './supabase'
-import { logError, logDebug } from '../utils/logger'
+import { logError, logDebug, logWarn } from '../utils/logger'
 import { saveEnrichedData } from './dataEnrichment'
 import { trackEvent } from './eventTracking'
+import { enqueueOutboxItem } from './syncOutbox'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -18,7 +19,8 @@ const safeLogDebug = logDebug || (() => {})
 // This function is ONLY called when the user manually adds a meal.
 // NEVER call this function automatically or with dummy/test data.
 
-export async function saveMealToSupabase(userId, date, meal) {
+export async function saveMealToSupabase(userId, date, meal, options = {}) {
+  const allowOutbox = options?.allowOutbox !== false
   // Data pipeline: Validate -> Clean -> Save -> Enrich
   
   // Step 1: Validate data (dynamic import for code-splitting)
@@ -83,13 +85,18 @@ export async function saveMealToSupabase(userId, date, meal) {
   // For now, we'll use daily_metrics and store meals as JSON
   // In production, you'd want a separate meals table
   
-  // First, get existing data for the date from health_metrics
-  const { data: existing, error: fetchError } = await supabase
-    .from('health_metrics')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('date', date)
-    .maybeSingle()
+  try {
+    // First, get existing data for the date from health_metrics
+    const { data: existing, error: fetchError } = await supabase
+      .from('health_metrics')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .maybeSingle()
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      throw fetchError
+    }
   
   let meals = []
   let totalCalories = 0
@@ -189,7 +196,7 @@ export async function saveMealToSupabase(userId, date, meal) {
       .single()
     
     if (error) {
-      console.error('Error saving meal to Supabase:', error)
+      logError('Error saving meal to Supabase', { code: error.code, message: error.message })
       throw error
     }
     
@@ -214,6 +221,12 @@ export async function saveMealToSupabase(userId, date, meal) {
     
     return data
   } catch (err) {
+    // If we can't reach Supabase (offline / transient), queue for eventual sync.
+    logWarn('Meal save failed; queuing for sync', { message: err?.message, code: err?.code })
+    if (allowOutbox && userId) {
+      enqueueOutboxItem({ userId, kind: 'meal', payload: { date, meal } })
+      return { queued: true }
+    }
     logError('Error saving meal to Supabase', err)
     throw err
   }
@@ -231,8 +244,7 @@ export async function getMealsFromSupabase(userId, date) {
     .maybeSingle()
   
   if (error && error.code !== 'PGRST116') {
-    console.error('Error getting meals:', error)
-    logError('Error getting meals', error)
+    logError('Error getting meals', { code: error.code, message: error.message })
     // Return empty data instead of throwing
     return { meals: [], calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, water: 0 }
   }
@@ -255,11 +267,11 @@ export async function getMealsFromSupabase(userId, date) {
       }
       // Ensure meals is an array
       if (!Array.isArray(meals)) {
-        console.warn('Meals is not an array:', meals, 'Type:', typeof meals)
+        logWarn('Meals is not an array', { type: typeof meals })
         meals = []
       }
     } catch (e) {
-      console.error('Error parsing meals:', e, 'Raw data:', data.meals)
+      logWarn('Error parsing meals', { message: e?.message })
       meals = []
     }
   }
@@ -464,11 +476,11 @@ export async function getNutritionSettingsFromSupabase(userId) {
     if (error) {
       // If column doesn't exist, return null instead of throwing
       if (error.code === '42703' || error.message?.includes('does not exist')) {
-        console.warn('nutrition_settings column does not exist yet. Run migration.')
+        logWarn('nutrition_settings column does not exist yet. Run migration.')
         return null
       }
       if (error.code !== 'PGRST116') {
-        console.error('Error getting nutrition settings:', error)
+        logError('Error getting nutrition settings', { code: error?.code, message: error?.message })
         return null
       }
     }
@@ -523,7 +535,7 @@ export async function getWeeklyMealPlanFromSupabase(userId) {
     if (error) {
       // If column doesn't exist, return null instead of throwing
       if (error.code === '42703' || error.message?.includes('does not exist')) {
-        console.warn('weekly_meal_plan column does not exist yet. Run migration.')
+        logWarn('weekly_meal_plan column does not exist yet. Run migration.')
         return null
       }
       if (error.code !== 'PGRST116') {

@@ -1,5 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { debounce } from '../utils/debounce'
+import Button from './Button'
+import InputField from './InputField'
+import SelectField from './SelectField'
 import styles from './ExercisePicker.module.css'
 
 export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
@@ -10,187 +13,131 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
   useEffect(() => {
     debouncedSetSearch(search)
   }, [search, debouncedSetSearch])
-  const [bodyPartFilter, setBodyPartFilter] = useState('all')
-  const [categoryFilter, setCategoryFilter] = useState('all')
-  const [equipmentFilter, setEquipmentFilter] = useState('all')
   const [showCustom, setShowCustom] = useState(false)
   const [customName, setCustomName] = useState('')
   const [customCategory, setCustomCategory] = useState('Strength')
 
-  const bodyParts = useMemo(() => {
-    if (!exercises || !Array.isArray(exercises)) return []
-    const parts = [...new Set(exercises.map(e => e.bodyPart).filter(Boolean))]
-    return parts.sort()
-  }, [exercises])
+  const normalize = (v) => (v || '').toString().toLowerCase()
 
-  const categories = useMemo(() => {
-    if (!exercises || !Array.isArray(exercises)) return []
-    const cats = [...new Set(exercises.map(e => e.category).filter(Boolean))]
-    return cats.sort()
-  }, [exercises])
+  const expandQueryAliases = (q) => {
+    // Light aliases for common shorthand
+    // Keep this small and predictable; we can expand later.
+    return q
+      .replace(/\bdb\b/g, 'dumbbell')
+      .replace(/\bkbs?\b/g, 'kettlebell')
+      .replace(/\bbb\b/g, 'barbell')
+      .replace(/\bsmith\b/g, 'smith machine')
+  }
 
-  const equipments = useMemo(() => {
-    if (!exercises || !Array.isArray(exercises)) return []
-    const equips = [...new Set(exercises.map(e => e.equipment).filter(Boolean))]
-    return equips.sort()
-  }, [exercises])
+  const tokenize = (q) => {
+    const cleaned = expandQueryAliases(normalize(q))
+      .replace(/[_/.,()-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!cleaned) return []
+    return cleaned.split(' ').filter(Boolean)
+  }
 
   const filtered = useMemo(() => {
     if (!exercises || !Array.isArray(exercises)) return []
-    return exercises.filter(ex => {
-      if (!ex || !ex.name) return false
-      const matchesSearch = ex.name.toLowerCase().includes(debouncedSearch.toLowerCase())
-      const matchesBodyPart = bodyPartFilter === 'all' || ex.bodyPart === bodyPartFilter
-      const matchesCategory = categoryFilter === 'all' || ex.category === categoryFilter
-      const matchesEquipment = equipmentFilter === 'all' || ex.equipment === equipmentFilter
-      return matchesSearch && matchesBodyPart && matchesCategory && matchesEquipment
-    })
-  }, [exercises, debouncedSearch, bodyPartFilter, categoryFilter, equipmentFilter])
 
-  const grouped = useMemo(() => {
-    const groups = {}
-    filtered.forEach(ex => {
-      const key = ex.bodyPart || 'Other'
-      if (!groups[key]) groups[key] = []
-      groups[key].push(ex)
-    })
-    return groups
-  }, [filtered])
+    const tokens = tokenize(debouncedSearch)
+    const matchesQuery = (ex) => {
+      if (tokens.length === 0) return true
+      const haystack = [
+        ex.name,
+        ex.bodyPart,
+        ex.category,
+        ex.equipment
+      ].map(normalize).join(' ')
+      // Token-based search: user can type "lat cable machine" and it matches regardless of word order/spacing.
+      return tokens.every(t => haystack.includes(t))
+    }
+
+    return exercises
+      .filter(ex => ex && ex.name && matchesQuery(ex))
+      .slice()
+      .sort((a, b) => normalize(a.name).localeCompare(normalize(b.name)))
+  }, [exercises, debouncedSearch])
 
   return (
     <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.header}>
           <h2>Add Exercise</h2>
-          <button className={styles.closeBtn} onClick={onClose}>✕</button>
+          <Button unstyled className={styles.closeBtn} onClick={onClose}>✕</Button>
         </div>
 
         <div className={styles.search}>
-          <input
-            type="text"
-            placeholder="Search exercises..."
+          <InputField
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search exercises..."
             autoFocus
           />
-        </div>
-
-        <div className={styles.filterSection}>
-          <label className={styles.filterLabel}>Body Part</label>
-          <div className={styles.filters}>
-            <button
-              className={`${styles.filterBtn} ${bodyPartFilter === 'all' ? styles.active : ''}`}
-              onClick={() => setBodyPartFilter('all')}
-            >
-              All
-            </button>
-            {bodyParts.map(part => (
-              <button
-                key={part}
-                className={`${styles.filterBtn} ${bodyPartFilter === part ? styles.active : ''}`}
-                onClick={() => setBodyPartFilter(part)}
-              >
-                {part}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className={styles.filterSection}>
-          <label className={styles.filterLabel}>Category</label>
-          <div className={styles.filters}>
-            <button
-              className={`${styles.filterBtn} ${categoryFilter === 'all' ? styles.active : ''}`}
-              onClick={() => setCategoryFilter('all')}
-            >
-              All
-            </button>
-            {categories.map(cat => (
-              <button
-                key={cat}
-                className={`${styles.filterBtn} ${categoryFilter === cat ? styles.active : ''}`}
-                onClick={() => setCategoryFilter(cat)}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className={styles.filterSection}>
-          <label className={styles.filterLabel}>Equipment</label>
-          <div className={styles.filters}>
-            <button
-              className={`${styles.filterBtn} ${equipmentFilter === 'all' ? styles.active : ''}`}
-              onClick={() => setEquipmentFilter('all')}
-            >
-              All
-            </button>
-            {equipments.map(equip => (
-              <button
-                key={equip}
-                className={`${styles.filterBtn} ${equipmentFilter === equip ? styles.active : ''}`}
-                onClick={() => setEquipmentFilter(equip)}
-              >
-                {equip}
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className={styles.list}>
           {!showCustom ? (
             <>
-              <button className={styles.customBtn} onClick={() => setShowCustom(true)}>
+              <Button unstyled className={styles.customBtn} onClick={() => setShowCustom(true)}>
                 + Add Custom Exercise
-              </button>
-              {Object.entries(grouped).map(([group, exs]) => (
-                <div key={group} className={styles.group}>
-                  <h3 className={styles.groupTitle}>{group}</h3>
-                  {exs.map(ex => (
-                    <button
-                      key={ex.id}
+              </Button>
+
+              {filtered.length === 0 ? (
+                <div className={styles.emptyState}>
+                  <div className={styles.emptyTitle}>No matches</div>
+                  <div className={styles.emptySubtitle}>Try a different search term.</div>
+                </div>
+              ) : (
+                filtered.map(ex => {
+                  const metaParts = [ex.bodyPart, ex.category, ex.equipment].filter(Boolean)
+                  return (
+                    <Button
+                      unstyled
+                      key={ex.id || ex.name}
                       className={styles.exerciseBtn}
                       onClick={() => onSelect(ex)}
                     >
                       <span className={styles.exerciseName}>{ex.name}</span>
-                      <span className={styles.exerciseEquip}>{ex.equipment}</span>
-                    </button>
-                  ))}
-                </div>
-              ))}
+                      <span className={styles.exerciseMeta}>{metaParts.join(' • ')}</span>
+                    </Button>
+                  )
+                })
+              )}
             </>
           ) : (
             <div className={styles.customForm}>
               <h3 className={styles.groupTitle}>Custom Exercise</h3>
-              <input
-                type="text"
-                placeholder="Exercise name"
+              <InputField
                 value={customName}
                 onChange={(e) => setCustomName(e.target.value)}
+                placeholder="Exercise name"
                 className={styles.customInput}
                 autoFocus
               />
               <div className={styles.customCategoryRow}>
                 <label>Category:</label>
-                <select 
-                  value={customCategory} 
+                <SelectField
+                  value={customCategory}
                   onChange={(e) => setCustomCategory(e.target.value)}
+                  options={[
+                    { value: 'Strength', label: 'Strength' },
+                    { value: 'Cardio', label: 'Cardio' },
+                    { value: 'Recovery', label: 'Recovery' }
+                  ]}
                   className={styles.customSelect}
-                >
-                  <option value="Strength">Strength</option>
-                  <option value="Cardio">Cardio</option>
-                  <option value="Recovery">Recovery</option>
-                </select>
+                />
               </div>
               <div className={styles.customActions}>
-                <button className={styles.customCancel} onClick={() => {
+                <Button unstyled className={styles.customCancel} onClick={() => {
                   setShowCustom(false)
                   setCustomName('')
                 }}>
                   Cancel
-                </button>
-                <button 
+                </Button>
+                <Button
+                  unstyled
                   className={styles.customAdd}
                   disabled={!customName.trim()}
                   onClick={() => {
@@ -204,7 +151,7 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
                   }}
                 >
                   Add
-                </button>
+                </Button>
               </div>
             </div>
           )}

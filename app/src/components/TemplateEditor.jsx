@@ -4,6 +4,8 @@ import ExercisePicker from './ExercisePicker'
 import { useToast } from '../hooks/useToast'
 import Toast from './Toast'
 import ConfirmDialog from './ConfirmDialog'
+import Button from './Button'
+import InputField from './InputField'
 import styles from './TemplateEditor.module.css'
 
 export default function TemplateEditor({ templates, onClose, onSave, onDelete, onEdit, editingTemplate: initialEditingTemplate }) {
@@ -123,14 +125,14 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Templates</h2>
-          <button onClick={onClose}>✕</button>
+          <Button unstyled onClick={onClose}>✕</Button>
         </div>
         
         {!editingTemplate ? (
           <div className={styles.templatesList}>
-            <button className={styles.newTemplateBtn} onClick={handleNewTemplate}>
+            <Button unstyled className={styles.newTemplateBtn} onClick={handleNewTemplate}>
               + New Template
-            </button>
+            </Button>
             {templates.length === 0 ? (
               <p className={styles.emptyText}>No templates yet. Create your first one!</p>
             ) : (
@@ -141,7 +143,8 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
                     <span className={styles.templateCardCount}>{template.exercises.length} exercises</span>
                   </div>
                   <div className={styles.templateActions}>
-                    <button
+                    <Button
+                      unstyled
                       className={styles.editTemplateBtn}
                       onClick={() => {
                         setEditingTemplate(template)
@@ -149,15 +152,16 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
                       }}
                     >
                       Edit
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      unstyled
                       className={styles.deleteTemplateBtn}
                       onClick={() => {
                         setDeleteConfirm({ open: true, id: template.id, name: template.name })
                       }}
                     >
                       Delete
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))
@@ -167,13 +171,12 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
           <>
             <div className={styles.editHeader}>
               <h2>{editingTemplate && templates.find(t => t.id === editingTemplate.id) ? 'Edit Template' : 'New Template'}</h2>
-              <button onClick={handleCancel}>← Back</button>
+              <Button unstyled onClick={handleCancel}>← Back</Button>
             </div>
             <div className={styles.content}>
               <div className={styles.formGroup}>
-                <label>Template Name</label>
-                <input
-                  type="text"
+                <InputField
+                  label="Template Name"
                   value={formData.name}
                   onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="e.g., Push Day, Leg Day"
@@ -183,12 +186,13 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
               <div className={styles.exercisesSection}>
                 <div className={styles.exercisesHeader}>
                   <label>Exercises</label>
-                  <button
+                  <Button
+                    unstyled
                     className={styles.addExerciseBtn}
                     onClick={() => setShowPicker(true)}
                   >
                     + Add Exercise
-                  </button>
+                  </Button>
                 </div>
                 
                 <div className={styles.exercisesList}>
@@ -199,26 +203,29 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
                       <div key={index} className={styles.exerciseItem}>
                         <span className={styles.exerciseName}>{exName}</span>
                         <div className={styles.exerciseActions}>
-                          <button
+                          <Button
+                            unstyled
                             className={styles.moveBtn}
                             onClick={() => handleMoveExercise(index, 'up')}
                             disabled={index === 0}
                           >
                             ↑
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            unstyled
                             className={styles.moveBtn}
                             onClick={() => handleMoveExercise(index, 'down')}
                             disabled={index === formData.exercises.length - 1}
                           >
                             ↓
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            unstyled
                             className={styles.removeBtn}
                             onClick={() => handleRemoveExercise(index)}
                           >
                             ✕
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     ))
@@ -228,12 +235,12 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
             </div>
 
             <div className={styles.footer}>
-              <button className={styles.cancelBtn} onClick={handleCancel}>
+              <Button unstyled className={styles.cancelBtn} onClick={handleCancel}>
                 Cancel
-              </button>
-              <button className={styles.saveBtn} onClick={handleSave}>
+              </Button>
+              <Button unstyled className={styles.saveBtn} onClick={handleSave}>
                 {editingTemplate && templates.find(t => t.id === editingTemplate.id) ? 'Update' : 'Create'} Template
-              </button>
+              </Button>
             </div>
           </>
         )}

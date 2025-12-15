@@ -1,4 +1,6 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
+import { useToast } from '../hooks/useToast'
+import Toast from './Toast'
 import styles from './BarChart.module.css'
 
 export default function BarChart({ 
@@ -14,6 +16,7 @@ export default function BarChart({
   dateData = null, // Full date data object for detail view
   chartTitle = '' // Title for sharing
 }) {
+  const { toast, showToast, hideToast } = useToast()
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState(0)
   const [selectedBar, setSelectedBar] = useState(null)
@@ -577,7 +580,7 @@ export default function BarChart({
                           )
                         }
                       } catch (error) {
-                        alert('Failed to share chart. Please try again.')
+                        showToast('Failed to share chart. Please try again.', 'error')
                       }
                     }
                   }}
@@ -598,6 +601,8 @@ export default function BarChart({
           </div>
         </>
       )}
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
     </>
   )
 }

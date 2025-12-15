@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import InputField from '../components/InputField'
+import Button from '../components/Button'
 import styles from './Login.module.css'
 
 export default function Login() {
@@ -41,33 +43,32 @@ export default function Login() {
         <p className={styles.subtitle}>{isSignUp ? 'Create Account' : 'Welcome Back'}</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <input
+          <InputField
             type="email"
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className={styles.input}
           />
-          <input
+          <InputField
             type="password"
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={6}
-            className={styles.input}
           />
 
           {error && <p className={styles.error}>{error}</p>}
           {message && <p className={styles.message}>{message}</p>}
 
-          <button type="submit" className={styles.submitBtn} disabled={loading}>
+          <Button type="submit" className={styles.submitBtn} disabled={loading} loading={loading}>
             {loading ? 'Loading...' : isSignUp ? 'Sign Up' : 'Sign In'}
-          </button>
+          </Button>
         </form>
 
-        <button 
+        <Button
+          unstyled
           className={styles.switchBtn}
           onClick={() => {
             setIsSignUp(!isSignUp)
@@ -76,14 +77,15 @@ export default function Login() {
           }}
         >
           {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
-        </button>
+        </Button>
 
-        <button 
+        <Button
+          unstyled
           className={styles.skipBtn}
           onClick={() => navigate('/')}
         >
           Continue without account
-        </button>
+        </Button>
       </div>
     </div>
   )

@@ -9,9 +9,10 @@ import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { formatDateMMDDYYYY } from '../utils/dateUtils'
-import { logError } from '../utils/logger'
+import { logDebug, logError } from '../utils/logger'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import ShareModal from '../components/ShareModal'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
@@ -19,6 +20,9 @@ import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import HistoryCard from '../components/HistoryCard'
 import { chatWithAI } from '../lib/chatApi'
+import { FitnessIcon } from '../components/Icons'
+import EmptyState from '../components/EmptyState'
+import Button from '../components/Button'
 import styles from './Fitness.module.css'
 
 const TABS = ['Workout', 'Templates', 'History', 'Scheduled', 'Goals']
@@ -37,6 +41,7 @@ export default function Fitness() {
   const [fitnessGoals, setFitnessGoals] = useState([])
   const [scheduledWorkouts, setScheduledWorkouts] = useState([])
   const { toast, showToast, hideToast } = useToast()
+  const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null, payload: null })
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedWorkoutForShare, setSelectedWorkoutForShare] = useState(null)
   const [showWorkoutStartModal, setShowWorkoutStartModal] = useState(false)
@@ -212,7 +217,7 @@ export default function Fitness() {
         },
         (payload) => {
           // Refresh workout history when workout changes
-          console.log('Workout change detected in Fitness:', payload.eventType)
+          logDebug('Workout change detected in Fitness', { eventType: payload?.eventType })
           loadWorkoutHistory()
         }
       )
@@ -330,13 +335,14 @@ export default function Fitness() {
 
       <div className={styles.tabs}>
         {TABS.map(tab => (
-          <button
+          <Button
+            unstyled
             key={tab}
             className={`${styles.tab} ${activeTab === tab ? styles.activeTab : ''}`}
             onClick={() => setActiveTab(tab)}
           >
             {tab}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -357,30 +363,25 @@ export default function Fitness() {
                   </div>
                 </div>
                 <div className={styles.pausedWorkoutActions}>
-                  <button
-                    className={styles.resumePausedBtn}
-                    onClick={handleResumePausedWorkout}
-                  >
+                  <Button unstyled className={styles.resumePausedBtn} onClick={handleResumePausedWorkout}>
                     Resume
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    unstyled
                     className={styles.dismissPausedBtn}
                     onClick={handleDismissPausedWorkout}
                     title="Dismiss paused workout"
                   >
                     ×
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
 
             {/* Start Workout Button */}
-            <button
-              className={styles.startWorkoutBtn}
-              onClick={() => setShowWorkoutStartModal(true)}
-            >
+            <Button unstyled className={styles.startWorkoutBtn} onClick={() => setShowWorkoutStartModal(true)}>
               Start Workout
-            </button>
+            </Button>
 
             {/* Workout Start Modal */}
             {showWorkoutStartModal && (
@@ -394,7 +395,8 @@ export default function Fitness() {
                       <h3>Choose Workout Type</h3>
                       <div className={styles.workoutTypeOptions}>
                         {todaysScheduledWorkout && (
-                          <button
+                          <Button
+                            unstyled
                             className={styles.workoutTypeBtn}
                             onClick={() => handleWorkoutTypeSelect('scheduled')}
                           >
@@ -402,28 +404,20 @@ export default function Fitness() {
                             <span className={styles.workoutTypeSubtext}>
                               {templates.find(t => t.id === todaysScheduledWorkout.template_id)?.name || 'Scheduled'}
                             </span>
-                          </button>
+                          </Button>
                         )}
-                        <button
-                          className={styles.workoutTypeBtn}
-                          onClick={() => handleWorkoutTypeSelect('templates')}
-                        >
+                        <Button unstyled className={styles.workoutTypeBtn} onClick={() => handleWorkoutTypeSelect('templates')}>
                           Choose Template
-                        </button>
-                        <button
-                          className={styles.workoutTypeBtn}
-                          onClick={() => handleWorkoutTypeSelect('freestyle')}
-                        >
+                        </Button>
+                        <Button unstyled className={styles.workoutTypeBtn} onClick={() => handleWorkoutTypeSelect('freestyle')}>
                           Freestyle
-                        </button>
-                        <button
-                          className={styles.workoutTypeBtn}
-                          onClick={() => handleWorkoutTypeSelect('random')}
-                        >
+                        </Button>
+                        <Button unstyled className={styles.workoutTypeBtn} onClick={() => handleWorkoutTypeSelect('random')}>
                           Random Workout
-                        </button>
+                        </Button>
                       </div>
-                      <button
+                      <Button
+                        unstyled
                         className={styles.closeModalBtn}
                         onClick={() => {
                           setShowWorkoutStartModal(false)
@@ -431,20 +425,22 @@ export default function Fitness() {
                         }}
                       >
                         Cancel
-                      </button>
+                      </Button>
                     </>
                   ) : (
                     <>
                       <div className={styles.modalHeader}>
-                        <button
+                        <Button
+                          unstyled
                           className={styles.backBtn}
                           onClick={() => setShowTemplateSelection(false)}
                           aria-label="Back"
                         >
                           ←
-                        </button>
+                        </Button>
                         <h3 className={styles.modalTitle}>Choose Template</h3>
-                        <button
+                        <Button
+                          unstyled
                           className={styles.closeModalBtn}
                           onClick={() => {
                             setShowWorkoutStartModal(false)
@@ -453,17 +449,24 @@ export default function Fitness() {
                           aria-label="Close"
                         >
                           ✕
-                        </button>
+                        </Button>
                       </div>
                       <div className={styles.templateSelectionList}>
                         {templates.length === 0 ? (
-                          <div className={styles.emptyState}>
-                            <p className={styles.emptyText}>No templates available</p>
-                            <p className={styles.emptySubtext}>Create one in the Templates tab</p>
-                          </div>
+                          <EmptyState
+                            title="No templates yet"
+                            message="Create a template in the Templates tab to start faster."
+                            actionLabel="Open templates"
+                            onAction={() => {
+                              setShowWorkoutStartModal(false)
+                              setShowTemplateSelection(false)
+                              setActiveTab('Templates')
+                            }}
+                          />
                         ) : (
                           templates.map(template => (
-                            <button
+                            <Button
+                              unstyled
                               key={template.id}
                               className={styles.templateSelectionBtn}
                               onClick={() => {
@@ -476,7 +479,7 @@ export default function Fitness() {
                                 <span className={styles.templateSelectionName}>{template.name}</span>
                                 <span className={styles.templateSelectionCount}>{template.exercises?.length || 0} exercises</span>
                               </div>
-                            </button>
+                            </Button>
                           ))
                         )}
                       </div>
@@ -500,12 +503,9 @@ export default function Fitness() {
                       <span key={i} className={styles.todayPlanExercise}>{ex}</span>
                     ))}
                   </div>
-                  <button 
-                    className={styles.startPlanBtn}
-                    onClick={() => startWorkout(`plan-${todaysPlan.focus}`)}
-                  >
+                  <Button unstyled className={styles.startPlanBtn} onClick={() => startWorkout(`plan-${todaysPlan.focus}`)}>
                     Start {todaysPlan.focus} Workout
-                  </button>
+                  </Button>
                 </div>
               </section>
             )}
@@ -517,7 +517,8 @@ export default function Fitness() {
                 <div className={styles.aiWorkoutCard}>
                   <div className={styles.aiWorkoutHeader}>
                     <span className={styles.aiWorkoutName}>{aiWorkout.name}</span>
-                    <button 
+                    <Button
+                      unstyled
                       className={styles.clearAiBtn}
                       onClick={() => {
                         setAiWorkout(null)
@@ -525,7 +526,7 @@ export default function Fitness() {
                       }}
                     >
                       Clear
-                    </button>
+                    </Button>
                   </div>
                   <div className={styles.aiWorkoutExercises}>
                     {aiWorkout.exercises?.map((ex, i) => (
@@ -534,12 +535,9 @@ export default function Fitness() {
                       </span>
                     ))}
                   </div>
-                  <button 
-                    className={styles.startAiBtn}
-                    onClick={() => navigate('/workout/active', { state: { aiWorkout } })}
-                  >
+                  <Button unstyled className={styles.startAiBtn} onClick={() => navigate('/workout/active', { state: { aiWorkout } })}>
                     Start AI Workout
-                  </button>
+                  </Button>
                 </div>
               </section>
             )}
@@ -550,18 +548,16 @@ export default function Fitness() {
           <div>
             <div className={styles.sectionHeader}>
               <h2 className={styles.sectionTitle}>Templates</h2>
-              <button
-                className={styles.manageBtn}
-                onClick={() => setShowTemplateEditor(true)}
-              >
+              <Button unstyled className={styles.manageBtn} onClick={() => setShowTemplateEditor(true)}>
                 Manage
-              </button>
+              </Button>
             </div>
             
             <div className={styles.templateList}>
               {templates.map(template => (
                 <div key={template.id} className={styles.templateItem}>
-                  <button
+                  <Button
+                    unstyled
                     className={styles.templateBtn}
                     onClick={() => {
                       setActiveTab('Workout')
@@ -570,9 +566,10 @@ export default function Fitness() {
                   >
                     <span className={styles.templateName}>{template.name}</span>
                     <span className={styles.templateCount}>{template.exercises.length} exercises</span>
-                  </button>
+                  </Button>
                   <div className={styles.templateActions}>
-                    <button
+                    <Button
+                      unstyled
                       className={styles.editTemplateBtn}
                       onClick={() => {
                         setEditingTemplate(template)
@@ -581,31 +578,29 @@ export default function Fitness() {
                       title="Edit template"
                     >
                       Edit
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      unstyled
                       className={styles.deleteTemplateBtn}
                       onClick={async () => {
-                        if (confirm(`Delete template "${template.name}"?`)) {
-                          try {
-                            await deleteTemplate(template.id)
-                            const updated = await getAllTemplates()
-                            setTemplates(updated)
-                            showToast('Template deleted', 'success')
-                          } catch (e) {
-                            logError('Error deleting template', e)
-                            showToast('Failed to delete template', 'error')
-                          }
-                        }
+                        setConfirmState({
+                          open: true,
+                          title: 'Delete template?',
+                          message: `Delete template "${template.name}"?`,
+                          action: 'delete_template',
+                          payload: { templateId: template.id }
+                        })
                       }}
                       title="Delete template"
                     >
                       Delete
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}
               
-              <button
+              <Button
+                unstyled
                 className={styles.freestyleBtn}
                 onClick={() => {
                   setActiveTab('Workout')
@@ -613,9 +608,10 @@ export default function Fitness() {
                 }}
               >
                 Freestyle Workout
-              </button>
+              </Button>
 
-              <button
+              <Button
+                unstyled
                 className={styles.randomBtn}
                 onClick={() => {
                   setActiveTab('Workout')
@@ -623,26 +619,22 @@ export default function Fitness() {
                 }}
               >
                 Random Workout
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
         {activeTab === 'History' && (
           <div className={styles.historyContent}>
-            <h2 className={styles.sectionTitle}>Workout History</h2>
+            <h2 className={styles.sectionTitle}>Workout & Recovery History</h2>
             {workoutHistory.length === 0 ? (
-              <div className={styles.emptyState}>
-                <div className={styles.emptyStateIcon}>💪</div>
-                <div className={styles.emptyStateTitle}>No Workouts Yet</div>
-                <div className={styles.emptyStateMessage}>Start logging workouts to see your progress here</div>
-                <button
-                  className={styles.actionBtn}
-                  onClick={() => navigate('/workout')}
-                >
-                  Start Workout
-                </button>
-              </div>
+              <EmptyState
+                icon={<FitnessIcon size={24} />}
+                title="No sessions yet"
+                message="Log a workout or a recovery session to see your progress here."
+                actionLabel="Start session"
+                onAction={() => navigate('/log')}
+              />
             ) : (
               <div className={styles.historyCards}>
                 {workoutHistory
@@ -661,23 +653,20 @@ export default function Fitness() {
                         index={index}
                         onView={() => {
                           // Could navigate to workout details
-                          console.log('View workout:', workout.id)
+                          logDebug('View workout clicked', { workoutId: workout.id })
                         }}
                         onShare={() => {
                           setSelectedWorkoutForShare(workout)
                           setShowShareModal(true)
                         }}
                         onDelete={async () => {
-                          if (confirm(`Delete workout from ${workout.date}?`)) {
-                            try {
-                              await deleteWorkoutFromSupabase(workout.id, user.id)
-                              await loadWorkoutHistory()
-                              showToast('Workout deleted', 'success')
-                            } catch (error) {
-                              console.error('Error deleting workout:', error)
-                              showToast('Failed to delete workout', 'error')
-                            }
-                          }
+                          setConfirmState({
+                            open: true,
+                            title: 'Delete session?',
+                            message: `Delete session from ${workout.date}?`,
+                            action: 'delete_workout',
+                            payload: { workoutId: workout.id }
+                          })
                         }}
                       />
                     )
@@ -691,12 +680,9 @@ export default function Fitness() {
           <div className={styles.scheduledContent}>
             <h2 className={styles.sectionTitle}>Scheduled Workouts</h2>
             <div style={{ marginBottom: '16px' }}>
-              <button
-                className={styles.goalsBtn}
-                onClick={() => navigate('/calendar')}
-              >
+              <Button unstyled className={styles.goalsBtn} onClick={() => navigate('/calendar')}>
                 Schedule Workout
-              </button>
+              </Button>
             </div>
             {(() => {
               const today = getTodayEST()
@@ -705,17 +691,12 @@ export default function Fitness() {
               
               if (upcoming.length === 0 && past.length === 0) {
                 return (
-                  <div className={styles.emptyState}>
-                    <div className={styles.emptyStateIcon}>📅</div>
-                    <div className={styles.emptyStateTitle}>No Scheduled Workouts</div>
-                    <div className={styles.emptyStateMessage}>Schedule workouts in the Calendar to see them here</div>
-                    <button
-                      className={styles.actionBtn}
-                      onClick={() => navigate('/calendar')}
-                    >
-                      Go to Calendar
-                    </button>
-                  </div>
+                  <EmptyState
+                    title="No scheduled workouts"
+                    message="Schedule workouts in Calendar to keep your week on track."
+                    actionLabel="Open calendar"
+                    onAction={() => navigate('/calendar')}
+                  />
                 )
               }
               
@@ -744,12 +725,9 @@ export default function Fitness() {
                               <div className={styles.scheduledName}>
                                 {scheduled.template_id === 'freestyle' ? 'Freestyle' : template?.name || 'Workout'}
                               </div>
-                              <button
-                                className={styles.scheduledAction}
-                                onClick={() => navigate('/calendar')}
-                              >
+                              <Button unstyled className={styles.scheduledAction} onClick={() => navigate('/calendar')}>
                                 View
-                              </button>
+                              </Button>
                             </div>
                           )
                         })}
@@ -771,12 +749,9 @@ export default function Fitness() {
                               <div className={styles.scheduledName}>
                                 {scheduled.template_id === 'freestyle' ? 'Freestyle' : template?.name || 'Workout'}
                               </div>
-                              <button
-                                className={styles.scheduledAction}
-                                onClick={() => navigate('/calendar')}
-                              >
+                              <Button unstyled className={styles.scheduledAction} onClick={() => navigate('/calendar')}>
                                 View
-                              </button>
+                              </Button>
                             </div>
                           )
                         })}
@@ -794,7 +769,8 @@ export default function Fitness() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 className={styles.sectionTitle}>Fitness Goals</h2>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button
+                <Button
+                  unstyled
                   className={styles.goalsBtn}
                   onClick={async () => {
                     if (user) {
@@ -802,25 +778,20 @@ export default function Fitness() {
                         showToast('Refreshing goals...', 'info')
                         const { updateCategoryGoals } = await import('../lib/goalsDb')
                         const result = await updateCategoryGoals(user.id, 'fitness')
-                        console.log('Fitness goal update result:', result)
                         await loadFitnessGoals()
                         showToast(`Goals refreshed! Updated ${result.updated} goals.`, 'success')
                       } catch (error) {
                         logError('Error refreshing fitness goals', error)
-                        console.error('Full error:', error)
                         showToast(`Error: ${error.message || 'Failed to refresh goals. Check console for details.'}`, 'error')
                       }
                     }
                   }}
                 >
                   Refresh
-                </button>
-                <button
-                  className={styles.goalsBtn}
-                  onClick={() => navigate('/goals')}
-                >
+                </Button>
+                <Button unstyled className={styles.goalsBtn} onClick={() => navigate('/goals')}>
                   View All Goals
-                </button>
+                </Button>
               </div>
             </div>
             {fitnessGoals.length === 0 ? (
@@ -870,14 +841,13 @@ export default function Fitness() {
               setEditingTemplate(null)
             }}
             onDelete={async (id) => {
-              if (confirm('Delete this template?')) {
-                await deleteTemplate(id)
-                const updated = await getAllTemplates()
-                setTemplates(updated)
-                if (editingTemplate?.id === id) {
-                  setEditingTemplate(null)
-                }
-              }
+              setConfirmState({
+                open: true,
+                title: 'Delete template?',
+                message: 'Delete this template?',
+                action: 'delete_template',
+                payload: { templateId: id }
+              })
             }}
             onEdit={(template) => {
               setEditingTemplate(template)
@@ -897,6 +867,41 @@ export default function Fitness() {
         />
       )}
 
+      <ConfirmDialog
+        isOpen={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.action?.startsWith('delete') ? 'Delete' : 'Confirm'}
+        cancelText="Cancel"
+        isDestructive={confirmState.action?.startsWith('delete')}
+        onClose={() => setConfirmState({ open: false, title: '', message: '', action: null, payload: null })}
+        onConfirm={async () => {
+          const action = confirmState.action
+          const payload = confirmState.payload
+          try {
+            if (action === 'delete_template') {
+              const templateId = payload?.templateId
+              if (!templateId) return
+              await deleteTemplate(templateId)
+              const updated = await getAllTemplates()
+              setTemplates(updated)
+              showToast('Template deleted', 'success')
+            } else if (action === 'delete_workout') {
+              const workoutId = payload?.workoutId
+              if (!workoutId || !user) return
+              await deleteWorkoutFromSupabase(workoutId, user.id)
+              await loadWorkoutHistory()
+              showToast('Workout deleted', 'success')
+            }
+          } catch (e) {
+            logError('Confirm action failed', e)
+            showToast('Action failed. Please try again.', 'error')
+          } finally {
+            setConfirmState({ open: false, title: '', message: '', action: null, payload: null })
+          }
+        }}
+      />
+
       {/* Share Modal */}
       {showShareModal && selectedWorkoutForShare && (() => {
         // Transform workout data from database format to ShareCard format
@@ -914,17 +919,7 @@ export default function Fitness() {
           }))
         }))
         
-        // DEBUG: Log the exact workout data being shared (only in development)
-        if (import.meta.env.DEV) {
-          console.log('Fitness: Workout data for sharing:', {
-            exerciseCount: exercises.length,
-            exercises: exercises.map(ex => ({
-              name: ex.name,
-              setCount: ex.sets.length,
-              sets: ex.sets
-            }))
-          })
-        }
+        // Intentionally avoid logging workout contents (PII-adjacent) even in dev.
         
         return (
           <ShareModal

@@ -3,6 +3,8 @@
  * Provides consistent haptic feedback following Apple's HIG guidelines
  */
 
+import { logWarn } from './logger'
+
 const HAPTIC_INTENSITY = {
   LIGHT: 5,      // Subtle feedback (hover, threshold crossing)
   MEDIUM: 10,    // Standard feedback (button tap, selection)
@@ -33,7 +35,7 @@ export function haptic(pattern = HAPTIC_INTENSITY.MEDIUM) {
     navigator.vibrate(vibrationPattern)
     return true
   } catch (error) {
-    console.warn('Haptic feedback failed:', error)
+    logWarn('Haptic feedback failed', { message: error?.message })
     return false
   }
 }

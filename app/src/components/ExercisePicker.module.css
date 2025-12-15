@@ -12,7 +12,7 @@
 
 .modal {
   width: 100%;
-  max-height: 80vh;
+  max-height: 90vh;
   /* Apple Liquid Glass Effect - Authentic */
   background: var(--glass-modal-bg);
   backdrop-filter: var(--glass-blur-strong);
@@ -134,10 +134,6 @@
   padding: 0 14px 14px;
 }
 
-.group {
-  margin-bottom: 18px;
-}
-
 .groupTitle {
   font-size: 11px;
   font-weight: 600;
@@ -151,8 +147,9 @@
 .exerciseBtn {
   width: 100%;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   padding: 12px 14px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
@@ -169,9 +166,13 @@
   color: var(--text-primary);
 }
 
-.exerciseEquip {
+.exerciseMeta {
   font-size: 12px;
   color: var(--text-muted);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .customBtn {
@@ -248,5 +249,22 @@
 
 .customAdd:disabled {
   opacity: 0.5;
+}
+
+.emptyState {
+  padding: 16px 10px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.emptyTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.emptySubtitle {
+  margin-top: 6px;
+  font-size: 13px;
 }
 

@@ -128,7 +128,7 @@ export async function calculateGoalProgress(goalId) {
 
   if (error) {
     logError('Error calculating goal progress', error)
-    console.error('RPC Error details:', {
+    logError('RPC Error details', {
       code: error.code,
       message: error.message,
       details: error.details,

@@ -463,7 +463,9 @@ export async function savePausedWorkoutToSupabase(workoutState, userId) {
   const pausedWorkout = {
     user_id: userId,
     date: workoutState.date || getTodayEST(),
-    exercises: JSON.stringify(workoutState.exercises || []),
+    // Store as JSONB (migration defines exercises JSONB).
+    // NOTE: Older code stored a string; reads are now resilient to both.
+    exercises: Array.isArray(workoutState.exercises) ? workoutState.exercises : [],
     workout_time: workoutState.workoutTime || 0,
     rest_time: workoutState.restTime || 0,
     is_resting: workoutState.isResting || false,
@@ -538,9 +540,17 @@ export async function getPausedWorkoutFromSupabase(userId) {
     if (error) throw error
 
     if (data) {
+      let parsedExercises = []
+      try {
+        if (Array.isArray(data.exercises)) parsedExercises = data.exercises
+        else if (data.exercises && typeof data.exercises === 'object') parsedExercises = data.exercises
+        else if (typeof data.exercises === 'string') parsedExercises = JSON.parse(data.exercises || '[]')
+      } catch {
+        parsedExercises = []
+      }
       return {
         ...data,
-        exercises: JSON.parse(data.exercises || '[]')
+        exercises: Array.isArray(parsedExercises) ? parsedExercises : []
       }
     }
     return null
@@ -1106,8 +1116,9 @@ export async function getScheduledWorkoutByDateFromSupabase(userId, date) {
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
-    .single()
+    .maybeSingle()
 
+  // maybeSingle returns null when no row matches; no 406 spam on empty dates.
   if (error && error.code !== 'PGRST116') throw error // PGRST116 is "not found" which is OK
   return data
 }

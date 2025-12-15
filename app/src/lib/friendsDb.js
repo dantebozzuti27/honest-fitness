@@ -393,51 +393,41 @@ export async function blockUser(userId, blockedUserId) {
  */
 export async function getFriends(userId) {
   try {
-    // Single query that gets friends from both directions with user profiles
-    const { data, error } = await supabase
+    // IMPORTANT:
+    // Don't rely on PostgREST embedded relationships here.
+    // Those require FK relationships between friends and user_profiles to exist in the schema cache,
+    // and missing/renamed constraints cause PGRST200 (400).
+    const { data: friendships, error } = await supabase
       .from('friends')
-      .select(`
-        user_id,
-        friend_id,
-        user_profiles!friends_user_id_fkey (
-          user_id,
-          username,
-          display_name,
-          profile_picture,
-          bio
-        ),
-        friend_profiles:user_profiles!friends_friend_id_fkey (
-          user_id,
-          username,
-          display_name,
-          profile_picture,
-          bio
-        )
-      `)
+      .select('user_id, friend_id')
       .or(`user_id.eq.${userId},friend_id.eq.${userId}`)
       .eq('status', 'accepted')
-    
+
     if (error) {
       logError('Error getting friends', error)
       return []
     }
-    
-    if (!data || data.length === 0) {
+
+    if (!friendships || friendships.length === 0) return []
+
+    const friendIds = friendships
+      .map(f => (f.user_id === userId ? f.friend_id : f.user_id))
+      .filter(id => id && id !== userId)
+
+    if (friendIds.length === 0) return []
+
+    const { data: profiles, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('user_id, username, display_name, profile_picture, bio')
+      .in('user_id', friendIds)
+
+    if (profileError) {
+      logError('Error getting friend profiles', profileError)
       return []
     }
-    
-    // Extract friend profiles (use the appropriate profile based on direction)
-    const friendProfiles = data.map(friendship => {
-      if (friendship.user_id === userId) {
-        // User is the user_id, friend is the friend_id
-        return friendship.friend_profiles
-      } else {
-        // User is the friend_id, friend is the user_id
-        return friendship.user_profiles
-      }
-    }).filter(profile => profile != null)
-    
-    return friendProfiles
+
+    const map = new Map((profiles || []).map(p => [p.user_id, p]))
+    return friendIds.map(id => map.get(id)).filter(Boolean)
   } catch (error) {
     logError('Error getting friends', error)
     return []

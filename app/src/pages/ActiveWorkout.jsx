@@ -397,6 +397,38 @@ export default function ActiveWorkout() {
           }
         }
 
+        // If DB paused workout isn't available (missing migration, etc), fall back to localStorage paused workout.
+        if (!hasResumedPaused && mounted) {
+          try {
+            const key = user ? `pausedWorkout_${user.id}` : 'pausedWorkout'
+            const raw = localStorage.getItem(key)
+            if (raw) {
+              const paused = JSON.parse(raw)
+              const shouldResume = location.state?.resumePaused || await confirmAsync({
+                title: 'Resume workout?',
+                message: 'You have a paused workout saved on this device. Would you like to resume it?',
+                confirmText: 'Resume',
+                cancelText: 'Discard',
+                isDestructive: true
+              })
+              if (shouldResume) {
+                setExercises(Array.isArray(paused.exercises) ? paused.exercises : [])
+                setWorkoutTime(paused.workoutTime || 0)
+                setRestTime(paused.restTime || 0)
+                setIsResting(paused.isResting || false)
+                workoutStartTimeRef.current = Date.now() - ((paused.workoutTime || 0) * 1000)
+                setPausedTime(0)
+                pausedTimeRef.current = 0
+                hasResumedPaused = true
+              }
+              // Clean up either way so this doesn't keep nagging.
+              localStorage.removeItem(key)
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         // Only load template/random/AI workout if we didn't resume a paused workout
         if (!hasResumedPaused && mounted) {
           if (templateId) {
@@ -1696,6 +1728,18 @@ export default function ActiveWorkout() {
     }
   }
 
+  const pauseAndExit = async () => {
+    try {
+      if (!isPaused) {
+        await pauseWorkout()
+      }
+    } catch (e) {
+      // If pausing fails, still allow navigation—localStorage backup covers most cases.
+    }
+    showToast('Workout paused. You can resume it later.', 'info')
+    navigate('/')
+  }
+
   const resumeWorkout = async () => {
     if (isPaused && user) {
       // Capture metrics at resume time
@@ -1951,6 +1995,20 @@ export default function ActiveWorkout() {
             >
               {isPaused ? '▶ Resume' : '⏸ Pause'}
             </Button>
+            {isPaused && (
+              <Button
+                unstyled
+                className={styles.cancelBtn}
+                onClick={() => {
+                  if (pauseAndExit && typeof pauseAndExit === 'function') {
+                    pauseAndExit()
+                  }
+                }}
+                title="Pause and leave (resume later)"
+              >
+                Exit
+              </Button>
+            )}
             <Button
               unstyled
               className={styles.finishBtn}

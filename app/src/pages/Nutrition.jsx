@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { logError, logDebug, logWarn } from '../utils/logger'
-import { getSystemFoods, getFoodCategories, getFavoriteFoods, getRecentFoods } from '../lib/foodLibrary'
+import { getSystemFoods, getFoodCategories, getFavoriteFoods, getRecentFoods, updateFoodLastUsed, addFavoriteFood, removeFavoriteFood } from '../lib/foodLibrary'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -68,6 +68,11 @@ export default function Nutrition() {
   const [foodSearchLoading, setFoodSearchLoading] = useState(false)
   const [activeFoodIndex, setActiveFoodIndex] = useState(0)
   const [showFoodLibrary, setShowFoodLibrary] = useState(false)
+  const [foodCategoryFilterId, setFoodCategoryFilterId] = useState('')
+  const [foodMeta, setFoodMeta] = useState({ categories: [], favorites: [], recents: [] })
+  const foodMetaLoadedRef = useRef(false)
+  const [selectedFoodForAdd, setSelectedFoodForAdd] = useState(null)
+  const [selectedFoodGrams, setSelectedFoodGrams] = useState(100)
   const [selectedMealType, setSelectedMealType] = useState('Snacks')
   const [manualEntry, setManualEntry] = useState({
     name: '',
@@ -102,6 +107,24 @@ export default function Nutrition() {
   }, [foodSearchQuery])
 
   const normalizeFoodQuery = (q) => (q || '').toString().trim().toLowerCase()
+
+  const highlightFoodText = (text, qNorm) => {
+    const raw = (text || '').toString()
+    if (!qNorm) return raw
+    const lower = raw.toLowerCase()
+    const idx = lower.indexOf(qNorm)
+    if (idx < 0) return raw
+    const before = raw.slice(0, idx)
+    const match = raw.slice(idx, idx + qNorm.length)
+    const after = raw.slice(idx + qNorm.length)
+    return (
+      <>
+        {before}
+        <mark className={styles.foodHighlight}>{match}</mark>
+        {after}
+      </>
+    )
+  }
 
   // Rank results so search feels relevant: exact > prefix > token-prefix > substring.
   const foodSearchScore = (food, qNorm) => {
@@ -242,6 +265,28 @@ export default function Nutrition() {
     }
   }
 
+  const loadFoodMeta = async () => {
+    if (!user) return
+    if (foodMetaLoadedRef.current) return
+    try {
+      const [categories, favoriteFoods, recentFoods] = await Promise.all([
+        getFoodCategories(),
+        getFavoriteFoods(user.id),
+        getRecentFoods(user.id, 20)
+      ])
+      setFoodMeta({
+        categories: categories || [],
+        favorites: favoriteFoods || [],
+        recents: recentFoods || []
+      })
+      foodMetaLoadedRef.current = true
+    } catch (error) {
+      logError('Error loading food meta', error)
+      setFoodMeta({ categories: [], favorites: [], recents: [] })
+      foodMetaLoadedRef.current = true
+    }
+  }
+
   const loadFoodSuggestions = async () => {
     if (!user) return
     try {
@@ -257,25 +302,24 @@ export default function Nutrition() {
 
       setFoodSearchLoading(true)
 
-      const [categories, favoriteFoods, recentFoods] = await Promise.all([
-        getFoodCategories(),
-        getFavoriteFoods(user.id),
-        getRecentFoods(user.id, 10)
-      ])
+      await loadFoodMeta()
+      const categories = foodMeta?.categories || []
+      const favoriteFoods = foodMeta?.favorites || []
+      const recentFoods = foodMeta?.recents || []
 
       // Only do server-side searching for 2+ chars. Otherwise, just pull a browse slice.
       // If the user pasted a barcode, do an exact barcode lookup first.
       let systemFoods = []
       if (barcodeKey) {
-        systemFoods = await getSystemFoods({ barcode: barcodeKey, limit: 50 })
+        systemFoods = await getSystemFoods({ barcode: barcodeKey, limit: 50, categoryId: foodCategoryFilterId || null })
         // If no match, fall back to browse so the panel isn't empty.
         if (!Array.isArray(systemFoods) || systemFoods.length === 0) {
-          systemFoods = await getSystemFoods({ limit: 200 })
+          systemFoods = await getSystemFoods({ limit: 200, categoryId: foodCategoryFilterId || null })
         }
       } else if (qKey) {
-        systemFoods = await getSystemFoods({ search: qKey, limit: 150 })
+        systemFoods = await getSystemFoods({ search: qKey, limit: 150, categoryId: foodCategoryFilterId || null })
       } else {
-        systemFoods = await getSystemFoods({ limit: 200 })
+        systemFoods = await getSystemFoods({ limit: 200, categoryId: foodCategoryFilterId || null })
       }
       setFoodCategories(categories)
       const matchesQuery = (f) => {
@@ -285,7 +329,6 @@ export default function Nutrition() {
         return n.includes(qKey) || (b && b.includes(qKey))
       }
 
-      // Combine favorites, recent, and system foods (prioritize favorites/recent)
       const favTagged = (favoriteFoods || []).filter(matchesQuery).map(f => ({ ...f, isFavorite: true }))
       const recTagged = (recentFoods || []).filter(matchesQuery).map(f => ({ ...f, isRecent: true }))
       const sysFiltered = (systemFoods || []).filter(matchesQuery)
@@ -316,9 +359,10 @@ export default function Nutrition() {
   // Reload food suggestions when search query changes
   useEffect(() => {
     if (showFoodSuggestions || showFoodLibrary) {
+      loadFoodMeta()
       loadFoodSuggestions()
     }
-  }, [debouncedFoodSearchQuery, showFoodSuggestions, showFoodLibrary, user])
+  }, [debouncedFoodSearchQuery, showFoodSuggestions, showFoodLibrary, user, foodCategoryFilterId])
 
   useEffect(() => {
     if (showFoodSuggestions) {
@@ -329,31 +373,50 @@ export default function Nutrition() {
     }
   }, [showFoodSuggestions])
 
-  const addFoodSuggestionToMeal = (food) => {
-    if (!food) return
-    const calories = food.calories_per_100g || 0
-    const protein = food.protein_per_100g || 0
-    const carbs = food.carbs_per_100g || 0
-    const fat = food.fat_per_100g || 0
+  const computeScaledFood = (food, grams) => {
+    const g = Math.max(0, Number(grams) || 0)
+    const scale = g / 100
+    const calories = (Number(food?.calories_per_100g) || 0) * scale
+    const protein = (Number(food?.protein_per_100g) || 0) * scale
+    const carbs = (Number(food?.carbs_per_100g) || 0) * scale
+    const fat = (Number(food?.fat_per_100g) || 0) * scale
     const micros = (food && typeof food.micros_per_100g === 'object' && food.micros_per_100g) ? food.micros_per_100g : {}
+    const scaledMicros = {}
+    for (const [k, v] of Object.entries(micros)) {
+      scaledMicros[k] = (Number(v) || 0) * scale
+    }
+    // Add common micros stored as separate columns (also scaled)
+    scaledMicros.fiber_g = (Number(food?.fiber_per_100g) || 0) * scale
+    scaledMicros.sugar_g = (Number(food?.sugar_per_100g) || 0) * scale
+    scaledMicros.sodium_mg = (Number(food?.sodium_per_100g) || 0) * scale
+    return {
+      calories,
+      protein,
+      carbs,
+      fat,
+      micros: scaledMicros
+    }
+  }
 
-    addMeal({
-      calories: Math.round(calories),
+  const addFoodSuggestionToMeal = async (food, grams = 100) => {
+    if (!food) return
+    const scaled = computeScaledFood(food, grams)
+    await addMeal({
+      calories: Math.round(scaled.calories),
       macros: {
-        protein: Math.round(protein),
-        carbs: Math.round(carbs),
-        fat: Math.round(fat)
+        protein: Math.round(scaled.protein),
+        carbs: Math.round(scaled.carbs),
+        fat: Math.round(scaled.fat)
       },
-      micros: {
-        ...micros,
-        fiber_g: Number(food.fiber_per_100g) || 0,
-        sugar_g: Number(food.sugar_per_100g) || 0,
-        sodium_mg: Number(food.sodium_per_100g) || 0
-      },
+      micros: scaled.micros,
       foods: [food.name],
       type: 'suggestion',
-      description: food.name
+      description: `${food.name}${grams ? ` (${grams}g)` : ''}`
     })
+    // Best-effort: mark as recently used so recents get better over time.
+    if (user?.id && food?.id) {
+      updateFoodLastUsed(user.id, food.id).catch(() => {})
+    }
     setShowFoodSuggestions(false)
   }
 
@@ -944,7 +1007,7 @@ export default function Nutrition() {
           {activeTab === 'Today' && (
             <button 
               className={styles.plusBtn}
-              onClick={() => setShowManualEntry(true)}
+              onClick={() => setShowFoodSuggestions(true)}
               aria-label="Add meal"
             >
               <span className={styles.plusIcon}>+</span>
@@ -981,111 +1044,267 @@ export default function Nutrition() {
               <button
                 className={styles.logMealBtn}
                 onClick={() => {
-                  setShowManualEntry(true)
+                  setShowFoodSuggestions(true)
                 }}
               >
-                Log meal
+                Search food
               </button>
               <button
                 className={styles.foodSuggestionsBtn}
-                onClick={() => setShowFoodSuggestions(!showFoodSuggestions)}
+                onClick={() => setShowManualEntry(true)}
               >
-                {showFoodSuggestions ? 'Hide' : 'Show'} Food Suggestions
+                Manual entry
               </button>
             </div>
 
-            {/* Food Suggestions */}
-            {showFoodSuggestions && (
-              <div className={styles.foodSuggestionsCard}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h3>Food Library</h3>
-                  <button
-                    className={styles.closeBtn}
-                    onClick={() => setShowFoodSuggestions(false)}
-                  >
-                    ✕
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  placeholder="Search foods (2+ chars) or paste a barcode…"
-                  value={foodSearchQuery}
-                  onChange={(e) => setFoodSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (!showFoodSuggestions) return
-                    const max = Math.max(0, (foodSuggestions?.length || 0) - 1)
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault()
-                      setActiveFoodIndex((i) => Math.min(max, (Number(i) || 0) + 1))
-                    } else if (e.key === 'ArrowUp') {
-                      e.preventDefault()
-                      setActiveFoodIndex((i) => Math.max(0, (Number(i) || 0) - 1))
-                    } else if (e.key === 'Enter') {
-                      // If a suggestion is highlighted, quick-add it.
-                      const idx = Math.max(0, Math.min(max, Number(activeFoodIndex) || 0))
-                      const chosen = foodSuggestions?.[idx]
-                      if (chosen) {
-                        e.preventDefault()
-                        addFoodSuggestionToMeal(chosen)
-                      }
-                    } else if (e.key === 'Escape') {
-                      e.preventDefault()
-                      setShowFoodSuggestions(false)
-                    }
-                  }}
-                  className={styles.foodSearchInput}
-                  ref={foodSearchInputRef}
-                />
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-                  <button
-                    className={styles.goalsBtn}
-                    onClick={() => setFoodSearchQuery('')}
-                    disabled={!foodSearchQuery}
-                    type="button"
-                  >
-                    Clear
-                  </button>
-                  {foodSearchLoading && <span className={styles.emptyHint}>Searching…</span>}
-                  {!foodSearchLoading && foodSearchQuery.trim().length > 0 && foodSearchQuery.trim().length < 2 && (
-                    <span className={styles.emptyHint}>Type 2+ characters for better results.</span>
+            {/* Food Search Modal (major rework: choose amount before adding) */}
+            {showFoodSuggestions && createPortal(
+              <div className={styles.foodSearchOverlay} role="dialog" aria-modal="true">
+                <div className={styles.foodSearchModal}>
+                  <div className={styles.foodSearchHeader}>
+                    <div className={styles.foodSearchTitle}>Log food</div>
+                    <button
+                      className={styles.closeBtn}
+                      onClick={() => {
+                        setShowFoodSuggestions(false)
+                        setSelectedFoodForAdd(null)
+                      }}
+                      type="button"
+                      aria-label="Close"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className={styles.foodSearchControls}>
+                    <input
+                      type="text"
+                      placeholder="Search foods (2+ chars) or paste a barcode…"
+                      value={foodSearchQuery}
+                      onChange={(e) => setFoodSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        const currentList = foodSuggestions || []
+                        const max = Math.max(0, currentList.length - 1)
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault()
+                          setActiveFoodIndex((i) => Math.min(max, (Number(i) || 0) + 1))
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault()
+                          setActiveFoodIndex((i) => Math.max(0, (Number(i) || 0) - 1))
+                        } else if (e.key === 'Enter') {
+                          const idx = Math.max(0, Math.min(max, Number(activeFoodIndex) || 0))
+                          const chosen = currentList[idx]
+                          if (chosen) {
+                            e.preventDefault()
+                            setSelectedFoodForAdd(chosen)
+                            setSelectedFoodGrams(100)
+                          }
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault()
+                          if (selectedFoodForAdd) setSelectedFoodForAdd(null)
+                          else setShowFoodSuggestions(false)
+                        }
+                      }}
+                      className={styles.foodSearchInput}
+                      ref={foodSearchInputRef}
+                    />
+
+                    <div className={styles.foodSearchActionsRow}>
+                      <button
+                        className={styles.goalsBtn}
+                        onClick={() => setFoodSearchQuery('')}
+                        disabled={!foodSearchQuery}
+                        type="button"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        className={styles.goalsBtn}
+                        onClick={() => {
+                          setFoodCategoryFilterId('')
+                          setFoodSearchQuery('')
+                        }}
+                        type="button"
+                      >
+                        Reset
+                      </button>
+                      {foodSearchLoading && <span className={styles.emptyHint}>Searching…</span>}
+                      {!foodSearchLoading && foodSearchQuery.trim().length > 0 && foodSearchQuery.trim().length < 2 && (
+                        <span className={styles.emptyHint}>Type 2+ characters for better results.</span>
+                      )}
+                    </div>
+
+                    {(foodMeta?.categories?.length || 0) > 0 && (
+                      <div className={styles.foodCategoryRow}>
+                        <button
+                          type="button"
+                          className={`${styles.foodCategoryChip} ${!foodCategoryFilterId ? styles.foodCategoryChipActive : ''}`}
+                          onClick={() => setFoodCategoryFilterId('')}
+                        >
+                          All
+                        </button>
+                        {(foodMeta.categories || []).slice(0, 20).map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={`${styles.foodCategoryChip} ${foodCategoryFilterId === c.id ? styles.foodCategoryChipActive : ''}`}
+                            onClick={() => setFoodCategoryFilterId(c.id)}
+                            title={c.description || c.name}
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className={styles.foodResults}>
+                    {foodSuggestions.length > 0 ? (
+                      <div className={styles.foodResultsList}>
+                        {foodSuggestions.map((food, idx) => {
+                          const qNorm = normalizeFoodQuery(debouncedFoodSearchQuery)
+                          const isActive = idx === activeFoodIndex
+                          const calories = Number(food?.calories_per_100g) || 0
+                          const protein = Number(food?.protein_per_100g) || 0
+                          const carbs = Number(food?.carbs_per_100g) || 0
+                          const fat = Number(food?.fat_per_100g) || 0
+                          const brand = (food?.brand || '').toString().trim()
+
+                          return (
+                            <button
+                              key={food.id}
+                              type="button"
+                              className={`${styles.foodResultRow} ${isActive ? styles.foodResultRowActive : ''}`}
+                              onMouseEnter={() => setActiveFoodIndex(idx)}
+                              onClick={() => {
+                                setSelectedFoodForAdd(food)
+                                setSelectedFoodGrams(100)
+                              }}
+                            >
+                              <div className={styles.foodResultMain}>
+                                <div className={styles.foodResultName}>
+                                  {highlightFoodText(food.name, qNorm)}
+                                </div>
+                                {brand && <div className={styles.foodResultBrand}>{highlightFoodText(brand, qNorm)}</div>}
+                                <div className={styles.foodResultMeta}>
+                                  <span>{Math.round(calories)} cal / 100g</span>
+                                  <span>P {Math.round(protein)}g</span>
+                                  <span>C {Math.round(carbs)}g</span>
+                                  <span>F {Math.round(fat)}g</span>
+                                </div>
+                              </div>
+
+                              <div className={styles.foodResultRight}>
+                                <div className={styles.foodBadges}>
+                                  {food.isFavorite && <span className={styles.foodBadge}>★</span>}
+                                  {food.isRecent && !food.isFavorite && <span className={styles.foodBadge}>⏱</span>}
+                                </div>
+                                <button
+                                  type="button"
+                                  className={styles.foodFavBtn}
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    if (!user?.id || !food?.id) return
+                                    const isFav = Boolean(food.isFavorite)
+                                    const action = isFav ? removeFavoriteFood : addFavoriteFood
+                                    action(user.id, food.id)
+                                      .then(() => {
+                                        foodMetaLoadedRef.current = false
+                                        loadFoodMeta().then(() => loadFoodSuggestions())
+                                      })
+                                      .catch(() => {})
+                                  }}
+                                  aria-label={food.isFavorite ? 'Remove favorite' : 'Add favorite'}
+                                  title={food.isFavorite ? 'Unfavorite' : 'Favorite'}
+                                >
+                                  {food.isFavorite ? '★' : '☆'}
+                                </button>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className={styles.emptyHint} style={{ marginTop: 12 }}>
+                        {foodSearchQuery.trim().length >= 2 ? 'No foods found. Try a different search.' : 'Start typing to search. Favorites and recents will show up here.'}
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedFoodForAdd && (
+                    <div className={styles.foodAddBar}>
+                      <div className={styles.foodAddBarTop}>
+                        <div className={styles.foodAddName}>{selectedFoodForAdd.name}</div>
+                        <div className={styles.foodAddMealType}>{selectedMealType}</div>
+                      </div>
+
+                      <div className={styles.foodAddControls}>
+                        <div className={styles.foodAddAmount}>
+                          <label className={styles.foodAddLabel}>Grams</label>
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min="0"
+                            value={selectedFoodGrams}
+                            onChange={(e) => setSelectedFoodGrams(Math.max(0, Number(e.target.value) || 0))}
+                            className={styles.foodAddInput}
+                          />
+                        </div>
+                        <div className={styles.foodAddQuick}>
+                          {[50, 100, 150, 200].map((g) => (
+                            <button
+                              key={g}
+                              type="button"
+                              className={`${styles.foodAddQuickBtn} ${selectedFoodGrams === g ? styles.foodAddQuickBtnActive : ''}`}
+                              onClick={() => setSelectedFoodGrams(g)}
+                            >
+                              {g}g
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {(() => {
+                        const scaled = computeScaledFood(selectedFoodForAdd, selectedFoodGrams)
+                        return (
+                          <div className={styles.foodAddPreview}>
+                            <span>{Math.round(scaled.calories)} cal</span>
+                            <span>P {Math.round(scaled.protein)}g</span>
+                            <span>C {Math.round(scaled.carbs)}g</span>
+                            <span>F {Math.round(scaled.fat)}g</span>
+                          </div>
+                        )
+                      })()}
+
+                      <div className={styles.foodAddActions}>
+                        <button
+                          type="button"
+                          className={styles.goalsBtn}
+                          onClick={() => setSelectedFoodForAdd(null)}
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.logMealBtn}
+                          onClick={async () => {
+                            try {
+                              await addFoodSuggestionToMeal(selectedFoodForAdd, selectedFoodGrams)
+                              setSelectedFoodForAdd(null)
+                            } catch {
+                              // addMeal already logs; keep UI stable
+                            }
+                          }}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
-                {foodSuggestions.length > 0 ? (
-                  <div className={styles.foodSuggestionsGrid}>
-                    {foodSuggestions.map((food, idx) => {
-                    // Calculate calories and macros for 100g
-                    const calories = food.calories_per_100g || 0
-                    const protein = food.protein_per_100g || 0
-                    const carbs = food.carbs_per_100g || 0
-                    const fat = food.fat_per_100g || 0
-                    const micros = (food && typeof food.micros_per_100g === 'object' && food.micros_per_100g) ? food.micros_per_100g : {}
-                    
-                    return (
-                      <button
-                        key={food.id}
-                        className={`${styles.foodSuggestionBtn} ${idx === activeFoodIndex ? styles.foodSuggestionBtnActive : ''}`}
-                        onClick={() => {
-                          addFoodSuggestionToMeal(food)
-                        }}
-                        onMouseEnter={() => setActiveFoodIndex(idx)}
-                      >
-                        <div className={styles.foodSuggestionName}>{food.name}</div>
-                        <div className={styles.foodSuggestionMacros}>
-                          <span>{Math.round(calories)} cal</span>
-                          {protein > 0 && <span>P: {Math.round(protein)}g</span>}
-                          {carbs > 0 && <span>C: {Math.round(carbs)}g</span>}
-                          {fat > 0 && <span>F: {Math.round(fat)}g</span>}
-                        </div>
-                        {food.isFavorite && <span className={styles.foodSuggestionBadge}>★</span>}
-                        {food.isRecent && <span className={styles.foodSuggestionBadge}>Recent</span>}
-                      </button>
-                    )
-                  })}
-                  </div>
-                ) : (
-                  <p className={styles.emptyHint}>No foods found. Try a different search term.</p>
-                )}
-              </div>
+              </div>,
+              document.body
             )}
 
             {/* Calories and Macros vs Goal */}

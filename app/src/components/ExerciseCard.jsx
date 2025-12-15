@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import styles from './ExerciseCard.module.css'
 
 export default function ExerciseCard({
@@ -29,6 +29,92 @@ export default function ExerciseCard({
   onDrop
 }) {
   const [activeSet, setActiveSet] = useState(0)
+
+  // Cardio timer (per exercise card; applied to the active set row)
+  const cardioTimerIntervalRef = useRef(null)
+  const cardioTimerStartMsRef = useRef(null)
+  const cardioTimerBaseSecondsRef = useRef(0)
+  const cardioTimerSetIdxRef = useRef(null)
+  const [cardioTimerSeconds, setCardioTimerSeconds] = useState(0)
+
+  useEffect(() => {
+    return () => {
+      if (cardioTimerIntervalRef.current) {
+        clearInterval(cardioTimerIntervalRef.current)
+        cardioTimerIntervalRef.current = null
+      }
+    }
+  }, [])
+
+  function parseCardioSeconds(raw) {
+    if (raw == null) return 0
+    const s = String(raw).trim()
+    if (!s) return 0
+
+    // Accept "MM:SS"
+    if (s.includes(':')) {
+      const [mm, ss] = s.split(':').map(v => v.trim())
+      const m = Number(mm)
+      const sec = Number(ss)
+      if (Number.isFinite(m) && Number.isFinite(sec)) {
+        return Math.max(0, Math.floor(m * 60 + sec))
+      }
+    }
+
+    // Accept "15 min", "15m", "90s"
+    const minMatch = s.match(/^(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes)$/i)
+    if (minMatch) {
+      const m = Number(minMatch[1])
+      return Number.isFinite(m) ? Math.max(0, Math.floor(m * 60)) : 0
+    }
+    const secMatch = s.match(/^(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds)$/i)
+    if (secMatch) {
+      const sec = Number(secMatch[1])
+      return Number.isFinite(sec) ? Math.max(0, Math.floor(sec)) : 0
+    }
+
+    // Plain number heuristic:
+    // - <= 60: treat as MINUTES (what users usually mean when typing "20" for cardio)
+    // - > 60: treat as SECONDS (what the system stores)
+    const n = Number(s)
+    if (!Number.isFinite(n)) return 0
+    if (n <= 60) return Math.max(0, Math.floor(n * 60))
+    return Math.max(0, Math.floor(n))
+  }
+
+  function secondsToMMSS(totalSeconds) {
+    const mins = Math.floor(totalSeconds / 60)
+    const secs = totalSeconds % 60
+    return { mins, secs }
+  }
+
+  function startCardioTimer(setIdx, existingSeconds) {
+    if (cardioTimerIntervalRef.current) {
+      clearInterval(cardioTimerIntervalRef.current)
+      cardioTimerIntervalRef.current = null
+    }
+
+    cardioTimerSetIdxRef.current = setIdx
+    cardioTimerBaseSecondsRef.current = existingSeconds
+    cardioTimerStartMsRef.current = Date.now()
+    setCardioTimerSeconds(existingSeconds)
+
+    cardioTimerIntervalRef.current = setInterval(() => {
+      const startMs = cardioTimerStartMsRef.current
+      const base = cardioTimerBaseSecondsRef.current
+      if (!startMs) return
+      const elapsed = Math.floor((Date.now() - startMs) / 1000)
+      setCardioTimerSeconds(base + Math.max(0, elapsed))
+    }, 250)
+  }
+
+  function stopCardioTimer() {
+    if (cardioTimerIntervalRef.current) {
+      clearInterval(cardioTimerIntervalRef.current)
+      cardioTimerIntervalRef.current = null
+    }
+    cardioTimerStartMsRef.current = null
+  }
 
   const handleNextSet = () => {
     if (activeSet < exercise.sets.length - 1) {
@@ -182,15 +268,70 @@ export default function ExerciseCard({
                 
                 {exercise.category === 'Cardio' ? (
                   <>
-                    <div className={styles.inputGroup}>
-                      <input
-                        type="text"
-                        placeholder="time"
-                        value={set.time || ''}
-                        onChange={(e) => onUpdateSet(idx, 'time', e.target.value)}
-                        className={styles.input}
-                      />
-                    </div>
+                    {(() => {
+                      const isTimerRunning = cardioTimerIntervalRef.current && cardioTimerSetIdxRef.current === idx
+                      const storedSeconds = parseCardioSeconds(set.time)
+                      const displaySeconds = isTimerRunning ? cardioTimerSeconds : storedSeconds
+                      const { mins, secs } = secondsToMMSS(displaySeconds)
+
+                      return (
+                        <div className={styles.cardioTimeGroup}>
+                          <div className={styles.cardioTimeInputs}>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              placeholder="min"
+                              value={Number.isFinite(mins) ? String(mins) : ''}
+                              disabled={Boolean(isTimerRunning)}
+                              onChange={(e) => {
+                                const nextMins = Number(e.target.value || 0)
+                                const safeMins = Number.isFinite(nextMins) ? Math.max(0, Math.floor(nextMins)) : 0
+                                const total = safeMins * 60 + (Number.isFinite(secs) ? secs : 0)
+                                onUpdateSet(idx, 'time', String(total))
+                              }}
+                              className={styles.input}
+                            />
+                            <span className={styles.cardioTimeColon}>:</span>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              placeholder="sec"
+                              value={Number.isFinite(secs) ? String(secs).padStart(2, '0') : ''}
+                              disabled={Boolean(isTimerRunning)}
+                              onChange={(e) => {
+                                const nextSecs = Number(e.target.value || 0)
+                                const safeSecs = Number.isFinite(nextSecs) ? Math.max(0, Math.min(59, Math.floor(nextSecs))) : 0
+                                const total = (Number.isFinite(mins) ? mins : 0) * 60 + safeSecs
+                                onUpdateSet(idx, 'time', String(total))
+                              }}
+                              className={styles.input}
+                            />
+                          </div>
+
+                          {idx === activeSet && (
+                            <button
+                              type="button"
+                              className={styles.cardioTimerBtn}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+
+                                if (isTimerRunning) {
+                                  // Commit current timer value to this set and stop.
+                                  onUpdateSet(idx, 'time', String(cardioTimerSeconds))
+                                  stopCardioTimer()
+                                } else {
+                                  startCardioTimer(idx, storedSeconds)
+                                }
+                              }}
+                              title={isTimerRunning ? 'Stop cardio timer (save time)' : 'Start cardio timer'}
+                            >
+                              {isTimerRunning ? 'Stop' : 'Start'}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })()}
                     <div className={styles.inputGroup}>
                       <input
                         type="number"

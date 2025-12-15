@@ -1774,6 +1774,308 @@ h1 {
   color: var(--text-primary);
 }
 
+/* =========================
+   FOOD SEARCH (REWORKED)
+   ========================= */
+
+.foodSuggestionsBtn {
+  width: 100%;
+  padding: var(--space-md) var(--space-xl);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  flex: 1;
+}
+
+.foodSearchOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 16px;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+}
+
+.foodSearchModal {
+  width: 100%;
+  max-width: 720px;
+  background: var(--glass-modal-bg);
+  border: 1px solid var(--glass-modal-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--glass-modal-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.foodSearchHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.foodSearchTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.foodSearchControls {
+  padding: 12px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.foodSearchActionsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.foodCategoryRow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+
+.foodCategoryChip {
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+.foodCategoryChipActive {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+.foodResults {
+  flex: 1;
+  overflow: auto;
+  padding: 0 14px 12px;
+}
+
+.foodResultsList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  padding-bottom: 8px;
+}
+
+.foodResultRow {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  text-align: left;
+}
+
+.foodResultRowActive {
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.foodResultMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.foodResultName {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foodResultBrand {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foodResultMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.foodResultRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.foodBadges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.foodBadge {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.foodFavBtn {
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-primary);
+  font-weight: 800;
+  font-size: 12px;
+  min-height: 36px;
+  min-width: 44px;
+}
+
+.foodHighlight {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--text-primary);
+  padding: 0 2px;
+  border-radius: 4px;
+}
+
+.foodAddBar {
+  position: sticky;
+  bottom: 0;
+  background: rgba(20, 20, 20, 0.86);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 12px 14px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.foodAddBarTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.foodAddName {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foodAddMealType {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+}
+
+.foodAddControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.foodAddAmount {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.foodAddLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.foodAddInput {
+  width: 110px;
+  min-height: 44px;
+}
+
+.foodAddQuick {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.foodAddQuickBtn {
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.foodAddQuickBtnActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+}
+
+.foodAddPreview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.foodAddActions {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
 /* Meal Plan Section - More Visible */
 .mealPlanSection {
   padding: 24px;

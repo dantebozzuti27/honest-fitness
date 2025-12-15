@@ -479,7 +479,7 @@ export async function savePausedWorkoutToSupabase(workoutState, userId) {
     .from('paused_workouts')
     .select('id')
     .eq('user_id', userId)
-    .single()
+    .maybeSingle()
 
   // If table doesn't exist, silently fail (migration not run)
   if (checkError && (checkError.code === 'PGRST205' || checkError.message?.includes('Could not find the table'))) {
@@ -525,12 +525,9 @@ export async function getPausedWorkoutFromSupabase(userId) {
       .from('paused_workouts')
       .select('*')
       .eq('user_id', userId)
-      .single()
+      .maybeSingle()
 
-    if (error && error.code === 'PGRST116') {
-      // No paused workout found
-      return null
-    }
+    // maybeSingle returns null when no row matches; avoids 406 spam.
     // If table doesn't exist (migration not run), return null gracefully
     if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
       safeLogDebug('paused_workouts table does not exist yet - migration not run')

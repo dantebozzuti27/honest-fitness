@@ -443,24 +443,37 @@ export default function ActiveWorkout() {
             const template = await getTemplate(templateId)
             if (!mounted) return
             if (template && Array.isArray(template.exercises)) {
-              const workoutExercises = template.exercises.map((name, idx) => {
-            const exerciseData = allEx.find(e => e.name === name)
-            if (!exerciseData) {
-              // Exercise not found, will use default structure
-            }
-            const isCardio = exerciseData?.category === 'Cardio'
-            const isRecovery = exerciseData?.category === 'Recovery'
-            const defaultSets = (isCardio || isRecovery) ? 1 : 4
-            return {
-              id: idx,
-              name,
-              category: exerciseData?.category || 'Strength',
-              bodyPart: exerciseData?.bodyPart || 'Other',
-              equipment: exerciseData?.equipment || '',
-              sets: Array(defaultSets).fill(null).map(() => ({ weight: '', reps: '', time: '', speed: '', incline: '' })),
-              expanded: idx === 0
-            }
-          })
+              const workoutExercises = template.exercises.map((entry, idx) => {
+                const name = typeof entry === 'string' ? entry : (entry?.name || '')
+                const presetSets = typeof entry === 'object' ? entry?.sets : undefined
+                const presetReps = typeof entry === 'object' ? entry?.reps : undefined
+                const presetTime = typeof entry === 'object' ? entry?.time : undefined
+
+                const exerciseData = allEx.find(e => e.name === name)
+                const isCardio = exerciseData?.category === 'Cardio'
+                const isRecovery = exerciseData?.category === 'Recovery'
+                const defaultSets = (isCardio || isRecovery) ? 1 : 4
+                const setsCount = Number.isFinite(Number(presetSets)) && Number(presetSets) > 0 ? Number(presetSets) : defaultSets
+
+                const repsValue = (presetReps ?? '').toString()
+                const timeValue = (presetTime ?? '').toString()
+
+                return {
+                  id: idx,
+                  name,
+                  category: exerciseData?.category || 'Strength',
+                  bodyPart: exerciseData?.bodyPart || 'Other',
+                  equipment: exerciseData?.equipment || '',
+                  sets: Array(setsCount).fill(null).map(() => ({
+                    weight: '',
+                    reps: !isCardio ? repsValue : '',
+                    time: isCardio ? timeValue : '',
+                    speed: '',
+                    incline: ''
+                  })),
+                  expanded: idx === 0
+                }
+              })
           
           // Apply auto-adjustment based on readiness
           if (user) {

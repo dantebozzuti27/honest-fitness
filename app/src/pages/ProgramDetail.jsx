@@ -373,11 +373,20 @@ export default function ProgramDetail() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                           {meals.map((m, mi) => {
                             const items = Array.isArray(m?.items) ? m.items : []
+                            const targets = m?.targets || {}
                             return (
                               <div key={mi}>
                                 <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
                                   {m?.name || `Meal ${mi + 1}`}{m?.time ? ` · ${m.time}` : ''}
                                 </div>
+                                {(targets?.calories || targets?.proteinG || targets?.carbsG || targets?.fatG) ? (
+                                  <div className={styles.miniMeta}>
+                                    {targets?.calories ? `Calories: ${targets.calories}\n` : ''}
+                                    {targets?.proteinG ? `Protein: ${targets.proteinG}g\n` : ''}
+                                    {targets?.carbsG ? `Carbs: ${targets.carbsG}g\n` : ''}
+                                    {targets?.fatG ? `Fat: ${targets.fatG}g` : ''}
+                                  </div>
+                                ) : null}
                                 {m?.notes ? <div className={styles.miniMeta}>{m.notes}</div> : null}
                                 {items.length ? (
                                   <ul className={styles.list}>
@@ -386,6 +395,14 @@ export default function ProgramDetail() {
                                         <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
                                           {it?.food || 'Food'}{it?.grams ? ` · ${it.grams}g` : ''}
                                         </div>
+                                        {(it?.calories || it?.proteinG || it?.carbsG || it?.fatG) ? (
+                                          <div className={styles.miniMeta}>
+                                            {it?.calories ? `Calories: ${it.calories}\n` : ''}
+                                            {it?.proteinG ? `Protein: ${it.proteinG}g\n` : ''}
+                                            {it?.carbsG ? `Carbs: ${it.carbsG}g\n` : ''}
+                                            {it?.fatG ? `Fat: ${it.fatG}g` : ''}
+                                          </div>
+                                        ) : null}
                                         {it?.notes ? <div className={styles.miniMeta}>{it.notes}</div> : null}
                                       </li>
                                     ))}

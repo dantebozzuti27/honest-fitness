@@ -173,8 +173,9 @@
 
 .exerciseItem {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
   justify-content: space-between;
-  align-items: center;
   padding: 12px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
@@ -184,6 +185,60 @@
   font-size: 14px;
   color: var(--text-primary);
   flex: 1;
+}
+
+.exerciseTopRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.presetRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+@media (max-width: 520px) {
+  .presetRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.presetField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.presetLabel {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.presetInput {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.presetTextarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  resize: vertical;
+  min-height: 70px;
 }
 
 .exerciseActions {

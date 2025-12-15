@@ -28,8 +28,10 @@ function dollarsToCents(dollars) {
 }
 
 function centsToDollars(cents) {
-  const n = Number(cents || 0)
-  if (!Number.isFinite(n) || n <= 0) return ''
+  const n = Number(cents)
+  if (!Number.isFinite(n) || n < 0) return ''
+  // Explicitly show zero so coaches can set free programs without the UI “clearing” the value.
+  if (n === 0) return '0.00'
   return String((n / 100).toFixed(2))
 }
 
@@ -75,7 +77,7 @@ function newDayPlan(nextDayNumber = 1) {
       notes: '',
       steps: [] // [{ title, notes }]
     },
-    meals: [], // [{ name, time, notes, items: [{ food, grams, notes }] }]
+    meals: [], // [{ name, time, notes, targets: { calories, proteinG, carbsG, fatG }, items: [{ food, grams, notes, calories, proteinG, carbsG, fatG }] }]
     healthMetrics: [], // [{ name, target, unit, notes }]
     healthNotes: ''
   }
@@ -441,7 +443,7 @@ export default function CoachStudio() {
     updateDayPlans((current) => current.map(d => {
       if (d.id !== dayId) return d
       const meals = Array.isArray(d?.meals) ? d.meals : []
-      return { ...d, meals: [...meals, { name: '', time: '', notes: '', items: [] }] }
+      return { ...d, meals: [...meals, { name: '', time: '', notes: '', targets: { calories: '', proteinG: '', carbsG: '', fatG: '' }, items: [] }] }
     }))
   }
 
@@ -461,6 +463,40 @@ export default function CoachStudio() {
     }))
   }
 
+  const duplicateMeal = (dayId, mealIndex) => {
+    updateDayPlans((current) => current.map(d => {
+      if (d.id !== dayId) return d
+      const meals = Array.isArray(d?.meals) ? d.meals : []
+      const m = meals[mealIndex]
+      if (!m) return d
+      const copy = JSON.parse(JSON.stringify(m))
+      copy.name = copy.name ? `${copy.name} (copy)` : 'Meal (copy)'
+      const next = [...meals.slice(0, mealIndex + 1), copy, ...meals.slice(mealIndex + 1)]
+      return { ...d, meals: next }
+    }))
+  }
+
+  const copyMealTargetsToItems = (dayId, mealIndex) => {
+    updateDayPlans((current) => current.map(d => {
+      if (d.id !== dayId) return d
+      const meals = Array.isArray(d?.meals) ? d.meals : []
+      const m = meals[mealIndex]
+      if (!m) return d
+      const targets = m.targets || {}
+      const items = Array.isArray(m.items) ? m.items : []
+      // Best-effort: if an item field is empty, fill it with the meal target.
+      const nextItems = items.map(it => ({
+        ...(it || {}),
+        calories: (it?.calories ?? '') || (targets.calories ?? ''),
+        proteinG: (it?.proteinG ?? '') || (targets.proteinG ?? ''),
+        carbsG: (it?.carbsG ?? '') || (targets.carbsG ?? ''),
+        fatG: (it?.fatG ?? '') || (targets.fatG ?? '')
+      }))
+      const nextMeals = meals.map((x, i) => (i === mealIndex ? { ...(x || {}), items: nextItems } : x))
+      return { ...d, meals: nextMeals }
+    }))
+  }
+
   const addMealItem = (dayId, mealIndex) => {
     updateDayPlans((current) => current.map(d => {
       if (d.id !== dayId) return d
@@ -468,7 +504,7 @@ export default function CoachStudio() {
       const nextMeals = meals.map((m, i) => {
         if (i !== mealIndex) return m
         const items = Array.isArray(m?.items) ? m.items : []
-        return { ...(m || {}), items: [...items, { food: '', grams: '', notes: '' }] }
+        return { ...(m || {}), items: [...items, { food: '', grams: '', notes: '', calories: '', proteinG: '', carbsG: '', fatG: '' }] }
       })
       return { ...d, meals: nextMeals }
     }))
@@ -1157,6 +1193,48 @@ export default function CoachStudio() {
                                 </Button>
                               </div>
                             </div>
+                            <div className={styles.miniBtnRow} style={{ marginTop: 8 }}>
+                              <Button variant="secondary" className={styles.miniBtn} onClick={() => duplicateMeal(currentDay.id, mi)}>
+                                Duplicate meal
+                              </Button>
+                              <Button variant="secondary" className={styles.miniBtn} onClick={() => copyMealTargetsToItems(currentDay.id, mi)}>
+                                Copy meal macros → items
+                              </Button>
+                            </div>
+                            <div className={styles.inlineRow3} style={{ marginTop: 8 }}>
+                              <InputField
+                                label="Meal calories"
+                                inputMode="numeric"
+                                value={meal?.targets?.calories || ''}
+                                onChange={(e) => patchMeal(currentDay.id, mi, { targets: { ...(meal?.targets || {}), calories: e.target.value } })}
+                                placeholder="e.g., 650"
+                              />
+                              <InputField
+                                label="Protein (g)"
+                                inputMode="numeric"
+                                value={meal?.targets?.proteinG || ''}
+                                onChange={(e) => patchMeal(currentDay.id, mi, { targets: { ...(meal?.targets || {}), proteinG: e.target.value } })}
+                                placeholder="e.g., 45"
+                              />
+                              <InputField
+                                label="Carbs (g)"
+                                inputMode="numeric"
+                                value={meal?.targets?.carbsG || ''}
+                                onChange={(e) => patchMeal(currentDay.id, mi, { targets: { ...(meal?.targets || {}), carbsG: e.target.value } })}
+                                placeholder="e.g., 70"
+                              />
+                            </div>
+                            <div className={styles.inlineRow3} style={{ marginTop: 8 }}>
+                              <InputField
+                                label="Fat (g)"
+                                inputMode="numeric"
+                                value={meal?.targets?.fatG || ''}
+                                onChange={(e) => patchMeal(currentDay.id, mi, { targets: { ...(meal?.targets || {}), fatG: e.target.value } })}
+                                placeholder="e.g., 20"
+                              />
+                              <div />
+                              <div />
+                            </div>
                             <TextAreaField
                               label="Meal notes"
                               value={meal?.notes || ''}
@@ -1189,6 +1267,34 @@ export default function CoachStudio() {
                                     Remove
                                   </Button>
                                 </div>
+                                <InputField
+                                  label="Calories"
+                                  inputMode="numeric"
+                                  value={it?.calories || ''}
+                                  onChange={(e) => patchMealItem(currentDay.id, mi, ii, { calories: e.target.value })}
+                                  placeholder="e.g., 220"
+                                />
+                                <InputField
+                                  label="Protein (g)"
+                                  inputMode="numeric"
+                                  value={it?.proteinG || ''}
+                                  onChange={(e) => patchMealItem(currentDay.id, mi, ii, { proteinG: e.target.value })}
+                                  placeholder="e.g., 20"
+                                />
+                                <InputField
+                                  label="Carbs (g)"
+                                  inputMode="numeric"
+                                  value={it?.carbsG || ''}
+                                  onChange={(e) => patchMealItem(currentDay.id, mi, ii, { carbsG: e.target.value })}
+                                  placeholder="e.g., 30"
+                                />
+                                <InputField
+                                  label="Fat (g)"
+                                  inputMode="numeric"
+                                  value={it?.fatG || ''}
+                                  onChange={(e) => patchMealItem(currentDay.id, mi, ii, { fatG: e.target.value })}
+                                  placeholder="e.g., 8"
+                                />
                                 <div style={{ gridColumn: '1 / -1' }}>
                                   <TextAreaField
                                     label="Item notes"

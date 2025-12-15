@@ -20,6 +20,28 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
     exercises: []
   })
 
+  const normalizeExercises = (list) => {
+    const arr = Array.isArray(list) ? list : []
+    return arr
+      .map((e) => {
+        if (!e) return null
+        if (typeof e === 'string') {
+          return { name: e, sets: '', reps: '', time: '', notes: '' }
+        }
+        if (typeof e === 'object') {
+          return {
+            name: String(e.name || ''),
+            sets: e.sets ?? '',
+            reps: e.reps ?? '',
+            time: e.time ?? '',
+            notes: e.notes ?? ''
+          }
+        }
+        return null
+      })
+      .filter((e) => e?.name)
+  }
+
   useEffect(() => {
     async function load() {
       try {
@@ -39,7 +61,7 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
       setFormData({
         id: initialEditingTemplate.id,
         name: initialEditingTemplate.name,
-        exercises: [...initialEditingTemplate.exercises]
+        exercises: normalizeExercises(initialEditingTemplate.exercises)
       })
     } else if (!editingTemplate) {
       setFormData({
@@ -55,15 +77,28 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
       setFormData({
         id: editingTemplate.id,
         name: editingTemplate.name,
-        exercises: [...editingTemplate.exercises]
+        exercises: normalizeExercises(editingTemplate.exercises)
       })
     }
   }, [editingTemplate])
 
   const handleAddExercise = (exercise) => {
+    const meta = allExercises.find(e => e?.name === exercise?.name) || {}
+    const isCardio = meta?.category === 'Cardio'
+    const isRecovery = meta?.category === 'Recovery'
+    const defaultSets = (isCardio || isRecovery) ? 1 : 4
     setFormData(prev => ({
       ...prev,
-      exercises: [...prev.exercises, exercise.name]
+      exercises: [
+        ...prev.exercises,
+        {
+          name: exercise.name,
+          sets: defaultSets,
+          reps: isCardio ? '' : '8-12',
+          time: isCardio ? '20:00' : '',
+          notes: ''
+        }
+      ]
     }))
     setShowPicker(false)
   }
@@ -81,6 +116,13 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
     if (targetIndex < 0 || targetIndex >= newExercises.length) return
     ;[newExercises[index], newExercises[targetIndex]] = [newExercises[targetIndex], newExercises[index]]
     setFormData(prev => ({ ...prev, exercises: newExercises }))
+  }
+
+  const patchExercise = (index, patch) => {
+    setFormData(prev => ({
+      ...prev,
+      exercises: prev.exercises.map((ex, i) => (i === index ? { ...(ex || {}), ...patch } : ex))
+    }))
   }
 
   const handleSave = () => {
@@ -199,33 +241,80 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
                   {formData.exercises.length === 0 ? (
                     <p className={styles.emptyText}>No exercises added yet</p>
                   ) : (
-                    formData.exercises.map((exName, index) => (
+                    formData.exercises.map((ex, index) => (
                       <div key={index} className={styles.exerciseItem}>
-                        <span className={styles.exerciseName}>{exName}</span>
-                        <div className={styles.exerciseActions}>
-                          <Button
-                            unstyled
-                            className={styles.moveBtn}
-                            onClick={() => handleMoveExercise(index, 'up')}
-                            disabled={index === 0}
-                          >
-                            ↑
-                          </Button>
-                          <Button
-                            unstyled
-                            className={styles.moveBtn}
-                            onClick={() => handleMoveExercise(index, 'down')}
-                            disabled={index === formData.exercises.length - 1}
-                          >
-                            ↓
-                          </Button>
-                          <Button
-                            unstyled
-                            className={styles.removeBtn}
-                            onClick={() => handleRemoveExercise(index)}
-                          >
-                            ✕
-                          </Button>
+                        <div className={styles.exerciseTopRow}>
+                          <span className={styles.exerciseName}>{ex?.name}</span>
+                          <div className={styles.exerciseActions}>
+                            <Button
+                              unstyled
+                              className={styles.moveBtn}
+                              onClick={() => handleMoveExercise(index, 'up')}
+                              disabled={index === 0}
+                            >
+                              ↑
+                            </Button>
+                            <Button
+                              unstyled
+                              className={styles.moveBtn}
+                              onClick={() => handleMoveExercise(index, 'down')}
+                              disabled={index === formData.exercises.length - 1}
+                            >
+                              ↓
+                            </Button>
+                            <Button
+                              unstyled
+                              className={styles.removeBtn}
+                              onClick={() => handleRemoveExercise(index)}
+                            >
+                              ✕
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className={styles.presetRow}>
+                          <div className={styles.presetField}>
+                            <div className={styles.presetLabel}>Sets</div>
+                            <input
+                              className={styles.presetInput}
+                              inputMode="numeric"
+                              value={ex?.sets ?? ''}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                const n = v === '' ? '' : Math.max(1, Math.min(20, Number(v)))
+                                patchExercise(index, { sets: Number.isFinite(n) ? n : '' })
+                              }}
+                              placeholder="4"
+                            />
+                          </div>
+                          <div className={styles.presetField}>
+                            <div className={styles.presetLabel}>Reps (strength)</div>
+                            <input
+                              className={styles.presetInput}
+                              value={ex?.reps ?? ''}
+                              onChange={(e) => patchExercise(index, { reps: e.target.value })}
+                              placeholder="8-12"
+                            />
+                          </div>
+                          <div className={styles.presetField}>
+                            <div className={styles.presetLabel}>Time (cardio)</div>
+                            <input
+                              className={styles.presetInput}
+                              value={ex?.time ?? ''}
+                              onChange={(e) => patchExercise(index, { time: e.target.value })}
+                              placeholder="20:00"
+                            />
+                          </div>
+                        </div>
+
+                        <div className={styles.presetField}>
+                          <div className={styles.presetLabel}>Coach notes</div>
+                          <textarea
+                            className={styles.presetTextarea}
+                            value={ex?.notes ?? ''}
+                            onChange={(e) => patchExercise(index, { notes: e.target.value })}
+                            placeholder="Cues, tempo, rest targets, substitutions…"
+                          />
                         </div>
                       </div>
                     ))

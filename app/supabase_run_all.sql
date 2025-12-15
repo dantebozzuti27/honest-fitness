@@ -1637,6 +1637,49 @@ END $$;
 
 
 -- ============================================================================
+-- MIGRATION: Scheduled workouts (Calendar)
+-- Purpose: Allow users to schedule a workout template on a specific date
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS scheduled_workouts (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  template_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, date)
+);
+
+ALTER TABLE scheduled_workouts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own scheduled_workouts" ON scheduled_workouts;
+CREATE POLICY "Users can view own scheduled_workouts" ON scheduled_workouts
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own scheduled_workouts" ON scheduled_workouts;
+CREATE POLICY "Users can insert own scheduled_workouts" ON scheduled_workouts
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own scheduled_workouts" ON scheduled_workouts;
+CREATE POLICY "Users can update own scheduled_workouts" ON scheduled_workouts
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own scheduled_workouts" ON scheduled_workouts;
+CREATE POLICY "Users can delete own scheduled_workouts" ON scheduled_workouts
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_workouts_user_date ON scheduled_workouts(user_id, date);
+CREATE INDEX IF NOT EXISTS idx_scheduled_workouts_date ON scheduled_workouts(date);
+
+DROP TRIGGER IF EXISTS update_scheduled_workouts_updated_at ON scheduled_workouts;
+CREATE TRIGGER update_scheduled_workouts_updated_at
+  BEFORE UPDATE ON scheduled_workouts
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+
+-- ============================================================================
 -- MIGRATION: Coach Marketplace (Programs + Purchases)
 -- Purpose: Allow coaches to publish programs (workout/nutrition/health bundles)
 --          and users to buy/apply them. Payments integration is handled at the

@@ -161,4 +161,70 @@
   flex: 1;
 }
 
+.dayPlansHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.dayCard {
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 10px;
+}
+
+.dayHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dayTitle {
+  font-size: 14px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.miniBtnRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.miniBtn {
+  padding: 8px 10px;
+  border-radius: 12px;
+  min-width: 0;
+}
+
+.subSectionTitle {
+  font-weight: 800;
+  font-size: 13px;
+  margin: 12px 0 8px 0;
+}
+
+.inlineRow3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .inlineRow3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hr {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 12px 0;
+}
+
 

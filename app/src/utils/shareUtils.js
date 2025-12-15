@@ -299,7 +299,7 @@ export async function shareWorkoutToFeed(workout, userId) {
     }
 
     // Save to database
-    const { saveFeedItemToSupabase } = await import('../lib/supabaseDb')
+    const { saveFeedItemToSupabase } = await import('../lib/db/feedDb')
     const saved = await saveFeedItemToSupabase(feedItem, userId)
     
     if (saved?.queued) {

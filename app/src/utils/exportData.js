@@ -1,4 +1,5 @@
-import { getWorkoutsFromSupabase, getAllMetricsFromSupabase } from '../lib/supabaseDb'
+import { getWorkoutsFromSupabase } from '../lib/db/workoutsDb'
+import { getAllMetricsFromSupabase } from '../lib/db/metricsDb'
 
 /**
  * Convert array of objects to CSV string

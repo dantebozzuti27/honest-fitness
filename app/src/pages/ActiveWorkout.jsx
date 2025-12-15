@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { getTemplate, getAllExercises, saveWorkout } from '../db'
+import { getTemplate, getAllExercises, saveWorkout } from '../db/lazyDb'
 import { 
   saveWorkoutToSupabase, 
   savePausedWorkoutToSupabase, 
@@ -9,7 +9,7 @@ import {
   saveActiveWorkoutSession,
   getActiveWorkoutSession,
   deleteActiveWorkoutSession
-} from '../lib/supabaseDb'
+} from '../lib/db/workoutsSessionDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { useAuth } from '../context/AuthContext'
 import { logError } from '../utils/logger'

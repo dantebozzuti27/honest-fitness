@@ -1,5 +1,6 @@
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
-import { getWorkoutsFromSupabase, getAllMetricsFromSupabase } from './supabaseDb'
+import { getWorkoutsFromSupabase } from './db/workoutsDb'
+import { getAllMetricsFromSupabase } from './db/metricsDb'
 import { getTodayEST } from '../utils/dateUtils'
 
 // Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getAllExercises } from '../db'
+import { getAllExercises } from '../db/lazyDb'
 import ExercisePicker from './ExercisePicker'
 import { useToast } from '../hooks/useToast'
 import Toast from './Toast'

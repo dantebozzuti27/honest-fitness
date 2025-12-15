@@ -1,4 +1,4 @@
-import { hasExercises, bulkAddExercises } from '../db'
+import { hasExercises, bulkAddExercises } from '../db/lazyDb'
 import { getSystemExercises } from './exerciseLibrary'
 
 function titleCase(s) {

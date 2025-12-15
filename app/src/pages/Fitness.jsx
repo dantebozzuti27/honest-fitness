@@ -2,8 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { getAllTemplates, saveTemplate, deleteTemplate } from '../db'
-import { saveMetricsToSupabase, getUserPreferences, generateWorkoutPlan, getMetricsFromSupabase, getWorkoutsFromSupabase, deleteWorkoutFromSupabase, getScheduledWorkoutsFromSupabase, getPausedWorkoutFromSupabase } from '../lib/supabaseDb'
+import { getAllTemplates, saveTemplate, deleteTemplate } from '../db/lazyDb'
+import { getUserPreferences } from '../lib/db/userPreferencesDb'
+import { getWorkoutsFromSupabase, deleteWorkoutFromSupabase } from '../lib/db/workoutsDb'
+import { getMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metricsDb'
+import { getScheduledWorkoutsFromSupabase } from '../lib/db/scheduledWorkoutsDb'
+import { getPausedWorkoutFromSupabase, deletePausedWorkoutFromSupabase } from '../lib/db/pausedWorkoutsDb'
+import { generateWorkoutPlan } from '../lib/workoutPlanning'
 // Dynamic import for code-splitting
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
@@ -124,7 +129,6 @@ export default function Fitness() {
   const handleDismissPausedWorkout = async () => {
     if (!user || !pausedWorkout) return
     try {
-      const { deletePausedWorkoutFromSupabase } = await import('../lib/supabaseDb')
       const result = await deletePausedWorkoutFromSupabase(user.id)
       // Always clear local fallback so the UI doesn’t keep resurrecting it.
       try {

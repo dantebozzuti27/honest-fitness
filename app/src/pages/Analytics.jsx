@@ -4,25 +4,26 @@ import { useAuth } from '../context/AuthContext'
 import {
   getBodyPartStats,
   calculateStreakFromSupabase,
-  getAllMetricsFromSupabase,
-  getScheduledWorkoutsFromSupabase,
   getWorkoutFrequency,
   getExerciseStats,
   getWorkoutsFromSupabase,
   getDetailedBodyPartStats,
   deleteWorkoutFromSupabase,
-  updateWorkoutInSupabase,
-  saveMetricsToSupabase,
+  updateWorkoutInSupabase
+} from '../lib/db/workoutsDb'
+import { getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metricsDb'
+import { getScheduledWorkoutsFromSupabase } from '../lib/db/scheduledWorkoutsDb'
+import {
   getDailyWorkoutSummaries,
   getWeeklyWorkoutSummaries,
   getMonthlyWorkoutSummaries,
   getDailyHealthSummaries,
   getWeeklyHealthSummaries,
   getDailyNutritionSummaries,
-  getEngineeredFeatures,
-  getUserEventStats
-} from '../lib/supabaseDb'
-import { getAllTemplates } from '../db'
+  getEngineeredFeatures
+} from '../lib/db/summariesDb'
+import { getUserEventStats } from '../lib/db/userEventsDb'
+import { getAllTemplates } from '../db/lazyDb'
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'

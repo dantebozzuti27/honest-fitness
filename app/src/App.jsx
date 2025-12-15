@@ -4,12 +4,8 @@ import { useAuth } from './context/AuthContext'
 import { startTokenRefreshInterval } from './lib/tokenManager'
 import { getAllConnectedAccounts, syncFitbitData, syncOuraData } from './lib/wearables'
 import { getTodayEST } from './utils/dateUtils'
-import { getUserPreferences } from './lib/supabaseDb'
+import { getUserPreferences } from './lib/db/userPreferencesDb'
 import { lazy, Suspense } from 'react'
-import Home from './pages/Home'
-import Auth from './pages/Auth'
-import Privacy from './pages/Privacy'
-import Terms from './pages/Terms'
 import BottomNav from './components/BottomNav'
 import Onboarding from './components/Onboarding'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -22,6 +18,10 @@ import { logWarn, logError } from './utils/logger'
 import { flushOutbox, migrateLegacyFailedWorkouts } from './lib/syncOutbox'
 
 // Lazy load heavy components for code splitting
+const Home = lazy(() => import('./pages/Home'))
+const Auth = lazy(() => import('./pages/Auth'))
+const Privacy = lazy(() => import('./pages/Privacy'))
+const Terms = lazy(() => import('./pages/Terms'))
 const Fitness = lazy(() => import('./pages/Fitness'))
 const Nutrition = lazy(() => import('./pages/Nutrition'))
 const Health = lazy(() => import('./pages/Health'))

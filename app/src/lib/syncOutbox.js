@@ -123,13 +123,13 @@ export async function flushOutbox(userId) {
       if (item.kind === 'workout') {
         const workout = item.payload?.workout
         if (!workout) throw new Error('Missing workout payload')
-        const { saveWorkoutToSupabase } = await import('./supabaseDb')
+        const { saveWorkoutToSupabase } = await import('./db/workoutsDb')
         await saveWorkoutToSupabase(workout, userId)
       } else if (item.kind === 'metrics') {
         const date = item.payload?.date
         const metrics = item.payload?.metrics
         if (!date || !metrics) throw new Error('Missing metrics payload')
-        const { saveMetricsToSupabase } = await import('./supabaseDb')
+        const { saveMetricsToSupabase } = await import('./db/metricsDb')
         await saveMetricsToSupabase(userId, date, metrics, { allowOutbox: false })
       } else if (item.kind === 'meal') {
         const date = item.payload?.date
@@ -140,7 +140,7 @@ export async function flushOutbox(userId) {
       } else if (item.kind === 'feed_item') {
         const feedItem = item.payload?.feedItem
         if (!feedItem) throw new Error('Missing feed item payload')
-        const { saveFeedItemToSupabase } = await import('./supabaseDb')
+        const { saveFeedItemToSupabase } = await import('./db/feedDb')
         await saveFeedItemToSupabase(feedItem, userId, { allowOutbox: false })
       } else {
         // Unknown kinds are preserved; prevents data loss when upgrading formats.

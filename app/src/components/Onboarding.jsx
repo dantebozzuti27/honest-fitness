@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../context/AuthContext'
-import { getUserPreferences, saveUserPreferences } from '../lib/supabaseDb'
+import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferencesDb'
 import { logError } from '../utils/logger'
 import styles from './Onboarding.module.css'
 

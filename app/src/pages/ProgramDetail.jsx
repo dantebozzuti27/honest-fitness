@@ -37,6 +37,9 @@ export default function ProgramDetail() {
     return Array.isArray(list) ? list.length : 0
   }, [program])
 
+  const nutrition = program?.content?.nutrition || null
+  const health = program?.content?.health || null
+
   useEffect(() => {
     let mounted = true
     setLoading(true)
@@ -81,6 +84,38 @@ export default function ProgramDetail() {
     }
   }
 
+  const onApply = async () => {
+    if (!program) return
+    try {
+      const db = await import('../db/lazyDb')
+      const bulkAddTemplates = db.bulkAddTemplates
+      if (typeof bulkAddTemplates !== 'function') {
+        showToast('Template storage is not available yet in this build.', 'error')
+        return
+      }
+      const templates = Array.isArray(program.content?.workoutTemplates) ? program.content.workoutTemplates : []
+      if (templates.length === 0) {
+        showToast('This program has no workout templates to apply.', 'error')
+        return
+      }
+
+      const safeTemplates = templates.map((t, idx) => {
+        const baseId = t?.id ? String(t.id) : `t${idx + 1}`
+        return {
+          id: `mp_${program.id}_${baseId}`,
+          name: t?.name || `Template ${idx + 1}`,
+          exercises: Array.isArray(t?.exercises) ? t.exercises : []
+        }
+      })
+
+      await bulkAddTemplates(safeTemplates)
+      showToast('Applied! Templates are now in your Planner/Workout flow.', 'success', 4500)
+    } catch (e) {
+      logError('Apply program failed', e)
+      showToast('Failed to apply program. Please try again.', 'error')
+    }
+  }
+
   return (
     <div className={styles.container}>
       {toast && (
@@ -121,8 +156,8 @@ export default function ProgramDetail() {
 
             <div style={{ marginTop: 12 }} className={styles.btnRow}>
               {hasAccess ? (
-                <Button className={styles.btn} disabled>
-                  In your library
+                <Button className={styles.btn} onClick={onApply}>
+                  Apply program
                 </Button>
               ) : (
                 <Button
@@ -170,7 +205,35 @@ export default function ProgramDetail() {
           </div>
 
           <div className={styles.card}>
-            <div className={styles.h2}>Notes</div>
+            <div className={styles.h2}>Nutrition</div>
+            {nutrition ? (
+              <div className={styles.desc}>
+                {nutrition.caloriesTarget ? `Calories: ${nutrition.caloriesTarget}\n` : '' }
+                {nutrition.proteinG ? `Protein: ${nutrition.proteinG}g\n` : '' }
+                {nutrition.carbsG ? `Carbs: ${nutrition.carbsG}g\n` : '' }
+                {nutrition.fatG ? `Fat: ${nutrition.fatG}g\n` : '' }
+                {nutrition.notes ? `\n${nutrition.notes}` : '—'}
+              </div>
+            ) : (
+              <div className={styles.meta}>—</div>
+            )}
+          </div>
+
+          <div className={styles.card}>
+            <div className={styles.h2}>Health</div>
+            {health ? (
+              <div className={styles.desc}>
+                {health.sleepHoursTarget ? `Sleep: ${health.sleepHoursTarget}h\n` : '' }
+                {health.stepsTarget ? `Steps: ${health.stepsTarget}\n` : '' }
+                {health.habits ? `\n${health.habits}` : '—'}
+              </div>
+            ) : (
+              <div className={styles.meta}>—</div>
+            )}
+          </div>
+
+          <div className={styles.card}>
+            <div className={styles.h2}>Coach notes</div>
             <div className={styles.desc}>{program.content?.notes || '—'}</div>
           </div>
         </>

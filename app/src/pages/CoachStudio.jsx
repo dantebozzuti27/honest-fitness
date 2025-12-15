@@ -40,7 +40,12 @@ function emptyDraft() {
     priceCents: 0,
     currency: 'usd',
     tags: [],
-    content: { workoutTemplates: [], notes: '' }
+    content: {
+      workoutTemplates: [],
+      nutrition: { caloriesTarget: '', proteinG: '', carbsG: '', fatG: '', notes: '' },
+      health: { sleepHoursTarget: '', stepsTarget: '', habits: '' },
+      notes: ''
+    }
   }
 }
 
@@ -115,7 +120,7 @@ export default function CoachStudio() {
       priceCents: Number(p.priceCents || 0),
       currency: p.currency || 'usd',
       tags: Array.isArray(p.tags) ? p.tags : [],
-      content: p.content || { workoutTemplates: [], notes: '' }
+      content: p.content || emptyDraft().content
     })
   }
 
@@ -173,6 +178,28 @@ export default function CoachStudio() {
       await loadAll()
     } catch (e) {
       logError('Publish failed', e)
+      showToast('Failed to publish program.', 'error')
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  const publishFromList = async (p) => {
+    if (!user?.id || !p?.id) return
+    setPublishing(true)
+    try {
+      if (Number(p.priceCents || 0) > 0) {
+        showToast('Paid checkout is not wired yet. Set price to $0 for now to test.', 'error', 6500)
+        return
+      }
+      await publishProgram(user.id, p.id)
+      showToast('Program published.', 'success')
+      await loadAll()
+      // Keep editor in sync with the published program
+      const updated = await listMyPrograms(user.id).then(list => (list || []).find(x => x.id === p.id) || null).catch(() => null)
+      if (updated) onEditProgram(updated)
+    } catch (e) {
+      logError('Publish from list failed', e)
       showToast('Failed to publish program.', 'error')
     } finally {
       setPublishing(false)
@@ -282,7 +309,7 @@ export default function CoachStudio() {
                         Edit
                       </Button>
                       {p.status !== 'published' ? (
-                        <Button className={styles.btn} onClick={() => { onEditProgram(p); setTimeout(onPublish, 0) }}>
+                        <Button className={styles.btn} onClick={() => publishFromList(p)} loading={publishing} disabled={publishing}>
                           Publish
                         </Button>
                       ) : (
@@ -353,6 +380,98 @@ export default function CoachStudio() {
               value={draft.content?.notes || ''}
               onChange={(e) => setDraft(prev => ({ ...prev, content: { ...(prev.content || {}), notes: e.target.value } }))}
               placeholder="Coaching notes, expectations, schedule, etc."
+              rows={4}
+            />
+
+            <div style={{ height: 12 }} />
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Nutrition</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <InputField
+                label="Calories target"
+                inputMode="numeric"
+                value={draft.content?.nutrition?.caloriesTarget || ''}
+                onChange={(e) => setDraft(prev => ({
+                  ...prev,
+                  content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), caloriesTarget: e.target.value } }
+                }))}
+                placeholder="e.g., 2200"
+              />
+              <InputField
+                label="Protein (g)"
+                inputMode="numeric"
+                value={draft.content?.nutrition?.proteinG || ''}
+                onChange={(e) => setDraft(prev => ({
+                  ...prev,
+                  content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), proteinG: e.target.value } }
+                }))}
+                placeholder="e.g., 160"
+              />
+              <InputField
+                label="Carbs (g)"
+                inputMode="numeric"
+                value={draft.content?.nutrition?.carbsG || ''}
+                onChange={(e) => setDraft(prev => ({
+                  ...prev,
+                  content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), carbsG: e.target.value } }
+                }))}
+                placeholder="e.g., 220"
+              />
+              <InputField
+                label="Fat (g)"
+                inputMode="numeric"
+                value={draft.content?.nutrition?.fatG || ''}
+                onChange={(e) => setDraft(prev => ({
+                  ...prev,
+                  content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), fatG: e.target.value } }
+                }))}
+                placeholder="e.g., 70"
+              />
+            </div>
+            <div style={{ height: 10 }} />
+            <TextAreaField
+              label="Nutrition notes"
+              value={draft.content?.nutrition?.notes || ''}
+              onChange={(e) => setDraft(prev => ({
+                ...prev,
+                content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), notes: e.target.value } }
+              }))}
+              placeholder="Meal structure, micronutrient focus, food swaps, etc."
+              rows={3}
+            />
+
+            <div style={{ height: 12 }} />
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Health</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <InputField
+                label="Sleep target (hours)"
+                inputMode="decimal"
+                value={draft.content?.health?.sleepHoursTarget || ''}
+                onChange={(e) => setDraft(prev => ({
+                  ...prev,
+                  content: { ...(prev.content || {}), health: { ...(prev.content?.health || {}), sleepHoursTarget: e.target.value } }
+                }))}
+                placeholder="e.g., 8"
+              />
+              <InputField
+                label="Steps target"
+                inputMode="numeric"
+                value={draft.content?.health?.stepsTarget || ''}
+                onChange={(e) => setDraft(prev => ({
+                  ...prev,
+                  content: { ...(prev.content || {}), health: { ...(prev.content?.health || {}), stepsTarget: e.target.value } }
+                }))}
+                placeholder="e.g., 10000"
+              />
+            </div>
+            <div style={{ height: 10 }} />
+            <TextAreaField
+              label="Habits / recovery checklist"
+              value={draft.content?.health?.habits || ''}
+              onChange={(e) => setDraft(prev => ({
+                ...prev,
+                content: { ...(prev.content || {}), health: { ...(prev.content?.health || {}), habits: e.target.value } }
+              }))}
+              placeholder={"e.g.\n- Walk 20 min after lunch\n- 10 min mobility\n- Magnesium before bed"}
               rows={4}
             />
 

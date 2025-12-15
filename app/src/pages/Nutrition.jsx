@@ -25,6 +25,7 @@ import { chatWithAI } from '../lib/chatApi'
 import InsightsCard from '../components/InsightsCard'
 import { usePageInsights } from '../hooks/usePageInsights'
 // All charts are now BarChart only
+import SearchField from '../components/SearchField'
 import styles from './Nutrition.module.css'
 
 const TABS = ['Today', 'History', 'Plan', 'Goals', 'Settings']
@@ -1077,11 +1078,10 @@ export default function Nutrition() {
                   </div>
 
                   <div className={styles.foodSearchControls}>
-                    <input
-                      type="text"
-                      placeholder="Search foods (2+ chars) or paste a barcode…"
+                    <SearchField
                       value={foodSearchQuery}
                       onChange={(e) => setFoodSearchQuery(e.target.value)}
+                      placeholder="Search foods (2+ chars) or paste a barcode…"
                       onKeyDown={(e) => {
                         const currentList = foodSuggestions || []
                         const max = Math.max(0, currentList.length - 1)
@@ -1105,8 +1105,8 @@ export default function Nutrition() {
                           else setShowFoodSuggestions(false)
                         }
                       }}
-                      className={styles.foodSearchInput}
-                      ref={foodSearchInputRef}
+                      inputRef={foodSearchInputRef}
+                      onClear={() => setFoodSearchQuery('')}
                     />
 
                     <div className={styles.foodSearchActionsRow}>

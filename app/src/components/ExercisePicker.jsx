@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { debounce } from '../utils/debounce'
 import Button from './Button'
 import InputField from './InputField'
+import SearchField from './SearchField'
 import SelectField from './SelectField'
 import styles from './ExercisePicker.module.css'
 
@@ -69,11 +70,12 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
         </div>
 
         <div className={styles.search}>
-          <InputField
+          <SearchField
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search exercises..."
+            placeholder="Search exercises…"
             autoFocus
+            onClear={() => setSearch('')}
           />
         </div>
 

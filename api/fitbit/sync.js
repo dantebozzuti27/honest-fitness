@@ -8,22 +8,25 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed', success: false })
   }
 
-  const { userId, date } = req.body
-
-  if (!userId || !date) {
-    return res.status(400).json({ message: 'Missing userId or date', success: false })
+  const { date } = req.body || {}
+  if (!date) {
+    return res.status(400).json({ message: 'Missing date', success: false })
   }
 
   try {
-    console.log('Fitbit sync request:', { userId, date })
+    // Auth required; derive userId from JWT (never trust body userId)
+    const authHeader = req.headers?.authorization || req.headers?.Authorization
+    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Missing authorization', success: false })
+    }
+    const token = authHeader.slice('Bearer '.length).trim()
+    if (!token) {
+      return res.status(401).json({ message: 'Missing authorization token', success: false })
+    }
     
-    // Validate input
-    if (!userId || !date) {
-      return res.status(400).json({ 
-        message: 'Missing userId or date',
-        error: 'Missing required parameters',
-        success: false
-      })
+    // Validate date format
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ message: 'Invalid date format (expected YYYY-MM-DD)', success: false })
     }
     
     // Get Fitbit account from Supabase
@@ -46,6 +49,12 @@ export default async function handler(req, res) {
     
     const supabase = createClient(supabaseUrl, supabaseKey)
 
+    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
+    if (userErr || !user?.id) {
+      return res.status(401).json({ message: 'Invalid or expired token', success: false })
+    }
+    const userId = user.id
+
     // Get connected account
     const { data: account, error: accountError } = await supabase
       .from('connected_accounts')
@@ -64,7 +73,6 @@ export default async function handler(req, res) {
     }
 
     if (!account) {
-      console.error('Fitbit account not found for user:', userId)
       return res.status(404).json({ 
         message: 'Fitbit account not connected',
         error: 'Fitbit account not connected',

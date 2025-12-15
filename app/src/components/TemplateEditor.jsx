@@ -1,12 +1,17 @@
 import { useState, useEffect } from 'react'
 import { getAllExercises } from '../db'
 import ExercisePicker from './ExercisePicker'
+import { useToast } from '../hooks/useToast'
+import Toast from './Toast'
+import ConfirmDialog from './ConfirmDialog'
 import styles from './TemplateEditor.module.css'
 
 export default function TemplateEditor({ templates, onClose, onSave, onDelete, onEdit, editingTemplate: initialEditingTemplate }) {
   const [editingTemplate, setEditingTemplate] = useState(initialEditingTemplate || null)
   const [allExercises, setAllExercises] = useState([])
   const [showPicker, setShowPicker] = useState(false)
+  const { toast, showToast, hideToast } = useToast()
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, id: null, name: '' })
   const [formData, setFormData] = useState({
     id: '',
     name: '',
@@ -78,11 +83,11 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
 
   const handleSave = () => {
     if (!formData.name.trim()) {
-      alert('Please enter a template name')
+      showToast('Please enter a template name', 'error')
       return
     }
     if (formData.exercises.length === 0) {
-      alert('Please add at least one exercise')
+      showToast('Please add at least one exercise', 'error')
       return
     }
     onSave(formData)
@@ -96,12 +101,10 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
   }
 
   const handleNewTemplate = () => {
-    setEditingTemplate(null)
-    setFormData({
-      id: `template-${Date.now()}`,
-      name: '',
-      exercises: []
-    })
+    const id = `template-${Date.now()}`
+    const draft = { id, name: '', exercises: [] }
+    setEditingTemplate(draft) // IMPORTANT: must be truthy to show editor UI
+    setFormData(draft)
     if (onEdit) onEdit(null)
   }
 
@@ -150,9 +153,7 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
                     <button
                       className={styles.deleteTemplateBtn}
                       onClick={() => {
-                        if (confirm(`Delete "${template.name}"?`)) {
-                          onDelete(template.id)
-                        }
+                        setDeleteConfirm({ open: true, id: template.id, name: template.name })
                       }}
                     >
                       Delete
@@ -244,6 +245,24 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
             onClose={() => setShowPicker(false)}
           />
         )}
+
+        <ConfirmDialog
+          open={deleteConfirm.open}
+          title="Delete template?"
+          message={deleteConfirm.name ? `Delete "${deleteConfirm.name}"?` : 'Delete this template?'}
+          confirmText="Delete"
+          cancelText="Cancel"
+          destructive
+          onCancel={() => setDeleteConfirm({ open: false, id: null, name: '' })}
+          onConfirm={() => {
+            if (deleteConfirm.id) {
+              onDelete(deleteConfirm.id)
+            }
+            setDeleteConfirm({ open: false, id: null, name: '' })
+          }}
+        />
+
+        {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
       </div>
     </div>
   )

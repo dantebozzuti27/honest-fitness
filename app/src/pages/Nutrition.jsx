@@ -19,6 +19,7 @@ import ShareModal from '../components/ShareModal'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import HistoryCard from '../components/HistoryCard'
+import { chatWithAI } from '../lib/chatApi'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
@@ -668,32 +669,15 @@ export default function Nutrition() {
           meals: data.meals || []
         }))
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `As a professional dietician, analyze my diet from the last 7 days and provide recommendations. Here's my nutrition data: ${JSON.stringify(last7Days)}. My daily goals are: ${targetCalories} calories, ${targetMacros.protein}g protein, ${targetMacros.carbs}g carbs, ${targetMacros.fat}g fat.`
-          }]
-        })
+      const data = await chatWithAI({
+        messages: [{
+          role: 'user',
+          content: `As a professional dietician, analyze my diet from the last 7 days and provide recommendations. Here's my nutrition data: ${JSON.stringify(last7Days)}. My daily goals are: ${targetCalories} calories, ${targetMacros.protein}g protein, ${targetMacros.carbs}g carbs, ${targetMacros.fat}g fat.`
+        }]
       })
-
-      if (response.ok) {
-        let data
-        try {
-          data = await response.json()
-        } catch (e) {
-          logError('Error parsing dietician response', e)
-          showToast('Failed to parse response. Please try again.', 'error')
-          return
-        }
-        setDieticianResult(data.response || data.message || 'Analysis complete')
-      } else {
-        throw new Error('Dietician analysis failed')
-      }
+      setDieticianResult(data?.response || data?.message || 'Analysis complete')
     } catch (error) {
-      alert('Failed to analyze diet. Please try again.')
+      showToast('Failed to analyze diet. Please try again.', 'error')
     } finally {
       setDieticianAnalyzing(false)
     }

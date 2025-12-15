@@ -10,11 +10,15 @@ import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
 import HomeButton from '../components/HomeButton'
 import InviteFriends from '../components/InviteFriends'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import styles from './Profile.module.css'
 
 export default function Profile() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [exporting, setExporting] = useState(false)
   const [connectedAccounts, setConnectedAccounts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -35,6 +39,8 @@ export default function Profile() {
   const [showInviteFriends, setShowInviteFriends] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
+  const [disconnectConfirm, setDisconnectConfirm] = useState({ open: false, provider: null })
+  const [finalDeleteConfirmOpen, setFinalDeleteConfirmOpen] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -89,16 +95,16 @@ export default function Profile() {
           setProfilePicture(base64String)
         } catch (error) {
           console.error('Profile picture read error:', error)
-          alert('Failed to read image file. Please try again.')
+          showToast('Failed to read image file. Please try again.', 'error')
         }
       }
       reader.onerror = () => {
-        alert('Failed to read image file. Please try again.')
+        showToast('Failed to read image file. Please try again.', 'error')
       }
       reader.readAsDataURL(file)
     } catch (error) {
       console.error('Profile picture upload error:', error)
-      alert(`Failed to upload profile picture: ${error.message || 'Please try again.'}`)
+      showToast(`Failed to upload profile picture: ${error.message || 'Please try again.'}`, 'error')
     }
   }
 
@@ -107,26 +113,26 @@ export default function Profile() {
     
     // Validate required fields
     if (!username.trim()) {
-      alert('Username is required')
+      showToast('Username is required', 'error')
       return
     }
     
     if (!phoneNumber.trim()) {
-      alert('Phone number is required')
+      showToast('Phone number is required', 'error')
       return
     }
     
     // Validate username format
     const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/
     if (!usernameRegex.test(username.trim())) {
-      alert('Username must be 3-20 characters and contain only letters, numbers, underscores, or hyphens')
+      showToast('Username must be 3-20 characters and contain only letters, numbers, underscores, or hyphens', 'error', 6000)
       return
     }
     
     // Validate phone number
     const digitsOnly = phoneNumber.replace(/\D/g, '')
     if (digitsOnly.length < 10) {
-      alert('Please enter a valid phone number')
+      showToast('Please enter a valid phone number', 'error')
       return
     }
     
@@ -148,10 +154,10 @@ export default function Profile() {
         profilePicture: profilePicture || profilePictureUrl || null
       })
       
-      alert('Profile updated successfully!')
+      showToast('Profile updated successfully!', 'success')
     } catch (error) {
       console.error('Profile save error:', error)
-      alert(`Failed to update profile: ${error.message || 'Please try again.'}`)
+      showToast(`Failed to update profile: ${error.message || 'Please try again.'}`, 'error')
     } finally {
       setSaving(false)
     }
@@ -190,14 +196,24 @@ export default function Profile() {
 
   const handleDisconnect = async (provider) => {
     if (!user) return
-    if (!confirm(`Disconnect ${provider}? This will stop syncing data from this account.`)) return
-    
+    setDisconnectConfirm({ open: true, provider })
+  }
+
+  const confirmDisconnect = async () => {
+    if (!user || !disconnectConfirm.provider) {
+      setDisconnectConfirm({ open: false, provider: null })
+      return
+    }
+
+    const provider = disconnectConfirm.provider
     try {
       await disconnectAccount(user.id, provider)
       await loadConnectedAccounts()
-      alert(`${provider} disconnected successfully`)
+      showToast(`${provider} disconnected successfully`, 'success')
     } catch (error) {
-      alert(`Failed to disconnect ${provider}. Please try again.`)
+      showToast(`Failed to disconnect ${provider}. Please try again.`, 'error')
+    } finally {
+      setDisconnectConfirm({ open: false, provider: null })
     }
   }
 
@@ -208,24 +224,24 @@ export default function Profile() {
       if (format === 'json') {
         const data = await exportUserDataJSON(user.id)
         downloadData(data, `honest-fitness-data-${new Date().toISOString().split('T')[0]}.json`, 'application/json')
-        alert('All data exported as JSON!')
+        showToast('All data exported as JSON!', 'success')
       } else if (format === 'workouts-csv') {
         const csv = await exportWorkoutsCSV(user.id)
         downloadData(csv, `workouts-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
-        alert('Workouts exported as CSV!')
+        showToast('Workouts exported as CSV!', 'success')
       } else if (format === 'metrics-csv') {
         const csv = await exportHealthMetricsCSV(user.id)
         downloadData(csv, `health-metrics-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
-        alert('Health metrics exported as CSV!')
+        showToast('Health metrics exported as CSV!', 'success')
       } else if (format === 'excel') {
         // Legacy Excel export
         const result = await exportWorkoutData(user.id, user.email)
-        alert(`Exported ${result.workouts} workouts and ${result.metrics} daily metrics!\n\nThe Excel file has been downloaded. Attach it to the email that just opened.`)
+        showToast(`Exported ${result.workouts} workouts and ${result.metrics} daily metrics. The Excel file has been downloaded.`, 'success', 7000)
       }
       setShowExportMenu(false)
     } catch (err) {
       console.error('Export error:', err)
-      alert('Failed to export data. Please try again.')
+      showToast('Failed to export data. Please try again.', 'error')
     }
     setExporting(false)
   }
@@ -246,24 +262,15 @@ export default function Profile() {
     }
 
     if (deleteConfirmText !== 'DELETE') {
-      alert('Please type "DELETE" to confirm account deletion')
+      showToast('Please type "DELETE" to confirm account deletion', 'error')
       return
     }
 
-    const finalConfirm = confirm(
-      '⚠️ FINAL WARNING: This will permanently delete ALL your data including:\n\n' +
-      '• All workouts and exercise history\n' +
-      '• All health metrics and nutrition data\n' +
-      '• All goals and preferences\n' +
-      '• All connected accounts\n\n' +
-      'This action CANNOT be undone. Are you absolutely sure?'
-    )
+    setFinalDeleteConfirmOpen(true)
+  }
 
-    if (!finalConfirm) {
-      setShowDeleteConfirm(false)
-      setDeleteConfirmText('')
-      return
-    }
+  const performDeleteAccount = async () => {
+    if (!user) return
 
     setDeleting(true)
     try {
@@ -271,14 +278,15 @@ export default function Profile() {
       
       // Sign out and redirect
       await signOut()
-      alert('Your account and all data have been permanently deleted.')
+      showToast('Your account and all data have been permanently deleted.', 'success', 6000)
       navigate('/auth')
     } catch (error) {
       console.error('Account deletion error:', error)
-      alert(`Failed to delete account: ${error.message || 'Please try again or contact support.'}`)
+      showToast(`Failed to delete account: ${error.message || 'Please try again or contact support.'}`, 'error', 7000)
       setDeleting(false)
       setShowDeleteConfirm(false)
       setDeleteConfirmText('')
+      setFinalDeleteConfirmOpen(false)
     }
   }
 
@@ -696,7 +704,7 @@ export default function Profile() {
           ) : (
             <div className={styles.deleteConfirm}>
               <p className={styles.deleteWarning}>
-                ⚠️ This will permanently delete ALL your data. This action cannot be undone.
+                This will permanently delete ALL your data. This action cannot be undone.
               </p>
               <p className={styles.deleteInstruction}>
                 Type <strong>DELETE</strong> to confirm:
@@ -740,6 +748,44 @@ export default function Profile() {
       {showInviteFriends && (
         <InviteFriends onClose={() => setShowInviteFriends(false)} />
       )}
+
+      <ConfirmDialog
+        open={disconnectConfirm.open}
+        title="Disconnect wearable?"
+        message={disconnectConfirm.provider ? `Disconnect ${disconnectConfirm.provider}? This will stop syncing data from this account.` : ''}
+        confirmText="Disconnect"
+        cancelText="Cancel"
+        destructive
+        onCancel={() => setDisconnectConfirm({ open: false, provider: null })}
+        onConfirm={confirmDisconnect}
+      />
+
+      <ConfirmDialog
+        open={finalDeleteConfirmOpen}
+        title="Final warning"
+        message={
+          'This will permanently delete ALL your data including:\n\n' +
+          '• All workouts and exercise history\n' +
+          '• All health metrics and nutrition data\n' +
+          '• All goals and preferences\n' +
+          '• All connected accounts\n\n' +
+          'This action cannot be undone. Are you absolutely sure?'
+        }
+        confirmText={deleting ? 'Deleting…' : 'Delete everything'}
+        cancelText="Cancel"
+        destructive
+        onCancel={() => {
+          setFinalDeleteConfirmOpen(false)
+          setShowDeleteConfirm(false)
+          setDeleteConfirmText('')
+        }}
+        onConfirm={() => {
+          setFinalDeleteConfirmOpen(false)
+          performDeleteAccount()
+        }}
+      />
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
     </div>
   )
 }

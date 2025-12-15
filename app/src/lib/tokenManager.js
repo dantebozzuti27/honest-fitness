@@ -4,6 +4,8 @@
  */
 
 import { getConnectedAccount, saveConnectedAccount } from './wearables'
+import { supabase } from './supabase'
+import { logError } from '../utils/logger'
 
 /**
  * Check and refresh Fitbit token if needed
@@ -25,11 +27,11 @@ export async function checkAndRefreshFitbitToken(userId) {
       try {
         const response = await fetch('/api/fitbit/refresh', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId,
-            refreshToken: account.refresh_token
-          })
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession())?.data?.session?.access_token || ''}`
+          },
+          body: JSON.stringify({})
         })
         
         if (response.ok) {
@@ -92,11 +94,11 @@ export async function refreshTokenIfNeeded(userId, provider, account) {
     try {
       const response = await fetch('/api/fitbit/refresh', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          refreshToken: account.refresh_token
-        })
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession())?.data?.session?.access_token || ''}`
+        },
+        body: JSON.stringify({})
       })
       
       if (response.ok) {
@@ -117,11 +119,11 @@ export async function refreshTokenIfNeeded(userId, provider, account) {
     try {
       const response = await fetch('/api/oura/refresh', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          refreshToken: account.refresh_token
-        })
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession())?.data?.session?.access_token || ''}`
+        },
+        body: JSON.stringify({})
       })
       
       if (response.ok) {

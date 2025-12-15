@@ -240,14 +240,18 @@ export async function syncOuraData(userId, date = null) {
   }
 
   try {
+    // Get auth token
+    const { data: { session } } = await supabase.auth.getSession()
+    const authToken = session?.access_token || ''
+
     // Use serverless function to proxy Oura API calls (avoids CORS)
     const response = await fetch('/api/oura/sync', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
       },
       body: JSON.stringify({
-        userId,
         date: targetDate
       })
     })
@@ -425,11 +429,11 @@ async function refreshFitbitToken(userId, account) {
     try {
       const response = await fetch('/api/fitbit/refresh', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          refreshToken: account.refresh_token
-        })
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession())?.data?.session?.access_token || ''}`
+        },
+        body: JSON.stringify({})
       })
       
       if (!response.ok) {
@@ -483,7 +487,6 @@ export async function syncFitbitData(userId, date = null) {
         'Authorization': `Bearer ${authToken}`
       },
       body: JSON.stringify({
-        userId,
         date: targetDate
       })
     })

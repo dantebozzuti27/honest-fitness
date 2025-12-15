@@ -11,6 +11,7 @@ import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
+import { chatWithAI } from '../lib/chatApi'
 import styles from './Workout.module.css'
 
 export default function Workout() {
@@ -250,24 +251,17 @@ export default function Workout() {
   const startRandomWorkout = async () => {
     // Call LLM to generate random workout
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: 'Generate a random full-body workout for me' }]
-        })
+      const data = await chatWithAI({
+        messages: [{ role: 'user', content: 'Generate a random full-body workout for me' }]
       })
-      if (response.ok) {
-        const data = await response.json()
-        if (data.workout) {
-          setAiWorkout(data.workout)
-          localStorage.setItem('aiWorkout', JSON.stringify(data.workout))
-          navigate('/workout/active', { state: { aiWorkout: data.workout } })
-          return
-        }
+      if (data?.workout) {
+        setAiWorkout(data.workout)
+        localStorage.setItem('aiWorkout', JSON.stringify(data.workout))
+        navigate('/workout/active', { state: { aiWorkout: data.workout } })
+        return
       }
-      } catch (e) {
-        alert('Failed to generate workout. Please try again.')
+    } catch (e) {
+      alert('Failed to generate workout. Please try again.')
     }
     // Fallback to local random
     navigate('/workout/active', { state: { randomWorkout: true } })

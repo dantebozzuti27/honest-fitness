@@ -11,6 +11,9 @@ import {
 import { connectFitbit } from '../lib/fitbitAuth'
 import { connectOura } from '../lib/ouraAuth'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import styles from './Wearables.module.css'
 
 export default function Wearables() {
@@ -20,6 +23,8 @@ export default function Wearables() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncStatus, setSyncStatus] = useState(null)
+  const { toast, showToast, hideToast } = useToast()
+  const [confirmState, setConfirmState] = useState({ open: false, provider: null })
 
   useEffect(() => {
     if (user) {
@@ -44,26 +49,26 @@ export default function Wearables() {
 
   const handleConnectFitbit = () => {
     if (!user) {
-      alert('Please log in to connect Fitbit')
+      showToast('Please log in to connect Fitbit', 'error')
       return
     }
     
     try {
       connectFitbit(user.id)
     } catch (error) {
-      alert(`Error connecting Fitbit: ${error.message}`)
+      showToast(`Error connecting Fitbit: ${error.message}`, 'error')
     }
   }
 
   const handleConnectOura = () => {
     if (!user) {
-      alert('Please log in to connect Oura')
+      showToast('Please log in to connect Oura', 'error')
       return
     }
     
     // OAuth 2.0 is required for production (industry standard, compliant)
     if (!ouraClientId) {
-      alert(
+      showToast(
         'Oura OAuth is not configured.\n\n' +
         'OAuth 2.0 is required for production use to ensure:\n' +
         '• Industry-standard security\n' +
@@ -75,7 +80,9 @@ export default function Wearables() {
         '• OURA_CLIENT_SECRET\n' +
         '• OURA_REDIRECT_URI\n' +
         '• VITE_OURA_CLIENT_ID\n' +
-        '• VITE_OURA_REDIRECT_URI'
+        '• VITE_OURA_REDIRECT_URI',
+        'error',
+        8000
       )
       return
     }
@@ -83,22 +90,32 @@ export default function Wearables() {
     try {
       connectOura(user.id)
     } catch (error) {
-      alert(`Error connecting Oura: ${error.message}`)
+      showToast(`Error connecting Oura: ${error.message}`, 'error')
     }
   }
 
 
   const handleDisconnect = async (provider) => {
     if (!user) return
-    
-    if (!confirm(`Disconnect ${provider}?`)) return
-    
+
+    setConfirmState({ open: true, provider })
+  }
+
+  const confirmDisconnect = async () => {
+    const provider = confirmState.provider
+    if (!provider || !user) {
+      setConfirmState({ open: false, provider: null })
+      return
+    }
+
     try {
       await disconnectAccount(user.id, provider)
       await loadConnectedAccounts()
-      alert(`${provider} disconnected successfully`)
+      showToast(`${provider} disconnected successfully`, 'success')
     } catch (error) {
-      alert(`Failed to disconnect ${provider}. Please try again.`)
+      showToast(`Failed to disconnect ${provider}. Please try again.`, 'error')
+    } finally {
+      setConfirmState({ open: false, provider: null })
     }
   }
 
@@ -179,7 +196,7 @@ export default function Wearables() {
     const ouraError = params.get('oura_error')
     
     if (fitbitConnected) {
-      alert('Fitbit connected successfully!')
+      showToast('Fitbit connected successfully!', 'success')
       loadConnectedAccounts()
       
       // Auto-sync data after connection
@@ -219,12 +236,12 @@ export default function Wearables() {
     }
     
     if (fitbitError) {
-      alert(`Fitbit connection error: ${decodeURIComponent(fitbitError)}`)
+      showToast(`Fitbit connection error: ${decodeURIComponent(fitbitError)}`, 'error', 6000)
       window.history.replaceState({}, document.title, window.location.pathname)
     }
 
     if (ouraConnected) {
-      alert('Oura connected successfully!')
+      showToast('Oura connected successfully!', 'success')
       loadConnectedAccounts()
       
       // Auto-sync data after connection
@@ -264,7 +281,7 @@ export default function Wearables() {
     }
     
     if (ouraError) {
-      alert(`Oura connection error: ${decodeURIComponent(ouraError)}`)
+      showToast(`Oura connection error: ${decodeURIComponent(ouraError)}`, 'error', 6000)
       window.history.replaceState({}, document.title, window.location.pathname)
     }
   }, [user])
@@ -505,6 +522,19 @@ export default function Wearables() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmState.open}
+        title="Disconnect wearable?"
+        message={confirmState.provider ? `Disconnect ${confirmState.provider}? This will stop syncing data from this account.` : ''}
+        confirmText="Disconnect"
+        cancelText="Cancel"
+        destructive
+        onCancel={() => setConfirmState({ open: false, provider: null })}
+        onConfirm={confirmDisconnect}
+      />
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
     </div>
   )
 }

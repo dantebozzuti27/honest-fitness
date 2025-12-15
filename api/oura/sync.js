@@ -8,14 +8,26 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed', success: false })
   }
 
-  const { userId, date } = req.body
-
-  if (!userId || !date) {
-    return res.status(400).json({ message: 'Missing userId or date', success: false })
+  const { date } = req.body || {}
+  if (!date) {
+    return res.status(400).json({ message: 'Missing date', success: false })
   }
 
   try {
-    console.log('Oura sync request:', { userId, date })
+    // Auth required; derive userId from JWT (never trust body userId)
+    const authHeader = req.headers?.authorization || req.headers?.Authorization
+    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Missing authorization', success: false })
+    }
+    const token = authHeader.slice('Bearer '.length).trim()
+    if (!token) {
+      return res.status(401).json({ message: 'Missing authorization token', success: false })
+    }
+    
+    // Validate date format
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ message: 'Invalid date format (expected YYYY-MM-DD)', success: false })
+    }
     
     // Get Oura account from Supabase
     // SECURITY: Only use service role key (no fallback to anon key)
@@ -33,6 +45,11 @@ export default async function handler(req, res) {
     }
     
     const supabase = createClient(supabaseUrl, supabaseKey)
+    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
+    if (userErr || !user?.id) {
+      return res.status(401).json({ message: 'Invalid or expired token', success: false })
+    }
+    const userId = user.id
 
     // Get connected account
     const { data: account, error: accountError } = await supabase
@@ -164,14 +181,10 @@ export default async function handler(req, res) {
     )
 
     let sleepDetailedData = null
-    console.log('Sleep detailed response status:', sleepDetailedResponse.status, sleepDetailedResponse.statusText)
     if (sleepDetailedResponse.ok) {
       sleepDetailedData = await sleepDetailedResponse.json()
-      console.log('Sleep detailed response data:', sleepDetailedData)
-      console.log('Sleep detailed data array length:', sleepDetailedData?.data?.length)
     } else {
-      const errorText = await sleepDetailedResponse.text().catch(() => '')
-      console.log('Sleep detailed API response not OK:', sleepDetailedResponse.status, sleepDetailedResponse.statusText, errorText)
+      // Ignore detailed sleep errors (optional endpoint)
     }
 
     // Fetch daily activity data
@@ -191,14 +204,9 @@ export default async function handler(req, res) {
     )
 
     let activityData = null
-    console.log('Activity response status:', activityResponse.status, activityResponse.statusText)
     if (activityResponse.ok) {
       activityData = await activityResponse.json()
-      console.log('Activity response data:', activityData)
-      console.log('Activity data array length:', activityData?.data?.length)
     } else {
-      const errorText = await activityResponse.text().catch(() => '')
-      console.log('Activity API response not OK:', activityResponse.status, activityResponse.statusText, errorText)
       // Activity data might not be available for all dates or might require different scopes
     }
 

@@ -4,10 +4,53 @@ export default async function handler(req, res) {
   }
 
   try {
+    // -----------------------------
+    // Auth (required)
+    // -----------------------------
+    const authHeader = req.headers?.authorization || req.headers?.Authorization
+    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Missing authorization', success: false })
+    }
+    const token = authHeader.slice('Bearer '.length).trim()
+    if (!token) {
+      return res.status(401).json({ message: 'Missing authorization token', success: false })
+    }
+
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ message: 'Server configuration error', success: false })
+    }
+    const supabase = createClient(supabaseUrl, supabaseKey)
+    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
+    if (userErr || !user) {
+      return res.status(401).json({ message: 'Invalid or expired token', success: false })
+    }
+
+    // -----------------------------
+    // Lightweight per-user rate limit (best-effort, in-memory)
+    // -----------------------------
+    globalThis.__HF_CHAT_RL__ = globalThis.__HF_CHAT_RL__ || new Map()
+    const rlKey = `${user.id}:${Math.floor(Date.now() / 60000)}` // per minute
+    const used = globalThis.__HF_CHAT_RL__.get(rlKey) || 0
+    const MAX_PER_MIN = 20
+    if (used >= MAX_PER_MIN) {
+      return res.status(429).json({ message: 'Rate limit exceeded. Please wait a minute and try again.', success: false })
+    }
+    globalThis.__HF_CHAT_RL__.set(rlKey, used + 1)
+
     const { messages, context } = req.body
     
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ message: 'Invalid request' })
+    }
+    if (messages.length > 30) {
+      return res.status(400).json({ message: 'Too many messages', success: false })
+    }
+    const last = messages[messages.length - 1]
+    if (!last || typeof last.content !== 'string' || last.content.length > 8000) {
+      return res.status(400).json({ message: 'Invalid message content', success: false })
     }
 
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''

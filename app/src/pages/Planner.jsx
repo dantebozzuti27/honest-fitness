@@ -6,6 +6,7 @@ import { getAllTemplates } from '../db'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import { logError } from '../utils/logger'
+import { chatWithAI } from '../lib/chatApi'
 import styles from './Planner.module.css'
 
 const GOALS = [
@@ -212,20 +213,14 @@ export default function Planner() {
         contextMsg = `User has ${userContext.totalWorkouts} workouts logged.`
       }
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let data
+      try {
+        data = await chatWithAI({
           context: contextMsg,
           messages: [{ role: 'user', content: String(messageToSend) }]
         })
-      })
-
-      let data
-      try {
-        data = await response.json()
       } catch (e) {
-        data = { message: 'Failed to parse response' }
+        data = { message: 'Failed to get response' }
       }
 
       const replyContent = String(data?.message || data?.error || 'No response received')

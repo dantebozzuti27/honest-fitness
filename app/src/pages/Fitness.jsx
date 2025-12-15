@@ -18,6 +18,7 @@ import TemplateEditor from '../components/TemplateEditor'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import HistoryCard from '../components/HistoryCard'
+import { chatWithAI } from '../lib/chatApi'
 import styles from './Fitness.module.css'
 
 const TABS = ['Workout', 'Templates', 'History', 'Scheduled', 'Goals']
@@ -304,24 +305,17 @@ export default function Fitness() {
 
   const startRandomWorkout = async () => {
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: 'Generate a random full-body workout for me' }]
-        })
+      const data = await chatWithAI({
+        messages: [{ role: 'user', content: 'Generate a random full-body workout for me' }]
       })
-      if (response.ok) {
-        const data = await response.json()
-        if (data.workout) {
-          setAiWorkout(data.workout)
-          localStorage.setItem('aiWorkout', JSON.stringify(data.workout))
-          navigate('/workout/active', { state: { aiWorkout: data.workout } })
-          return
-        }
+      if (data?.workout) {
+        setAiWorkout(data.workout)
+        localStorage.setItem('aiWorkout', JSON.stringify(data.workout))
+        navigate('/workout/active', { state: { aiWorkout: data.workout } })
+        return
       }
     } catch (e) {
-      alert('Failed to generate workout. Please try again.')
+      showToast('Failed to generate workout. Please try again.', 'error')
     }
     navigate('/workout/active', { state: { randomWorkout: true } })
   }

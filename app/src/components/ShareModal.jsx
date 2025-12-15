@@ -6,10 +6,13 @@ import { trackShareClick } from '../utils/shareAnalytics'
 import { calculateWorkoutAchievements, calculateNutritionAchievements, calculateHealthAchievements } from '../utils/achievements'
 import { useAuth } from '../context/AuthContext'
 import { saveFeedItemToSupabase, getWorkoutsFromSupabase, calculateStreakFromSupabase } from '../lib/supabaseDb'
+import { useToast } from '../hooks/useToast'
+import Toast from './Toast'
 import styles from './ShareModal.module.css'
 
 export default function ShareModal({ type, data, onClose }) {
   const { user } = useAuth()
+  const { toast, showToast, hideToast } = useToast()
   const [sharing, setSharing] = useState(false)
   const [imageDataUrl, setImageDataUrl] = useState(null)
   const [sharedToFeed, setSharedToFeed] = useState(false)
@@ -106,13 +109,13 @@ export default function ShareModal({ type, data, onClose }) {
     try {
       const imageToCopy = imageDataUrl || (cardRef.current ? await generateShareImage(cardRef.current) : null)
       if (!imageToCopy) {
-        alert('Unable to generate image')
+        showToast('Unable to generate image', 'error')
         return
       }
       
       const copied = await copyImageToClipboard(imageToCopy)
       if (copied) {
-        alert('Image copied! You can paste it in Messages, Instagram, or any app.')
+        showToast('Image copied! You can paste it in Messages, Instagram, or any app.', 'success', 5000)
       } else {
         // Fallback: use native share which works better on iOS
         const response = await fetch(imageToCopy)
@@ -130,7 +133,7 @@ export default function ShareModal({ type, data, onClose }) {
       }
     } catch (error) {
       console.error('Error copying image:', error)
-      alert('Unable to copy image. Try using the Share button instead.')
+      showToast('Unable to copy image. Try using the Share button instead.', 'error')
     }
   }
 
@@ -150,7 +153,7 @@ export default function ShareModal({ type, data, onClose }) {
   const handleShareToFeed = async () => {
     try {
       if (!user) {
-        alert('Please log in to share to feed')
+        showToast('Please log in to share to feed', 'error')
         return
       }
 
@@ -238,7 +241,7 @@ export default function ShareModal({ type, data, onClose }) {
       // Silently ignore PGRST205 errors (table doesn't exist)
       if (error.code !== 'PGRST205' && !error.message?.includes('Could not find the table')) {
         console.error('Error sharing to feed:', error)
-        alert('Failed to share to feed')
+        showToast('Failed to share to feed', 'error')
       } else {
         // Fallback to localStorage for PGRST205 errors (only if feedItem was defined)
         try {
@@ -518,6 +521,8 @@ export default function ShareModal({ type, data, onClose }) {
             Tap Copy Image to paste in any app, or use Share to open the native share sheet
           </p>
         </div>
+
+        {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
       </div>
     </div>,
     document.body

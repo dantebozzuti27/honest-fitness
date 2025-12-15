@@ -12,6 +12,7 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
+import { chatWithAI } from '../lib/chatApi'
 import styles from './Goals.module.css'
 
 const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
@@ -308,24 +309,13 @@ export default function Goals() {
         }))
       }
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `As a comprehensive health and fitness analyst, analyze my complete health picture from the last 7 days. Provide a detailed analysis covering fitness, nutrition, and health metrics. Here's my complete data: ${JSON.stringify(analysisData, null, 2)}`
-          }]
-        })
+      const data = await chatWithAI({
+        messages: [{
+          role: 'user',
+          content: `As a comprehensive health and fitness analyst, analyze my complete health picture from the last 7 days. Provide a detailed analysis covering fitness, nutrition, and health metrics. Here's my complete data: ${JSON.stringify(analysisData, null, 2)}`
+        }]
       })
-
-      if (response.ok) {
-        const data = await response.json()
-        setAnalysisResult(data.response || data.message || 'Analysis complete')
-      } else {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || errorData.message || 'Analysis failed')
-      }
+      setAnalysisResult(data?.response || data?.message || 'Analysis complete')
     } catch (error) {
       setAnalysisResult(`Failed to analyze: ${error.message || 'Unknown error'}`)
     } finally {

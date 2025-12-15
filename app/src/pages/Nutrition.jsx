@@ -64,6 +64,9 @@ export default function Nutrition() {
   const [showManualEntry, setShowManualEntry] = useState(false)
   const [showFoodSuggestions, setShowFoodSuggestions] = useState(false)
   const [foodSearchQuery, setFoodSearchQuery] = useState('')
+  const [debouncedFoodSearchQuery, setDebouncedFoodSearchQuery] = useState('')
+  const [foodSearchLoading, setFoodSearchLoading] = useState(false)
+  const [activeFoodIndex, setActiveFoodIndex] = useState(0)
   const [showFoodLibrary, setShowFoodLibrary] = useState(false)
   const [selectedMealType, setSelectedMealType] = useState('Snacks')
   const [manualEntry, setManualEntry] = useState({
@@ -87,6 +90,43 @@ export default function Nutrition() {
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedNutritionForShare, setSelectedNutritionForShare] = useState(null)
   const fastingTimerRef = useRef(null)
+  const lastFoodSearchRef = useRef({ q: '', at: 0 })
+  const foodSearchInputRef = useRef(null)
+
+  // Debounce food search to avoid spamming Supabase on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedFoodSearchQuery((foodSearchQuery || '').toString().trim())
+    }, 250)
+    return () => clearTimeout(t)
+  }, [foodSearchQuery])
+
+  const normalizeFoodQuery = (q) => (q || '').toString().trim().toLowerCase()
+
+  // Rank results so search feels relevant: exact > prefix > token-prefix > substring.
+  const foodSearchScore = (food, qNorm) => {
+    if (!qNorm) {
+      return (food?.isFavorite ? 1000 : 0) + (food?.isRecent ? 500 : 0)
+    }
+    const name = (food?.name || '').toString().toLowerCase()
+    const brand = (food?.brand || '').toString().toLowerCase()
+    const hay = brand ? `${name} ${brand}` : name
+
+    let score = 0
+    if (food?.isFavorite) score += 1000
+    if (food?.isRecent) score += 500
+
+    if (hay === qNorm) score += 10000
+    else if (hay.startsWith(qNorm)) score += 6000
+    else {
+      const tokens = hay.split(/[\s\-_/(),.]+/g).filter(Boolean)
+      if (tokens.some(t => t === qNorm)) score += 4500
+      else if (tokens.some(t => t.startsWith(qNorm))) score += 3200
+      else if (hay.includes(qNorm)) score += 1200
+    }
+
+    return score
+  }
 
   // Page-specific AI insights (nutrition-focused)
   const { data: pageInsights } = usePageInsights(
@@ -205,23 +245,71 @@ export default function Nutrition() {
   const loadFoodSuggestions = async () => {
     if (!user) return
     try {
-      const [categories, systemFoods, favoriteFoods, recentFoods] = await Promise.all([
+      const qNorm = normalizeFoodQuery(debouncedFoodSearchQuery)
+      const barcodeKey = /^\d{8,14}$/.test(qNorm) ? qNorm : ''
+      const qKey = barcodeKey ? '' : (qNorm.length >= 2 ? qNorm : '')
+
+      // Avoid repeat fetches for the same query when the panel is open.
+      if (lastFoodSearchRef.current.q === qKey && Date.now() - lastFoodSearchRef.current.at < 500) {
+        return
+      }
+      lastFoodSearchRef.current = { q: qKey, at: Date.now() }
+
+      setFoodSearchLoading(true)
+
+      const [categories, favoriteFoods, recentFoods] = await Promise.all([
         getFoodCategories(),
-        getSystemFoods({ search: foodSearchQuery }),
         getFavoriteFoods(user.id),
         getRecentFoods(user.id, 10)
       ])
+
+      // Only do server-side searching for 2+ chars. Otherwise, just pull a browse slice.
+      // If the user pasted a barcode, do an exact barcode lookup first.
+      let systemFoods = []
+      if (barcodeKey) {
+        systemFoods = await getSystemFoods({ barcode: barcodeKey, limit: 50 })
+        // If no match, fall back to browse so the panel isn't empty.
+        if (!Array.isArray(systemFoods) || systemFoods.length === 0) {
+          systemFoods = await getSystemFoods({ limit: 200 })
+        }
+      } else if (qKey) {
+        systemFoods = await getSystemFoods({ search: qKey, limit: 150 })
+      } else {
+        systemFoods = await getSystemFoods({ limit: 200 })
+      }
       setFoodCategories(categories)
+      const matchesQuery = (f) => {
+        if (!qKey) return true
+        const n = (f?.name || '').toString().toLowerCase()
+        const b = (f?.brand || '').toString().toLowerCase()
+        return n.includes(qKey) || (b && b.includes(qKey))
+      }
+
       // Combine favorites, recent, and system foods (prioritize favorites/recent)
+      const favTagged = (favoriteFoods || []).filter(matchesQuery).map(f => ({ ...f, isFavorite: true }))
+      const recTagged = (recentFoods || []).filter(matchesQuery).map(f => ({ ...f, isRecent: true }))
+      const sysFiltered = (systemFoods || []).filter(matchesQuery)
+
       let allSuggestions = [
-        ...favoriteFoods.map(f => ({ ...f, isFavorite: true })),
-        ...recentFoods.map(f => ({ ...f, isRecent: true })),
-        ...systemFoods.filter(f => !favoriteFoods.some(fav => fav.id === f.id) && !recentFoods.some(rec => rec.id === f.id))
+        ...favTagged,
+        ...recTagged,
+        ...sysFiltered.filter(f => !favTagged.some(fav => fav.id === f.id) && !recTagged.some(rec => rec.id === f.id))
       ]
 
+      // Rank so results feel relevant.
+      allSuggestions.sort((a, b) => {
+        const sa = foodSearchScore(a, qKey)
+        const sb = foodSearchScore(b, qKey)
+        if (sb !== sa) return sb - sa
+        return (a?.name || '').localeCompare((b?.name || ''))
+      })
+
       setFoodSuggestions(allSuggestions.slice(0, 50)) // Limit to 50 suggestions
+      setActiveFoodIndex(0)
     } catch (error) {
       logError('Error loading food suggestions', error)
+    } finally {
+      setFoodSearchLoading(false)
     }
   }
 
@@ -230,7 +318,44 @@ export default function Nutrition() {
     if (showFoodSuggestions || showFoodLibrary) {
       loadFoodSuggestions()
     }
-  }, [foodSearchQuery, showFoodSuggestions, showFoodLibrary, user])
+  }, [debouncedFoodSearchQuery, showFoodSuggestions, showFoodLibrary, user])
+
+  useEffect(() => {
+    if (showFoodSuggestions) {
+      // Focus search input when panel opens for fast logging.
+      setTimeout(() => {
+        try { foodSearchInputRef.current?.focus?.() } catch {}
+      }, 0)
+    }
+  }, [showFoodSuggestions])
+
+  const addFoodSuggestionToMeal = (food) => {
+    if (!food) return
+    const calories = food.calories_per_100g || 0
+    const protein = food.protein_per_100g || 0
+    const carbs = food.carbs_per_100g || 0
+    const fat = food.fat_per_100g || 0
+    const micros = (food && typeof food.micros_per_100g === 'object' && food.micros_per_100g) ? food.micros_per_100g : {}
+
+    addMeal({
+      calories: Math.round(calories),
+      macros: {
+        protein: Math.round(protein),
+        carbs: Math.round(carbs),
+        fat: Math.round(fat)
+      },
+      micros: {
+        ...micros,
+        fiber_g: Number(food.fiber_per_100g) || 0,
+        sugar_g: Number(food.sugar_per_100g) || 0,
+        sodium_mg: Number(food.sodium_per_100g) || 0
+      },
+      foods: [food.name],
+      type: 'suggestion',
+      description: food.name
+    })
+    setShowFoodSuggestions(false)
+  }
 
   const loadWeeklyMealPlan = async () => {
     if (!user) return
@@ -883,14 +1008,51 @@ export default function Nutrition() {
                 </div>
                 <input
                   type="text"
-                  placeholder="Search foods..."
+                  placeholder="Search foods (2+ chars) or paste a barcode…"
                   value={foodSearchQuery}
                   onChange={(e) => setFoodSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (!showFoodSuggestions) return
+                    const max = Math.max(0, (foodSuggestions?.length || 0) - 1)
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setActiveFoodIndex((i) => Math.min(max, (Number(i) || 0) + 1))
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setActiveFoodIndex((i) => Math.max(0, (Number(i) || 0) - 1))
+                    } else if (e.key === 'Enter') {
+                      // If a suggestion is highlighted, quick-add it.
+                      const idx = Math.max(0, Math.min(max, Number(activeFoodIndex) || 0))
+                      const chosen = foodSuggestions?.[idx]
+                      if (chosen) {
+                        e.preventDefault()
+                        addFoodSuggestionToMeal(chosen)
+                      }
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setShowFoodSuggestions(false)
+                    }
+                  }}
                   className={styles.foodSearchInput}
+                  ref={foodSearchInputRef}
                 />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                  <button
+                    className={styles.goalsBtn}
+                    onClick={() => setFoodSearchQuery('')}
+                    disabled={!foodSearchQuery}
+                    type="button"
+                  >
+                    Clear
+                  </button>
+                  {foodSearchLoading && <span className={styles.emptyHint}>Searching…</span>}
+                  {!foodSearchLoading && foodSearchQuery.trim().length > 0 && foodSearchQuery.trim().length < 2 && (
+                    <span className={styles.emptyHint}>Type 2+ characters for better results.</span>
+                  )}
+                </div>
                 {foodSuggestions.length > 0 ? (
                   <div className={styles.foodSuggestionsGrid}>
-                    {foodSuggestions.map(food => {
+                    {foodSuggestions.map((food, idx) => {
                     // Calculate calories and macros for 100g
                     const calories = food.calories_per_100g || 0
                     const protein = food.protein_per_100g || 0
@@ -901,29 +1063,11 @@ export default function Nutrition() {
                     return (
                       <button
                         key={food.id}
-                        className={styles.foodSuggestionBtn}
+                        className={`${styles.foodSuggestionBtn} ${idx === activeFoodIndex ? styles.foodSuggestionBtnActive : ''}`}
                         onClick={() => {
-                          // Add food to meal
-                          addMeal({
-                            calories: Math.round(calories),
-                            macros: {
-                              protein: Math.round(protein),
-                              carbs: Math.round(carbs),
-                              fat: Math.round(fat)
-                            },
-                            micros: {
-                              ...micros,
-                              // Include these “micros” even if the JSONB blob is empty.
-                              fiber_g: Number(food.fiber_per_100g) || 0,
-                              sugar_g: Number(food.sugar_per_100g) || 0,
-                              sodium_mg: Number(food.sodium_per_100g) || 0
-                            },
-                            foods: [food.name],
-                            type: 'suggestion',
-                            description: food.name
-                          })
-                          setShowFoodSuggestions(false)
+                          addFoodSuggestionToMeal(food)
                         }}
+                        onMouseEnter={() => setActiveFoodIndex(idx)}
                       >
                         <div className={styles.foodSuggestionName}>{food.name}</div>
                         <div className={styles.foodSuggestionMacros}>

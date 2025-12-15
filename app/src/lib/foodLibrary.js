@@ -21,6 +21,42 @@ export async function getSystemFoods(filters = {}) {
       : (filters.search ? 50 : 200)
   const finalLimit = Math.max(1, Math.min(500, limit))
 
+  // Barcode lookup (exact match). Useful for quick-add / scanner flows.
+  const barcode = (filters.barcode || '').toString().trim()
+  if (barcode) {
+    let query = supabase
+      .from('food_library')
+      .select('*')
+      .eq('is_custom', false)
+      .eq('barcode', barcode)
+
+    if (filters.categoryId) {
+      query = query.eq('category_id', filters.categoryId)
+    }
+
+    query = query.order('name', { ascending: true }).limit(finalLimit)
+
+    const { data, error } = await query
+    if (error) {
+      logError('Error getting system foods (barcode)', error)
+      return []
+    }
+
+    const rows = data || []
+    const categoryIds = [...new Set(rows.map(r => r?.category_id).filter(Boolean))]
+    if (categoryIds.length === 0) return rows
+    try {
+      const { data: cats } = await supabase
+        .from('food_categories')
+        .select('id, name, description')
+        .in('id', categoryIds)
+      const map = new Map((cats || []).map(c => [c.id, c]))
+      return rows.map(r => ({ ...r, food_categories: r?.category_id ? (map.get(r.category_id) || null) : null }))
+    } catch {
+      return rows
+    }
+  }
+
   // Prefer Postgres full-text search when available (`name_tsv`), fall back to ILIKE when not.
   const rawSearch = (filters.search || '').toString().trim()
   const hasSearch = rawSearch.length > 0

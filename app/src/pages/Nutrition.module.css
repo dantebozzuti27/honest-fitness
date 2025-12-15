@@ -1689,6 +1689,75 @@ h1 {
   border-color: var(--accent);
 }
 
+.foodSuggestionsCard {
+  padding: 14px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  margin-top: 12px;
+}
+
+.foodSuggestionsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  max-height: 340px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.foodSuggestionBtn {
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s, background 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.foodSuggestionBtn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+}
+
+.foodSuggestionBtn:active {
+  transform: scale(0.99);
+}
+
+.foodSuggestionBtnActive {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+.foodSuggestionName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.foodSuggestionMacros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.foodSuggestionBadge {
+  align-self: flex-start;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
 .closeBtn {
   background: transparent;
   border: none;

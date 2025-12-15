@@ -1201,9 +1201,9 @@ CREATE POLICY "Users can view friends feed items" ON feed_items
     EXISTS (
       SELECT 1 FROM friends 
       WHERE (
-        (user_id = auth.uid() AND friend_id = feed_items.user_id AND status = 'accepted')
+        (friends.user_id = auth.uid() AND friends.friend_id = feed_items.user_id AND friends.status = 'accepted')
         OR
-        (friend_id = auth.uid() AND user_id = feed_items.user_id AND status = 'accepted')
+        (friends.friend_id = auth.uid() AND friends.user_id = feed_items.user_id AND friends.status = 'accepted')
       )
     )
   );

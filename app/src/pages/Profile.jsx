@@ -49,6 +49,7 @@ export default function Profile() {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [disconnectConfirm, setDisconnectConfirm] = useState({ open: false, provider: null })
   const [finalDeleteConfirmOpen, setFinalDeleteConfirmOpen] = useState(false)
+  const [userEventStats, setUserEventStats] = useState(null)
   const shownErrorsRef = useRef({ profile: false, social: false, connected: false })
 
   useEffect(() => {
@@ -56,6 +57,9 @@ export default function Profile() {
       loadConnectedAccounts()
       loadProfile()
       loadSocialData()
+      loadUserEventStats()
+    } else {
+      setUserEventStats(null)
     }
   }, [user])
 
@@ -203,6 +207,23 @@ export default function Profile() {
       }
     } finally {
       setLoadingSocial(false)
+    }
+  }
+
+  const loadUserEventStats = async () => {
+    if (!user) return
+    try {
+      const stats = await getUserEventStats(user.id, 30)
+      // Defensive normalization so rendering never crashes.
+      setUserEventStats({
+        totalEvents: Number(stats?.totalEvents || 0),
+        sessions: Number(stats?.sessions || 0),
+        mostUsedFeatures: Array.isArray(stats?.mostUsedFeatures) ? stats.mostUsedFeatures : [],
+        dailyActivity: stats?.dailyActivity && typeof stats.dailyActivity === 'object' ? stats.dailyActivity : {}
+      })
+    } catch (e) {
+      logError('Error loading user event stats', e)
+      setUserEventStats(null)
     }
   }
 

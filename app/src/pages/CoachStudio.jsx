@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import BackButton from '../components/BackButton'
 import Button from '../components/Button'
@@ -52,6 +52,9 @@ function emptyDraft() {
 export default function CoachStudio() {
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
+  const editorRef = useRef(null)
+  const titleInputId = 'coach-program-title'
+  const createTitleInputId = 'create-program-title'
 
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -64,6 +67,8 @@ export default function CoachStudio() {
 
   const [draft, setDraft] = useState(emptyDraft())
   const [showTemplatesEditor, setShowTemplatesEditor] = useState(false)
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [createDraft, setCreateDraft] = useState(emptyDraft())
 
   const selectedProgram = useMemo(() => {
     if (!draft?.id) return null
@@ -109,8 +114,39 @@ export default function CoachStudio() {
   }
 
   const onNewProgram = () => {
-    setDraft(emptyDraft())
+    setShowTemplatesEditor(false)
+    setCreateDraft(emptyDraft())
+    setCreateModalOpen(true)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.getElementById(createTitleInputId)
+        el?.focus?.()
+      })
+    })
   }
+
+  useEffect(() => {
+    if (!createModalOpen) return
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setCreateModalOpen(false)
+        return
+      }
+      if (e.key === 'Enter') {
+        const tag = String(document?.activeElement?.tagName || '').toLowerCase()
+        // Allow line breaks in multi-line fields.
+        if (tag === 'textarea') return
+        // Ignore IME composition Enter.
+        if (e.isComposing) return
+        e.preventDefault()
+        onCreateFromModal()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createModalOpen, createDraft?.title])
 
   const onEditProgram = (p) => {
     setDraft({
@@ -237,6 +273,30 @@ export default function CoachStudio() {
     })
   }
 
+  const onCreateFromModal = () => {
+    if (!String(createDraft?.title || '').trim()) {
+      showToast('Title is required.', 'error')
+      return
+    }
+    setDraft({
+      ...createDraft,
+      title: String(createDraft.title || '').trim()
+    })
+    setCreateModalOpen(false)
+    showToast('New program started', 'success', 1800)
+    requestAnimationFrame(() => {
+      try {
+        editorRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      } catch {
+        // ignore
+      }
+      requestAnimationFrame(() => {
+        const el = document.getElementById(titleInputId)
+        el?.focus?.()
+      })
+    })
+  }
+
   return (
     <div className={styles.container}>
       {toast && (
@@ -253,6 +313,163 @@ export default function CoachStudio() {
         <h1 className={styles.title}>Coach Studio</h1>
         <div style={{ width: 32 }} />
       </div>
+
+      {createModalOpen && (
+        <div
+          className={styles.modalOverlay}
+          onMouseDown={() => setCreateModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Create program"
+        >
+          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Create program</h2>
+              <Button unstyled onClick={() => setCreateModalOpen(false)}>✕</Button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <InputField
+                id={createTitleInputId}
+                label="Title"
+                value={createDraft.title}
+                onChange={(e) => setCreateDraft(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="e.g., 8-Week Strength & Nutrition Reset"
+              />
+
+              <TextAreaField
+                label="Description"
+                value={createDraft.description}
+                onChange={(e) => setCreateDraft(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Who is this for? What results should they expect?"
+                rows={3}
+              />
+
+              <InputField
+                label="Price (USD)"
+                inputMode="decimal"
+                value={centsToDollars(createDraft.priceCents)}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v === '') {
+                    setCreateDraft(prev => ({ ...prev, priceCents: 0 }))
+                  } else {
+                    setCreateDraft(prev => ({ ...prev, priceCents: dollarsToCents(v) }))
+                  }
+                }}
+                placeholder="0.00"
+              />
+
+              <TextAreaField
+                label="Coach notes (optional)"
+                value={createDraft.content?.notes || ''}
+                onChange={(e) => setCreateDraft(prev => ({ ...prev, content: { ...(prev.content || {}), notes: e.target.value } }))}
+                placeholder="Coaching notes, expectations, schedule, etc."
+                rows={3}
+              />
+
+              <div style={{ fontWeight: 800, marginTop: 2 }}>Nutrition</div>
+              <div className={styles.twoCol}>
+                <InputField
+                  label="Calories"
+                  inputMode="numeric"
+                  value={createDraft.content?.nutrition?.caloriesTarget || ''}
+                  onChange={(e) => setCreateDraft(prev => ({
+                    ...prev,
+                    content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), caloriesTarget: e.target.value } }
+                  }))}
+                  placeholder="2200"
+                />
+                <InputField
+                  label="Protein (g)"
+                  inputMode="numeric"
+                  value={createDraft.content?.nutrition?.proteinG || ''}
+                  onChange={(e) => setCreateDraft(prev => ({
+                    ...prev,
+                    content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), proteinG: e.target.value } }
+                  }))}
+                  placeholder="160"
+                />
+              </div>
+              <div className={styles.twoCol}>
+                <InputField
+                  label="Carbs (g)"
+                  inputMode="numeric"
+                  value={createDraft.content?.nutrition?.carbsG || ''}
+                  onChange={(e) => setCreateDraft(prev => ({
+                    ...prev,
+                    content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), carbsG: e.target.value } }
+                  }))}
+                  placeholder="220"
+                />
+                <InputField
+                  label="Fat (g)"
+                  inputMode="numeric"
+                  value={createDraft.content?.nutrition?.fatG || ''}
+                  onChange={(e) => setCreateDraft(prev => ({
+                    ...prev,
+                    content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), fatG: e.target.value } }
+                  }))}
+                  placeholder="70"
+                />
+              </div>
+              <TextAreaField
+                label="Nutrition notes"
+                value={createDraft.content?.nutrition?.notes || ''}
+                onChange={(e) => setCreateDraft(prev => ({
+                  ...prev,
+                  content: { ...(prev.content || {}), nutrition: { ...(prev.content?.nutrition || {}), notes: e.target.value } }
+                }))}
+                placeholder="Meal structure, micronutrient focus, food swaps, etc."
+                rows={2}
+              />
+
+              <div style={{ fontWeight: 800, marginTop: 2 }}>Health</div>
+              <div className={styles.twoCol}>
+                <InputField
+                  label="Sleep (hours)"
+                  inputMode="decimal"
+                  value={createDraft.content?.health?.sleepHoursTarget || ''}
+                  onChange={(e) => setCreateDraft(prev => ({
+                    ...prev,
+                    content: { ...(prev.content || {}), health: { ...(prev.content?.health || {}), sleepHoursTarget: e.target.value } }
+                  }))}
+                  placeholder="8"
+                />
+                <InputField
+                  label="Steps"
+                  inputMode="numeric"
+                  value={createDraft.content?.health?.stepsTarget || ''}
+                  onChange={(e) => setCreateDraft(prev => ({
+                    ...prev,
+                    content: { ...(prev.content || {}), health: { ...(prev.content?.health || {}), stepsTarget: e.target.value } }
+                  }))}
+                  placeholder="10000"
+                />
+              </div>
+              <TextAreaField
+                label="Habits"
+                value={createDraft.content?.health?.habits || ''}
+                onChange={(e) => setCreateDraft(prev => ({
+                  ...prev,
+                  content: { ...(prev.content || {}), health: { ...(prev.content?.health || {}), habits: e.target.value } }
+                }))}
+                placeholder={"e.g.\n- 10 min mobility\n- Walk after lunch"}
+                rows={3}
+              />
+            </div>
+
+            <div className={styles.modalFooter}>
+              <Button className={styles.modalBtn} variant="secondary" onClick={() => setCreateModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button className={styles.modalBtn} onClick={onCreateFromModal}>
+                Create
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <>
@@ -325,7 +542,7 @@ export default function CoachStudio() {
           </div>
 
           <div className={styles.sectionTitle}>Editor</div>
-          <div className={styles.card}>
+          <div ref={editorRef} className={styles.card}>
             <div className={styles.rowSpace}>
               <div>
                 <div style={{ fontWeight: 700 }}>{draft?.id ? 'Edit program' : 'New program'}</div>
@@ -344,6 +561,7 @@ export default function CoachStudio() {
 
             <InputField
               label="Title"
+              id={titleInputId}
               value={draft.title}
               onChange={(e) => setDraft(prev => ({ ...prev, title: e.target.value }))}
               placeholder="e.g., 8-Week Strength & Nutrition Reset"

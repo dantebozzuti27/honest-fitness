@@ -414,6 +414,23 @@ export default function Profile() {
               Edit Profile
             </button>
 
+            <div className={styles.quickLinksRow}>
+              <button
+                className={styles.quickLinkBtn}
+                onClick={() => navigate('/market')}
+                type="button"
+              >
+                Marketplace
+              </button>
+              <button
+                className={styles.quickLinkBtn}
+                onClick={() => navigate('/coach-studio')}
+                type="button"
+              >
+                Coach Studio
+              </button>
+            </div>
+
             {/* Edit Modal */}
             {showEditModal && (
               <div className={styles.editModalOverlay} onClick={() => setShowEditModal(false)}>

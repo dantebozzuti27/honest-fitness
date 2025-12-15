@@ -1,0 +1,98 @@
+.container {
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 16px;
+  padding-bottom: 92px; /* BottomNav */
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.sectionTitle {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 14px 0 10px 0;
+  color: var(--text-primary);
+}
+
+.card {
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.rowSpace {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.muted {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.programList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.programCard {
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.programTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+}
+
+.programMeta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 10px 0;
+}
+
+.btnRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  flex: 1;
+  min-width: 140px;
+}
+
+.divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 12px 0;
+}
+
+

@@ -36,6 +36,9 @@ const DataCatalog = lazy(() => import('./pages/DataCatalog'))
 const Progress = lazy(() => import('./pages/Progress'))
 const Planner = lazy(() => import('./pages/Planner'))
 const Log = lazy(() => import('./pages/Log'))
+const Marketplace = lazy(() => import('./pages/Marketplace'))
+const ProgramDetail = lazy(() => import('./pages/ProgramDetail'))
+const CoachStudio = lazy(() => import('./pages/CoachStudio'))
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -291,6 +294,9 @@ export default function App() {
           <Route path="/wearables" element={<ProtectedRoute><Wearables /></ProtectedRoute>} />
           <Route path="/invite/:identifier" element={<ProtectedRoute><Invite /></ProtectedRoute>} />
           <Route path="/data-catalog" element={<ProtectedRoute><DataCatalog /></ProtectedRoute>} />
+          <Route path="/market" element={<ProtectedRoute><Marketplace /></ProtectedRoute>} />
+          <Route path="/market/:programId" element={<ProtectedRoute><ProgramDetail /></ProtectedRoute>} />
+          <Route path="/coach-studio" element={<ProtectedRoute><CoachStudio /></ProtectedRoute>} />
           {/* Legacy routes for backward compatibility */}
           <Route path="/ghost-mode" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
           <Route path="/account" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

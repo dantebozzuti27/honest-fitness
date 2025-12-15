@@ -1636,3 +1636,141 @@ END $$;
 
 
 
+-- ============================================================================
+-- MIGRATION: Coach Marketplace (Programs + Purchases)
+-- Purpose: Allow coaches to publish programs (workout/nutrition/health bundles)
+--          and users to buy/apply them. Payments integration is handled at the
+--          application layer; this schema supports purchases and access gating.
+-- ============================================================================
+
+-- Coach profile (public)
+CREATE TABLE IF NOT EXISTS coach_profiles (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  display_name TEXT,
+  bio TEXT,
+  profile_picture TEXT,
+  stripe_account_id TEXT,
+  is_verified BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE coach_profiles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Anyone can view coach_profiles" ON coach_profiles;
+CREATE POLICY "Anyone can view coach_profiles" ON coach_profiles
+  FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can insert own coach_profile" ON coach_profiles;
+CREATE POLICY "Users can insert own coach_profile" ON coach_profiles
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own coach_profile" ON coach_profiles;
+CREATE POLICY "Users can update own coach_profile" ON coach_profiles
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own coach_profile" ON coach_profiles;
+CREATE POLICY "Users can delete own coach_profile" ON coach_profiles
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE INDEX IF NOT EXISTS idx_coach_profiles_display_name ON coach_profiles(display_name);
+
+DROP TRIGGER IF EXISTS update_coach_profiles_updated_at ON coach_profiles;
+CREATE TRIGGER update_coach_profiles_updated_at
+  BEFORE UPDATE ON coach_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+
+-- Programs (published marketplace items)
+CREATE TABLE IF NOT EXISTS coach_programs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  coach_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+  price_cents INTEGER NOT NULL DEFAULT 0 CHECK (price_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'usd',
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  preview JSONB NOT NULL DEFAULT '{}'::jsonb,
+  content JSONB NOT NULL DEFAULT '{}'::jsonb,
+  published_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE coach_programs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Anyone can view published coach_programs" ON coach_programs;
+CREATE POLICY "Anyone can view published coach_programs" ON coach_programs
+  FOR SELECT USING (status = 'published' OR auth.uid() = coach_id);
+
+DROP POLICY IF EXISTS "Coaches can insert own coach_programs" ON coach_programs;
+CREATE POLICY "Coaches can insert own coach_programs" ON coach_programs
+  FOR INSERT WITH CHECK (auth.uid() = coach_id);
+
+DROP POLICY IF EXISTS "Coaches can update own coach_programs" ON coach_programs;
+CREATE POLICY "Coaches can update own coach_programs" ON coach_programs
+  FOR UPDATE USING (auth.uid() = coach_id);
+
+DROP POLICY IF EXISTS "Coaches can delete own coach_programs" ON coach_programs;
+CREATE POLICY "Coaches can delete own coach_programs" ON coach_programs
+  FOR DELETE USING (auth.uid() = coach_id);
+
+CREATE INDEX IF NOT EXISTS idx_coach_programs_coach_id ON coach_programs(coach_id);
+CREATE INDEX IF NOT EXISTS idx_coach_programs_status ON coach_programs(status);
+CREATE INDEX IF NOT EXISTS idx_coach_programs_published_at ON coach_programs(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_coach_programs_title ON coach_programs USING gin (to_tsvector('english', title));
+
+DROP TRIGGER IF EXISTS update_coach_programs_updated_at ON coach_programs;
+CREATE TRIGGER update_coach_programs_updated_at
+  BEFORE UPDATE ON coach_programs
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+
+-- Purchases (who owns access to which program)
+CREATE TABLE IF NOT EXISTS coach_program_purchases (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  program_id UUID NOT NULL REFERENCES coach_programs(id) ON DELETE CASCADE,
+  buyer_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'refunded', 'canceled')),
+  amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'usd',
+  provider TEXT NOT NULL DEFAULT 'manual', -- stripe, apple, etc. (future)
+  provider_payment_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(program_id, buyer_id)
+);
+
+ALTER TABLE coach_program_purchases ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Buyers can view own program purchases" ON coach_program_purchases;
+CREATE POLICY "Buyers can view own program purchases" ON coach_program_purchases
+  FOR SELECT USING (
+    auth.uid() = buyer_id
+    OR EXISTS (
+      SELECT 1 FROM coach_programs p
+      WHERE p.id = coach_program_purchases.program_id
+        AND p.coach_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Buyers can insert own program purchases" ON coach_program_purchases;
+CREATE POLICY "Buyers can insert own program purchases" ON coach_program_purchases
+  FOR INSERT WITH CHECK (auth.uid() = buyer_id);
+
+DROP POLICY IF EXISTS "Buyers can update own pending program purchases" ON coach_program_purchases;
+CREATE POLICY "Buyers can update own pending program purchases" ON coach_program_purchases
+  FOR UPDATE USING (auth.uid() = buyer_id);
+
+DROP POLICY IF EXISTS "Buyers can delete own pending program purchases" ON coach_program_purchases;
+CREATE POLICY "Buyers can delete own pending program purchases" ON coach_program_purchases
+  FOR DELETE USING (auth.uid() = buyer_id);
+
+CREATE INDEX IF NOT EXISTS idx_coach_program_purchases_buyer_id ON coach_program_purchases(buyer_id);
+CREATE INDEX IF NOT EXISTS idx_coach_program_purchases_program_id ON coach_program_purchases(program_id);
+CREATE INDEX IF NOT EXISTS idx_coach_program_purchases_created_at ON coach_program_purchases(created_at DESC);
+
+
+

@@ -253,6 +253,34 @@
   transform: scale(0.98);
 }
 
+.quickLinksRow {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.quickLinkBtn {
+  flex: 1;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.quickLinkBtn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-light);
+}
+
+.quickLinkBtn:active {
+  transform: scale(0.98);
+}
+
 /* Edit Modal */
 .editModalOverlay {
   position: fixed;

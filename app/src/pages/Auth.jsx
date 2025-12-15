@@ -148,48 +148,28 @@ export default function Auth() {
           {/* Key Value Propositions */}
           <div className={styles.valueProps}>
             <div className={styles.valueProp}>
-              <span className={styles.valueIcon}>📊</span>
               <div>
                 <div className={styles.valueTitle}>Advanced Analytics</div>
                 <div className={styles.valueDesc}>Data-driven insights powered by ML</div>
               </div>
             </div>
             <div className={styles.valueProp}>
-              <span className={styles.valueIcon}>💪</span>
               <div>
                 <div className={styles.valueTitle}>Comprehensive Tracking</div>
                 <div className={styles.valueDesc}>Workouts, nutrition, and health metrics</div>
               </div>
             </div>
             <div className={styles.valueProp}>
-              <span className={styles.valueIcon}>🎯</span>
               <div>
                 <div className={styles.valueTitle}>Goal Achievement</div>
                 <div className={styles.valueDesc}>Smart goals with predictive insights</div>
               </div>
             </div>
             <div className={styles.valueProp}>
-              <span className={styles.valueIcon}>👥</span>
               <div>
                 <div className={styles.valueTitle}>Social Community</div>
                 <div className={styles.valueDesc}>Connect with friends and share progress</div>
               </div>
-            </div>
-          </div>
-
-          {/* Social Proof */}
-          <div className={styles.socialProof}>
-            <div className={styles.socialProofItem}>
-              <span className={styles.socialProofNumber}>10,000+</span>
-              <span className={styles.socialProofLabel}>Active Users</span>
-            </div>
-            <div className={styles.socialProofItem}>
-              <span className={styles.socialProofNumber}>500K+</span>
-              <span className={styles.socialProofLabel}>Workouts Logged</span>
-            </div>
-            <div className={styles.socialProofItem}>
-              <span className={styles.socialProofNumber}>4.8★</span>
-              <span className={styles.socialProofLabel}>User Rating</span>
             </div>
           </div>
         </div>
@@ -211,9 +191,9 @@ export default function Auth() {
             disabled={socialLoading !== null}
           >
             {socialLoading === 'apple' ? (
-              <span className={styles.loadingSpinner}>⏳</span>
+              <span className={styles.loadingSpinner}>Loading...</span>
             ) : (
-              <span className={styles.socialIcon}>🍎</span>
+              <span className={styles.socialIcon}>Apple</span>
             )}
             <span>Continue with Apple</span>
           </button>
@@ -223,7 +203,7 @@ export default function Auth() {
             disabled={socialLoading !== null}
           >
             {socialLoading === 'google' ? (
-              <span className={styles.loadingSpinner}>⏳</span>
+              <span className={styles.loadingSpinner}>Loading...</span>
             ) : (
               <span className={styles.socialIcon}>G</span>
             )}
@@ -235,7 +215,7 @@ export default function Auth() {
             disabled={socialLoading !== null}
           >
             {socialLoading === 'facebook' ? (
-              <span className={styles.loadingSpinner}>⏳</span>
+              <span className={styles.loadingSpinner}>Loading...</span>
             ) : (
               <span className={styles.socialIcon}>f</span>
             )}
@@ -379,15 +359,12 @@ export default function Auth() {
         {/* Trust Signals */}
         <div className={styles.trustSignals}>
           <div className={styles.trustBadge}>
-            <span className={styles.trustIcon}>🔒</span>
             <span>256-bit Encryption</span>
           </div>
           <div className={styles.trustBadge}>
-            <span className={styles.trustIcon}>✓</span>
             <span>GDPR Compliant</span>
           </div>
           <div className={styles.trustBadge}>
-            <span className={styles.trustIcon}>🛡️</span>
             <span>Privacy First</span>
           </div>
         </div>
@@ -398,19 +375,15 @@ export default function Auth() {
             <h3 className={styles.previewTitle}>What you'll get:</h3>
             <div className={styles.previewFeatures}>
               <div className={styles.previewFeature}>
-                <span className={styles.previewIcon}>📱</span>
                 <span>Track workouts with precision</span>
               </div>
               <div className={styles.previewFeature}>
-                <span className={styles.previewIcon}>📊</span>
                 <span>Advanced analytics & insights</span>
               </div>
               <div className={styles.previewFeature}>
-                <span className={styles.previewIcon}>🎯</span>
                 <span>Set and achieve goals</span>
               </div>
               <div className={styles.previewFeature}>
-                <span className={styles.previewIcon}>👥</span>
                 <span>Connect with friends</span>
               </div>
             </div>

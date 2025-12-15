@@ -1482,47 +1482,64 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
       }
     }
 
-    // Build feed items query with user profiles JOIN
-    let feedItemsQuery = supabase
-      .from('feed_items')
-      .select(`
-        *,
-        user_profiles!feed_items_user_id_fkey (
-          user_id,
-          username,
-          display_name,
-          profile_picture
-        )
-      `)
-      .eq('shared', true)
-      .order('created_at', { ascending: false })
+    // Build feed items query - fetch user profiles separately for compatibility
+    let feedItems = []
+    let feedItemsError = null
     
-    // Apply filter
-    if (filter === 'me') {
-      feedItemsQuery = feedItemsQuery.eq('user_id', userId)
-    } else if (filter === 'friends') {
-      feedItemsQuery = feedItemsQuery.in('user_id', friendIds)
-        .in('visibility', ['public', 'friends'])
-    } else if (filter === 'all') {
-      // Show user's own items and public items from others
-      feedItemsQuery = feedItemsQuery.or(`user_id.eq.${userId},visibility.eq.public`)
+    try {
+      let feedItemsQuery = supabase
+        .from('feed_items')
+        .select('*')
+        .eq('shared', true)
+        .order('created_at', { ascending: false })
+      
+      // Apply filter
+      if (filter === 'me') {
+        feedItemsQuery = feedItemsQuery.eq('user_id', userId)
+      } else if (filter === 'friends') {
+        if (friendIds.length > 0) {
+          feedItemsQuery = feedItemsQuery.in('user_id', friendIds)
+        } else {
+          // No friends, skip feed items query
+          feedItems = []
+        }
+      } else if (filter === 'all') {
+        // Show user's own items only for now (until RLS is fully configured)
+        feedItemsQuery = feedItemsQuery.eq('user_id', userId)
+      }
+      
+      // Only execute query if we have a valid query
+      if (filter !== 'friends' || friendIds.length > 0) {
+        // Add pagination cursor if provided
+        if (cursor) {
+          feedItemsQuery = feedItemsQuery.lt('created_at', cursor)
+        }
+        
+        feedItemsQuery = feedItemsQuery.limit(limit)
+        
+        const { data, error } = await feedItemsQuery
+        feedItems = data || []
+        feedItemsError = error
+      }
+    } catch (err) {
+      feedItemsError = err
+      logError('Error in feed items query', err)
     }
     
-    // Add pagination cursor if provided
-    if (cursor) {
-      feedItemsQuery = feedItemsQuery.lt('created_at', cursor)
+    // Handle feed items errors gracefully
+    if (feedItemsError) {
+      // If table doesn't exist, that's okay - just continue with workouts
+      if (feedItemsError.code === 'PGRST205' || feedItemsError.message?.includes('Could not find the table')) {
+        safeLogDebug('feed_items table does not exist yet - migration not run')
+        feedItems = []
+      } else {
+        logError('Feed items query error', feedItemsError)
+        // Continue anyway - might still have workouts to show
+        feedItems = []
+      }
     }
     
-    feedItemsQuery = feedItemsQuery.limit(limit)
-    
-    const { data: feedItems, error: feedItemsError } = await feedItemsQuery
-    
-    if (feedItemsError && feedItemsError.code !== 'PGRST205') {
-      logError('Feed items query error', feedItemsError)
-      return []
-    }
-    
-    // Build workout query with user profiles JOIN
+    // Build workout query - fetch user profiles separately for compatibility
     let workoutQuery = supabase
       .from('workouts')
       .select(`
@@ -1530,12 +1547,6 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
         workout_exercises (
           *,
           workout_sets (*)
-        ),
-        user_profiles!workouts_user_id_fkey (
-          user_id,
-          username,
-          display_name,
-          profile_picture
         )
       `)
       .order('created_at', { ascending: false })
@@ -1563,21 +1574,31 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
       // Continue with feed items only
     }
 
-    // Process user profiles from JOIN results
+    // Get unique user IDs from workouts and feed items
+    const allUserIds = [
+      ...new Set([
+        ...(workouts || []).map(w => w?.user_id),
+        ...(feedItems || []).map(f => f?.user_id)
+      ].filter(id => id != null))
+    ]
+    
+    // Fetch user profiles for all users (separate query for compatibility)
     const userProfiles = {}
-    if (feedItems) {
-      feedItems.forEach(item => {
-        if (item.user_profiles) {
-          userProfiles[item.user_id] = item.user_profiles
+    if (allUserIds.length > 0) {
+      try {
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('user_id, username, display_name, profile_picture')
+          .in('user_id', allUserIds)
+        
+        if (profiles) {
+          profiles.forEach(profile => {
+            userProfiles[profile.user_id] = profile
+          })
         }
-      })
-    }
-    if (workouts) {
-      workouts.forEach(workout => {
-        if (workout.user_profiles) {
-          userProfiles[workout.user_id] = workout.user_profiles
-        }
-      })
+      } catch (profileError) {
+        safeLogDebug('Error loading user profiles', profileError)
+      }
     }
     
     // Transform feed items (nutrition, health, manually shared workouts)
@@ -1592,7 +1613,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
       shared: item.shared,
       visibility: item.visibility || 'public',
       created_at: item.created_at,
-      user_profiles: item.user_profiles || userProfiles[item.user_id] || null
+      user_profiles: userProfiles[item.user_id] || null
     }))
     
     // Transform workouts to feed item format
@@ -1660,7 +1681,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
           shared: true,
           visibility: 'public',
           created_at: workout.created_at,
-          user_profiles: workout.user_profiles || userProfiles[workout.user_id] || null
+          user_profiles: userProfiles[workout.user_id] || null
         }
       })
 

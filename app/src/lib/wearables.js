@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase as supabaseClient, requireSupabase, supabaseConfigErrorMessage } from './supabase'
 import { getTodayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug } from '../utils/logger'
@@ -6,6 +6,9 @@ import { checkRateLimit, getRemainingRequests } from './rateLimiter'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
+
+// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
+const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
 
 /**
  * Wearables OAuth and Data Sync
@@ -15,7 +18,8 @@ const safeLogDebug = logDebug || (() => {})
 // ============ CONNECTED ACCOUNTS ============
 
 export async function saveConnectedAccount(userId, provider, tokens) {
-  const { data, error } = await supabase
+  const client = requireSupabase()
+  const { data, error } = await client
     .from('connected_accounts')
     .upsert({
       user_id: userId,
@@ -35,7 +39,8 @@ export async function saveConnectedAccount(userId, provider, tokens) {
 }
 
 export async function getConnectedAccount(userId, provider) {
-  const { data, error } = await supabase
+  const client = requireSupabase()
+  const { data, error } = await client
     .from('connected_accounts')
     .select('*')
     .eq('user_id', userId)
@@ -47,7 +52,8 @@ export async function getConnectedAccount(userId, provider) {
 }
 
 export async function getAllConnectedAccounts(userId) {
-  const { data, error } = await supabase
+  const client = requireSupabase()
+  const { data, error } = await client
     .from('connected_accounts')
     .select('*')
     .eq('user_id', userId)
@@ -57,7 +63,8 @@ export async function getAllConnectedAccounts(userId) {
 }
 
 export async function disconnectAccount(userId, provider) {
-  const { error } = await supabase
+  const client = requireSupabase()
+  const { error } = await client
     .from('connected_accounts')
     .delete()
     .eq('user_id', userId)

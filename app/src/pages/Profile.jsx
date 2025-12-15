@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
@@ -49,6 +49,7 @@ export default function Profile() {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [disconnectConfirm, setDisconnectConfirm] = useState({ open: false, provider: null })
   const [finalDeleteConfirmOpen, setFinalDeleteConfirmOpen] = useState(false)
+  const shownErrorsRef = useRef({ profile: false, social: false, connected: false })
 
   useEffect(() => {
     if (user) {
@@ -92,7 +93,11 @@ export default function Profile() {
         setProfilePictureUrl(prefs.profile_picture || null)
       }
     } catch (error) {
-      // Silently fail
+      logError('Profile load error', error)
+      if (!shownErrorsRef.current.profile) {
+        shownErrorsRef.current.profile = true
+        showToast('Failed to load profile. Please refresh and try again.', 'error')
+      }
     }
   }
 
@@ -191,7 +196,11 @@ export default function Profile() {
       setFriendCount(count || 0)
       setPendingRequests(pending?.length || 0)
     } catch (error) {
-      // Silently fail
+      logError('Social data load error', error)
+      if (!shownErrorsRef.current.social) {
+        shownErrorsRef.current.social = true
+        showToast('Failed to load social data. Please try again.', 'error')
+      }
     } finally {
       setLoadingSocial(false)
     }
@@ -203,7 +212,11 @@ export default function Profile() {
       const accounts = await getAllConnectedAccounts(user.id)
       setConnectedAccounts(accounts || [])
     } catch (error) {
-      // Silently fail - will retry on next render
+      logError('Connected accounts load error', error)
+      if (!shownErrorsRef.current.connected) {
+        shownErrorsRef.current.connected = true
+        showToast('Failed to load connected accounts. Please try again.', 'error')
+      }
     } finally {
       setLoading(false)
     }

@@ -20,6 +20,8 @@ import Skeleton from '../components/Skeleton'
 import EmptyState from '../components/EmptyState'
 import Button from '../components/Button'
 import { useHaptic } from '../hooks/useHaptic'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -27,6 +29,7 @@ export default function Home() {
   const location = useLocation()
   const { user } = useAuth()
   const haptic = useHaptic()
+  const { toast, showToast, hideToast } = useToast()
   const [streak, setStreak] = useState(0)
   const [loading, setLoading] = useState(true)
   const [fitbitSteps, setFitbitSteps] = useState(null)
@@ -46,6 +49,7 @@ export default function Home() {
   const feedContainerRef = useRef(null)
   const pullStartY = useRef(0)
   const isPulling = useRef(false)
+  const shownErrorsRef = useRef({ feed: false, init: false, scheduled: false, pending: false })
   
   // Reload feed when filter changes
   useEffect(() => {
@@ -159,6 +163,10 @@ export default function Home() {
       setIsRefreshing(false)
     } catch (error) {
       logError('Error in loadRecentLogs', error)
+      if (!shownErrorsRef.current.feed && showToast && typeof showToast === 'function') {
+        shownErrorsRef.current.feed = true
+        showToast('Failed to load your feed. Pull to refresh to retry.', 'error')
+      }
       setRecentLogs([])
       setLoading(false)
       setIsRefreshing(false)
@@ -321,11 +329,19 @@ export default function Home() {
                 setScheduledWorkouts(upcoming)
               }
             } catch (e) {
-              // Silently fail
+              logError('Error loading scheduled workouts', e)
+              if (!shownErrorsRef.current.scheduled && showToast && typeof showToast === 'function') {
+                shownErrorsRef.current.scheduled = true
+                showToast('Failed to load scheduled workouts.', 'error')
+              }
             }
           }
         } catch (e) {
-          // Silently fail - data will load on retry
+          logError('Home init failed', e)
+          if (!shownErrorsRef.current.init && showToast && typeof showToast === 'function') {
+            shownErrorsRef.current.init = true
+            showToast('Failed to load Home data. Pull to refresh to retry.', 'error')
+          }
         }
       }
       
@@ -355,7 +371,7 @@ export default function Home() {
             setProfilePicture(prefs.profile_picture)
           }
         } catch (e) {
-          // Silently fail
+          logError('Error refreshing profile picture', e)
         }
       }
     }
@@ -379,7 +395,12 @@ export default function Home() {
             setPendingRequestCount(requests?.length || 0)
           }
         } catch (error) {
-          // Silently fail
+          logError('Error loading pending friend requests', error)
+          if (!shownErrorsRef.current.pending && showToast && typeof showToast === 'function') {
+            shownErrorsRef.current.pending = true
+            // Keep this lightweight; it’s not a critical failure.
+            showToast('Some social data failed to load.', 'info')
+          }
         }
       }
     }
@@ -476,6 +497,7 @@ export default function Home() {
   if (loading) {
     return (
       <div className={styles.container}>
+        {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
         <div className={styles.loading} style={{ width: '100%' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Skeleton style={{ width: '45%', height: 16 }} />
@@ -523,6 +545,7 @@ export default function Home() {
 
   return (
     <div className={styles.container}>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
       <div className={styles.header}>
         <SideMenu />
         <div className={styles.logoContainer}>

@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from './context/AuthContext'
 import { startTokenRefreshInterval } from './lib/tokenManager'
 import { getAllConnectedAccounts, syncFitbitData, syncOuraData } from './lib/wearables'
@@ -14,6 +14,7 @@ import BottomNav from './components/BottomNav'
 import Onboarding from './components/Onboarding'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
+import DebugOverlay from './components/DebugOverlay'
 import { initializePassiveCollection } from './lib/passiveDataCollection'
 import { trackError, trackPageView, retryQueuedEvents } from './lib/eventTracking'
 import { ensureLocalExercisesLoaded } from './lib/exerciseBootstrap'
@@ -66,7 +67,7 @@ export default function App() {
   const { user } = useAuth()
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [checkingOnboarding, setCheckingOnboarding] = useState(false)
-  const [lastRouteMark, setLastRouteMark] = useState(() => (typeof performance !== 'undefined' ? performance.now() : Date.now()))
+  const lastRouteMarkRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now())
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   
   // Track page views on route change
@@ -79,8 +80,8 @@ export default function App() {
         requestAnimationFrame(() => {
           const end = typeof performance !== 'undefined' ? performance.now() : Date.now()
           const routeRenderMs = Math.max(0, end - start)
-          const deltaSinceLastRouteMs = Math.max(0, start - lastRouteMark)
-          setLastRouteMark(start)
+          const deltaSinceLastRouteMs = Math.max(0, start - (lastRouteMarkRef.current || start))
+          lastRouteMarkRef.current = start
           trackPageView(pageName, {
             path: location.pathname,
             search: location.search,
@@ -90,7 +91,7 @@ export default function App() {
         })
       })
     }
-  }, [location, user, lastRouteMark])
+  }, [location.pathname, location.search, user])
   
   // Initialize event tracking and passive data collection
   useEffect(() => {
@@ -261,6 +262,14 @@ export default function App() {
 
   return (
     <>
+      <DebugOverlay enabled={(() => {
+        try {
+          const params = new URLSearchParams(location?.search || '')
+          return params.get('debug') === '1'
+        } catch {
+          return false
+        }
+      })()} />
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/auth" element={<Auth />} />

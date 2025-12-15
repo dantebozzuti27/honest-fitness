@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { requireSupabase } from './supabase'
 
 /**
  * Authenticated chat proxy to `/api/chat`
@@ -6,6 +6,7 @@ import { supabase } from './supabase'
  * - Centralizes fetch + error handling
  */
 export async function chatWithAI({ messages, context }) {
+  const supabase = requireSupabase()
   const { data: { session }, error } = await supabase.auth.getSession()
   if (error) throw error
   if (!session?.access_token) throw new Error('Authentication required')
@@ -36,5 +37,6 @@ export async function chatWithAI({ messages, context }) {
 
   return data
 }
+
 
 

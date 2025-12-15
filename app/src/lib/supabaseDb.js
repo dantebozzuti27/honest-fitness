@@ -1,10 +1,13 @@
-import { supabase } from './supabase'
+import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug, logWarn } from '../utils/logger'
 import { saveEnrichedData } from './dataEnrichment'
 import { trackEvent } from './eventTracking'
 import { enqueueOutboxItem } from './syncOutbox'
+
+// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
+const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -100,53 +103,27 @@ export async function saveWorkoutToSupabase(workout, userId) {
     ? 'recovery'
     : 'workout'
   
-  // Use upsert with conflict resolution to prevent race conditions
-  // First, check for existing workouts to handle duplicates
-  // Add null checks to prevent errors
-  const { data: existingWorkouts, error: checkError } = await supabase
-    .from('workouts')
-    .select('id, date, created_at')
-    .eq('user_id', userId)
-    .eq('date', workoutToSave.date)
-    .order('created_at', { ascending: false })
-
-  if (checkError) {
-    logError('Error checking for existing workouts', checkError)
-    throw checkError
-  }
-
   let workoutData
-  
-  // If duplicates exist, delete the older ones and update the most recent
-  // Add null check for existingWorkouts
-  if (existingWorkouts && Array.isArray(existingWorkouts) && existingWorkouts.length > 0) {
-    const duplicates = existingWorkouts.slice(1) // Keep the first (most recent), delete the rest
-    // Batch delete duplicates in parallel for performance
-    if (duplicates.length > 0) {
-      await Promise.all(duplicates.map(dup => deleteWorkoutFromSupabase(dup.id)))
-    }
-    
-    // Update the existing workout instead of creating a new one
-    const existingId = existingWorkouts[0]?.id
-    if (!existingId) {
-      throw new Error('Existing workout ID not found')
-    }
-    
-    // Batch delete old exercises and sets for this workout
+
+  // SAFETY: Never delete or overwrite workouts "by date".
+  // We only update a workout if the caller provides an explicit id; otherwise we insert a new row.
+  const explicitWorkoutId = workoutToSave?.id || workoutToSave?.workoutId || null
+
+  if (explicitWorkoutId) {
+    // Replace exercises/sets for this workout id, then update the workout row.
     const { data: oldExercises, error: exercisesError } = await supabase
       .from('workout_exercises')
       .select('id')
-      .eq('workout_id', existingId)
-    
+      .eq('workout_id', explicitWorkoutId)
+
     if (exercisesError) {
       logError('Error fetching old exercises for workout update', exercisesError)
       throw exercisesError
     }
-    
+
     if (oldExercises && Array.isArray(oldExercises) && oldExercises.length > 0) {
       const exerciseIds = oldExercises.map(ex => ex?.id).filter(id => id != null)
       if (exerciseIds.length > 0) {
-        // Batch delete all sets
         const { error: setsDeleteError } = await supabase
           .from('workout_sets')
           .delete()
@@ -155,8 +132,7 @@ export async function saveWorkoutToSupabase(workout, userId) {
           logError('Error deleting workout sets', setsDeleteError)
           throw setsDeleteError
         }
-        
-        // Batch delete all exercises
+
         const { error: exercisesDeleteError } = await supabase
           .from('workout_exercises')
           .delete()
@@ -167,28 +143,27 @@ export async function saveWorkoutToSupabase(workout, userId) {
         }
       }
     }
-    
-    // Update the workout
+
     const updatePayload = {
-        duration: workoutToSave.duration,
-        template_name: workoutToSave.templateName || null,
-        perceived_effort: workoutToSave.perceivedEffort || null,
-        mood_after: workoutToSave.moodAfter || null,
-        notes: workoutToSave.notes || null,
-        day_of_week: workoutToSave.dayOfWeek ?? null,
-        workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
-        workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null,
-        updated_at: new Date().toISOString()
+      date: workoutToSave.date,
+      duration: workoutToSave.duration,
+      template_name: workoutToSave.templateName || null,
+      perceived_effort: workoutToSave.perceivedEffort || null,
+      mood_after: workoutToSave.moodAfter || null,
+      notes: workoutToSave.notes || null,
+      day_of_week: workoutToSave.dayOfWeek ?? null,
+      workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
+      workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null,
+      updated_at: new Date().toISOString()
     }
 
-    // Try to set session_type if column exists; if not, retry without it.
     let updatedWorkout = null
     let updateError = null
     try {
       const { data, error } = await supabase
         .from('workouts')
         .update({ ...updatePayload, session_type: sessionType })
-        .eq('id', existingId)
+        .eq('id', explicitWorkoutId)
         .select()
         .single()
       updatedWorkout = data
@@ -197,7 +172,7 @@ export async function saveWorkoutToSupabase(workout, userId) {
         const retry = await supabase
           .from('workouts')
           .update(updatePayload)
-          .eq('id', existingId)
+          .eq('id', explicitWorkoutId)
           .select()
           .single()
         updatedWorkout = retry.data
@@ -210,18 +185,17 @@ export async function saveWorkoutToSupabase(workout, userId) {
     if (updateError) throw updateError
     workoutData = updatedWorkout
   } else {
-    // No duplicate, insert new workout
     const insertPayload = {
-        user_id: userId,
-        date: workoutToSave.date,
-        duration: workoutToSave.duration,
-        template_name: workoutToSave.templateName || null,
-        perceived_effort: workoutToSave.perceivedEffort || null,
-        mood_after: workoutToSave.moodAfter || null,
-        notes: workoutToSave.notes || null,
-        day_of_week: workoutToSave.dayOfWeek ?? null,
-        workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
-        workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null
+      user_id: userId,
+      date: workoutToSave.date,
+      duration: workoutToSave.duration,
+      template_name: workoutToSave.templateName || null,
+      perceived_effort: workoutToSave.perceivedEffort || null,
+      mood_after: workoutToSave.moodAfter || null,
+      notes: workoutToSave.notes || null,
+      day_of_week: workoutToSave.dayOfWeek ?? null,
+      workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
+      workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null
     }
 
     let newWorkout = null
@@ -416,7 +390,9 @@ export async function saveWorkoutToSupabase(workout, userId) {
 }
 
 export async function getWorkoutsFromSupabase(userId) {
-  const { data, error } = await supabase
+  // Prefer a single embedded query for convenience, but be resilient:
+  // some deployments have missing relationships / RLS differences that can break embeds.
+  const embedded = await supabase
     .from('workouts')
     .select(`
       *,
@@ -428,51 +404,27 @@ export async function getWorkoutsFromSupabase(userId) {
     .eq('user_id', userId)
     .order('date', { ascending: false })
 
-  if (error) throw error
-  
-  // Allow workouts with 0 exercises (user may want to log a workout session without exercises)
-  // Filter out only workouts that are clearly invalid (have exercises but no valid sets data)
-  const validWorkouts = (data || []).filter(workout => {
-    // If workout has no exercises, that's valid (allow 0 exercises)
-    if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
-      return true
-    }
-    
-    // If workout has exercises, at least one must have valid sets data
-    const hasValidExercise = workout.workout_exercises.some(ex => {
-      if (!ex.workout_sets || ex.workout_sets.length === 0) return false
-      return ex.workout_sets.some(s => s.weight || s.reps || s.time)
-    })
-    
-    return hasValidExercise
-  })
-  
-  // Auto-delete invalid workouts in background (don't wait for it)
-  // Only delete workouts that have exercises but no valid sets data (dummy data)
-  const invalidWorkouts = (data || []).filter(workout => {
-    // Workouts with 0 exercises are valid, don't delete them
-    if (!workout.workout_exercises || workout.workout_exercises.length === 0) {
-      return false
-    }
-    // Only delete if workout has exercises but none have valid sets data
-    const hasValidExercise = workout.workout_exercises.some(ex => {
-      if (!ex.workout_sets || ex.workout_sets.length === 0) return false
-      return ex.workout_sets.some(s => s.weight || s.reps || s.time)
-    })
-    return !hasValidExercise
-  })
-  
-  if (invalidWorkouts.length > 0) {
-    invalidWorkouts.forEach(workout => {
-      deleteWorkoutFromSupabase(workout.id, userId).catch(err => {
-        // Silently fail - cleanup is best effort
-        safeLogDebug('Auto-cleanup: Failed to delete invalid workout', workout.id)
-      })
-    })
+  if (!embedded.error) {
+    // SAFETY: Reads must NEVER delete user history.
+    return embedded.data || []
   }
-  
-  // Return all valid workouts (users can have multiple workouts per day)
-  return validWorkouts
+
+  // Fallback: fetch workouts without embeds so the UI can still show history rows.
+  // This prevents "missing history" when only the nested tables/relationships are misconfigured.
+  safeLogDebug('getWorkoutsFromSupabase: embedded select failed; retrying without embeds', {
+    code: embedded.error?.code,
+    message: embedded.error?.message
+  })
+
+  const plain = await supabase
+    .from('workouts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: false })
+
+  if (plain.error) throw plain.error
+
+  return (plain.data || []).map(w => ({ ...w, workout_exercises: w.workout_exercises || [] }))
 }
 
 export async function getWorkoutDatesFromSupabase(userId) {
@@ -831,6 +783,13 @@ export async function deleteAllWorkoutsFromSupabase(userId) {
 
 // Clean up duplicate workouts and invalid data
 export async function cleanupDuplicateWorkouts(userId) {
+  // SAFETY: this routine can delete user history. It is disabled by default.
+  // Enable explicitly only for one-off admin recovery work:
+  // set VITE_ENABLE_WORKOUT_CLEANUP=true, and consider adding a dry-run UI first.
+  if (import.meta.env.VITE_ENABLE_WORKOUT_CLEANUP !== 'true') {
+    return { deleted: 0, invalidDeleted: 0, skipped: true }
+  }
+
   // Get ALL workouts directly from database (no filtering) to see duplicates and dummy data
   const { data: allWorkouts, error: fetchError } = await supabase
     .from('workouts')

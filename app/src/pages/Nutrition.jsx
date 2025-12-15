@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 // Dynamic import for code-splitting
 import { getTodayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
-import { logError, logDebug } from '../utils/logger'
+import { logError, logDebug, logWarn } from '../utils/logger'
 import { getSystemFoods, getFoodCategories, getFavoriteFoods, getRecentFoods } from '../lib/foodLibrary'
 
 // Ensure logDebug is always available (fallback for build issues)
@@ -56,6 +56,7 @@ export default function Nutrition() {
   const [favorites, setFavorites] = useState([])
   const [foodSuggestions, setFoodSuggestions] = useState([])
   const [foodCategories, setFoodCategories] = useState([])
+  const shownGoalsLoadErrorRef = useRef(false)
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [showManualEntry, setShowManualEntry] = useState(false)
   const [showFoodSuggestions, setShowFoodSuggestions] = useState(false)
@@ -146,8 +147,9 @@ export default function Nutrition() {
     try {
       // First, update goal progress based on current data
       const { updateCategoryGoals } = await import('../lib/goalsDb')
-      await updateCategoryGoals(user.id, 'nutrition').catch(() => {
-        // Silently fail - continue to load goals even if update fails
+      await updateCategoryGoals(user.id, 'nutrition').catch((e) => {
+        // Non-blocking: continue to load goals even if update fails.
+        logWarn('Nutrition: goal progress update failed (non-blocking)', e)
       })
       
       // Then load the updated goals
@@ -175,7 +177,11 @@ export default function Nutrition() {
         })
       }
     } catch (error) {
-      // Silently fail
+      logError('Error loading nutrition goals', error)
+      if (!shownGoalsLoadErrorRef.current && showToast && typeof showToast === 'function') {
+        shownGoalsLoadErrorRef.current = true
+        showToast('Failed to load nutrition goals. Please try again.', 'error')
+      }
     }
   }
 
@@ -613,7 +619,10 @@ export default function Nutrition() {
       const { updateWaterIntake } = await import('../lib/nutritionDb')
       await updateWaterIntake(user.id, selectedDate, newAmount)
     } catch (error) {
-      // Silently fail
+      logError('Failed to save water intake', error)
+      if (showToast && typeof showToast === 'function') {
+        showToast('Failed to save water. Please try again.', 'error')
+      }
     }
   }
 

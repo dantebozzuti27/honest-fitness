@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { exportWorkoutData } from '../utils/exportData'
@@ -19,6 +19,7 @@ export default function Account() {
   const [connectedAccounts, setConnectedAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [disconnectConfirm, setDisconnectConfirm] = useState({ open: false, provider: null })
+  const shownConnectedErrorRef = useRef(false)
 
   useEffect(() => {
     if (user) {
@@ -32,7 +33,10 @@ export default function Account() {
       const accounts = await getAllConnectedAccounts(user.id)
       setConnectedAccounts(accounts || [])
     } catch (error) {
-      // Silently fail - will retry on next render
+      if (!shownConnectedErrorRef.current) {
+        shownConnectedErrorRef.current = true
+        showToast('Failed to load connected accounts. Please try again.', 'error')
+      }
     } finally {
       setLoading(false)
     }

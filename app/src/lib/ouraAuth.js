@@ -3,6 +3,7 @@
  */
 
 import { getConnectedAccount } from './wearables'
+import { requireSupabase } from './supabase'
 import { logDebug } from '../utils/logger'
 
 // Get Oura config from environment
@@ -48,23 +49,34 @@ export function connectOura(userId) {
     logDebug('OURA_REDIRECT_URI', { redirectUri: OURA_REDIRECT_URI })
   }
   
-  if (!OURA_CLIENT_ID) {
-    const error = 'Oura Client ID not configured. Set VITE_OURA_CLIENT_ID in environment variables.'
-    if (import.meta.env.DEV) logDebug('Oura config error', { message: error })
-    throw new Error(error)
-  }
-  
-  if (!userId) {
-    const error = 'User ID is required to connect Oura'
-    if (import.meta.env.DEV) logDebug('Oura connect error', { message: error })
-    throw new Error(error)
-  }
-  
-  const authUrl = getOuraAuthUrl(userId)
-  if (import.meta.env.DEV) logDebug('Redirecting to Oura OAuth', { authUrl })
-  
-  // Use window.location.assign for better error handling
-  window.location.assign(authUrl)
+  // SECURITY: generate signed OAuth state server-side (prevents CSRF / token write to wrong user).
+  // `userId` param is kept for backward compatibility but not trusted.
+  ;(async () => {
+    const supabase = requireSupabase()
+    const { data: { session }, error } = await supabase.auth.getSession()
+    if (error) throw error
+    const accessToken = session?.access_token
+    if (!accessToken) throw new Error('Authentication required')
+
+    const resp = await fetch('/api/oura/start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({})
+    })
+    const data = await resp.json().catch(() => ({}))
+    if (!resp.ok || !data?.url) {
+      throw new Error(data?.message || 'Failed to start Oura OAuth. Please try again.')
+    }
+    if (import.meta.env.DEV) logDebug('Redirecting to Oura OAuth (server-signed state)', { url: data.url })
+    window.location.assign(data.url)
+  })().catch((e) => {
+    setTimeout(() => {
+      throw e
+    }, 0)
+  })
 }
 
 /**

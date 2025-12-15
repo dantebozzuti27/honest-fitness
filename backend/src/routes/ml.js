@@ -17,7 +17,9 @@ mlRouter.use(mlLimiter)
 // Process ML analysis
 mlRouter.post('/analyze', async (req, res, next) => {
   try {
-    const { userId, dateRange } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
+    const { dateRange } = req.body || {}
     
     // Load data context
     const dataContext = await loadDataContext(userId, dateRange)
@@ -38,7 +40,9 @@ mlRouter.post('/analyze', async (req, res, next) => {
 // Generate workout plan
 mlRouter.post('/workout-plan', async (req, res, next) => {
   try {
-    const { userId, preferences } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
+    const { preferences } = req.body || {}
     
     const dataContext = await loadDataContext(userId)
     const mlResults = await processML(userId, dataContext)
@@ -57,7 +61,9 @@ mlRouter.post('/workout-plan', async (req, res, next) => {
 // Generate nutrition plan
 mlRouter.post('/nutrition-plan', async (req, res, next) => {
   try {
-    const { userId, goals } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
+    const { goals } = req.body || {}
     
     const dataContext = await loadDataContext(userId)
     const nutritionPlan = await generateAINutritionPlan(userId, dataContext, goals)
@@ -74,7 +80,9 @@ mlRouter.post('/nutrition-plan', async (req, res, next) => {
 // Generate weekly summary
 mlRouter.post('/weekly-summary', async (req, res, next) => {
   try {
-    const { userId, week } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
+    const { week } = req.body || {}
     
     const dataContext = await loadDataContext(userId, { week })
     const mlResults = await processML(userId, dataContext)
@@ -93,7 +101,8 @@ mlRouter.post('/weekly-summary', async (req, res, next) => {
 // Generate insights
 mlRouter.post('/insights', async (req, res, next) => {
   try {
-    const { userId } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
     
     const dataContext = await loadDataContext(userId)
     const mlResults = await processML(userId, dataContext)
@@ -112,7 +121,9 @@ mlRouter.post('/insights', async (req, res, next) => {
 // Interpret user prompt
 mlRouter.post('/interpret', async (req, res, next) => {
   try {
-    const { userId, prompt } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
+    const { prompt } = req.body || {}
     
     const dataContext = await loadDataContext(userId)
     const interpretation = await interpretPrompt(userId, prompt, dataContext)

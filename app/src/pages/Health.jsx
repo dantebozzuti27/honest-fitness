@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -54,6 +54,7 @@ export default function Health() {
   const [selectedMetricForShare, setSelectedMetricForShare] = useState(null)
   const { toast, showToast, hideToast } = useToast()
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null, payload: null })
+  const shownLoadErrorRef = useRef(false)
 
   const recoveryStreak = useMemo(() => {
     // Recovery session: session_type === 'recovery' OR all exercises are category Recovery
@@ -332,7 +333,11 @@ export default function Health() {
       
       setMetrics(transformedMetrics)
     } catch (error) {
-      // Silently fail - data will load on retry
+      logError('Health loadAllData failed', error)
+      if (!shownLoadErrorRef.current && showToast && typeof showToast === 'function') {
+        shownLoadErrorRef.current = true
+        showToast('Failed to load Health data. Please refresh and try again.', 'error')
+      }
     } finally {
       setLoading(false)
     }

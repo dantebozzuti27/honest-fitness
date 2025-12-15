@@ -7,7 +7,7 @@
  * @requires ./supabase
  */
 
-import { supabase } from './supabase'
+import { requireSupabase } from './supabase'
 
 // Use relative path in production, absolute in development
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 
@@ -44,6 +44,7 @@ async function apiRequest(endpoint, options = {}) {
   }
 
   // Get auth token
+  const supabase = requireSupabase()
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) {
     throw new Error('Authentication required. Please log in again.')

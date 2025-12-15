@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { formatDateMMDDYYYY } from '../utils/dateUtils'
-import { logDebug, logError } from '../utils/logger'
+import { logDebug, logError, logWarn } from '../utils/logger'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -49,6 +49,9 @@ export default function Fitness() {
   const [todaysScheduledWorkout, setTodaysScheduledWorkout] = useState(null)
   const [isGeneratingWorkout, setIsGeneratingWorkout] = useState(false)
   const subscriptionRef = useRef(null)
+  const hasShownHistoryLoadErrorRef = useRef(false)
+  const hasShownGoalsLoadErrorRef = useRef(false)
+  const hasShownInitialLoadErrorRef = useRef(false)
   const [pausedWorkout, setPausedWorkout] = useState(null)
   const [metrics, setMetrics] = useState({
     sleepScore: '',
@@ -64,8 +67,9 @@ export default function Fitness() {
     try {
       // First, update goal progress based on current data
       const { updateCategoryGoals } = await import('../lib/goalsDb')
-      await updateCategoryGoals(user.id, 'fitness').catch(() => {
-        // Silently fail - continue to load goals even if update fails
+      await updateCategoryGoals(user.id, 'fitness').catch((e) => {
+        // Non-blocking: continue to load goals even if update fails.
+        logWarn('Fitness: goal progress update failed (non-blocking)', e)
       })
       
       // Then load the updated goals
@@ -73,9 +77,13 @@ export default function Fitness() {
       const goals = await getActiveGoalsFromSupabase(user.id, 'fitness')
       setFitnessGoals(goals)
     } catch (e) {
-      // Silently fail
+      logError('Error loading fitness goals', e)
+      if (!hasShownGoalsLoadErrorRef.current && showToast && typeof showToast === 'function') {
+        hasShownGoalsLoadErrorRef.current = true
+        showToast('Failed to load fitness goals. Please try again.', 'error')
+      }
     }
-  }, [user])
+  }, [user, showToast])
 
   const loadWorkoutHistory = useCallback(async () => {
     if (!user) return
@@ -83,10 +91,15 @@ export default function Fitness() {
       const workouts = await getWorkoutsFromSupabase(user.id)
       setWorkoutHistory(workouts)
     } catch (e) {
-      // Silently fail
       logError('Error loading workout history', e)
+      if (!hasShownHistoryLoadErrorRef.current) {
+        hasShownHistoryLoadErrorRef.current = true
+        if (showToast && typeof showToast === 'function') {
+          showToast('Failed to load workout history. Please try again.', 'error')
+        }
+      }
     }
-  }, [user])
+  }, [user, showToast])
 
   const loadPausedWorkout = useCallback(async () => {
     if (!user) return
@@ -187,7 +200,11 @@ export default function Fitness() {
             setTodaysPlan(todaysWorkout)
           }
         } catch (e) {
-          // Silently fail
+          logError('Fitness initial load failed', e)
+          if (!hasShownInitialLoadErrorRef.current && showToast && typeof showToast === 'function') {
+            hasShownInitialLoadErrorRef.current = true
+            showToast('Failed to load Fitness data. Please refresh and try again.', 'error')
+          }
         }
       }
     }
@@ -203,6 +220,7 @@ export default function Fitness() {
 
   useEffect(() => {
     if (!user) return
+    if (!supabase) return
     
     // Set up Supabase real-time subscription for workouts
     const workoutsChannel = supabase
@@ -259,7 +277,7 @@ export default function Fitness() {
       
       // Clean up subscription
       if (subscriptionRef.current?.workoutsChannel) {
-        supabase.removeChannel(subscriptionRef.current.workoutsChannel)
+        if (supabase) supabase.removeChannel(subscriptionRef.current.workoutsChannel)
         subscriptionRef.current = null
       }
     }

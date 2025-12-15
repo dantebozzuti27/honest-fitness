@@ -275,7 +275,7 @@ export default function Analytics() {
     loadData()
 
     // Set up Supabase real-time subscription for workouts
-    if (user) {
+    if (user && supabase) {
       // Subscribe to workout changes
       const workoutsChannel = supabase
         .channel(`workouts_changes_${user.id}`)
@@ -321,7 +321,7 @@ export default function Analytics() {
       // Clean up subscriptions
       if (subscriptionRef.current) {
         if (subscriptionRef.current.workoutsChannel) {
-          supabase.removeChannel(subscriptionRef.current.workoutsChannel)
+          if (supabase) supabase.removeChannel(subscriptionRef.current.workoutsChannel)
         }
         subscriptionRef.current = null
       }

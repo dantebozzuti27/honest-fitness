@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { 
@@ -27,6 +27,7 @@ export default function Wearables() {
   const [syncStatus, setSyncStatus] = useState(null)
   const { toast, showToast, hideToast } = useToast()
   const [confirmState, setConfirmState] = useState({ open: false, provider: null })
+  const shownLoadErrorRef = useRef(false)
 
   useEffect(() => {
     if (user) {
@@ -43,7 +44,10 @@ export default function Wearables() {
       const accounts = await getAllConnectedAccounts(user.id)
       setConnectedAccounts(accounts || [])
     } catch (error) {
-      // Silently fail - will retry on next render
+      if (!shownLoadErrorRef.current) {
+        shownLoadErrorRef.current = true
+        showToast('Failed to load connected accounts. Please try again.', 'error')
+      }
     } finally {
       setLoading(false)
     }

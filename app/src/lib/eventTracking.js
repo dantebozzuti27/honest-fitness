@@ -6,6 +6,26 @@
 import { supabase } from './supabase'
 import { logError } from '../utils/logger'
 
+// Telemetry is OFF by default to prevent request storms and privacy surprises.
+// Enable explicitly by setting VITE_ENABLE_TELEMETRY=true in your environment.
+const TELEMETRY_ENABLED = import.meta.env.VITE_ENABLE_TELEMETRY === 'true'
+
+// Simple rate limiter (token bucket-ish): allow up to N events per minute.
+const RATE_LIMIT_WINDOW_MS = 60_000
+const RATE_LIMIT_MAX = 30
+let rateWindowStart = 0
+let rateCount = 0
+
+function allowEvent() {
+  const now = Date.now()
+  if (!rateWindowStart || now - rateWindowStart > RATE_LIMIT_WINDOW_MS) {
+    rateWindowStart = now
+    rateCount = 0
+  }
+  rateCount++
+  return rateCount <= RATE_LIMIT_MAX
+}
+
 // Event schema standardization
 const EVENT_SCHEMA = {
   // User identification
@@ -47,7 +67,13 @@ const EVENT_SCHEMA = {
  */
 export async function trackEvent(eventName, properties = {}) {
   try {
-    const { data: { user } } = await supabase.auth.getUser()
+    if (!TELEMETRY_ENABLED) return
+    if (!supabase) return
+    if (!allowEvent()) return
+
+    // Avoid network calls per event: getSession is local-first.
+    const { data: { session } } = await supabase.auth.getSession()
+    const user = session?.user
     if (!user) return // Don't track for anonymous users (or implement anonymous tracking)
     
     // Get session ID (create if doesn't exist)
@@ -306,10 +332,13 @@ function queueEventForRetry(event) {
  */
 export async function retryQueuedEvents() {
   try {
+    if (!TELEMETRY_ENABLED) return
+    if (!supabase) return
     const queued = JSON.parse(localStorage.getItem('queued_events') || '[]')
     if (queued.length === 0) return
     
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession()
+    const user = session?.user
     if (!user) return
     
     // Retry all queued events

@@ -3,8 +3,11 @@
  * Centralized documentation of all data assets: tables, columns, metrics, definitions
  */
 
-import { supabase } from './supabase'
+import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
+
+// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
+const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
 
 /**
  * Data dictionary - all tables and columns

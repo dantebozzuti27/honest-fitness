@@ -3,8 +3,11 @@
  * Track pipeline health, data flow, processing times, failures
  */
 
-import { supabase } from './supabase'
+import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
+
+// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
+const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
 
 /**
  * Record pipeline job execution

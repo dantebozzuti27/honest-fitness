@@ -1,3 +1,5 @@
+import { verifySignedOAuthState } from '../_utils/oauthState.js'
+
 /**
  * Oura OAuth Callback Handler
  * Handles the OAuth redirect from Oura after user authorization
@@ -19,20 +21,31 @@ export default async function handler(req, res) {
     return res.redirect(`/?oura_error=${encodeURIComponent('No authorization code received')}`)
   }
 
-  // Extract user ID from state (should be passed during OAuth initiation)
-  // State parameter is critical for CSRF protection (OAuth 2.0 security requirement)
-  const userId = state
+  // CSRF protection: signed state required (generated server-side).
+  const secret = process.env.OAUTH_STATE_SECRET
+  const allowLegacy = process.env.ALLOW_LEGACY_OAUTH_STATE === 'true'
+  let userId = null
 
-  if (!userId) {
-    console.error('OAuth security violation: Missing state parameter')
-    return res.redirect(`/?oura_error=${encodeURIComponent('Invalid state parameter - security validation failed')}`)
+  if (typeof state === 'string' && secret) {
+    const verified = verifySignedOAuthState({ state, secret, maxAgeMs: 10 * 60 * 1000 })
+    if (verified.ok) {
+      userId = verified.userId
+    } else if (!allowLegacy) {
+      console.error('OAuth state verification failed', verified.reason)
+      return res.redirect(`/?oura_error=${encodeURIComponent('Invalid OAuth state. Please try connecting again.')}`)
+    }
   }
 
-  // Validate state parameter format (should be UUID)
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-  if (!uuidRegex.test(userId)) {
-    console.error('OAuth security violation: Invalid state format')
-    return res.redirect(`/?oura_error=${encodeURIComponent('Invalid state format - security validation failed')}`)
+  if (!userId) {
+    // Legacy fallback (NOT recommended; allow only if explicitly enabled).
+    if (!allowLegacy) {
+      return res.redirect(`/?oura_error=${encodeURIComponent('OAuth state not configured. Please contact support.')}`)
+    }
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!state || typeof state !== 'string' || !uuidRegex.test(state)) {
+      return res.redirect(`/?oura_error=${encodeURIComponent('Invalid state parameter')}`)
+    }
+    userId = state
   }
 
   try {

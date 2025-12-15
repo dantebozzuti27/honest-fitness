@@ -96,20 +96,20 @@ You help with:
 Keep responses helpful, concise, and actionable. If asked about non-fitness topics, politely redirect to health and fitness.
 ${context ? `\nUser context: ${context}` : ''}`
 
-    const apiKey = process.env.XAI_API_KEY
+    const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
-      console.error('XAI_API_KEY not set')
+      console.error('OPENAI_API_KEY not set')
       return res.status(500).json({ message: 'API configuration error. Please try again later.' })
     }
 
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'grok-3-latest',
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
           { role: 'system', content: systemPrompt },
           ...messages
@@ -121,14 +121,14 @@ ${context ? `\nUser context: ${context}` : ''}`
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('Grok API error:', response.status, errorText)
+      console.error('OpenAI API error:', response.status, errorText)
       return res.status(500).json({ message: 'AI service temporarily unavailable. Please try again.' })
     }
 
     const data = await response.json()
     
     if (!data.choices?.[0]?.message?.content) {
-      console.error('Invalid Grok response:', data)
+      console.error('Invalid OpenAI response:', data)
       return res.status(500).json({ message: 'Received invalid response from AI. Please try again.' })
     }
 

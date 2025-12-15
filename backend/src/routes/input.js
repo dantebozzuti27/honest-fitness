@@ -29,7 +29,12 @@ const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabase
 // Submit workout data
 inputRouter.post('/workout', async (req, res, next) => {
   try {
-    const result = await processDataPipeline('workout', req.body, 'manual')
+    // SECURITY: bind writes to authenticated user; never trust body user_id/userId.
+    const result = await processDataPipeline(
+      'workout',
+      { ...req.body, user_id: req.userId },
+      'manual'
+    )
     res.json(result)
   } catch (error) {
     next(error)
@@ -39,7 +44,12 @@ inputRouter.post('/workout', async (req, res, next) => {
 // Submit nutrition data
 inputRouter.post('/nutrition', async (req, res, next) => {
   try {
-    const result = await processDataPipeline('nutrition', req.body, 'manual')
+    // SECURITY: bind writes to authenticated user; never trust body user_id/userId.
+    const result = await processDataPipeline(
+      'nutrition',
+      { ...req.body, user_id: req.userId },
+      'manual'
+    )
     res.json(result)
   } catch (error) {
     next(error)
@@ -49,7 +59,13 @@ inputRouter.post('/nutrition', async (req, res, next) => {
 // Submit health data
 inputRouter.post('/health', async (req, res, next) => {
   try {
-    const result = await processDataPipeline('health', req.body, req.body.source || 'manual')
+    // SECURITY: bind writes to authenticated user; never trust body user_id/userId.
+    const source = req.body?.source || 'manual'
+    const result = await processDataPipeline(
+      'health',
+      { ...req.body, user_id: req.userId },
+      source
+    )
     res.json(result)
   } catch (error) {
     next(error)
@@ -59,7 +75,12 @@ inputRouter.post('/health', async (req, res, next) => {
 // Submit user profile data
 inputRouter.post('/user', async (req, res, next) => {
   try {
-    const result = await processDataPipeline('user', req.body, 'manual')
+    // SECURITY: bind writes to authenticated user; never trust body user_id/userId.
+    const result = await processDataPipeline(
+      'user',
+      { ...req.body, user_id: req.userId },
+      'manual'
+    )
     res.json(result)
   } catch (error) {
     next(error)
@@ -69,10 +90,15 @@ inputRouter.post('/user', async (req, res, next) => {
 // Sync Fitbit data (with rate limiting)
 inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
   try {
-    const { userId, date } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
+    const { date } = req.body || {}
     
-    if (!userId || !date) {
-      return res.status(400).json({ error: 'Missing userId or date' })
+    if (!date) {
+      return res.status(400).json({ error: 'Missing date' })
+    }
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid date format (expected YYYY-MM-DD)' })
     }
     
     // Validate Supabase connection

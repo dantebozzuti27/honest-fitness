@@ -1,0 +1,497 @@
+{
+  "summary": {
+    "import_time_throw": 10,
+    "console_calls": 2,
+    "window_global": 29,
+    "service_role": 3,
+    "supabase_env": 4,
+    "dangerous_html": 0,
+    "eval_like": 0,
+    "fetch_api": 5,
+    "alert_confirm": 0
+  },
+  "files": [
+    {
+      "path": "ONE_MONTH_APPLE_GRADE_ACTION_PLAN.md",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "WORK_LOG_NEXT_STEPS_2025-12-15.md",
+      "hits": []
+    },
+    {
+      "path": "app/package-lock.json",
+      "hits": []
+    },
+    {
+      "path": "app/src/App.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/AddFriend.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/BackButton.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/BackButton.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/BarChart.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/BottomNav.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/BottomNav.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/Button.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/Button.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/ChartExample.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/CommandPalette.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/CommandPalette.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/ConfirmDialog.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/ConfirmDialog.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/EmailCapture.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/EmptyState.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/EmptyState.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/ErrorBoundary.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/ExercisePicker.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/ExercisePicker.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/FriendRequests.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/HistoryCard.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/HistoryCard.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/Icons.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/InputField.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/InputField.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/InsightsCard.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/InviteFriends.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/Onboarding.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/PasswordStrengthIndicator.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/PredictiveInsights.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/SelectField.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/ShareCard.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/ShareModal.jsx",
+      "hits": [
+        "fetch_api",
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/components/ShareModal.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/Skeleton.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/Skeleton.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/TemplateEditor.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/TextAreaField.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/components/Toast.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/context/AuthContext.jsx",
+      "hits": [
+        "import_time_throw"
+      ]
+    },
+    {
+      "path": "app/src/lib/exerciseBootstrap.js",
+      "hits": []
+    },
+    {
+      "path": "app/src/lib/fitbitAuth.js",
+      "hits": [
+        "import_time_throw",
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/lib/goalsDb.js",
+      "hits": [
+        "import_time_throw"
+      ]
+    },
+    {
+      "path": "app/src/lib/nutritionDb.js",
+      "hits": [
+        "import_time_throw"
+      ]
+    },
+    {
+      "path": "app/src/lib/ouraAuth.js",
+      "hits": [
+        "import_time_throw",
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/lib/readiness.js",
+      "hits": []
+    },
+    {
+      "path": "app/src/lib/supabaseDb.js",
+      "hits": [
+        "import_time_throw",
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/lib/syncOutbox.js",
+      "hits": []
+    },
+    {
+      "path": "app/src/lib/wearables.js",
+      "hits": [
+        "fetch_api",
+        "import_time_throw"
+      ]
+    },
+    {
+      "path": "app/src/main.jsx",
+      "hits": [
+        "console_calls",
+        "supabase_env",
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/Account.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/ActiveWorkout.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/ActiveWorkout.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Analytics.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/Auth.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/Calendar.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/DataExplorer.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Fitness.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/GhostMode.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Goals.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Health.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/Home.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/Home.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Invite.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Log.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/Log.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Login.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Login.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Nutrition.jsx",
+      "hits": [
+        "import_time_throw",
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/Planner.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Privacy.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Profile.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Profile.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Progress.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Progress.module.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Terms.jsx",
+      "hits": []
+    },
+    {
+      "path": "app/src/pages/Wearables.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/pages/Workout.jsx",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/styles/global.css",
+      "hits": []
+    },
+    {
+      "path": "app/src/utils/haptics.js",
+      "hits": []
+    },
+    {
+      "path": "app/src/utils/shareAnalytics.js",
+      "hits": [
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/src/utils/shareUtils.js",
+      "hits": [
+        "fetch_api",
+        "window_global"
+      ]
+    },
+    {
+      "path": "app/supabase_migrations_feed.sql",
+      "hits": []
+    },
+    {
+      "path": "app/supabase_migrations_social_fixes.sql",
+      "hits": []
+    },
+    {
+      "path": "app/supabase_migrations_user_preferences_visibility.sql",
+      "hits": []
+    },
+    {
+      "path": "app/supabase_migrations_workouts_session_type.sql",
+      "hits": []
+    },
+    {
+      "path": "app/supabase_run_all.psql.sql",
+      "hits": []
+    },
+    {
+      "path": "app/supabase_run_all.sql",
+      "hits": []
+    },
+    {
+      "path": "app/supabase_seed_exercise_library_reset_and_rebuild.sql",
+      "hits": []
+    },
+    {
+      "path": "backend/src/database/index.js",
+      "hits": [
+        "import_time_throw",
+        "service_role",
+        "supabase_env"
+      ]
+    },
+    {
+      "path": "backend/src/engines/ai/index.js",
+      "hits": []
+    },
+    {
+      "path": "backend/src/index.js",
+      "hits": [
+        "service_role",
+        "supabase_env"
+      ]
+    },
+    {
+      "path": "backend/tests/example.test.js",
+      "hits": [
+        "fetch_api"
+      ]
+    },
+    {
+      "path": "backend/tests/setup.js",
+      "hits": [
+        "console_calls",
+        "fetch_api",
+        "import_time_throw",
+        "service_role",
+        "supabase_env"
+      ]
+    }
+  ]
+}

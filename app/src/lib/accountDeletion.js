@@ -3,8 +3,11 @@
  * Handles complete account deletion with data purge (GDPR/CCPA compliant)
  */
 
-import { supabase } from './supabase'
+import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
+
+// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
+const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
 
 /**
  * Delete all user data from all tables

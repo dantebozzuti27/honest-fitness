@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
+import { supabase, supabaseConfigErrorMessage } from '../lib/supabase'
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator'
 import EmailCapture from '../components/EmailCapture'
 import { useToast } from '../hooks/useToast'
@@ -35,6 +35,7 @@ export default function Auth() {
     setSocialLoading(provider)
     setError('')
     try {
+      if (!supabase) throw new Error(supabaseConfigErrorMessage)
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider,
         options: {
@@ -51,6 +52,23 @@ export default function Auth() {
       setError(`Failed to sign in with ${provider}: ${err.message}`)
       setSocialLoading(null)
     }
+  }
+
+  // If Supabase isn't configured, show a clear error instead of a broken auth screen.
+  if (!supabase) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.card}>
+          <div className={styles.cardHeader}>
+            <h1 className={styles.title}>ECHELON</h1>
+            <p className={styles.subtitle}>Configuration required</p>
+          </div>
+          <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            {supabaseConfigErrorMessage}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const handleSubmit = async (e) => {

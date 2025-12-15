@@ -4,7 +4,7 @@
  */
 
 import { getConnectedAccount, saveConnectedAccount } from './wearables'
-import { supabase } from './supabase'
+import { requireSupabase } from './supabase'
 import { logError } from '../utils/logger'
 
 /**
@@ -13,6 +13,7 @@ import { logError } from '../utils/logger'
  */
 export async function checkAndRefreshFitbitToken(userId) {
   try {
+    const supabase = requireSupabase()
     const account = await getConnectedAccount(userId, 'fitbit')
     
     if (!account) {
@@ -80,6 +81,7 @@ export async function checkAndRefreshFitbitToken(userId) {
  */
 export async function refreshTokenIfNeeded(userId, provider, account) {
   if (!account) return null
+  const supabase = requireSupabase()
   
   const expiresAt = account.expires_at ? new Date(account.expires_at) : null
   const now = new Date()

@@ -3,11 +3,14 @@
  * Save and retrieve food/meal data from Supabase
  */
 
-import { supabase } from './supabase'
+import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError, logDebug, logWarn } from '../utils/logger'
 import { saveEnrichedData } from './dataEnrichment'
 import { trackEvent } from './eventTracking'
 import { enqueueOutboxItem } from './syncOutbox'
+
+// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
+const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})

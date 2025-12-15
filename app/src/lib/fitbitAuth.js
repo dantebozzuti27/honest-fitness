@@ -3,6 +3,7 @@
  */
 
 import { getConnectedAccount } from './wearables'
+import { requireSupabase } from './supabase'
 import { logDebug } from '../utils/logger'
 
 // Get Fitbit config from environment
@@ -49,23 +50,35 @@ export function connectFitbit(userId) {
     logDebug('FITBIT_REDIRECT_URI', { redirectUri: FITBIT_REDIRECT_URI })
   }
   
-  if (!FITBIT_CLIENT_ID) {
-    const error = 'Fitbit Client ID not configured. Set VITE_FITBIT_CLIENT_ID in environment variables.'
-    if (import.meta.env.DEV) logDebug('Fitbit config error', { message: error })
-    throw new Error(error)
-  }
-  
-  if (!userId) {
-    const error = 'User ID is required to connect Fitbit'
-    if (import.meta.env.DEV) logDebug('Fitbit connect error', { message: error })
-    throw new Error(error)
-  }
-  
-  const authUrl = getFitbitAuthUrl(userId)
-  if (import.meta.env.DEV) logDebug('Redirecting to Fitbit OAuth', { authUrl })
-  
-  // Use window.location.assign for better error handling
-  window.location.assign(authUrl)
+  // SECURITY: generate signed OAuth state server-side (prevents CSRF / token write to wrong user).
+  // `userId` param is kept for backward compatibility but not trusted.
+  ;(async () => {
+    const supabase = requireSupabase()
+    const { data: { session }, error } = await supabase.auth.getSession()
+    if (error) throw error
+    const accessToken = session?.access_token
+    if (!accessToken) throw new Error('Authentication required')
+
+    const resp = await fetch('/api/fitbit/start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({})
+    })
+    const data = await resp.json().catch(() => ({}))
+    if (!resp.ok || !data?.url) {
+      throw new Error(data?.message || 'Failed to start Fitbit OAuth. Please try again.')
+    }
+    if (import.meta.env.DEV) logDebug('Redirecting to Fitbit OAuth (server-signed state)', { url: data.url })
+    window.location.assign(data.url)
+  })().catch((e) => {
+    // Re-throw asynchronously so callers can still surface an error toast.
+    setTimeout(() => {
+      throw e
+    }, 0)
+  })
 }
 
 /**

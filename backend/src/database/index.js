@@ -5,31 +5,34 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-const isTest = process.env.NODE_ENV === 'test'
+/**
+ * IMPORTANT:
+ * Do NOT throw at import time if env is missing.
+ * - Vercel (and other serverless platforms) may build/bundle without runtime env present.
+ * - We validate env lazily when a DB function is actually called.
+ */
+let supabase = null
+let didInit = false
 
-// In tests, don't hard-crash at import time; allow the test harness to set env first.
-if (!process.env.SUPABASE_URL) {
-  if (!isTest) {
-    throw new Error('SUPABASE_URL environment variable is required')
-  }
+function getSupabaseClient() {
+  if (supabase) return supabase
+  if (didInit) return null
+  didInit = true
+
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+  if (!url || !key) return null
+
+  supabase = createClient(url, key)
+  return supabase
 }
-
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_ANON_KEY) {
-  if (!isTest) {
-    throw new Error('Either SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY environment variable is required')
-  }
-}
-
-const supabase =
-  process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
-    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
-    : null
 
 /**
  * Save data to appropriate database table
  */
 export async function saveToDatabase(type, normalizedData) {
-  if (!supabase) {
+  const client = getSupabaseClient()
+  if (!client) {
     throw new Error('Database client not initialized (missing SUPABASE_URL / SUPABASE_*_KEY)')
   }
   let tableName
@@ -107,7 +110,7 @@ export async function saveToDatabase(type, normalizedData) {
   }
   
   // Upsert data
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from(tableName)
     .upsert(dataToSave, {
       onConflict: type === 'workout' ? 'id' : 'user_id,date'
@@ -126,7 +129,8 @@ export async function saveToDatabase(type, normalizedData) {
  * Get data from database
  */
 export async function getFromDatabase(type, userId, filters = {}) {
-  if (!supabase) {
+  const client = getSupabaseClient()
+  if (!client) {
     throw new Error('Database client not initialized (missing SUPABASE_URL / SUPABASE_*_KEY)')
   }
   let tableName
@@ -148,7 +152,7 @@ export async function getFromDatabase(type, userId, filters = {}) {
       throw new Error(`Unknown data type: ${type}`)
   }
   
-  let query = supabase
+  let query = client
     .from(tableName)
     .select('*')
     .eq('user_id', userId)

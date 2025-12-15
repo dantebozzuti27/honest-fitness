@@ -1,6 +1,9 @@
-import { supabase } from './supabase'
+import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { getWorkoutsFromSupabase, getAllMetricsFromSupabase } from './supabaseDb'
 import { getTodayEST } from '../utils/dateUtils'
+
+// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
+const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
 
 /**
  * Calculate Honest Readiness Score (0-100)

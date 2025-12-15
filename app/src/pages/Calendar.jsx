@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAllTemplates } from '../db'
 import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, getUserPreferences, generateWorkoutPlan, deleteWorkoutFromSupabase, scheduleWorkoutSupabase, getScheduledWorkoutByDateFromSupabase, getScheduledWorkoutsFromSupabase } from '../lib/supabaseDb'
@@ -26,6 +26,7 @@ export default function Calendar() {
   const [scheduledInfo, setScheduledInfo] = useState(null)
   const [weeklyPlan, setWeeklyPlan] = useState(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const shownScheduledLoadErrorRef = useRef(false)
 
   const refreshData = async () => {
     if (user) {
@@ -43,7 +44,10 @@ export default function Calendar() {
         })
         setScheduledDates(scheduledMap)
       } catch (error) {
-        // Silently fail
+        if (!shownScheduledLoadErrorRef.current) {
+          shownScheduledLoadErrorRef.current = true
+          showToast('Failed to load scheduled workouts.', 'error')
+        }
       }
     }
   }

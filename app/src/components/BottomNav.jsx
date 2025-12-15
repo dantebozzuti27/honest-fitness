@@ -13,7 +13,7 @@ export default function BottomNav() {
 
   useEffect(() => {
     if (!user) return
-    const refresh = () => setPendingSyncCount(getOutboxPendingCount())
+    const refresh = () => setPendingSyncCount(getOutboxPendingCount(user.id))
     refresh()
     window.addEventListener('outboxUpdated', refresh)
     window.addEventListener('online', refresh)

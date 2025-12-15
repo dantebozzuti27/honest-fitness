@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, supabaseConfigErrorMessage } from '../lib/supabase'
 import { getOrCreateUserProfile } from '../lib/friendsDb'
 import { logError, logWarn } from '../utils/logger'
 
@@ -11,10 +11,20 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let mounted = true
+
+    // If Supabase isn't configured, proceed without auth (the app shell can still render).
+    if (!supabase) {
+      logWarn('AuthContext: Supabase not configured; auth disabled', { message: supabaseConfigErrorMessage })
+      setUser(null)
+      setLoading(false)
+      return () => {
+        mounted = false
+      }
+    }
     
     // Set a timeout to stop loading even if Supabase fails
     const timeoutId = setTimeout(() => {
-      if (mounted && loading) {
+      if (mounted) {
         logWarn('AuthContext: Loading timeout, proceeding without auth')
         setLoading(false)
       }
@@ -63,6 +73,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   const signUp = async (email, password, username, phoneNumber) => {
+    if (!supabase) throw new Error(supabaseConfigErrorMessage)
     // Sign up user
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -88,6 +99,7 @@ export function AuthProvider({ children }) {
   }
 
   const signIn = async (email, password) => {
+    if (!supabase) throw new Error(supabaseConfigErrorMessage)
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -97,6 +109,7 @@ export function AuthProvider({ children }) {
   }
 
   const signOut = async () => {
+    if (!supabase) throw new Error(supabaseConfigErrorMessage)
     const { error } = await supabase.auth.signOut()
     if (error) throw error
   }

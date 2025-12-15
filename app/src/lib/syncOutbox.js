@@ -3,6 +3,14 @@ import { logDebug, logError, logWarn } from '../utils/logger'
 const OUTBOX_KEY = 'honest_outbox_v1'
 const MAX_ITEMS = 200
 
+function notifyOutboxUpdated() {
+  try {
+    window.dispatchEvent(new CustomEvent('outboxUpdated'))
+  } catch {
+    // no-op (e.g., SSR / non-browser env)
+  }
+}
+
 function safeParse(json, fallback) {
   try {
     return JSON.parse(json)
@@ -25,6 +33,7 @@ function loadOutbox() {
 function saveOutbox(items) {
   try {
     localStorage.setItem(OUTBOX_KEY, JSON.stringify(items.slice(-MAX_ITEMS)))
+    notifyOutboxUpdated()
   } catch (e) {
     logError('Outbox save failed', e)
   }
@@ -78,8 +87,8 @@ export function migrateLegacyFailedWorkouts(userId) {
 }
 
 export function getOutboxPendingCount(userId) {
-  if (!userId) return 0
   const items = loadOutbox()
+  if (!userId) return items.length
   return items.filter(i => i && i.userId === userId).length
 }
 

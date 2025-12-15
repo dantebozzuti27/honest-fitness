@@ -29,3 +29,4 @@
 -- \i app/supabase_seed_exercise_library_reset_and_rebuild.sql
 
 
+

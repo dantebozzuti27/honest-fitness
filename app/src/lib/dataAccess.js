@@ -3,8 +3,11 @@
  * Provides access to all user data with filtering, trends, and slicing
  */
 
-import { supabase } from './supabase'
+import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { getTodayEST } from '../utils/dateUtils'
+
+// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
+const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
 
 /**
  * Get Fitbit data with date range filter

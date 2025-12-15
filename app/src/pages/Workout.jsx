@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { toInteger, toNumber } from '../utils/numberUtils'
+import { logError, logWarn } from '../utils/logger'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import SideMenu from '../components/SideMenu'
@@ -147,7 +148,7 @@ export default function Workout() {
             })
           }
         } catch (e) {
-          // Silently fail - metrics are optional
+          logWarn('Workout: failed to load metrics (optional)', e)
         }
       }
     }
@@ -248,7 +249,7 @@ export default function Workout() {
             showToast('Metrics saved locally — will sync when online.', 'info', 5000)
           }
         } catch (err) {
-          // Silently fail - metrics will be saved on next attempt
+          logWarn('Workout: failed to save metrics to Supabase (non-blocking)', err)
         }
       }
     }

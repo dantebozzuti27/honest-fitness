@@ -7,17 +7,23 @@ import { supabase } from './supabase'
 import { trackEvent } from './eventTracking'
 import { logError } from '../utils/logger'
 
+const PASSIVE_ENABLED = import.meta.env.VITE_ENABLE_PASSIVE_COLLECTION === 'true'
+
 let sessionStartTime = null
 let lastActivityTime = null
 let pageViewStartTime = null
 let activityTimer = null
 let sessionTimer = null
+let initialized = false
 
 /**
  * Initialize passive data collection
  */
 export function initializePassiveCollection() {
   if (typeof window === 'undefined') return
+  if (!PASSIVE_ENABLED) return
+  if (initialized) return
+  initialized = true
   
   sessionStartTime = Date.now()
   lastActivityTime = Date.now()
@@ -252,6 +258,7 @@ export function setupScrollTracking() {
  * Handle visibility changes (tab focus/blur)
  */
 function handleVisibilityChange() {
+  if (!supabase) return
   if (document.hidden) {
     trackEvent('app_backgrounded', {
       category: 'session',
@@ -278,6 +285,7 @@ function handleVisibilityChange() {
  */
 async function saveSessionData(duration) {
   try {
+    if (!supabase) return
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     

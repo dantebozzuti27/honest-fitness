@@ -80,3 +80,4 @@ These map directly to the remaining action plan items:
 - There’s a single `TODO` left in `app/src/utils/logger.js` about wiring a real error tracking sink (Sentry/etc).
 
 
+

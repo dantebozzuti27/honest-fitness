@@ -12,7 +12,8 @@ export const personalizationRouter = express.Router()
 // Generate personalized recommendations
 personalizationRouter.post('/generate', async (req, res, next) => {
   try {
-    const { userId } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
     
     const dataContext = await loadDataContext(userId)
     const mlResults = await processML(userId, dataContext)

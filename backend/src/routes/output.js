@@ -13,7 +13,8 @@ export const outputRouter = express.Router()
 // Get AI Coach guidance
 outputRouter.post('/coach/guidance', async (req, res, next) => {
   try {
-    const { userId } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
     
     const dataContext = await loadDataContext(userId)
     const mlResults = await processML(userId, dataContext)
@@ -33,7 +34,9 @@ outputRouter.post('/coach/guidance', async (req, res, next) => {
 // Get analytics dashboard data
 outputRouter.post('/analytics/dashboard', async (req, res, next) => {
   try {
-    const { userId, dateRange } = req.body
+    // SECURITY: bind to authenticated user; never trust body userId.
+    const userId = req.userId
+    const { dateRange } = req.body || {}
     
     const dataContext = await loadDataContext(userId, dateRange)
     const mlResults = await processML(userId, dataContext)

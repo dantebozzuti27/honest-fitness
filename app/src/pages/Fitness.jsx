@@ -67,6 +67,33 @@ export default function Fitness() {
     weight: ''
   })
 
+  const loadTemplates = useCallback(async () => {
+    try {
+      const t = await getAllTemplates()
+      setTemplates(Array.isArray(t) ? t : [])
+    } catch {
+      setTemplates([])
+    }
+  }, [])
+
+  const loadScheduledWorkouts = useCallback(async () => {
+    if (!user) return
+    try {
+      const scheduled = await getScheduledWorkoutsFromSupabase(user.id)
+      setScheduledWorkouts(Array.isArray(scheduled) ? scheduled : [])
+      const today = getTodayEST()
+      const todaysScheduled = Array.isArray(scheduled) ? scheduled.find(s => s && s.date === today) : null
+      if (todaysScheduled) {
+        setTodaysScheduledWorkout(todaysScheduled)
+      } else {
+        setTodaysScheduledWorkout(null)
+      }
+    } catch (e) {
+      // Non-blocking
+      logWarn('Fitness: failed to load scheduled workouts', e)
+    }
+  }, [user])
+
   const loadFitnessGoals = useCallback(async () => {
     if (!user) return
     try {
@@ -187,14 +214,8 @@ export default function Fitness() {
           // Load fitness goals
           await loadFitnessGoals()
           
-          // Load today's scheduled workout
-          const today = getTodayEST()
-          const scheduled = await getScheduledWorkoutsFromSupabase(user.id)
-          setScheduledWorkouts(scheduled || [])
-          const todaysScheduled = Array.isArray(scheduled) ? scheduled.find(s => s && s.date === today) : null
-          if (todaysScheduled) {
-            setTodaysScheduledWorkout(todaysScheduled)
-          }
+          // Load scheduled workouts
+          await loadScheduledWorkouts()
           
           const prefs = await getUserPreferences(user.id)
           if (prefs && prefs.available_days?.length > 0) {
@@ -224,6 +245,21 @@ export default function Fitness() {
     load()
     loadPausedWorkout()
   }, [user, location.state, loadPausedWorkout])
+
+  useEffect(() => {
+    const handleTemplatesUpdated = () => {
+      loadTemplates()
+    }
+    const handleScheduledUpdated = () => {
+      loadScheduledWorkouts()
+    }
+    window.addEventListener('templatesUpdated', handleTemplatesUpdated)
+    window.addEventListener('scheduledWorkoutsUpdated', handleScheduledUpdated)
+    return () => {
+      window.removeEventListener('templatesUpdated', handleTemplatesUpdated)
+      window.removeEventListener('scheduledWorkoutsUpdated', handleScheduledUpdated)
+    }
+  }, [loadTemplates, loadScheduledWorkouts])
 
   // Refresh goals when page becomes visible or when navigating back from Goals page
   useEffect(() => {
@@ -270,6 +306,8 @@ export default function Fitness() {
       if (!document.hidden) {
         loadFitnessGoals()
         loadWorkoutHistory() // Also refresh workout history
+        loadScheduledWorkouts()
+        loadTemplates()
       }
     }
     
@@ -277,6 +315,8 @@ export default function Fitness() {
     const handleFocus = () => {
       if (document.hasFocus()) {
         loadWorkoutHistory()
+        loadScheduledWorkouts()
+        loadTemplates()
       }
     }
     
@@ -596,7 +636,7 @@ export default function Fitness() {
                     }}
                   >
                     <span className={styles.templateName}>{template.name}</span>
-                    <span className={styles.templateCount}>{template.exercises.length} exercises</span>
+                    <span className={styles.templateCount}>{template.exercises?.length || 0} exercises</span>
                   </Button>
                   <div className={styles.templateActions}>
                     <Button

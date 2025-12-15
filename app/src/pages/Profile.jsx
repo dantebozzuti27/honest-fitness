@@ -424,6 +424,13 @@ export default function Profile() {
               </button>
               <button
                 className={styles.quickLinkBtn}
+                onClick={() => navigate('/library')}
+                type="button"
+              >
+                Library
+              </button>
+              <button
+                className={styles.quickLinkBtn}
                 onClick={() => navigate('/coach-studio')}
                 type="button"
               >

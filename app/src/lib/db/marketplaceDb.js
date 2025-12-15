@@ -175,6 +175,17 @@ export async function archiveProgram(coachId, programId) {
   return updateProgram(coachId, programId, { status: 'archived' })
 }
 
+export async function deleteProgram(coachId, programId) {
+  const supabase = requireSupabase()
+  const { error } = await supabase
+    .from('coach_programs')
+    .delete()
+    .eq('id', programId)
+    .eq('coach_id', coachId)
+  if (error) throw error
+  return { deleted: true }
+}
+
 export async function getMyPurchaseForProgram(buyerId, programId) {
   const supabase = requireSupabase()
   const { data, error } = await supabase
@@ -185,6 +196,29 @@ export async function getMyPurchaseForProgram(buyerId, programId) {
     .maybeSingle()
   if (error) throw error
   return data || null
+}
+
+export async function listMyProgramPurchases(buyerId) {
+  const supabase = requireSupabase()
+  const { data, error } = await supabase
+    .from('coach_program_purchases')
+    .select('*')
+    .eq('buyer_id', buyerId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return Array.isArray(data) ? data : []
+}
+
+export async function getProgramsByIds(programIds) {
+  const supabase = requireSupabase()
+  const ids = (Array.isArray(programIds) ? programIds : []).filter(Boolean)
+  if (ids.length === 0) return []
+  const { data, error } = await supabase
+    .from('coach_programs')
+    .select('*')
+    .in('id', ids)
+  if (error) throw error
+  return (Array.isArray(data) ? data : []).map(normalizeProgram)
 }
 
 // MVP: only supports free checkout (priceCents === 0). Paid checkout requires Stripe verification.

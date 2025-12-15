@@ -10,6 +10,11 @@ export async function saveUserPreferences(userId, prefs) {
   return m.saveUserPreferences(userId, prefs)
 }
 
+export async function deleteUserPreferences(userId) {
+  const m = await import('../supabaseDb')
+  return m.deleteUserPreferences(userId)
+}
+
 export async function getDefaultVisibilityPreference(userId) {
   const m = await import('../supabaseDb')
   return m.getDefaultVisibilityPreference(userId)

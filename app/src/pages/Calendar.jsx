@@ -3,7 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { getAllTemplates } from '../db/lazyDb'
 import { getWorkoutDatesFromSupabase, getWorkoutsByDateFromSupabase, calculateStreakFromSupabase, deleteWorkoutFromSupabase } from '../lib/db/workoutsDb'
 import { getUserPreferences } from '../lib/db/userPreferencesDb'
-import { scheduleWorkoutSupabase, getScheduledWorkoutByDateFromSupabase, getScheduledWorkoutsFromSupabase } from '../lib/db/scheduledWorkoutsDb'
+import {
+  scheduleWorkoutSupabase,
+  deleteScheduledWorkoutByDateFromSupabase,
+  getScheduledWorkoutByDateFromSupabase,
+  getScheduledWorkoutsFromSupabase
+} from '../lib/db/scheduledWorkoutsDb'
 import { generateWorkoutPlan } from '../lib/workoutPlanning'
 import { useAuth } from '../context/AuthContext'
 import { getTodayEST } from '../utils/dateUtils'
@@ -89,10 +94,25 @@ export default function Calendar() {
         refreshData()
       }
     }
+    const handleTemplatesUpdated = async () => {
+      try {
+        const t = await getAllTemplates()
+        setTemplates(t)
+      } catch {
+        // ignore
+      }
+    }
+    const handleScheduledUpdated = () => {
+      if (user) refreshData()
+    }
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('templatesUpdated', handleTemplatesUpdated)
+    window.addEventListener('scheduledWorkoutsUpdated', handleScheduledUpdated)
     
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('templatesUpdated', handleTemplatesUpdated)
+      window.removeEventListener('scheduledWorkoutsUpdated', handleScheduledUpdated)
     }
   }, [user])
 
@@ -176,6 +196,21 @@ export default function Calendar() {
     setShowScheduler(false)
     const scheduled = await getScheduledWorkoutByDateFromSupabase(user.id, selectedDate)
     setScheduledInfo(scheduled)
+  }
+
+  const handleUnschedule = async () => {
+    if (!user || !selectedDate) return
+    await deleteScheduledWorkoutByDateFromSupabase(user.id, selectedDate)
+    setScheduledDates(prev => {
+      const next = { ...(prev || {}) }
+      delete next[selectedDate]
+      return next
+    })
+    setScheduledInfo(null)
+    setShowScheduler(false)
+    try {
+      window.dispatchEvent(new CustomEvent('scheduledWorkoutsUpdated'))
+    } catch {}
   }
 
   const isFutureDate = (dateStr) => {
@@ -377,6 +412,11 @@ export default function Calendar() {
                     <button className={styles.scheduleAction} onClick={() => setShowScheduler('workout')}>
                       {scheduledInfo ? 'Change Schedule' : 'Schedule Workout'}
                     </button>
+                    {scheduledInfo ? (
+                      <button className={styles.scheduleAction} onClick={handleUnschedule}>
+                        Remove schedule
+                      </button>
+                    ) : null}
                     <button className={styles.scheduleAction} onClick={() => setShowScheduler('meal')}>
                       Schedule Meal
                     </button>

@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import BackButton from '../components/BackButton'
 import Button from '../components/Button'
+import ConfirmDialog from '../components/ConfirmDialog'
 import InputField from '../components/InputField'
 import Skeleton from '../components/Skeleton'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import { logError } from '../utils/logger'
 import { claimFreeProgram, getCoachProfile, getMyPurchaseForProgram, getProgramById } from '../lib/db/marketplaceDb'
-import { scheduleWorkoutSupabase } from '../lib/db/scheduledWorkoutsDb'
+import { scheduleWorkoutSupabase, deleteScheduledWorkoutsByTemplatePrefixFromSupabase } from '../lib/db/scheduledWorkoutsDb'
+import { normalizeTemplateExercises } from '../utils/templateUtils'
 import styles from './ProgramDetail.module.css'
 
 function formatPrice({ priceCents, currency }) {
@@ -22,6 +25,8 @@ function formatPrice({ priceCents, currency }) {
 
 export default function ProgramDetail() {
   const { programId } = useParams()
+  const location = useLocation()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
 
@@ -33,6 +38,11 @@ export default function ProgramDetail() {
   const [enrollOpen, setEnrollOpen] = useState(false)
   const [enrollStartDate, setEnrollStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [enrolling, setEnrolling] = useState(false)
+  const [enrollmentInfo, setEnrollmentInfo] = useState(null)
+  const [unenrollConfirmOpen, setUnenrollConfirmOpen] = useState(false)
+  const [rescheduleOpen, setRescheduleOpen] = useState(false)
+  const [rescheduleStartDate, setRescheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [rescheduling, setRescheduling] = useState(false)
 
   const isOwner = Boolean(user?.id && program?.coachId && user.id === program.coachId)
   const hasAccess = isOwner || purchase?.status === 'paid'
@@ -69,6 +79,16 @@ export default function ProgramDetail() {
         if (user?.id && p?.id) {
           getMyPurchaseForProgram(user.id, p.id).then(setPurchase).catch(() => {})
         }
+        // Local enrollment metadata (MVP)
+        if (user?.id && p?.id) {
+          try {
+            const raw = localStorage.getItem(`program_enroll_${user.id}_${p.id}`)
+            if (raw) setEnrollmentInfo(JSON.parse(raw))
+            else setEnrollmentInfo(null)
+          } catch {
+            setEnrollmentInfo(null)
+          }
+        }
       } catch (e) {
         logError('Program detail load failed', e)
         showToast('Failed to load program.', 'error')
@@ -80,6 +100,29 @@ export default function ProgramDetail() {
       mounted = false
     }
   }, [programId, user?.id, showToast])
+
+  // Allow other pages (Library, etc.) to deep-link into enroll UX.
+  useEffect(() => {
+    if (!user?.id) return
+    if (!program) return
+    const shouldOpenEnroll = Boolean(location?.state?.openEnroll)
+    const shouldOpenReschedule = Boolean(location?.state?.openReschedule)
+    if (shouldOpenEnroll) {
+      setEnrollOpen(true)
+      // default the date to today; user can change it
+      setEnrollStartDate(new Date().toISOString().slice(0, 10))
+    }
+    if (shouldOpenReschedule) {
+      const current = enrollmentInfo?.startDate || new Date().toISOString().slice(0, 10)
+      setRescheduleStartDate(String(current))
+      setRescheduleOpen(true)
+    }
+    if (shouldOpenEnroll || shouldOpenReschedule) {
+      // Clear state so it doesn't re-open if the user navigates back.
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location?.state, user?.id, program?.id, enrollmentInfo?.startDate])
 
   const onClaim = async () => {
     if (!user?.id || !program) return
@@ -117,6 +160,9 @@ export default function ProgramDetail() {
       const safeTemplates = templates.map((t, idx) => toLocalTemplate(program, t, idx))
 
       await bulkAddTemplates(safeTemplates)
+      try {
+        window.dispatchEvent(new CustomEvent('templatesUpdated'))
+      } catch {}
       showToast('Applied! Templates are now in your Planner/Workout flow.', 'success', 4500)
     } catch (e) {
       logError('Apply program failed', e)
@@ -129,13 +175,108 @@ export default function ProgramDetail() {
     return {
       id: `mp_${programObj.id}_${baseId}`,
       name: t?.name || `Template ${idx + 1}`,
-      exercises: Array.isArray(t?.exercises) ? t.exercises : []
+      exercises: normalizeTemplateExercises(t?.exercises)
     }
   }
 
   function localTemplateIdForProgramTemplate(programObj, programTemplateId) {
     if (!programTemplateId) return null
     return `mp_${programObj.id}_${String(programTemplateId)}`
+  }
+
+  async function removeLocalProgramTemplates(programObj, userId) {
+    if (!programObj?.id) return 0
+    const prefix = `mp_${programObj.id}_`
+    const db = await import('../db/lazyDb')
+    const getAllTemplates = db.getAllTemplates
+    const deleteTemplate = db.deleteTemplate
+    if (typeof getAllTemplates !== 'function' || typeof deleteTemplate !== 'function') return 0
+    const all = await getAllTemplates()
+    const list = Array.isArray(all) ? all : []
+    const toDelete = list.filter(t => String(t?.id || '').startsWith(prefix))
+    for (const t of toDelete) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await deleteTemplate(t.id)
+      } catch {
+        // ignore per-item
+      }
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('templatesUpdated'))
+    } catch {}
+    return toDelete.length
+  }
+
+  const onUnenroll = async () => {
+    if (!user?.id || !program) return
+    try {
+      const prefix = `mp_${program.id}_`
+      const res = await deleteScheduledWorkoutsByTemplatePrefixFromSupabase(user.id, prefix)
+      const deletedScheduled = Number(res?.deleted || 0)
+      const deletedTemplates = await removeLocalProgramTemplates(program, user.id)
+      try {
+        localStorage.removeItem(`program_enroll_${user.id}_${program.id}`)
+      } catch {}
+      setEnrollmentInfo(null)
+      try {
+        window.dispatchEvent(new CustomEvent('scheduledWorkoutsUpdated'))
+      } catch {}
+      showToast(`Unenrolled. Removed ${deletedScheduled} scheduled workouts${deletedTemplates ? ` and ${deletedTemplates} templates` : ''}.`, 'success', 6500)
+    } catch (e) {
+      logError('Unenroll failed', e)
+      showToast('Failed to unenroll/unschedule. Please try again.', 'error')
+    } finally {
+      setUnenrollConfirmOpen(false)
+    }
+  }
+
+  const onReschedule = async () => {
+    if (!user?.id || !program) return
+    if (!rescheduleStartDate) {
+      showToast('Pick a start date.', 'error')
+      return
+    }
+    setRescheduling(true)
+    try {
+      const prefix = `mp_${program.id}_`
+      // Remove prior schedule rows for this program
+      await deleteScheduledWorkoutsByTemplatePrefixFromSupabase(user.id, prefix)
+
+      // Re-schedule from day plan
+      const start = new Date(`${rescheduleStartDate}T00:00:00`)
+      const days = Array.isArray(program.content?.dayPlans) ? program.content.dayPlans : []
+      let scheduledCount = 0
+      for (let i = 0; i < days.length; i++) {
+        const d = days[i]
+        const dayOffset = Math.max(0, Number(d?.dayNumber || (i + 1)) - 1)
+        const date = new Date(start.getTime() + dayOffset * 86400000)
+        const dateStr = date.toISOString().slice(0, 10)
+        const programTemplateId = d?.workout?.templateId
+        if (!programTemplateId) continue
+        const localTemplateId = localTemplateIdForProgramTemplate(program, programTemplateId)
+        if (!localTemplateId) continue
+        // eslint-disable-next-line no-await-in-loop
+        await scheduleWorkoutSupabase(user.id, dateStr, localTemplateId)
+        scheduledCount++
+      }
+
+      const nextInfo = { startDate: rescheduleStartDate, scheduledCount, enrolledAt: enrollmentInfo?.enrolledAt || new Date().toISOString() }
+      try {
+        localStorage.setItem(`program_enroll_${user.id}_${program.id}`, JSON.stringify(nextInfo))
+      } catch {}
+      setEnrollmentInfo(nextInfo)
+      try {
+        window.dispatchEvent(new CustomEvent('scheduledWorkoutsUpdated'))
+      } catch {}
+      showToast(`Rescheduled. Scheduled ${scheduledCount} workouts starting ${rescheduleStartDate}.`, 'success', 6500)
+      setRescheduleOpen(false)
+    } catch (e) {
+      logError('Reschedule failed', e)
+      showToast('Failed to reschedule. Please try again.', 'error')
+    } finally {
+      setRescheduling(false)
+    }
   }
 
   const onEnroll = async () => {
@@ -182,8 +323,13 @@ export default function ProgramDetail() {
       } catch {
         // ignore
       }
+      setEnrollmentInfo({ startDate: enrollStartDate, scheduledCount, enrolledAt: new Date().toISOString() })
 
       showToast(`Enrolled! Scheduled ${scheduledCount} workouts on your calendar.`, 'success', 5500)
+      try {
+        window.dispatchEvent(new CustomEvent('templatesUpdated'))
+        window.dispatchEvent(new CustomEvent('scheduledWorkoutsUpdated'))
+      } catch {}
       setEnrollOpen(false)
     } catch (e) {
       logError('Enroll failed', e)
@@ -231,6 +377,12 @@ export default function ProgramDetail() {
             </div>
             {program.description ? <div className={styles.desc}>{program.description}</div> : null}
 
+            {hasAccess && enrollmentInfo ? (
+              <div className={styles.meta} style={{ marginTop: 8 }}>
+                Enrolled · Start: {String(enrollmentInfo.startDate || '')} · Scheduled: {Number(enrollmentInfo.scheduledCount || 0)}
+              </div>
+            ) : null}
+
             <div style={{ marginTop: 12 }} className={styles.btnRow}>
               {hasAccess ? (
                 <>
@@ -240,6 +392,19 @@ export default function ProgramDetail() {
                   <Button className={styles.btn} variant="secondary" onClick={() => setEnrollOpen(true)}>
                     Enroll / Schedule
                   </Button>
+                  {enrollmentInfo ? (
+                    <Button className={styles.btn} variant="destructive" onClick={() => setUnenrollConfirmOpen(true)}>
+                      Unenroll / Unschedule
+                    </Button>
+                  ) : null}
+                  {enrollmentInfo ? (
+                    <Button className={styles.btn} variant="secondary" onClick={() => {
+                      setRescheduleStartDate(String(enrollmentInfo?.startDate || new Date().toISOString().slice(0, 10)))
+                      setRescheduleOpen(true)
+                    }}>
+                      Reschedule
+                    </Button>
+                  ) : null}
                 </>
               ) : (
                 <Button
@@ -475,6 +640,47 @@ export default function ProgramDetail() {
           </div>
         </div>
       ) : null}
+
+      {rescheduleOpen && program ? (
+        <div className={styles.modalOverlay} onMouseDown={() => setRescheduleOpen(false)} role="dialog" aria-modal="true" aria-label="Reschedule program">
+          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Reschedule program</h2>
+              <Button unstyled onClick={() => setRescheduleOpen(false)}>✕</Button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.meta}>
+                Pick a new start date. We’ll remove the old program schedule and create a new one.
+              </div>
+              <InputField
+                label="New start date"
+                type="date"
+                value={rescheduleStartDate}
+                onChange={(e) => setRescheduleStartDate(e.target.value)}
+              />
+            </div>
+            <div className={styles.modalFooter}>
+              <Button className={styles.modalBtn} variant="secondary" onClick={() => setRescheduleOpen(false)} disabled={rescheduling}>
+                Cancel
+              </Button>
+              <Button className={styles.modalBtn} onClick={onReschedule} loading={rescheduling} disabled={rescheduling || !user?.id}>
+                Reschedule
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        isOpen={unenrollConfirmOpen}
+        title="Unenroll from program?"
+        message="This will remove all scheduled workouts created by this program and delete the program’s applied templates from this device."
+        confirmText="Unenroll"
+        cancelText="Cancel"
+        isDestructive
+        onClose={() => setUnenrollConfirmOpen(false)}
+        onConfirm={onUnenroll}
+      />
     </div>
   )
 }

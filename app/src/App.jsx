@@ -39,6 +39,7 @@ const Log = lazy(() => import('./pages/Log'))
 const Marketplace = lazy(() => import('./pages/Marketplace'))
 const ProgramDetail = lazy(() => import('./pages/ProgramDetail'))
 const CoachStudio = lazy(() => import('./pages/CoachStudio'))
+const Library = lazy(() => import('./pages/Library'))
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -297,6 +298,7 @@ export default function App() {
           <Route path="/market" element={<ProtectedRoute><Marketplace /></ProtectedRoute>} />
           <Route path="/market/:programId" element={<ProtectedRoute><ProgramDetail /></ProtectedRoute>} />
           <Route path="/coach-studio" element={<ProtectedRoute><CoachStudio /></ProtectedRoute>} />
+          <Route path="/library" element={<ProtectedRoute><Library /></ProtectedRoute>} />
           {/* Legacy routes for backward compatibility */}
           <Route path="/ghost-mode" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
           <Route path="/account" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

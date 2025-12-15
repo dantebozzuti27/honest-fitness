@@ -9,10 +9,12 @@ import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import Skeleton from '../components/Skeleton'
 import TemplateEditor from '../components/TemplateEditor'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { logError } from '../utils/logger'
 import {
   archiveProgram,
   createProgram,
+  deleteProgram,
   getCoachProfile,
   listMyPrograms,
   publishProgram,
@@ -107,11 +109,40 @@ export default function CoachStudio() {
   const [dayEditorOpen, setDayEditorOpen] = useState(false)
   const [dayEditorId, setDayEditorId] = useState(null)
   const [dayEditorTab, setDayEditorTab] = useState('day') // day | workout | meals | health
+  const [deleteProgramConfirm, setDeleteProgramConfirm] = useState({ open: false, program: null })
+  const [discardConfirm, setDiscardConfirm] = useState({ open: false, action: null, payload: null })
 
   const selectedProgram = useMemo(() => {
     if (!draft?.id) return null
     return (programs || []).find(p => p.id === draft.id) || null
   }, [draft?.id, programs])
+
+  const isDirty = useMemo(() => {
+    // If no program is selected and draft is empty-ish, treat as not dirty.
+    if (!draft) return false
+    const baseline = selectedProgram
+      ? {
+          id: selectedProgram.id,
+          title: selectedProgram.title || '',
+          description: selectedProgram.description || '',
+          priceCents: Number(selectedProgram.priceCents || 0),
+          currency: selectedProgram.currency || 'usd',
+          tags: Array.isArray(selectedProgram.tags) ? selectedProgram.tags : [],
+          content: normalizeContent(selectedProgram.content)
+        }
+      : emptyDraft()
+    const a = JSON.stringify({ ...baseline, content: baseline.content })
+    const b = JSON.stringify({ ...draft, content: normalizeContent(draft.content) })
+    return a !== b
+  }, [draft, selectedProgram])
+
+  const requestDiscard = (action, payload) => {
+    if (!isDirty) {
+      action?.(payload)
+      return
+    }
+    setDiscardConfirm({ open: true, action, payload })
+  }
 
   const loadAll = async () => {
     if (!user?.id) return
@@ -187,14 +218,16 @@ export default function CoachStudio() {
   }, [createModalOpen, createDraft?.title])
 
   const onEditProgram = (p) => {
-    setDraft({
-      id: p.id,
-      title: p.title || '',
-      description: p.description || '',
-      priceCents: Number(p.priceCents || 0),
-      currency: p.currency || 'usd',
-      tags: Array.isArray(p.tags) ? p.tags : [],
-      content: normalizeContent(p.content)
+    requestDiscard(() => {
+      setDraft({
+        id: p.id,
+        title: p.title || '',
+        description: p.description || '',
+        priceCents: Number(p.priceCents || 0),
+        currency: p.currency || 'usd',
+        tags: Array.isArray(p.tags) ? p.tags : [],
+        content: normalizeContent(p.content)
+      })
     })
   }
 
@@ -289,6 +322,23 @@ export default function CoachStudio() {
     } catch (e) {
       logError('Archive failed', e)
       showToast('Failed to archive program.', 'error')
+    }
+  }
+
+  const onDeleteProgram = async (programObj) => {
+    if (!user?.id || !programObj?.id) return
+    try {
+      await deleteProgram(user.id, programObj.id)
+      showToast('Program deleted.', 'success')
+      if (draft?.id === programObj.id) {
+        setDraft(emptyDraft())
+      }
+      await loadAll()
+    } catch (e) {
+      logError('Delete program failed', e)
+      showToast('Failed to delete program.', 'error')
+    } finally {
+      setDeleteProgramConfirm({ open: false, program: null })
     }
   }
 
@@ -580,7 +630,10 @@ export default function CoachStudio() {
       {createModalOpen && (
         <div
           className={styles.modalOverlay}
-          onMouseDown={() => setCreateModalOpen(false)}
+          onMouseDown={() => {
+            // Creating a program doesn't affect the main editor draft; no dirty guard needed.
+            setCreateModalOpen(false)
+          }}
           role="dialog"
           aria-modal="true"
           aria-label="Create program"
@@ -797,6 +850,13 @@ export default function CoachStudio() {
                           View listing
                         </Button>
                       )}
+                      <Button
+                        className={styles.btn}
+                        variant="destructive"
+                        onClick={() => setDeleteProgramConfirm({ open: true, program: p })}
+                      >
+                        Delete
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -814,7 +874,7 @@ export default function CoachStudio() {
                 </div>
               </div>
               <div className={styles.btnRow} style={{ width: 220 }}>
-                <Button className={styles.btn} variant="secondary" onClick={() => setDraft(emptyDraft())}>
+                <Button className={styles.btn} variant="secondary" onClick={() => requestDiscard(() => setDraft(emptyDraft()))}>
                   Clear
                 </Button>
               </div>
@@ -981,6 +1041,17 @@ export default function CoachStudio() {
               placeholder={"e.g.\n- Walk 20 min after lunch\n- 10 min mobility\n- Magnesium before bed"}
               rows={4}
             />
+
+                <div style={{ height: 12 }} />
+                <div className={styles.btnRow}>
+                  <Button
+                    className={styles.btn}
+                    variant="secondary"
+                    onClick={() => setShowTemplatesEditor(true)}
+                  >
+                    Workout templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
+                  </Button>
+                </div>
               </>
             ) : null}
 
@@ -1001,9 +1072,14 @@ export default function CoachStudio() {
               <>
                 <div className={styles.dayPlansHeader} style={{ marginTop: 0 }}>
                   <div style={{ fontWeight: 900 }}>Day-by-day plan</div>
-                  <Button variant="secondary" className={styles.miniBtn} onClick={addDay}>
-                    + Add day
-                  </Button>
+                  <div className={styles.miniBtnRow}>
+                    <Button variant="secondary" className={styles.miniBtn} onClick={() => setShowTemplatesEditor(true)}>
+                      Templates
+                    </Button>
+                    <Button variant="secondary" className={styles.miniBtn} onClick={addDay}>
+                      + Add day
+                    </Button>
+                  </div>
                 </div>
                 <div className={styles.muted}>
                   Edit one day at a time in a focused modal (Day / Workout / Meals / Health).
@@ -1110,6 +1186,15 @@ export default function CoachStudio() {
 
                     {dayEditorTab === 'workout' ? (
                       <>
+                        <div className={styles.btnRow} style={{ marginTop: 0 }}>
+                          <Button
+                            className={styles.btn}
+                            variant="secondary"
+                            onClick={() => setShowTemplatesEditor(true)}
+                          >
+                            Manage workout templates
+                          </Button>
+                        </div>
                         <SelectField
                           label="Workout template"
                           value={currentDay?.workout?.templateId || ''}
@@ -1403,6 +1488,14 @@ export default function CoachStudio() {
                   >
                     Archive
                   </Button>
+                  <Button
+                    className={styles.btn}
+                    variant="destructive"
+                    onClick={() => setDeleteProgramConfirm({ open: true, program: { id: draft?.id, title: draft?.title || 'Program' } })}
+                    disabled={!draft?.id}
+                  >
+                    Delete
+                  </Button>
                 </div>
               </>
             ) : null}
@@ -1422,6 +1515,37 @@ export default function CoachStudio() {
               editingTemplate={null}
             />
           )}
+
+          <ConfirmDialog
+            isOpen={deleteProgramConfirm.open}
+            title="Delete program?"
+            message={deleteProgramConfirm.program?.title ? `Delete "${deleteProgramConfirm.program.title}"? This cannot be undone.` : 'Delete this program? This cannot be undone.'}
+            confirmText="Delete"
+            cancelText="Cancel"
+            isDestructive
+            onClose={() => setDeleteProgramConfirm({ open: false, program: null })}
+            onConfirm={() => onDeleteProgram(deleteProgramConfirm.program)}
+          />
+
+          <ConfirmDialog
+            isOpen={discardConfirm.open}
+            title="Discard unsaved changes?"
+            message="You have unsaved changes. Discard them?"
+            confirmText="Discard"
+            cancelText="Keep editing"
+            isDestructive
+            onClose={() => setDiscardConfirm({ open: false, action: null, payload: null })}
+            onConfirm={() => {
+              const action = discardConfirm.action
+              const payload = discardConfirm.payload
+              setDiscardConfirm({ open: false, action: null, payload: null })
+              try {
+                action?.(payload)
+              } catch {
+                // ignore
+              }
+            }}
+          />
         </>
       )}
     </div>

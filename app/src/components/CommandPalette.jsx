@@ -25,6 +25,7 @@ export default function CommandPalette({ isOpen, onClose }) {
     { id: 'nutrition', label: 'Go to Nutrition', hint: '/nutrition', run: () => navigate('/nutrition') },
     { id: 'calendar', label: 'Open Calendar', hint: '/calendar', run: () => navigate('/calendar') },
     { id: 'market', label: 'Open Marketplace', hint: '/market', run: () => navigate('/market') },
+    { id: 'library', label: 'Open Library', hint: '/library', run: () => navigate('/library') },
     { id: 'coach_studio', label: 'Open Coach Studio', hint: '/coach-studio', run: () => navigate('/coach-studio') },
     { id: 'people', label: 'Find People', hint: 'search users', run: () => navigate('/', { state: { openAddFriend: true, addFriendQuery: query } }) },
     { id: 'profile', label: 'Open Profile', hint: '/profile', run: () => navigate('/profile') }

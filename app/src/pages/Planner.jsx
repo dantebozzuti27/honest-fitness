@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferencesDb'
+import { getUserPreferences, saveUserPreferences, deleteUserPreferences } from '../lib/db/userPreferencesDb'
 import { getWorkoutsFromSupabase } from '../lib/db/workoutsDb'
 import { generateWorkoutPlan } from '../lib/workoutPlanning'
 import { getAllTemplates } from '../db/lazyDb'
@@ -265,15 +265,21 @@ export default function Planner() {
         onConfirm={async () => {
           try {
             if (user) {
-              await saveUserPreferences(user.id, {
-                planName: '',
-                fitnessGoal: '',
-                experienceLevel: '',
-                availableDays: [],
-                sessionDuration: 60,
-                equipmentAvailable: [],
-                injuries: ''
-              })
+              // Prefer deleting the row entirely to avoid DB constraints rejecting empty strings.
+              try {
+                await deleteUserPreferences(user.id)
+              } catch (e) {
+                // Fallback: clear fields via upsert (best-effort).
+                await saveUserPreferences(user.id, {
+                  planName: '',
+                  fitnessGoal: null,
+                  experienceLevel: null,
+                  availableDays: [],
+                  sessionDuration: 60,
+                  equipmentAvailable: [],
+                  injuries: ''
+                })
+              }
             }
             setPrefs({
               planName: '',
@@ -504,7 +510,7 @@ export default function Planner() {
                     {msg?.workout && Array.isArray(msg.workout.exercises) && (
                       <button 
                         className={styles.startWorkoutBtn}
-                        onClick={() => navigate('/workout', { state: { aiWorkout: msg.workout } })}
+                        onClick={() => navigate('/workout/active', { state: { aiWorkout: msg.workout } })}
                       >
                         Start This Workout
                       </button>

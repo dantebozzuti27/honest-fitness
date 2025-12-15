@@ -6,6 +6,7 @@ import Toast from './Toast'
 import ConfirmDialog from './ConfirmDialog'
 import Button from './Button'
 import InputField from './InputField'
+import { normalizeTemplateExercises } from '../utils/templateUtils'
 import styles from './TemplateEditor.module.css'
 
 export default function TemplateEditor({ templates, onClose, onSave, onDelete, onEdit, editingTemplate: initialEditingTemplate }) {
@@ -19,28 +20,6 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
     name: '',
     exercises: []
   })
-
-  const normalizeExercises = (list) => {
-    const arr = Array.isArray(list) ? list : []
-    return arr
-      .map((e) => {
-        if (!e) return null
-        if (typeof e === 'string') {
-          return { name: e, sets: '', reps: '', time: '', notes: '' }
-        }
-        if (typeof e === 'object') {
-          return {
-            name: String(e.name || ''),
-            sets: e.sets ?? '',
-            reps: e.reps ?? '',
-            time: e.time ?? '',
-            notes: e.notes ?? ''
-          }
-        }
-        return null
-      })
-      .filter((e) => e?.name)
-  }
 
   useEffect(() => {
     async function load() {
@@ -61,7 +40,7 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
       setFormData({
         id: initialEditingTemplate.id,
         name: initialEditingTemplate.name,
-        exercises: normalizeExercises(initialEditingTemplate.exercises)
+        exercises: normalizeTemplateExercises(initialEditingTemplate.exercises)
       })
     } else if (!editingTemplate) {
       setFormData({
@@ -77,7 +56,7 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
       setFormData({
         id: editingTemplate.id,
         name: editingTemplate.name,
-        exercises: normalizeExercises(editingTemplate.exercises)
+        exercises: normalizeTemplateExercises(editingTemplate.exercises)
       })
     }
   }, [editingTemplate])
@@ -182,7 +161,7 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
                 <div key={template.id} className={styles.templateCard}>
                   <div className={styles.templateInfo}>
                     <span className={styles.templateCardName}>{template.name}</span>
-                    <span className={styles.templateCardCount}>{template.exercises.length} exercises</span>
+                    <span className={styles.templateCardCount}>{template.exercises?.length || 0} exercises</span>
                   </div>
                   <div className={styles.templateActions}>
                     <Button

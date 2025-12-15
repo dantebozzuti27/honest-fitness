@@ -1130,6 +1130,30 @@ export async function getScheduledWorkoutByDateFromSupabase(userId, date) {
   return data
 }
 
+export async function deleteScheduledWorkoutByDateFromSupabase(userId, date) {
+  const { data, error } = await supabase
+    .from('scheduled_workouts')
+    .delete()
+    .eq('user_id', userId)
+    .eq('date', date)
+    .select()
+  if (error) throw error
+  return data
+}
+
+export async function deleteScheduledWorkoutsByTemplatePrefixFromSupabase(userId, templateIdPrefix) {
+  const prefix = String(templateIdPrefix || '')
+  if (!prefix) return { deleted: 0 }
+  const { data, error } = await supabase
+    .from('scheduled_workouts')
+    .delete()
+    .eq('user_id', userId)
+    .like('template_id', `${prefix}%`)
+    .select('id')
+  if (error) throw error
+  return { deleted: Array.isArray(data) ? data.length : 0 }
+}
+
 // ============ ANALYTICS ============
 
 export async function getBodyPartStats(userId) {
@@ -1307,6 +1331,17 @@ export async function saveUserPreferences(userId, prefs) {
 
   if (error) throw error
   return data
+}
+
+export async function deleteUserPreferences(userId) {
+  if (!userId) return { deleted: false }
+  const { data, error } = await supabase
+    .from('user_preferences')
+    .delete()
+    .eq('user_id', userId)
+    .select()
+  if (error) throw error
+  return { deleted: true, data }
 }
 
 // ============ PRIVACY / VISIBILITY PREFERENCES ============

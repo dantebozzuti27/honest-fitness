@@ -45,7 +45,7 @@ CREATE OR REPLACE FUNCTION calculate_goal_progress(p_goal_id UUID)
 RETURNS VOID AS $$
 DECLARE
   goal_record RECORD;
-  current_value NUMERIC;
+  calculated_value NUMERIC := 0;
   progress_pct NUMERIC;
 BEGIN
   -- Get goal details
@@ -59,7 +59,7 @@ BEGIN
   CASE goal_record.type
     WHEN 'weight' THEN
       -- Get most recent weight from health_metrics
-      SELECT weight INTO current_value
+      SELECT COALESCE(weight, 0) INTO calculated_value
       FROM health_metrics
       WHERE user_id = goal_record.user_id
         AND weight IS NOT NULL
@@ -68,36 +68,36 @@ BEGIN
       
     WHEN 'calories', 'calorie_intake' THEN
       -- Get today's calories consumed
-      SELECT calories_consumed INTO current_value
+      SELECT COALESCE(calories_consumed, 0) INTO calculated_value
       FROM health_metrics
       WHERE user_id = goal_record.user_id
         AND date = CURRENT_DATE;
       
     WHEN 'protein', 'carbs', 'fat' THEN
       -- Get today's macros
-      SELECT (macros->>goal_record.type)::NUMERIC INTO current_value
+      SELECT COALESCE((macros->>goal_record.type)::NUMERIC, 0) INTO calculated_value
       FROM health_metrics
       WHERE user_id = goal_record.user_id
         AND date = CURRENT_DATE;
         
     WHEN 'workouts_per_week' THEN
       -- Count workouts this week
-      SELECT COUNT(*)::NUMERIC INTO current_value
+      SELECT COALESCE(COUNT(*)::NUMERIC, 0) INTO calculated_value
       FROM workouts
       WHERE user_id = goal_record.user_id
-        AND date >= date_trunc('week', CURRENT_DATE)
+        AND date >= date_trunc('week', CURRENT_DATE)::DATE
         AND date <= CURRENT_DATE;
         
     WHEN 'steps' THEN
       -- Get today's steps
-      SELECT steps INTO current_value
+      SELECT COALESCE(steps, 0) INTO calculated_value
       FROM health_metrics
       WHERE user_id = goal_record.user_id
         AND date = CURRENT_DATE;
         
     ELSE
       -- For custom goals, use current_value as is
-      current_value := goal_record.current_value;
+      calculated_value := COALESCE(goal_record.current_value, 0);
   END CASE;
   
   -- Calculate progress percentage
@@ -108,14 +108,14 @@ BEGIN
       progress_pct := 0; -- Placeholder - implement based on your logic
     ELSE
       -- For gain goals, progress is current / target
-      progress_pct := LEAST(100, (current_value / goal_record.target_value) * 100);
+      progress_pct := LEAST(100, (calculated_value / goal_record.target_value) * 100);
     END IF;
   END IF;
   
   -- Update goal
   UPDATE goals
   SET 
-    current_value = COALESCE(current_value, goal_record.current_value),
+    current_value = calculated_value,
     progress_percentage = progress_pct,
     last_calculated_at = NOW()
   WHERE id = p_goal_id;
@@ -124,7 +124,7 @@ BEGIN
   IF goal_record.is_daily_goal THEN
     UPDATE goals
     SET daily_achievements = COALESCE(daily_achievements, '{}'::jsonb) || 
-      jsonb_build_object(CURRENT_DATE::TEXT, (current_value >= goal_record.target_value))
+      jsonb_build_object(CURRENT_DATE::TEXT, (calculated_value >= goal_record.target_value))
     WHERE id = p_goal_id;
   END IF;
 END;

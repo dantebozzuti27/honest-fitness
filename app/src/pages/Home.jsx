@@ -288,26 +288,26 @@ export default function Home() {
           }
           
           // Load Fitbit steps (try today, then yesterday, then most recent) - non-blocking
-          getTodayEST().then(today => {
-            return getFitbitDaily(user.id, today).catch(() => null)
-          }).then(fitbit => {
-            if (!fitbit && mounted) {
-              return getFitbitDaily(user.id, getYesterdayEST()).catch(() => null)
+          ;(async () => {
+            try {
+              const today = getTodayEST()
+              let fitbit = await getFitbitDaily(user.id, today).catch(() => null)
+              if (!fitbit && mounted) {
+                fitbit = await getFitbitDaily(user.id, getYesterdayEST()).catch(() => null)
+              }
+              if (!fitbit && mounted) {
+                fitbit = await getMostRecentFitbitData(user.id).catch(() => null)
+              }
+              if (mounted && fitbit && fitbit.steps != null) {
+                setFitbitSteps({
+                  steps: Number(fitbit.steps),
+                  date: fitbit.date
+                })
+              }
+            } catch {
+              // non-blocking
             }
-            return fitbit
-          }).then(fitbit => {
-            if (!fitbit && mounted) {
-              return getMostRecentFitbitData(user.id).catch(() => null)
-            }
-            return fitbit
-          }).then(fitbit => {
-            if (mounted && fitbit && fitbit.steps != null) {
-              setFitbitSteps({
-                steps: Number(fitbit.steps),
-                date: fitbit.date
-              })
-            }
-          }).catch(() => {})
+          })()
 
           // Load recent logs for feed - await this so feed loads
           if (mounted) {

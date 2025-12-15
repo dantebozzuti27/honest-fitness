@@ -9,35 +9,36 @@
  * npm test -- --coverage
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'node:test'
-import { setupTests, teardownTests } from './setup.js'
+import { describe, it, before, after } from 'node:test'
+import assert from 'node:assert/strict'
+import { setupTests, teardownTests, testConfig } from './setup.js'
 
 describe('Backend API Tests', () => {
-  beforeAll(async () => {
+  before(async () => {
     await setupTests()
   })
 
-  afterAll(async () => {
+  after(async () => {
     await teardownTests()
   })
 
   describe('Health Check', () => {
     it('should return 200 for health endpoint', async () => {
-      const response = await fetch('http://localhost:3001/health')
-      expect(response.status).toBe(200)
+      const response = await fetch(`${testConfig.baseUrl}/health`)
+      assert.equal(response.status, 200)
       const data = await response.json()
-      expect(data.status).toBe('ok')
+      assert.equal(data.status, 'ok')
     })
   })
 
   describe('Authentication', () => {
     it('should reject requests without auth token', async () => {
-      const response = await fetch('http://localhost:3001/api/ml/analyze', {
+      const response = await fetch(`${testConfig.baseUrl}/api/ml/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: 'test', dateRange: {} })
       })
-      expect(response.status).toBe(401)
+      assert.equal(response.status, 401)
     })
   })
 

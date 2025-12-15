@@ -5,23 +5,33 @@
 
 import { createClient } from '@supabase/supabase-js'
 
+const isTest = process.env.NODE_ENV === 'test'
+
+// In tests, don't hard-crash at import time; allow the test harness to set env first.
 if (!process.env.SUPABASE_URL) {
-  throw new Error('SUPABASE_URL environment variable is required')
+  if (!isTest) {
+    throw new Error('SUPABASE_URL environment variable is required')
+  }
 }
 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_ANON_KEY) {
-  throw new Error('Either SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY environment variable is required')
+  if (!isTest) {
+    throw new Error('Either SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY environment variable is required')
+  }
 }
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
-)
+const supabase =
+  process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
+    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
+    : null
 
 /**
  * Save data to appropriate database table
  */
 export async function saveToDatabase(type, normalizedData) {
+  if (!supabase) {
+    throw new Error('Database client not initialized (missing SUPABASE_URL / SUPABASE_*_KEY)')
+  }
   let tableName
   let dataToSave
   
@@ -116,6 +126,9 @@ export async function saveToDatabase(type, normalizedData) {
  * Get data from database
  */
 export async function getFromDatabase(type, userId, filters = {}) {
+  if (!supabase) {
+    throw new Error('Database client not initialized (missing SUPABASE_URL / SUPABASE_*_KEY)')
+  }
   let tableName
   
   switch (type) {

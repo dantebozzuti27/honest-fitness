@@ -13,12 +13,14 @@ import { logError, logInfo } from './utils/logger.js'
 
 dotenv.config()
 
-// Validate required environment variables
-const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
-const missingVars = requiredEnvVars.filter(varName => !process.env[varName])
-if (missingVars.length > 0) {
-  logError('Missing required environment variables', { missing: missingVars })
-  process.exit(1)
+// Validate required environment variables (skip in test so `npm test` can spin up locally)
+if (process.env.NODE_ENV !== 'test') {
+  const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
+  const missingVars = requiredEnvVars.filter(varName => !process.env[varName])
+  if (missingVars.length > 0) {
+    logError('Missing required environment variables', { missing: missingVars })
+    process.exit(1)
+  }
 }
 
 const app = express()
@@ -61,7 +63,7 @@ app.use(errorHandler)
 export default app
 
 // Start server for local development
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     logInfo(`HonestFitness Backend running on port ${PORT}`)
   })

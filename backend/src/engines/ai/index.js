@@ -10,42 +10,64 @@ import { generateWeeklySummary } from './weeklySummary.js'
 import { generateInsights } from './insights.js'
 import { interpretUserPrompt } from './promptInterpreter.js'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-})
+let openaiClient = null
+
+function getOpenAIClient() {
+  if (openaiClient) return openaiClient
+
+  const apiKey = process.env.OPENAI_API_KEY
+
+  // In tests or local dev without AI enabled, we should not crash at import time.
+  if (!apiKey) {
+    return null
+  }
+
+  openaiClient = new OpenAI({ apiKey })
+  return openaiClient
+}
 
 /**
  * Generate workout plan using AI
  */
 export async function generateAIWorkoutPlan(userId, context, preferences) {
-  return await generateWorkoutPlan(openai, userId, context, preferences)
+  const client = getOpenAIClient()
+  if (!client) throw new Error('OPENAI_API_KEY is missing; AI features are not available.')
+  return await generateWorkoutPlan(client, userId, context, preferences)
 }
 
 /**
  * Generate nutrition plan using AI
  */
 export async function generateAINutritionPlan(userId, context, goals) {
-  return await generateNutritionPlan(openai, userId, context, goals)
+  const client = getOpenAIClient()
+  if (!client) throw new Error('OPENAI_API_KEY is missing; AI features are not available.')
+  return await generateNutritionPlan(client, userId, context, goals)
 }
 
 /**
  * Generate weekly summary
  */
 export async function generateAIWeeklySummary(userId, weekData, mlResults) {
-  return await generateWeeklySummary(openai, userId, weekData, mlResults)
+  const client = getOpenAIClient()
+  if (!client) throw new Error('OPENAI_API_KEY is missing; AI features are not available.')
+  return await generateWeeklySummary(client, userId, weekData, mlResults)
 }
 
 /**
  * Generate contextual insights
  */
 export async function generateAIInsights(userId, dataContext, mlResults) {
-  return await generateInsights(openai, userId, dataContext, mlResults)
+  const client = getOpenAIClient()
+  if (!client) throw new Error('OPENAI_API_KEY is missing; AI features are not available.')
+  return await generateInsights(client, userId, dataContext, mlResults)
 }
 
 /**
  * Interpret user's free-text prompt
  */
 export async function interpretPrompt(userId, prompt, dataContext) {
-  return await interpretUserPrompt(openai, userId, prompt, dataContext)
+  const client = getOpenAIClient()
+  if (!client) throw new Error('OPENAI_API_KEY is missing; AI features are not available.')
+  return await interpretUserPrompt(client, userId, prompt, dataContext)
 }
 

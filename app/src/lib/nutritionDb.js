@@ -184,7 +184,6 @@ export async function saveMealToSupabase(userId, date, meal, options = {}) {
   
   // Only include updated_at if the column exists (to avoid schema errors)
   // The migration will add this column, but we handle gracefully if it doesn't exist yet
-  try {
     const { data, error } = await supabase
       .from('health_metrics')
       .upsert({

@@ -24,6 +24,24 @@ function disableFeedItems(reason) {
   safeLogDebug('Disabling feed_items for this session:', feedItemsDisabledReason)
 }
 
+function maybeDisableFeedItems(err) {
+  if (!err || feedItemsDisabled) return
+  // Common supabase REST failure modes that make feed_items unusable until migrations/policies are fixed.
+  const msg = `${err?.message || ''}`.toLowerCase()
+  const code = `${err?.code || ''}`
+  const status = Number(err?.status || err?.statusCode || 0)
+  if (
+    status === 409 ||
+    code === '42702' ||
+    msg.includes('ambiguous') ||
+    msg.includes('column reference') ||
+    msg.includes('visibility') ||
+    msg.includes('feed_items')
+  ) {
+    disableFeedItems(`db/policy error (${code || status || 'unknown'}): ${err?.message || 'unknown error'}`)
+  }
+}
+
 let pausedWorkoutsDisabled = false
 function disablePausedWorkouts(reason) {
   if (pausedWorkoutsDisabled) return
@@ -1718,25 +1736,13 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
     } catch (err) {
       feedItemsError = err
       logError('Error in feed items query', err)
-
-      // Common supabase REST failure modes that make feed_items unusable until migrations/policies are fixed.
-      const msg = `${err?.message || ''}`.toLowerCase()
-      const code = `${err?.code || ''}`
-      const status = Number(err?.status || err?.statusCode || 0)
-      if (
-        status === 409 ||
-        code === '42702' ||
-        msg.includes('ambiguous') ||
-        msg.includes('column reference') ||
-        msg.includes('visibility') ||
-        msg.includes('feed_items')
-      ) {
-        disableFeedItems(`db/policy error (${code || status || 'unknown'}): ${err?.message || 'unknown error'}`)
-      }
+      maybeDisableFeedItems(err)
     }
     
     // Handle feed items errors gracefully
     if (feedItemsError) {
+      // If we got a PostgREST error object (not thrown), still disable the feature to stop request spam.
+      maybeDisableFeedItems(feedItemsError)
       // If table doesn't exist, that's okay - just continue with workouts
       if (feedItemsError.code === 'PGRST205' || feedItemsError.message?.includes('Could not find the table')) {
         safeLogDebug('feed_items table does not exist yet - migration not run')

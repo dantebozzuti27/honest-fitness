@@ -1143,6 +1143,7 @@ export default function Nutrition() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Micronutrients (best-effort; populated when foods include micros) */}
             <div className={styles.summaryCard}>
@@ -1177,7 +1178,6 @@ export default function Nutrition() {
                 Tip: micros show up when foods include micronutrient data (system foods will grow over time; custom foods can include it too).
               </div>
             </div>
-            )}
 
             {/* Dietician LLM - Compact */}
             <div className={styles.dieticianSection}>

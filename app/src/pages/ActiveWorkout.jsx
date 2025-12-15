@@ -48,6 +48,7 @@ export default function ActiveWorkout() {
   const [isPaused, setIsPaused] = useState(false)
   const [pausedTime, setPausedTime] = useState(0) // Accumulated paused time
   const [isSaving, setIsSaving] = useState(false)
+  const [calculatedWorkoutMetrics, setCalculatedWorkoutMetrics] = useState({ calories: null, steps: null }) // Calculated workout metrics for display
   const pauseStartTime = useRef(null)
   const pausedTimeRef = useRef(0) // Ref to track paused time for timer calculations
   const workoutTimerRef = useRef(null)
@@ -1188,9 +1189,86 @@ export default function ActiveWorkout() {
     setDraggedId(null)
   }
 
-  const handleFinishClick = () => {
+  const handleFinishClick = async () => {
     // Don't clear timers here - let them continue until workout is actually saved
     // This ensures accurate final time even if user takes time to fill out feedback
+    
+    // Calculate workout metrics when summary modal is shown
+    let workoutCaloriesBurned = null
+    let workoutSteps = null
+    if (user && workoutStartMetricsRef.current) {
+      try {
+        const endMetrics = await getCurrentWearableMetrics()
+        const startMetrics = workoutStartMetricsRef.current
+        
+        // If workout is currently paused, close out the last pause period
+        if (isPaused && pausedMetricsRef.current && pausedMetricsRef.current.length > 0) {
+          const lastPause = pausedMetricsRef.current[pausedMetricsRef.current.length - 1]
+          if (lastPause && !lastPause.resumeTime) {
+            // Workout finished while paused - use end metrics as resume metrics
+            lastPause.resumeTime = Date.now()
+            lastPause.metricsAtResume = endMetrics
+          }
+        }
+        
+        // Calculate total difference (end - start)
+        let totalCaloriesDiff = null
+        let totalStepsDiff = null
+        
+        if (endMetrics.calories != null && startMetrics.calories != null) {
+          totalCaloriesDiff = endMetrics.calories - startMetrics.calories
+        }
+        if (endMetrics.steps != null && startMetrics.steps != null) {
+          totalStepsDiff = endMetrics.steps - startMetrics.steps
+        }
+        
+        // Subtract metrics accumulated during paused periods
+        if (pausedMetricsRef.current && pausedMetricsRef.current.length > 0) {
+          let pausedCalories = 0
+          let pausedSteps = 0
+          
+          pausedMetricsRef.current.forEach(pause => {
+            if (pause.metricsAtPause && pause.metricsAtResume) {
+              // Calculate metrics accumulated during this pause period
+              const pauseCalories = pause.metricsAtResume.calories != null && pause.metricsAtPause.calories != null
+                ? pause.metricsAtResume.calories - pause.metricsAtPause.calories
+                : 0
+              const pauseSteps = pause.metricsAtResume.steps != null && pause.metricsAtPause.steps != null
+                ? pause.metricsAtResume.steps - pause.metricsAtPause.steps
+                : 0
+              
+              pausedCalories += Math.max(0, pauseCalories)
+              pausedSteps += Math.max(0, pauseSteps)
+            }
+          })
+          
+          // Subtract paused metrics from total
+          if (totalCaloriesDiff != null) {
+            workoutCaloriesBurned = Math.max(0, totalCaloriesDiff - pausedCalories)
+          }
+          if (totalStepsDiff != null) {
+            workoutSteps = Math.max(0, totalStepsDiff - pausedSteps)
+          }
+        } else {
+          // No pauses, use total difference
+          if (totalCaloriesDiff != null) {
+            workoutCaloriesBurned = Math.max(0, totalCaloriesDiff)
+          }
+          if (totalStepsDiff != null) {
+            workoutSteps = Math.max(0, totalStepsDiff)
+          }
+        }
+      } catch (error) {
+        logError('Error calculating workout wearable metrics for summary', error)
+      }
+    }
+    
+    // Store calculated metrics for display in summary modal
+    setCalculatedWorkoutMetrics({
+      calories: workoutCaloriesBurned,
+      steps: workoutSteps
+    })
+    
     setShowSummary(true)
   }
 
@@ -1836,19 +1914,19 @@ export default function ActiveWorkout() {
             <h2>Workout Complete!</h2>
             <p className={styles.summaryDuration}>{formatTime(workoutTime)}</p>
             
-            {/* Display wearable metrics if available */}
-            {(workoutStartMetricsRef.current?.calories != null || workoutStartMetricsRef.current?.steps != null) && (
+            {/* Display calculated workout metrics if available */}
+            {(calculatedWorkoutMetrics.calories != null || calculatedWorkoutMetrics.steps != null) && (
               <div className={styles.summaryMetrics}>
-                {workoutStartMetricsRef.current?.calories != null && (
+                {calculatedWorkoutMetrics.calories != null && (
                   <div className={styles.summaryMetric}>
-                    <span className={styles.summaryMetricLabel}>Calories (start):</span>
-                    <span className={styles.summaryMetricValue}>{workoutStartMetricsRef.current.calories}</span>
+                    <span className={styles.summaryMetricLabel}>Calories Burned:</span>
+                    <span className={styles.summaryMetricValue}>{Math.round(calculatedWorkoutMetrics.calories)}</span>
                   </div>
                 )}
-                {workoutStartMetricsRef.current?.steps != null && (
+                {calculatedWorkoutMetrics.steps != null && (
                   <div className={styles.summaryMetric}>
-                    <span className={styles.summaryMetricLabel}>Steps (start):</span>
-                    <span className={styles.summaryMetricValue}>{workoutStartMetricsRef.current.steps.toLocaleString()}</span>
+                    <span className={styles.summaryMetricLabel}>Steps:</span>
+                    <span className={styles.summaryMetricValue}>{calculatedWorkoutMetrics.steps.toLocaleString()}</span>
                   </div>
                 )}
               </div>

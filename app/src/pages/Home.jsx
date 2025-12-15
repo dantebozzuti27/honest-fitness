@@ -43,7 +43,7 @@ export default function Home() {
     }
   }, [feedFilter, user])
 
-  const loadRecentLogs = async (userId, showRefreshIndicator = false) => {
+  const loadRecentLogs = async (userId, showRefreshIndicator = false, cursor = null) => {
     try {
       if (showRefreshIndicator) {
         setIsRefreshing(true)
@@ -60,9 +60,9 @@ export default function Home() {
         return
       }
 
-      // SIMPLIFIED: Just get workouts from feed - that's all we need
+      // OPTIMIZED: Get feed items with pagination support
       try {
-        const feedItems = await getSocialFeedItems(userId, feedFilter, 100)
+        const feedItems = await getSocialFeedItems(userId, feedFilter, 20, cursor)
         
         if (feedItems && feedItems.length > 0) {
           feedItems.forEach((item) => {

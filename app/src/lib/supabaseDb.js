@@ -1443,50 +1443,86 @@ export async function getFeedItemsFromSupabase(userId, limit = 50) {
 }
 
 /**
- * Get feed items - SIMPLIFIED: Just get ALL workouts from database
+ * Get feed items - OPTIMIZED: Single queries with JOINs, efficient friend lookups
  * Display them in Twitter-like feed format
+ * @param {string} userId - Current user ID
+ * @param {string} filter - 'all', 'me', or 'friends'
+ * @param {number} limit - Maximum items to return (default: 20 for pagination)
+ * @param {string} cursor - Optional cursor for pagination (created_at timestamp)
  */
-export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
+export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cursor = null) {
   try {
-    // First, get feed items (nutrition, health, and manually shared workouts)
+    // Get friend IDs efficiently (single query for both directions)
+    let friendIds = []
+    if (filter === 'friends') {
+      try {
+        // Use optimized query that checks both user_id and friend_id in one go
+        const { data: friends, error: friendError } = await supabase
+          .from('friends')
+          .select('user_id, friend_id')
+          .or(`user_id.eq.${userId},friend_id.eq.${userId}`)
+          .eq('status', 'accepted')
+        
+        if (friendError) {
+          logError('Error loading friends for feed', friendError)
+          return []
+        }
+        
+        // Extract friend IDs (both directions)
+        friendIds = (friends || []).map(f => 
+          f.user_id === userId ? f.friend_id : f.user_id
+        ).filter(id => id !== userId)
+        
+        if (friendIds.length === 0) {
+          return [] // No friends, return empty
+        }
+      } catch (friendError) {
+        logError('Error loading friends for feed', friendError)
+        return []
+      }
+    }
+
+    // Build feed items query with user profiles JOIN
     let feedItemsQuery = supabase
       .from('feed_items')
-      .select('*')
+      .select(`
+        *,
+        user_profiles!feed_items_user_id_fkey (
+          user_id,
+          username,
+          display_name,
+          profile_picture
+        )
+      `)
       .eq('shared', true)
       .order('created_at', { ascending: false })
-      .limit(limit)
     
-    // Apply filter to feed items
+    // Apply filter
     if (filter === 'me') {
       feedItemsQuery = feedItemsQuery.eq('user_id', userId)
     } else if (filter === 'friends') {
-      try {
-        const { data: friends } = await supabase
-          .from('friends')
-          .select('friend_id')
-          .eq('user_id', userId)
-          .eq('status', 'accepted')
-        
-        const friendIds = friends?.map(f => f.friend_id) || []
-        if (friendIds.length > 0) {
-          feedItemsQuery = feedItemsQuery.in('user_id', friendIds)
-        } else {
-          // No friends for feed items, but continue to check workouts
-        }
-      } catch (friendError) {
-        safeLogDebug('Error loading friends for feed items', friendError)
-      }
+      feedItemsQuery = feedItemsQuery.in('user_id', friendIds)
+        .in('visibility', ['public', 'friends'])
     } else if (filter === 'all') {
-      feedItemsQuery = feedItemsQuery.eq('user_id', userId)
+      // Show user's own items and public items from others
+      feedItemsQuery = feedItemsQuery.or(`user_id.eq.${userId},visibility.eq.public`)
     }
+    
+    // Add pagination cursor if provided
+    if (cursor) {
+      feedItemsQuery = feedItemsQuery.lt('created_at', cursor)
+    }
+    
+    feedItemsQuery = feedItemsQuery.limit(limit)
     
     const { data: feedItems, error: feedItemsError } = await feedItemsQuery
     
     if (feedItemsError && feedItemsError.code !== 'PGRST205') {
       logError('Feed items query error', feedItemsError)
+      return []
     }
     
-    // Build query to get ALL workouts with exercises and sets
+    // Build workout query with user profiles JOIN
     let workoutQuery = supabase
       .from('workouts')
       .select(`
@@ -1494,78 +1530,54 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
         workout_exercises (
           *,
           workout_sets (*)
+        ),
+        user_profiles!workouts_user_id_fkey (
+          user_id,
+          username,
+          display_name,
+          profile_picture
         )
       `)
       .order('created_at', { ascending: false })
-      .limit(limit)
 
     // Apply filter
     if (filter === 'me') {
       workoutQuery = workoutQuery.eq('user_id', userId)
     } else if (filter === 'friends') {
-      // Get friend IDs first
-      try {
-        const { data: friends } = await supabase
-          .from('friends')
-          .select('friend_id')
-          .eq('user_id', userId)
-          .eq('status', 'accepted')
-        
-        const friendIds = friends?.map(f => f.friend_id) || []
-        if (friendIds.length > 0) {
-          workoutQuery = workoutQuery.in('user_id', friendIds)
-        } else {
-          // No friends, return empty
-          return []
-        }
-      } catch (friendError) {
-        safeLogDebug('Error loading friends for feed', friendError)
-        return []
-      }
+      workoutQuery = workoutQuery.in('user_id', friendIds)
+    } else if (filter === 'all') {
+      workoutQuery = workoutQuery.eq('user_id', userId) // For now, only own workouts
     }
-    // 'all' shows all workouts - but for now, default to user's workouts
-    // When RLS is properly configured for public workouts, 'all' can show everyone's
-    if (filter === 'all') {
-      // For now, show user's workouts when filter is 'all' (until RLS is configured)
-      workoutQuery = workoutQuery.eq('user_id', userId)
+    
+    // Add pagination cursor if provided
+    if (cursor) {
+      workoutQuery = workoutQuery.lt('created_at', cursor)
     }
+    
+    workoutQuery = workoutQuery.limit(limit)
 
     const { data: workouts, error: workoutError } = await workoutQuery
 
     if (workoutError) {
       logError('Error loading workouts for feed', workoutError)
-      return []
+      // Continue with feed items only
     }
 
-    if (!workouts || workouts.length === 0) {
-      return []
-    }
-
-    // Get unique user IDs from workouts and feed items
-    const allUserIds = [
-      ...new Set([
-        ...(workouts || []).map(w => w?.user_id),
-        ...(feedItems || []).map(f => f?.user_id)
-      ].filter(id => id != null))
-    ]
-    
-    // Fetch user profiles for all users
-    let userProfiles = {}
-    if (allUserIds.length > 0) {
-      try {
-        const { data: profiles } = await supabase
-          .from('user_profiles')
-          .select('user_id, username, display_name, profile_picture')
-          .in('user_id', allUserIds)
-        
-        if (profiles) {
-          profiles.forEach(profile => {
-            userProfiles[profile.user_id] = profile
-          })
+    // Process user profiles from JOIN results
+    const userProfiles = {}
+    if (feedItems) {
+      feedItems.forEach(item => {
+        if (item.user_profiles) {
+          userProfiles[item.user_id] = item.user_profiles
         }
-      } catch (profileError) {
-        safeLogDebug('Error loading user profiles', profileError)
-      }
+      })
+    }
+    if (workouts) {
+      workouts.forEach(workout => {
+        if (workout.user_profiles) {
+          userProfiles[workout.user_id] = workout.user_profiles
+        }
+      })
     }
     
     // Transform feed items (nutrition, health, manually shared workouts)
@@ -1580,7 +1592,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
       shared: item.shared,
       visibility: item.visibility || 'public',
       created_at: item.created_at,
-      user_profiles: userProfiles[item.user_id] || null
+      user_profiles: item.user_profiles || userProfiles[item.user_id] || null
     }))
     
     // Transform workouts to feed item format
@@ -1648,7 +1660,7 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 100) {
           shared: true,
           visibility: 'public',
           created_at: workout.created_at,
-          user_profiles: userProfiles[workout.user_id] || null
+          user_profiles: workout.user_profiles || userProfiles[workout.user_id] || null
         }
       })
 

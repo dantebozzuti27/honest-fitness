@@ -101,6 +101,10 @@ export default function CoachStudio() {
   const [showTemplatesEditor, setShowTemplatesEditor] = useState(false)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createDraft, setCreateDraft] = useState(emptyDraft())
+  const [editorTab, setEditorTab] = useState('overview') // overview | schedule | publish
+  const [dayEditorOpen, setDayEditorOpen] = useState(false)
+  const [dayEditorId, setDayEditorId] = useState(null)
+  const [dayEditorTab, setDayEditorTab] = useState('day') // day | workout | meals | health
 
   const selectedProgram = useMemo(() => {
     if (!draft?.id) return null
@@ -329,8 +333,6 @@ export default function CoachStudio() {
     })
   }
 
-  const [expandedDayId, setExpandedDayId] = useState(null)
-
   const dayPlans = Array.isArray(draft.content?.dayPlans) ? draft.content.dayPlans : []
 
   const updateDayPlans = (updater) => {
@@ -347,9 +349,6 @@ export default function CoachStudio() {
       const next = [...current, newDayPlan(nextDayNumber)]
       return next
     })
-    requestAnimationFrame(() => {
-      setExpandedDayId((prev) => prev) // no-op; keeps state stable
-    })
   }
 
   const removeDay = (dayId) => {
@@ -358,7 +357,10 @@ export default function CoachStudio() {
       // Renumber days so UI stays intuitive
       return filtered.map((d, idx) => ({ ...d, dayNumber: idx + 1, title: d.title || `Day ${idx + 1}` }))
     })
-    if (expandedDayId === dayId) setExpandedDayId(null)
+    if (dayEditorId === dayId) {
+      setDayEditorOpen(false)
+      setDayEditorId(null)
+    }
   }
 
   const moveDay = (dayId, direction) => {
@@ -372,6 +374,32 @@ export default function CoachStudio() {
       return next.map((d, i) => ({ ...d, dayNumber: i + 1 }))
     })
   }
+
+  const duplicateDay = (dayId) => {
+    updateDayPlans((current) => {
+      const idx = current.findIndex(d => d.id === dayId)
+      if (idx < 0) return current
+      const d = current[idx]
+      const copy = {
+        ...(d || {}),
+        id: `day_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        title: d?.title ? `${d.title} (copy)` : `Day ${(d?.dayNumber || idx + 1)} (copy)`
+      }
+      const next = [...current.slice(0, idx + 1), copy, ...current.slice(idx + 1)]
+      return next.map((x, i) => ({ ...x, dayNumber: i + 1 }))
+    })
+  }
+
+  const openDayEditor = (dayId) => {
+    setDayEditorTab('day')
+    setDayEditorId(dayId)
+    setDayEditorOpen(true)
+  }
+
+  const currentDay = useMemo(() => {
+    if (!dayEditorId) return null
+    return (Array.isArray(draft.content?.dayPlans) ? draft.content.dayPlans : []).find(d => d.id === dayEditorId) || null
+  }, [dayEditorId, draft.content?.dayPlans])
 
   const patchDay = (dayId, patch) => {
     updateDayPlans((current) => current.map(d => (d.id === dayId ? { ...d, ...patch } : d)))
@@ -758,21 +786,47 @@ export default function CoachStudio() {
 
             <div className={styles.divider} />
 
-            <InputField
-              label="Title"
-              id={titleInputId}
-              value={draft.title}
-              onChange={(e) => setDraft(prev => ({ ...prev, title: e.target.value }))}
-              placeholder="e.g., 8-Week Strength & Nutrition Reset"
-            />
-            <div style={{ height: 10 }} />
-            <TextAreaField
-              label="Description"
-              value={draft.description}
-              onChange={(e) => setDraft(prev => ({ ...prev, description: e.target.value }))}
-              placeholder="Who is this for? What results should they expect?"
-              rows={3}
-            />
+            <div className={styles.segmented} style={{ marginBottom: 12 }}>
+              <Button
+                variant="secondary"
+                className={`${styles.segBtn} ${editorTab === 'overview' ? styles.segBtnActive : ''}`}
+                onClick={() => setEditorTab('overview')}
+              >
+                Overview
+              </Button>
+              <Button
+                variant="secondary"
+                className={`${styles.segBtn} ${editorTab === 'schedule' ? styles.segBtnActive : ''}`}
+                onClick={() => setEditorTab('schedule')}
+              >
+                Schedule
+              </Button>
+              <Button
+                variant="secondary"
+                className={`${styles.segBtn} ${editorTab === 'publish' ? styles.segBtnActive : ''}`}
+                onClick={() => setEditorTab('publish')}
+              >
+                Publish
+              </Button>
+            </div>
+
+            {editorTab === 'overview' ? (
+              <>
+                <InputField
+                  label="Title"
+                  id={titleInputId}
+                  value={draft.title}
+                  onChange={(e) => setDraft(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="e.g., 8-Week Strength & Nutrition Reset"
+                />
+                <div style={{ height: 10 }} />
+                <TextAreaField
+                  label="Description"
+                  value={draft.description}
+                  onChange={(e) => setDraft(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Who is this for? What results should they expect?"
+                  rows={3}
+                />
 
             <div style={{ height: 10 }} />
             <InputField
@@ -891,16 +945,11 @@ export default function CoachStudio() {
               placeholder={"e.g.\n- Walk 20 min after lunch\n- 10 min mobility\n- Magnesium before bed"}
               rows={4}
             />
+              </>
+            ) : null}
 
             <div style={{ height: 12 }} />
             <div className={styles.btnRow}>
-              <Button
-                className={styles.btn}
-                variant="secondary"
-                onClick={() => setShowTemplatesEditor(true)}
-              >
-                Edit workout templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
-              </Button>
               <Button
                 className={styles.btn}
                 onClick={onSaveProgram}
@@ -912,111 +961,158 @@ export default function CoachStudio() {
             </div>
 
             <div className={styles.hr} />
+            {editorTab === 'schedule' ? (
+              <>
+                <div className={styles.dayPlansHeader} style={{ marginTop: 0 }}>
+                  <div style={{ fontWeight: 900 }}>Day-by-day plan</div>
+                  <Button variant="secondary" className={styles.miniBtn} onClick={addDay}>
+                    + Add day
+                  </Button>
+                </div>
+                <div className={styles.muted}>
+                  Edit one day at a time in a focused modal (Day / Workout / Meals / Health).
+                </div>
 
-            <div className={styles.dayPlansHeader}>
-              <div style={{ fontWeight: 900 }}>Day-by-day plan</div>
-              <Button variant="secondary" className={styles.miniBtn} onClick={addDay}>
-                + Add day
-              </Button>
-            </div>
-            <div className={styles.muted}>
-              Coaches can be extremely specific here: workouts + meals + health metrics, with notes on every step.
-            </div>
-
-            {dayPlans.length === 0 ? (
-              <div className={styles.muted} style={{ marginTop: 10 }}>
-                No days yet. Add Day 1 to start building the schedule.
-              </div>
-            ) : (
-              dayPlans.map((day, dayIdx) => {
-                const isOpen = expandedDayId === day.id
-                const workoutTemplates = Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates : []
-                return (
-                  <div key={day.id} className={styles.dayCard}>
-                    <div className={styles.dayHeader}>
-                      <div>
-                        <div className={styles.dayTitle}>
-                          Day {day.dayNumber}{day.title ? ` — ${day.title}` : ''}
+                {dayPlans.length === 0 ? (
+                  <div className={styles.muted} style={{ marginTop: 10 }}>
+                    No days yet. Add Day 1 to start.
+                  </div>
+                ) : (
+                  dayPlans.map((day, dayIdx) => {
+                    const workoutTemplates = Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates : []
+                    const templateName = workoutTemplates.find(t => t.id === day?.workout?.templateId)?.name
+                    const stepsCount = Array.isArray(day?.workout?.steps) ? day.workout.steps.length : 0
+                    const mealsCount = Array.isArray(day?.meals) ? day.meals.length : 0
+                    const metricsCount = Array.isArray(day?.healthMetrics) ? day.healthMetrics.length : 0
+                    return (
+                      <div key={day.id} className={styles.dayCard}>
+                        <div className={styles.dayHeader}>
+                          <div>
+                            <div className={styles.dayTitle}>
+                              Day {day.dayNumber}{day.title ? ` — ${day.title}` : ''}
+                            </div>
+                            <div className={styles.dayMeta}>
+                              {templateName ? <span className={styles.chip}>Workout: {templateName}</span> : <span className={styles.chip}>Workout: (not set)</span>}
+                              <span className={styles.chip}>{stepsCount} steps</span>
+                              <span className={styles.chip}>{mealsCount} meals</span>
+                              <span className={styles.chip}>{metricsCount} metrics</span>
+                            </div>
+                          </div>
+                          <div className={styles.miniBtnRow}>
+                            <Button variant="secondary" className={styles.miniBtn} onClick={() => openDayEditor(day.id)}>
+                              Edit day
+                            </Button>
+                            <Button variant="secondary" className={styles.miniBtn} onClick={() => duplicateDay(day.id)}>
+                              Duplicate
+                            </Button>
+                            <Button variant="secondary" className={styles.miniBtn} onClick={() => moveDay(day.id, 'up')} disabled={dayIdx === 0}>
+                              ↑
+                            </Button>
+                            <Button variant="secondary" className={styles.miniBtn} onClick={() => moveDay(day.id, 'down')} disabled={dayIdx === dayPlans.length - 1}>
+                              ↓
+                            </Button>
+                            <Button variant="destructive" className={styles.miniBtn} onClick={() => removeDay(day.id)}>
+                              Delete
+                            </Button>
+                          </div>
                         </div>
-                        {day.notes ? <div className={styles.muted}>{day.notes.slice(0, 120)}{day.notes.length > 120 ? '…' : ''}</div> : null}
+                        {day.notes ? <div className={styles.muted} style={{ marginTop: 8 }}>{day.notes.slice(0, 180)}{day.notes.length > 180 ? '…' : ''}</div> : null}
                       </div>
-                      <div className={styles.miniBtnRow}>
-                        <Button
-                          variant="secondary"
-                          className={styles.miniBtn}
-                          onClick={() => setExpandedDayId(isOpen ? null : day.id)}
-                        >
-                          {isOpen ? 'Collapse' : 'Edit'}
-                        </Button>
-                        <Button variant="secondary" className={styles.miniBtn} onClick={() => moveDay(day.id, 'up')} disabled={dayIdx === 0}>
-                          ↑
-                        </Button>
-                        <Button variant="secondary" className={styles.miniBtn} onClick={() => moveDay(day.id, 'down')} disabled={dayIdx === dayPlans.length - 1}>
-                          ↓
-                        </Button>
-                        <Button variant="destructive" className={styles.miniBtn} onClick={() => removeDay(day.id)}>
-                          Delete
-                        </Button>
-                      </div>
-                    </div>
+                    )
+                  })
+                )}
+              </>
+            ) : null}
 
-                    {isOpen ? (
+            {dayEditorOpen && currentDay ? (
+              <div
+                className={styles.modalOverlay}
+                onMouseDown={() => setDayEditorOpen(false)}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Edit day"
+              >
+                <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                  <div className={styles.modalHeader}>
+                    <h2 className={styles.modalTitle}>Edit Day {currentDay.dayNumber}</h2>
+                    <Button unstyled onClick={() => setDayEditorOpen(false)}>✕</Button>
+                  </div>
+
+                  <div className={styles.dayEditTabs}>
+                    <Button variant="secondary" className={`${styles.segBtn} ${dayEditorTab === 'day' ? styles.segBtnActive : ''}`} onClick={() => setDayEditorTab('day')}>
+                      Day
+                    </Button>
+                    <Button variant="secondary" className={`${styles.segBtn} ${dayEditorTab === 'workout' ? styles.segBtnActive : ''}`} onClick={() => setDayEditorTab('workout')}>
+                      Workout
+                    </Button>
+                    <Button variant="secondary" className={`${styles.segBtn} ${dayEditorTab === 'meals' ? styles.segBtnActive : ''}`} onClick={() => setDayEditorTab('meals')}>
+                      Meals
+                    </Button>
+                    <Button variant="secondary" className={`${styles.segBtn} ${dayEditorTab === 'health' ? styles.segBtnActive : ''}`} onClick={() => setDayEditorTab('health')}>
+                      Health
+                    </Button>
+                  </div>
+
+                  <div className={styles.modalBody}>
+                    {dayEditorTab === 'day' ? (
                       <>
-                        <div style={{ height: 10 }} />
                         <InputField
                           label="Day title"
-                          value={day.title || ''}
-                          onChange={(e) => patchDay(day.id, { title: e.target.value })}
-                          placeholder={`Day ${day.dayNumber}: focus / theme`}
+                          value={currentDay.title || ''}
+                          onChange={(e) => patchDay(currentDay.id, { title: e.target.value })}
+                          placeholder={`Day ${currentDay.dayNumber}: focus / theme`}
                         />
                         <TextAreaField
                           label="Day notes"
-                          value={day.notes || ''}
-                          onChange={(e) => patchDay(day.id, { notes: e.target.value })}
+                          value={currentDay.notes || ''}
+                          onChange={(e) => patchDay(currentDay.id, { notes: e.target.value })}
                           placeholder="Context, coaching notes, substitutions, constraints…"
-                          rows={3}
+                          rows={6}
                         />
+                      </>
+                    ) : null}
 
-                        <div className={styles.subSectionTitle}>Workout plan</div>
+                    {dayEditorTab === 'workout' ? (
+                      <>
                         <SelectField
                           label="Workout template"
-                          value={day?.workout?.templateId || ''}
-                          onChange={(e) => patchDayWorkout(day.id, { templateId: e.target.value })}
+                          value={currentDay?.workout?.templateId || ''}
+                          onChange={(e) => patchDayWorkout(currentDay.id, { templateId: e.target.value })}
                         >
                           <option value="">(Optional) Choose a template</option>
-                          {workoutTemplates.map((t) => (
+                          {(Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates : []).map((t) => (
                             <option key={t.id} value={t.id}>{t.name || 'Template'}</option>
                           ))}
                         </SelectField>
                         <InputField
                           label="Workout title (optional override)"
-                          value={day?.workout?.title || ''}
-                          onChange={(e) => patchDayWorkout(day.id, { title: e.target.value })}
+                          value={currentDay?.workout?.title || ''}
+                          onChange={(e) => patchDayWorkout(currentDay.id, { title: e.target.value })}
                           placeholder="e.g., Lower Strength + Core"
                         />
                         <TextAreaField
                           label="Workout notes"
-                          value={day?.workout?.notes || ''}
-                          onChange={(e) => patchDayWorkout(day.id, { notes: e.target.value })}
+                          value={currentDay?.workout?.notes || ''}
+                          onChange={(e) => patchDayWorkout(currentDay.id, { notes: e.target.value })}
                           placeholder="Warm-up, technique cues, RPE targets, substitutions…"
-                          rows={3}
+                          rows={5}
                         />
                         <div className={styles.miniBtnRow}>
-                          <Button variant="secondary" className={styles.miniBtn} onClick={() => addWorkoutStep(day.id)}>
+                          <Button variant="secondary" className={styles.miniBtn} onClick={() => addWorkoutStep(currentDay.id)}>
                             + Add workout step
                           </Button>
                         </div>
-                        {(Array.isArray(day?.workout?.steps) ? day.workout.steps : []).map((s, i) => (
+                        {(Array.isArray(currentDay?.workout?.steps) ? currentDay.workout.steps : []).map((s, i) => (
                           <div key={i} style={{ marginTop: 10 }}>
                             <div className={styles.inlineRow3}>
                               <InputField
                                 label={`Step ${i + 1} title`}
                                 value={s?.title || ''}
-                                onChange={(e) => patchWorkoutStep(day.id, i, { title: e.target.value })}
+                                onChange={(e) => patchWorkoutStep(currentDay.id, i, { title: e.target.value })}
                                 placeholder="e.g., 10 min bike @ Zone 2"
                               />
                               <div style={{ display: 'flex', alignItems: 'end' }}>
-                                <Button variant="destructive" className={styles.miniBtn} onClick={() => removeWorkoutStep(day.id, i)}>
+                                <Button variant="destructive" className={styles.miniBtn} onClick={() => removeWorkoutStep(currentDay.id, i)}>
                                   Remove step
                                 </Button>
                               </div>
@@ -1024,36 +1120,39 @@ export default function CoachStudio() {
                             <TextAreaField
                               label="Step notes"
                               value={s?.notes || ''}
-                              onChange={(e) => patchWorkoutStep(day.id, i, { notes: e.target.value })}
+                              onChange={(e) => patchWorkoutStep(currentDay.id, i, { notes: e.target.value })}
                               placeholder="Exact cues, rest, tempo, breathing, modifications…"
-                              rows={2}
+                              rows={3}
                             />
                           </div>
                         ))}
+                      </>
+                    ) : null}
 
-                        <div className={styles.subSectionTitle}>Meal plan</div>
+                    {dayEditorTab === 'meals' ? (
+                      <>
                         <div className={styles.miniBtnRow}>
-                          <Button variant="secondary" className={styles.miniBtn} onClick={() => addMeal(day.id)}>
+                          <Button variant="secondary" className={styles.miniBtn} onClick={() => addMeal(currentDay.id)}>
                             + Add meal
                           </Button>
                         </div>
-                        {(Array.isArray(day?.meals) ? day.meals : []).map((meal, mi) => (
+                        {(Array.isArray(currentDay?.meals) ? currentDay.meals : []).map((meal, mi) => (
                           <div key={mi} style={{ marginTop: 10 }}>
                             <div className={styles.inlineRow3}>
                               <InputField
                                 label={`Meal ${mi + 1} name`}
                                 value={meal?.name || ''}
-                                onChange={(e) => patchMeal(day.id, mi, { name: e.target.value })}
+                                onChange={(e) => patchMeal(currentDay.id, mi, { name: e.target.value })}
                                 placeholder="e.g., Breakfast"
                               />
                               <InputField
                                 label="Time (optional)"
                                 value={meal?.time || ''}
-                                onChange={(e) => patchMeal(day.id, mi, { time: e.target.value })}
+                                onChange={(e) => patchMeal(currentDay.id, mi, { time: e.target.value })}
                                 placeholder="e.g., 7:30am"
                               />
                               <div style={{ display: 'flex', alignItems: 'end' }}>
-                                <Button variant="destructive" className={styles.miniBtn} onClick={() => removeMeal(day.id, mi)}>
+                                <Button variant="destructive" className={styles.miniBtn} onClick={() => removeMeal(currentDay.id, mi)}>
                                   Remove meal
                                 </Button>
                               </div>
@@ -1061,12 +1160,12 @@ export default function CoachStudio() {
                             <TextAreaField
                               label="Meal notes"
                               value={meal?.notes || ''}
-                              onChange={(e) => patchMeal(day.id, mi, { notes: e.target.value })}
+                              onChange={(e) => patchMeal(currentDay.id, mi, { notes: e.target.value })}
                               placeholder="Exact macros, substitutions, prep instructions…"
-                              rows={2}
+                              rows={3}
                             />
                             <div className={styles.miniBtnRow}>
-                              <Button variant="secondary" className={styles.miniBtn} onClick={() => addMealItem(day.id, mi)}>
+                              <Button variant="secondary" className={styles.miniBtn} onClick={() => addMealItem(currentDay.id, mi)}>
                                 + Add food item
                               </Button>
                             </div>
@@ -1075,18 +1174,18 @@ export default function CoachStudio() {
                                 <InputField
                                   label="Food"
                                   value={it?.food || ''}
-                                  onChange={(e) => patchMealItem(day.id, mi, ii, { food: e.target.value })}
+                                  onChange={(e) => patchMealItem(currentDay.id, mi, ii, { food: e.target.value })}
                                   placeholder="e.g., Greek yogurt 2%"
                                 />
                                 <InputField
                                   label="Grams"
                                   inputMode="numeric"
                                   value={it?.grams || ''}
-                                  onChange={(e) => patchMealItem(day.id, mi, ii, { grams: e.target.value })}
+                                  onChange={(e) => patchMealItem(currentDay.id, mi, ii, { grams: e.target.value })}
                                   placeholder="e.g., 250"
                                 />
                                 <div style={{ display: 'flex', alignItems: 'end' }}>
-                                  <Button variant="destructive" className={styles.miniBtn} onClick={() => removeMealItem(day.id, mi, ii)}>
+                                  <Button variant="destructive" className={styles.miniBtn} onClick={() => removeMealItem(currentDay.id, mi, ii)}>
                                     Remove
                                   </Button>
                                 </div>
@@ -1094,45 +1193,48 @@ export default function CoachStudio() {
                                   <TextAreaField
                                     label="Item notes"
                                     value={it?.notes || ''}
-                                    onChange={(e) => patchMealItem(day.id, mi, ii, { notes: e.target.value })}
+                                    onChange={(e) => patchMealItem(currentDay.id, mi, ii, { notes: e.target.value })}
                                     placeholder="Brand, prep, swaps, micronutrient focus…"
-                                    rows={2}
+                                    rows={3}
                                   />
                                 </div>
                               </div>
                             ))}
                           </div>
                         ))}
+                      </>
+                    ) : null}
 
-                        <div className={styles.subSectionTitle}>Health metrics</div>
+                    {dayEditorTab === 'health' ? (
+                      <>
                         <div className={styles.miniBtnRow}>
-                          <Button variant="secondary" className={styles.miniBtn} onClick={() => addHealthMetric(day.id)}>
+                          <Button variant="secondary" className={styles.miniBtn} onClick={() => addHealthMetric(currentDay.id)}>
                             + Add health metric
                           </Button>
                         </div>
-                        {(Array.isArray(day?.healthMetrics) ? day.healthMetrics : []).map((m, hi) => (
+                        {(Array.isArray(currentDay?.healthMetrics) ? currentDay.healthMetrics : []).map((m, hi) => (
                           <div key={hi} style={{ marginTop: 10 }}>
                             <div className={styles.inlineRow3}>
                               <InputField
                                 label="Metric"
                                 value={m?.name || ''}
-                                onChange={(e) => patchHealthMetric(day.id, hi, { name: e.target.value })}
+                                onChange={(e) => patchHealthMetric(currentDay.id, hi, { name: e.target.value })}
                                 placeholder="e.g., Water"
                               />
                               <InputField
                                 label="Target"
                                 value={m?.target || ''}
-                                onChange={(e) => patchHealthMetric(day.id, hi, { target: e.target.value })}
+                                onChange={(e) => patchHealthMetric(currentDay.id, hi, { target: e.target.value })}
                                 placeholder="e.g., 3"
                               />
                               <div style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
                                 <InputField
                                   label="Unit"
                                   value={m?.unit || ''}
-                                  onChange={(e) => patchHealthMetric(day.id, hi, { unit: e.target.value })}
+                                  onChange={(e) => patchHealthMetric(currentDay.id, hi, { unit: e.target.value })}
                                   placeholder="e.g., L"
                                 />
-                                <Button variant="destructive" className={styles.miniBtn} onClick={() => removeHealthMetric(day.id, hi)}>
+                                <Button variant="destructive" className={styles.miniBtn} onClick={() => removeHealthMetric(currentDay.id, hi)}>
                                   Remove
                                 </Button>
                               </div>
@@ -1140,45 +1242,64 @@ export default function CoachStudio() {
                             <TextAreaField
                               label="Metric notes"
                               value={m?.notes || ''}
-                              onChange={(e) => patchHealthMetric(day.id, hi, { notes: e.target.value })}
+                              onChange={(e) => patchHealthMetric(currentDay.id, hi, { notes: e.target.value })}
                               placeholder="How to hit it, why it matters, what to do if missed…"
-                              rows={2}
+                              rows={3}
                             />
                           </div>
                         ))}
                         <TextAreaField
                           label="Health notes (day)"
-                          value={day.healthNotes || ''}
-                          onChange={(e) => patchDay(day.id, { healthNotes: e.target.value })}
+                          value={currentDay.healthNotes || ''}
+                          onChange={(e) => patchDay(currentDay.id, { healthNotes: e.target.value })}
                           placeholder="Recovery focus, stress management, wearable expectations…"
-                          rows={3}
+                          rows={4}
                         />
                       </>
                     ) : null}
                   </div>
-                )
-              })
-            )}
 
-            <div style={{ height: 10 }} />
-            <div className={styles.btnRow}>
-              <Button
-                className={styles.btn}
-                onClick={onPublish}
-                loading={publishing}
-                disabled={!draft?.id || publishing}
-              >
-                Publish
-              </Button>
-              <Button
-                className={styles.btn}
-                variant="secondary"
-                onClick={onArchive}
-                disabled={!draft?.id}
-              >
-                Archive
-              </Button>
-            </div>
+                  <div className={styles.modalFooter}>
+                    <Button className={styles.modalBtn} variant="secondary" onClick={() => setDayEditorOpen(false)}>
+                      Done
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {editorTab === 'publish' ? (
+              <>
+                <div className={styles.btnRow} style={{ marginTop: 0 }}>
+                  <Button
+                    className={styles.btn}
+                    variant="secondary"
+                    onClick={() => setShowTemplatesEditor(true)}
+                  >
+                    Edit workout templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
+                  </Button>
+                </div>
+                <div style={{ height: 10 }} />
+                <div className={styles.btnRow}>
+                  <Button
+                    className={styles.btn}
+                    onClick={onPublish}
+                    loading={publishing}
+                    disabled={!draft?.id || publishing}
+                  >
+                    Publish
+                  </Button>
+                  <Button
+                    className={styles.btn}
+                    variant="secondary"
+                    onClick={onArchive}
+                    disabled={!draft?.id}
+                  >
+                    Archive
+                  </Button>
+                </div>
+              </>
+            ) : null}
 
             <div className={styles.muted} style={{ marginTop: 10 }}>
               MVP behavior: free programs can be “claimed” by users. Paid checkout will be wired with Stripe Connect next.

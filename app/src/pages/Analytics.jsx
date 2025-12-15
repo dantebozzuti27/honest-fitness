@@ -932,7 +932,14 @@ export default function Analytics() {
               </div>
               <div className={styles.userEventStat}>
                 <span className={styles.userEventStatLabel}>Total Events</span>
-                <span className={styles.userEventStatValue}>{userEventStats.totalEvents}</span>
+                <span className={styles.userEventStatValue}>
+                  {userEventStats.totalEvents}
+                  {userEventStats.analyzedEvents && userEventStats.totalEvents > userEventStats.analyzedEvents ? (
+                    <span className={styles.userEventStatSubtle} title={`Computed totals from the full dataset; breakdowns analyzed ${userEventStats.analyzedEvents.toLocaleString()} most recent events.`}>
+                      {' '}+
+                    </span>
+                  ) : null}
+                </span>
               </div>
               {userEventStats.mostUsedFeatures.length > 0 && (
                 <div className={styles.userEventStat}>

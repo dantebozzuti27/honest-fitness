@@ -362,13 +362,13 @@
 
 .progressValues {
   font-weight: 500;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  font-family: inherit;
 }
 
 .progressPercent {
   font-weight: 600;
   color: var(--accent);
-  font-family: var(--font-mono);
+  font-family: inherit;
 }
 
 .celebration {

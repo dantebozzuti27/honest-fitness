@@ -12,7 +12,7 @@
   gap: 4px;
   font-size: 13px;
   font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  font-family: inherit;
 }
 
 .trendUp {

@@ -850,6 +850,13 @@
   font-family: var(--font-mono);
 }
 
+.userEventStatSubtle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
 /* Body Parts Heatmap */
 .heatmapContainer {
   padding: 4px 0;

@@ -2349,8 +2349,73 @@ export async function getUserEvents(userId, startDate = null, endDate = null, ev
 export async function getUserEventStats(userId, days = 30) {
   try {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-    const events = await getUserEvents(userId, startDate, null, null, 10000)
-    
+
+    // IMPORTANT:
+    // Supabase/PostgREST commonly enforces a max rows-per-request cap (often 1000).
+    // Using `events.length` can silently “cap” totals and look like fake numbers.
+    // We always compute totals via an exact COUNT and only page through events for breakdowns.
+    let totalEventsExact = 0
+    try {
+      let countQuery = supabase
+        .from('user_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('timestamp', startDate)
+      const { count, error: countError } = await countQuery
+      if (countError && (countError.code === 'PGRST205' || countError.message?.includes('Could not find the table'))) {
+        safeLogDebug('user_events table does not exist yet - migration not run')
+        return {
+          totalEvents: 0,
+          sessions: 0,
+          mostUsedFeatures: [],
+          dailyActivity: {}
+        }
+      }
+      if (countError) throw countError
+      totalEventsExact = Number.isFinite(count) ? count : 0
+    } catch (err) {
+      // If count fails for any reason, we fall back to whatever we can compute from sampled events below.
+      safeLogDebug('Failed to count user events', { message: err?.message })
+      totalEventsExact = 0
+    }
+
+    // Page through events to compute session count + top features + daily activity.
+    // Keep this bounded so Analytics doesn't become a giant data pull.
+    const PAGE_SIZE = 1000
+    const MAX_EVENTS_TO_ANALYZE = 5000
+
+    const sampledEvents = []
+    for (let offset = 0; offset < MAX_EVENTS_TO_ANALYZE; offset += PAGE_SIZE) {
+      let query = supabase
+        .from('user_events')
+        .select('session_id,event_category,event_name,event_label,timestamp')
+        .eq('user_id', userId)
+        .gte('timestamp', startDate)
+        .order('timestamp', { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1)
+
+      const { data, error } = await query
+
+      if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+        safeLogDebug('user_events table does not exist yet - migration not run')
+        return {
+          totalEvents: 0,
+          sessions: 0,
+          mostUsedFeatures: [],
+          dailyActivity: {}
+        }
+      }
+      if (error) throw error
+
+      if (!data || data.length === 0) break
+      sampledEvents.push(...data)
+
+      // Stop early if we got less than a full page.
+      if (data.length < PAGE_SIZE) break
+    }
+
+    const events = sampledEvents
+
     if (!events || events.length === 0) {
       return {
         totalEvents: 0,
@@ -2383,7 +2448,9 @@ export async function getUserEventStats(userId, days = 30) {
       .map(([name, count]) => ({ name, count }))
     
     return {
-      totalEvents: events.length,
+      // Prefer the exact count if available; otherwise fall back to what we sampled.
+      totalEvents: totalEventsExact || events.length,
+      analyzedEvents: events.length,
       sessions,
       mostUsedFeatures,
       dailyActivity

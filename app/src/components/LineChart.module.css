@@ -129,7 +129,7 @@
 }
 
 .axisLabel {
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  font-family: inherit;
   fill: #ffffff;
   font-weight: 500;
   letter-spacing: -0.01em;

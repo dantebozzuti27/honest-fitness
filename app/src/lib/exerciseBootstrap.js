@@ -40,8 +40,19 @@ export async function ensureLocalExercisesLoaded() {
       equipment: Array.isArray(e.equipment) ? e.equipment.join(', ') : (e.equipment || '')
     }))
 
-    await bulkAddExercises(mapped)
-    return { loaded: true, seeded: true, count: mapped.length }
+    // Prevent duplicates (some datasets can include repeated names).
+    const seen = new Set()
+    const deduped = []
+    for (const ex of mapped) {
+      const key = `${String(ex?.name || '').trim().toLowerCase()}|${String(ex?.category || '').trim().toLowerCase()}|${String(ex?.bodyPart || '').trim().toLowerCase()}|${String(ex?.equipment || '').trim().toLowerCase()}`
+      if (!key || key.startsWith('|')) continue
+      if (seen.has(key)) continue
+      seen.add(key)
+      deduped.push(ex)
+    }
+
+    await bulkAddExercises(deduped)
+    return { loaded: true, seeded: true, count: deduped.length }
   } catch (err) {
     return { loaded: false, seeded: false, error: err?.message || String(err) }
   }

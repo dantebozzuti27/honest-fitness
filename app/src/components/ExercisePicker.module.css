@@ -63,35 +63,6 @@
   padding: 12px 14px;
 }
 
-.search input {
-  width: 100%;
-  padding: 12px 14px;
-  font-size: 15px;
-  /* Apple Liquid Glass Effect - Authentic */
-  background: var(--glass-form-bg);
-  backdrop-filter: var(--glass-blur-medium);
-  -webkit-backdrop-filter: var(--glass-blur-medium);
-  border: 1px solid var(--glass-form-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--glass-form-shadow);
-  transition: all var(--transition-base);
-}
-
-.search input:hover {
-  background: var(--glass-form-bg-hover);
-  border-color: rgba(255, 255, 255, 0.35);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-}
-
-.search input:focus {
-  background: var(--glass-form-bg-focus);
-  border-color: var(--glass-form-border-focus);
-  box-shadow: var(--glass-form-shadow-focus);
-  outline: none;
-  backdrop-filter: var(--glass-blur-strong);
-  -webkit-backdrop-filter: var(--glass-blur-strong);
-}
-
 .filterSection {
   padding: 0 14px 10px;
 }

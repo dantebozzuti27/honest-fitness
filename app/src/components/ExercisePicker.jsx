@@ -20,6 +20,37 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
 
   const normalize = (v) => (v || '').toString().toLowerCase()
 
+  const dedupedExercises = useMemo(() => {
+    const list = Array.isArray(exercises) ? exercises : []
+    const byName = new Map()
+
+    const score = (ex) => {
+      // Prefer entries with more/better metadata.
+      const bp = (ex?.bodyPart || '').toString()
+      const cat = (ex?.category || '').toString()
+      const eq = (ex?.equipment || '').toString()
+      let s = 0
+      if (bp && bp !== 'Other') s += 2
+      if (cat) s += 1
+      if (eq && eq !== 'Other') s += 1
+      return s
+    }
+
+    for (const ex of list) {
+      if (!ex || !ex.name) continue
+      const key = normalize(ex.name).trim()
+      if (!key) continue
+      const prev = byName.get(key)
+      if (!prev) {
+        byName.set(key, ex)
+      } else {
+        if (score(ex) > score(prev)) byName.set(key, ex)
+      }
+    }
+
+    return Array.from(byName.values())
+  }, [exercises])
+
   const expandQueryAliases = (q) => {
     // Light aliases for common shorthand
     // Keep this small and predictable; we can expand later.
@@ -40,7 +71,7 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
   }
 
   const filtered = useMemo(() => {
-    if (!exercises || !Array.isArray(exercises)) return []
+    if (!dedupedExercises || !Array.isArray(dedupedExercises)) return []
 
     const tokens = tokenize(debouncedSearch)
     const matchesQuery = (ex) => {
@@ -55,11 +86,11 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
       return tokens.every(t => haystack.includes(t))
     }
 
-    return exercises
+    return dedupedExercises
       .filter(ex => ex && ex.name && matchesQuery(ex))
       .slice()
       .sort((a, b) => normalize(a.name).localeCompare(normalize(b.name)))
-  }, [exercises, debouncedSearch])
+  }, [dedupedExercises, debouncedSearch])
 
   return (
     <div className={styles.overlay}>

@@ -75,7 +75,8 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
           sets: defaultSets,
           reps: isCardio ? '' : '8-12',
           time: isCardio ? '20:00' : '',
-          notes: ''
+          notes: '',
+          stackGroup: null
         }
       ]
     }))
@@ -102,6 +103,47 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
       ...prev,
       exercises: prev.exercises.map((ex, i) => (i === index ? { ...(ex || {}), ...patch } : ex))
     }))
+  }
+
+  const getStackSize = (stackGroup) => {
+    if (!stackGroup) return 0
+    return formData.exercises.filter(e => e?.stackGroup && e.stackGroup === stackGroup).length
+  }
+
+  const stackWithNext = (index) => {
+    const nextIndex = index + 1
+    if (nextIndex >= formData.exercises.length) return
+
+    const a = formData.exercises[index]
+    const b = formData.exercises[nextIndex]
+    if (!a || !b) return
+
+    const aGroup = a.stackGroup || null
+    const bGroup = b.stackGroup || null
+
+    // Pick an existing group if either exercise is already in one; otherwise make a new one.
+    const group = aGroup || bGroup || `stack_${Date.now()}_${Math.random().toString(16).slice(2)}`
+
+    // If both have groups and differ, merge into `group` (prefer aGroup)
+    const mergeFrom = aGroup && bGroup && aGroup !== bGroup ? bGroup : null
+
+    setFormData(prev => ({
+      ...prev,
+      exercises: prev.exercises.map((ex, i) => {
+        if (!ex) return ex
+        if (i === index || i === nextIndex) {
+          return { ...ex, stackGroup: group }
+        }
+        if (mergeFrom && ex.stackGroup === mergeFrom) {
+          return { ...ex, stackGroup: group }
+        }
+        return ex
+      })
+    }))
+  }
+
+  const unstackExercise = (index) => {
+    patchExercise(index, { stackGroup: null })
   }
 
   const handleSave = () => {
@@ -225,6 +267,30 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
                         <div className={styles.exerciseTopRow}>
                           <span className={styles.exerciseName}>{ex?.name}</span>
                           <div className={styles.exerciseActions}>
+                            {ex?.stackGroup ? (
+                              <span className={styles.stackPill}>
+                                {(getStackSize(ex.stackGroup) === 2 ? 'Superset' : 'Circuit')} ({getStackSize(ex.stackGroup)})
+                              </span>
+                            ) : null}
+                            <Button
+                              unstyled
+                              className={styles.stackBtn}
+                              onClick={() => stackWithNext(index)}
+                              disabled={index === formData.exercises.length - 1}
+                              title="Stack with the next exercise (superset/circuit)"
+                            >
+                              Stack ↓
+                            </Button>
+                            {ex?.stackGroup ? (
+                              <Button
+                                unstyled
+                                className={styles.unstackBtn}
+                                onClick={() => unstackExercise(index)}
+                                title="Remove from stack"
+                              >
+                                Unstack
+                              </Button>
+                            ) : null}
                             <Button
                               unstyled
                               className={styles.moveBtn}

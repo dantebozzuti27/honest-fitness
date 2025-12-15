@@ -448,6 +448,7 @@ export default function ActiveWorkout() {
                 const presetSets = typeof entry === 'object' ? entry?.sets : undefined
                 const presetReps = typeof entry === 'object' ? entry?.reps : undefined
                 const presetTime = typeof entry === 'object' ? entry?.time : undefined
+                const presetStackGroup = typeof entry === 'object' ? entry?.stackGroup : undefined
 
                 const exerciseData = allEx.find(e => e.name === name)
                 const isCardio = exerciseData?.category === 'Cardio'
@@ -464,6 +465,8 @@ export default function ActiveWorkout() {
                   category: exerciseData?.category || 'Strength',
                   bodyPart: exerciseData?.bodyPart || 'Other',
                   equipment: exerciseData?.equipment || '',
+                  stacked: Boolean(presetStackGroup),
+                  stackGroup: presetStackGroup ? String(presetStackGroup) : null,
                   sets: Array(setsCount).fill(null).map(() => ({
                     weight: '',
                     reps: !isCardio ? repsValue : '',
@@ -1876,6 +1879,48 @@ export default function ActiveWorkout() {
     showToast('Removed from stack', 'success')
   }
 
+  const unstackGroup = (groupId) => {
+    if (!groupId) return
+    setExercises(prev => prev.map(ex => {
+      if (ex.stacked && ex.stackGroup === groupId) {
+        return { ...ex, stacked: false, stackGroup: null }
+      }
+      return ex
+    }))
+    showToast('Unstacked', 'success')
+  }
+
+  const renderItems = (() => {
+    const items = []
+    const firstIndexByGroup = new Map()
+    const membersByGroup = new Map()
+
+    exercises.forEach((ex, idx) => {
+      if (ex?.stacked && ex?.stackGroup) {
+        if (!firstIndexByGroup.has(ex.stackGroup)) firstIndexByGroup.set(ex.stackGroup, idx)
+        const arr = membersByGroup.get(ex.stackGroup) || []
+        arr.push(ex)
+        membersByGroup.set(ex.stackGroup, arr)
+      }
+    })
+
+    const renderedGroups = new Set()
+
+    exercises.forEach((ex, idx) => {
+      const gid = ex?.stacked && ex?.stackGroup ? ex.stackGroup : null
+      if (gid && membersByGroup.get(gid)?.length > 1) {
+        if (renderedGroups.has(gid)) return
+        if (firstIndexByGroup.get(gid) !== idx) return
+        renderedGroups.add(gid)
+        items.push({ kind: 'stack', groupId: gid, members: membersByGroup.get(gid) || [] })
+        return
+      }
+      items.push({ kind: 'single', exercise: ex })
+    })
+
+    return items
+  })()
+
   return (
     <div className={styles.container}>
       {showTimesUp && (
@@ -2115,7 +2160,67 @@ export default function ActiveWorkout() {
           </div>
         )}
         
-        {exercises.map((exercise, idx) => {
+        {renderItems.map((item) => {
+          if (item.kind === 'stack') {
+            const members = Array.isArray(item.members) ? item.members : []
+            const label = members.length === 2 ? 'Superset' : 'Circuit'
+            return (
+              <div key={`stack-${item.groupId}`} className={styles.stackGroupBox}>
+                <div className={styles.stackGroupHeader}>
+                  <div className={styles.stackGroupTitle}>
+                    {label}: {members.map(m => m.name).join(' / ')}
+                  </div>
+                  <Button
+                    unstyled
+                    className={styles.stackGroupAction}
+                    onClick={() => unstackGroup(item.groupId)}
+                    title="Unstack this group"
+                  >
+                    Unstack
+                  </Button>
+                </div>
+                <div className={styles.stackGroupInner}>
+                  {members.map((exercise) => {
+                    const stackGroup = exercise.stacked ? exercise.stackGroup : null
+                    const stackMembers = stackGroup ? members : []
+                    const stackIndex = stackMembers.findIndex(ex => ex.id === exercise.id)
+                    return (
+                      <ExerciseCard
+                        key={exercise.id}
+                        exercise={exercise}
+                        index={0}
+                        total={0}
+                        stacked={exercise.stacked}
+                        stackGroup={stackGroup}
+                        stackMembers={stackMembers}
+                        stackIndex={stackIndex}
+                        existingStacks={[]}
+                        onToggle={() => toggleExpanded(exercise.id)}
+                        onUpdateSet={(setIdx, field, value) => updateSet(exercise.id, setIdx, field, value)}
+                        onAddSet={() => addSet(exercise.id)}
+                        onRemoveSet={() => removeSet(exercise.id)}
+                        onRemove={() => removeExercise(exercise.id)}
+                        onMove={(dir) => moveExercise(exercise.id, dir)}
+                        onStartRest={startRest}
+                        onComplete={() => completeExercise(exercise.id)}
+                        onToggleStack={() => toggleExerciseStack(exercise.id)}
+                        onAddToStack={() => {}}
+                        onRemoveFromStack={() => removeFromStack(exercise.id)}
+                        isDragging={false}
+                        draggable={false}
+                        showDragHandle={false}
+                        containerClassName={styles.stackMemberCard}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          }
+
+          const exercise = item.exercise
+          if (!exercise) return null
+
           // Find other exercises in the same stack group
           const stackGroup = exercise.stacked ? exercise.stackGroup : null
           const stackMembers = stackGroup ? exercises.filter(ex => ex.stacked && ex.stackGroup === stackGroup) : []
@@ -2132,12 +2237,12 @@ export default function ActiveWorkout() {
             .filter((stack, index, self) => 
               index === self.findIndex(s => s.group === stack.group)
             ) || [] // Ensure it's always an array
-          
+
           return (
             <ExerciseCard
               key={exercise.id}
               exercise={exercise}
-              index={idx}
+              index={exercises.findIndex(e => e.id === exercise.id)}
               total={exercises.length}
               stacked={exercise.stacked}
               stackGroup={stackGroup}

@@ -11,6 +11,7 @@ import Skeleton from '../components/Skeleton'
 import TemplateEditor from '../components/TemplateEditor'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { logError } from '../utils/logger'
+import { normalizeTemplateExercises } from '../utils/templateUtils'
 import {
   archiveProgram,
   createProgram,
@@ -339,6 +340,42 @@ export default function CoachStudio() {
       showToast('Failed to delete program.', 'error')
     } finally {
       setDeleteProgramConfirm({ open: false, program: null })
+    }
+  }
+
+  const exportProgramTemplatesToFitness = async () => {
+    if (!draft?.id) {
+      showToast('Save the program first, then export templates.', 'error')
+      return
+    }
+    const programTemplates = Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates : []
+    if (programTemplates.length === 0) {
+      showToast('No workout templates to export yet.', 'error')
+      return
+    }
+    try {
+      const db = await import('../db/lazyDb')
+      const bulkAddTemplates = db.bulkAddTemplates
+      if (typeof bulkAddTemplates !== 'function') {
+        showToast('Template storage is not available yet in this build.', 'error')
+        return
+      }
+      const safeTemplates = programTemplates.map((t, idx) => {
+        const baseId = t?.id ? String(t.id) : `t${idx + 1}`
+        return {
+          id: `cs_${draft.id}_${baseId}`,
+          name: t?.name || `Template ${idx + 1}`,
+          exercises: normalizeTemplateExercises(t?.exercises)
+        }
+      })
+      await bulkAddTemplates(safeTemplates)
+      try {
+        window.dispatchEvent(new CustomEvent('templatesUpdated'))
+      } catch {}
+      showToast(`Exported ${safeTemplates.length} templates to Fitness.`, 'success', 4500)
+    } catch (e) {
+      logError('Export program templates failed', e)
+      showToast('Failed to export templates. Please try again.', 'error')
     }
   }
 
@@ -1066,6 +1103,9 @@ export default function CoachStudio() {
                 Save
               </Button>
             </div>
+            <div className={styles.muted} style={{ marginTop: 8 }}>
+              Program templates live inside this program. Click <b>Save</b> to persist them. Use <b>Export to Fitness</b> to add them to your personal templates library.
+            </div>
 
             <div className={styles.hr} />
             {editorTab === 'schedule' ? (
@@ -1075,6 +1115,9 @@ export default function CoachStudio() {
                   <div className={styles.miniBtnRow}>
                     <Button variant="secondary" className={styles.miniBtn} onClick={() => setShowTemplatesEditor(true)}>
                       Templates
+                    </Button>
+                    <Button variant="secondary" className={styles.miniBtn} onClick={exportProgramTemplatesToFitness} disabled={!draft?.id}>
+                      Export to Fitness
                     </Button>
                     <Button variant="secondary" className={styles.miniBtn} onClick={addDay}>
                       + Add day
@@ -1193,6 +1236,14 @@ export default function CoachStudio() {
                             onClick={() => setShowTemplatesEditor(true)}
                           >
                             Manage workout templates
+                          </Button>
+                          <Button
+                            className={styles.btn}
+                            variant="secondary"
+                            onClick={exportProgramTemplatesToFitness}
+                            disabled={!draft?.id}
+                          >
+                            Export to Fitness
                           </Button>
                         </div>
                         <SelectField

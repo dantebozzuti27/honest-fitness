@@ -285,6 +285,57 @@
   gap: 12px;
 }
 
+.stackGroupBox {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.stackGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+}
+
+.stackGroupTitle {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stackGroupAction {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.stackGroupInner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.stackMemberCard {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .quickAddRow {
   display: flex;
   gap: 10px;

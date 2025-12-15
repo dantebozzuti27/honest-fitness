@@ -26,7 +26,10 @@ export default function ExerciseCard({
   onDragOver,
   onDragEnter,
   onDragEnd,
-  onDrop
+  onDrop,
+  draggable = true,
+  showDragHandle = true,
+  containerClassName = ''
 }) {
   const [activeSet, setActiveSet] = useState(0)
 
@@ -129,8 +132,8 @@ export default function ExerciseCard({
 
   return (
     <div 
-      className={`${styles.card} ${exercise.expanded ? styles.expanded : ''} ${exercise.completed ? styles.completed : ''} ${isDragging ? styles.dragging : ''} ${stacked ? styles.stacked : ''}`}
-      draggable
+      className={`${styles.card} ${exercise.expanded ? styles.expanded : ''} ${exercise.completed ? styles.completed : ''} ${isDragging ? styles.dragging : ''} ${stacked ? styles.stacked : ''} ${containerClassName || ''}`}
+      draggable={Boolean(draggable)}
       onDragStart={(e) => {
         if (onDragStart) {
           onDragStart(e, exercise.id)
@@ -150,19 +153,21 @@ export default function ExerciseCard({
           {stackMembers.length === 2 ? 'Superset' : 'Circuit'} {stackIndex + 1}/{stackMembers.length}
         </div>
       )}
-      <div 
-        className={styles.dragHandle}
-        onMouseDown={(e) => {
-          // Make the card draggable when clicking the handle
-          e.stopPropagation()
-        }}
-        onTouchStart={(e) => {
-          // For touch, allow dragging from handle
-          e.stopPropagation()
-        }}
-      >
-        ⋮⋮
-      </div>
+      {showDragHandle && (
+        <div 
+          className={styles.dragHandle}
+          onMouseDown={(e) => {
+            // Make the card draggable when clicking the handle
+            e.stopPropagation()
+          }}
+          onTouchStart={(e) => {
+            // For touch, allow dragging from handle
+            e.stopPropagation()
+          }}
+        >
+          ⋮⋮
+        </div>
+      )}
       <button className={styles.header} onClick={onToggle}>
         <span className={styles.name}>{exercise.name}</span>
         <span className={styles.summary}>
@@ -289,7 +294,7 @@ export default function ExerciseCard({
                                 const total = safeMins * 60 + (Number.isFinite(secs) ? secs : 0)
                                 onUpdateSet(idx, 'time', String(total))
                               }}
-                              className={styles.input}
+                              className={`${styles.input} ${styles.cardioMinInput}`}
                             />
                             <span className={styles.cardioTimeColon}>:</span>
                             <input
@@ -304,7 +309,7 @@ export default function ExerciseCard({
                                 const total = (Number.isFinite(mins) ? mins : 0) * 60 + safeSecs
                                 onUpdateSet(idx, 'time', String(total))
                               }}
-                              className={styles.input}
+                              className={`${styles.input} ${styles.cardioSecInput}`}
                             />
                           </div>
 

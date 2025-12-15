@@ -8,11 +8,14 @@
 /**
  * @typedef {{name: string, sets: (number|string), reps: string, time: string, notes: string}} TemplateExercisePreset
  */
+/**
+ * @typedef {{name: string, sets: (number|string), reps: string, time: string, notes: string, stackGroup?: (string|null)}} TemplateExercisePresetV2
+ */
 
 /**
  * Normalize a template exercises list into a consistent preset object shape.
  * @param {unknown} list
- * @returns {TemplateExercisePreset[]}
+ * @returns {TemplateExercisePresetV2[]}
  */
 export function normalizeTemplateExercises(list) {
   const arr = Array.isArray(list) ? list : []
@@ -20,7 +23,7 @@ export function normalizeTemplateExercises(list) {
     .map((e) => {
       if (!e) return null
       if (typeof e === 'string') {
-        return { name: e, sets: '', reps: '', time: '', notes: '' }
+        return { name: e, sets: '', reps: '', time: '', notes: '', stackGroup: null }
       }
       if (typeof e === 'object') {
         // @ts-ignore - this file is JS, callers may pass any shape
@@ -34,7 +37,9 @@ export function normalizeTemplateExercises(list) {
         const time = e.time ?? ''
         // @ts-ignore
         const notes = e.notes ?? ''
-        return { name, sets, reps: String(reps), time: String(time), notes: String(notes) }
+        // @ts-ignore
+        const stackGroup = e.stackGroup ?? null
+        return { name, sets, reps: String(reps), time: String(time), notes: String(notes), stackGroup: stackGroup == null ? null : String(stackGroup) }
       }
       return null
     })

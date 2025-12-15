@@ -42,6 +42,11 @@ export async function deleteTemplate(id) {
   return db.deleteTemplate(id)
 }
 
+export async function bulkAddTemplates(templates) {
+  const db = await loadDb()
+  return db.bulkAddTemplates(templates)
+}
+
 // Workouts (local)
 export async function saveWorkout(workout) {
   const db = await loadDb()

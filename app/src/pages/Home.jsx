@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { calculateStreakFromSupabase, getWorkoutsFromSupabase } from '../lib/db/workoutsDb'
 import { getUserPreferences } from '../lib/db/userPreferencesDb'
-import { getSocialFeedItems } from '../lib/db/feedDb'
+import { getSocialFeedItems, deleteFeedItemFromSupabase } from '../lib/db/feedDb'
 import { getScheduledWorkoutsFromSupabase } from '../lib/db/scheduledWorkoutsDb'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
@@ -25,6 +25,7 @@ import Button from '../components/Button'
 import { useHaptic } from '../hooks/useHaptic'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
+import ConfirmDialog from '../components/ConfirmDialog'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -53,6 +54,36 @@ export default function Home() {
   const pullStartY = useRef(0)
   const isPulling = useRef(false)
   const shownErrorsRef = useRef({ feed: false, init: false, scheduled: false, pending: false })
+  const confirmResolverRef = useRef(null)
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: 'Confirm',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    isDestructive: false
+  })
+
+  const confirmAsync = ({ title, message, confirmText = 'Confirm', cancelText = 'Cancel', isDestructive = false }) => {
+    return new Promise((resolve) => {
+      confirmResolverRef.current = resolve
+      setConfirmDialog({
+        open: true,
+        title,
+        message,
+        confirmText,
+        cancelText,
+        isDestructive
+      })
+    })
+  }
+
+  const resolveConfirm = (result) => {
+    setConfirmDialog(prev => ({ ...prev, open: false }))
+    const resolve = confirmResolverRef.current
+    confirmResolverRef.current = null
+    if (resolve) resolve(result)
+  }
   
   // Reload feed when filter changes
   useEffect(() => {
@@ -129,6 +160,8 @@ export default function Home() {
             }
             
             const logEntry = {
+              id: item.id,
+              source: 'feed_item',
               type: item.type || 'workout',
               date: itemDate,
               title: item.title || (item.type === 'nutrition' ? 'Daily Nutrition' : item.type === 'health' ? 'Health Metrics' : 'Workout'),
@@ -173,6 +206,29 @@ export default function Home() {
       setRecentLogs([])
       setLoading(false)
       setIsRefreshing(false)
+    }
+  }
+
+  const handleDeletePost = async (log) => {
+    if (!user?.id) return
+    if (!log?.id || log.source !== 'feed_item' || !log.isOwnPost) return
+
+    const ok = await confirmAsync({
+      title: 'Delete post?',
+      message: 'This will remove the post from your feed.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      isDestructive: true
+    })
+    if (!ok) return
+
+    try {
+      await deleteFeedItemFromSupabase(log.id, user.id)
+      showToast('Post deleted.', 'success')
+      await loadRecentLogs(user.id, false)
+    } catch (e) {
+      logError('Failed to delete feed post', e)
+      showToast('Failed to delete post. Please try again.', 'error')
     }
   }
   
@@ -501,6 +557,16 @@ export default function Home() {
     return (
       <div className={styles.container}>
         {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
+        <ConfirmDialog
+          isOpen={confirmDialog.open}
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmText={confirmDialog.confirmText}
+          cancelText={confirmDialog.cancelText}
+          isDestructive={confirmDialog.isDestructive}
+          onClose={() => resolveConfirm(false)}
+          onConfirm={() => resolveConfirm(true)}
+        />
         <div className={styles.loading} style={{ width: '100%' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Skeleton style={{ width: '45%', height: 16 }} />
@@ -549,6 +615,16 @@ export default function Home() {
   return (
     <div className={styles.container}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
+      <ConfirmDialog
+        isOpen={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+        cancelText={confirmDialog.cancelText}
+        isDestructive={confirmDialog.isDestructive}
+        onClose={() => resolveConfirm(false)}
+        onConfirm={() => resolveConfirm(true)}
+      />
       <div className={styles.header}>
         <SideMenu />
         <div className={styles.logoContainer}>
@@ -827,6 +903,16 @@ export default function Home() {
                           {!isPrivateModeOn && log.timestamp ? ` · ${new Date(log.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
                           </span>
                         </div>
+                        {log.isOwnPost && log.source === 'feed_item' && (
+                          <Button
+                            unstyled
+                            className={styles.feedActionBtn}
+                            onClick={() => handleDeletePost(log)}
+                            title="Delete post"
+                          >
+                            Delete
+                          </Button>
+                        )}
                       </div>
                       {/* Show ShareCard for workout, nutrition, or health */}
                       <ShareCard 

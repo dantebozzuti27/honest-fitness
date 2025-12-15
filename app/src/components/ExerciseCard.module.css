@@ -357,6 +357,16 @@
   min-width: 0;
 }
 
+.cardioMinInput {
+  width: 56px;
+  flex: 0 0 auto;
+}
+
+.cardioSecInput {
+  width: 64px;
+  flex: 0 0 auto;
+}
+
 .cardioTimeColon {
   color: var(--text-muted);
   font-size: 12px;

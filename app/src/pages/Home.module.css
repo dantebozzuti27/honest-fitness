@@ -556,6 +556,22 @@
   font-weight: 400;
 }
 
+.feedActionBtn {
+  margin-left: auto;
+  padding: 8px 10px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.feedActionBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+
 /* Standardized list spacing - consistent gap between items */
 .feedList {
   display: flex;

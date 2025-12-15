@@ -12,6 +12,25 @@ const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
 
+// ============ FEATURE GATES FOR PARTIALLY-MIGRATED DBS ============
+// If a table/policy is broken in the database (e.g. RLS policy SQL error causing 409),
+// disable the feature for the session to avoid request spam + blank pages.
+let feedItemsDisabled = false
+let feedItemsDisabledReason = null
+function disableFeedItems(reason) {
+  if (feedItemsDisabled) return
+  feedItemsDisabled = true
+  feedItemsDisabledReason = reason || 'feed_items is unavailable'
+  safeLogDebug('Disabling feed_items for this session:', feedItemsDisabledReason)
+}
+
+let pausedWorkoutsDisabled = false
+function disablePausedWorkouts(reason) {
+  if (pausedWorkoutsDisabled) return
+  pausedWorkoutsDisabled = true
+  safeLogDebug('Disabling paused_workouts for this session:', reason || 'paused_workouts is unavailable')
+}
+
 // ============ WORKOUTS ============
 // IMPORTANT: Workouts are ONLY created through explicit user action (finishing a workout).
 // This function is ONLY called from ActiveWorkout.jsx when the user finishes a workout.
@@ -440,6 +459,7 @@ export async function getWorkoutDatesFromSupabase(userId) {
  * This allows users to pause and resume workouts later
  */
 export async function savePausedWorkoutToSupabase(workoutState, userId) {
+  if (pausedWorkoutsDisabled) return null
   const pausedWorkout = {
     user_id: userId,
     date: workoutState.date || getTodayEST(),
@@ -462,6 +482,7 @@ export async function savePausedWorkoutToSupabase(workoutState, userId) {
   // If table doesn't exist, silently fail (migration not run)
   if (checkError && (checkError.code === 'PGRST205' || checkError.message?.includes('Could not find the table'))) {
     safeLogDebug('paused_workouts table does not exist yet - migration not run')
+    disablePausedWorkouts('missing table')
     return null
   }
   if (checkError && checkError.code !== 'PGRST116') {
@@ -497,6 +518,7 @@ export async function savePausedWorkoutToSupabase(workoutState, userId) {
  */
 export async function getPausedWorkoutFromSupabase(userId) {
   try {
+    if (pausedWorkoutsDisabled) return null
     const { data, error } = await supabase
       .from('paused_workouts')
       .select('*')
@@ -510,6 +532,7 @@ export async function getPausedWorkoutFromSupabase(userId) {
     // If table doesn't exist (migration not run), return null gracefully
     if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
       safeLogDebug('paused_workouts table does not exist yet - migration not run')
+      disablePausedWorkouts('missing table')
       return null
     }
     if (error) throw error
@@ -525,6 +548,7 @@ export async function getPausedWorkoutFromSupabase(userId) {
     // If table doesn't exist, return null gracefully
     if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
       safeLogDebug('paused_workouts table does not exist yet - migration not run')
+      disablePausedWorkouts('missing table')
       return null
     }
     throw error
@@ -536,6 +560,7 @@ export async function getPausedWorkoutFromSupabase(userId) {
  */
 export async function deletePausedWorkoutFromSupabase(userId) {
   try {
+    if (pausedWorkoutsDisabled) return
     const { error } = await supabase
       .from('paused_workouts')
       .delete()
@@ -544,6 +569,7 @@ export async function deletePausedWorkoutFromSupabase(userId) {
     // If table doesn't exist, silently succeed (migration not run)
     if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
       safeLogDebug('paused_workouts table does not exist yet - migration not run')
+      disablePausedWorkouts('missing table')
       return
     }
     if (error) throw error
@@ -551,6 +577,7 @@ export async function deletePausedWorkoutFromSupabase(userId) {
     // If table doesn't exist, silently succeed
     if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
       safeLogDebug('paused_workouts table does not exist yet - migration not run')
+      disablePausedWorkouts('missing table')
       return
     }
     throw error
@@ -1573,6 +1600,10 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
     let feedItemsError = null
     
     try {
+      if (feedItemsDisabled) {
+        feedItems = []
+        feedItemsError = new Error(feedItemsDisabledReason || 'feed_items disabled')
+      } else {
       const base = () => {
         let q = supabase
           .from('feed_items')
@@ -1630,9 +1661,25 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
           })
           .slice(0, limit)
       }
+      }
     } catch (err) {
       feedItemsError = err
       logError('Error in feed items query', err)
+
+      // Common supabase REST failure modes that make feed_items unusable until migrations/policies are fixed.
+      const msg = `${err?.message || ''}`.toLowerCase()
+      const code = `${err?.code || ''}`
+      const status = Number(err?.status || err?.statusCode || 0)
+      if (
+        status === 409 ||
+        code === '42702' ||
+        msg.includes('ambiguous') ||
+        msg.includes('column reference') ||
+        msg.includes('visibility') ||
+        msg.includes('feed_items')
+      ) {
+        disableFeedItems(`db/policy error (${code || status || 'unknown'}): ${err?.message || 'unknown error'}`)
+      }
     }
     
     // Handle feed items errors gracefully
@@ -1640,6 +1687,10 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
       // If table doesn't exist, that's okay - just continue with workouts
       if (feedItemsError.code === 'PGRST205' || feedItemsError.message?.includes('Could not find the table')) {
         safeLogDebug('feed_items table does not exist yet - migration not run')
+        disableFeedItems('missing table')
+        feedItems = []
+      } else if (feedItemsDisabled) {
+        // Disabled for session; fall back to workouts without repeatedly erroring.
         feedItems = []
       } else {
         logError('Feed items query error', feedItemsError)
@@ -1651,7 +1702,9 @@ export async function getSocialFeedItems(userId, filter = 'all', limit = 20, cur
     // If feed_items table exists, we should use it as the source of truth for the social feed
     // (privacy/visibility lives there). Only fall back to workouts if feed_items table is missing.
     let workouts = []
-    const feedItemsTableMissing = feedItemsError && (feedItemsError.code === 'PGRST205' || feedItemsError.message?.includes('Could not find the table'))
+    const feedItemsTableMissing =
+      feedItemsDisabled ||
+      (feedItemsError && (feedItemsError.code === 'PGRST205' || feedItemsError.message?.includes('Could not find the table')))
     if (feedItemsTableMissing) {
       try {
         let workoutQuery = supabase

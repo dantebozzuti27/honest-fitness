@@ -125,7 +125,16 @@ export default function Fitness() {
     if (!user || !pausedWorkout) return
     try {
       const { deletePausedWorkoutFromSupabase } = await import('../lib/supabaseDb')
-      await deletePausedWorkoutFromSupabase(user.id)
+      const result = await deletePausedWorkoutFromSupabase(user.id)
+      // Always clear local fallback so the UI doesn’t keep resurrecting it.
+      try {
+        localStorage.removeItem(`pausedWorkout_${user.id}`)
+        localStorage.removeItem('pausedWorkout')
+      } catch {}
+
+      if (result && result.deleted === false) {
+        throw new Error('Paused workout could not be deleted (likely RLS/auth). Ensure you are signed in and the DELETE policy exists.')
+      }
       setPausedWorkout(null)
       if (showToast && typeof showToast === 'function') {
         showToast('Paused workout dismissed', 'info')

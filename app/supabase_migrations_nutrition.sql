@@ -26,3 +26,19 @@ BEGIN
   END IF;
 END $$;
 
+-- Optional: if you're using the newer unified `health_metrics` table, add micronutrients rollup column.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'health_metrics'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'health_metrics' AND column_name = 'micros'
+    ) THEN
+      ALTER TABLE health_metrics ADD COLUMN micros JSONB;
+    END IF;
+  END IF;
+END $$;
+

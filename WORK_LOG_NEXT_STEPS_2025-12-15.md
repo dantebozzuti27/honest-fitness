@@ -43,6 +43,12 @@ If any of these fail, paste the full error output and I’ll fix it immediately.
 ### SQL migrations / scripts you should run (and suggested order)
 All SQL scripts are in `app/*.sql`. Recent/most relevant ones:
 
+0) **Nutrition database (food library + fast search index + expanded system foods)**
+- `app/supabase_migrations_nutrition_database.sql`
+  - Re-running is safe (uses `IF NOT EXISTS` + `ON CONFLICT DO NOTHING`)
+  - Adds a built-in Postgres full-text index on `food_library.name` (`name_tsv`) to keep search fast
+  - Seeds a much larger built-in `food_library` so Nutrition search has way more options **without any external API**
+
 1) **Exercise library table** (only if your DB doesn’t already have it)
 - `app/supabase_migrations_exercise_library.sql`
 

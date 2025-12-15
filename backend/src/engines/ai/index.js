@@ -8,6 +8,7 @@ import { generateWorkoutPlan } from './workoutPlan.js'
 import { generateNutritionPlan } from './nutritionPlan.js'
 import { generateWeeklySummary } from './weeklySummary.js'
 import { generateInsights } from './insights.js'
+import { generatePageInsights } from './pageInsights.js'
 import { interpretUserPrompt } from './promptInterpreter.js'
 
 let openaiClient = null
@@ -60,6 +61,15 @@ export async function generateAIInsights(userId, dataContext, mlResults) {
   const client = getOpenAIClient()
   if (!client) throw new Error('OPENAI_API_KEY is missing; AI features are not available.')
   return await generateInsights(client, userId, dataContext, mlResults)
+}
+
+/**
+ * Generate page-specific insights
+ */
+export async function generateAIPageInsights(userId, dataContext, mlResults, page, extraContext) {
+  const client = getOpenAIClient()
+  if (!client) throw new Error('OPENAI_API_KEY is missing; AI features are not available.')
+  return await generatePageInsights(client, userId, dataContext, mlResults, page, extraContext)
 }
 
 /**

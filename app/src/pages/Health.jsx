@@ -28,6 +28,8 @@ import Skeleton from '../components/Skeleton'
 import Button from '../components/Button'
 import InputField from '../components/InputField'
 import SelectField from '../components/SelectField'
+import InsightsCard from '../components/InsightsCard'
+import { usePageInsights } from '../hooks/usePageInsights'
 import styles from './Health.module.css'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
@@ -55,6 +57,20 @@ export default function Health() {
   const { toast, showToast, hideToast } = useToast()
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null, payload: null })
   const shownLoadErrorRef = useRef(false)
+
+  // Page-specific AI insights (health-focused)
+  const { loading: insightsLoading, data: pageInsights } = usePageInsights(
+    'Health',
+    {
+      activeTab,
+      selectedPeriod,
+      workoutsCount: Array.isArray(workouts) ? workouts.length : 0,
+      metricsCount: Array.isArray(metrics) ? metrics.length : 0,
+      readinessScore: readiness?.score ?? null,
+      readinessZone: readiness?.zone ?? null
+    },
+    Boolean(user)
+  )
 
   const recoveryStreak = useMemo(() => {
     // Recovery session: session_type === 'recovery' OR all exercises are category Recovery
@@ -573,6 +589,17 @@ export default function Health() {
           
           return (
             <div className={styles.dashboardContainer}>
+              {pageInsights?.insights?.length > 0 && (
+                <InsightsCard
+                  title={pageInsights.title || 'Health Insights'}
+                  insights={(pageInsights.insights || []).map(i => ({
+                    message: i?.message || '',
+                    icon: null
+                  }))}
+                  type="info"
+                  expandable
+                />
+              )}
               {/* Recovery quick-start (first-class) */}
               <div className={styles.dashboardGrid}>
                 <div

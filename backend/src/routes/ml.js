@@ -4,7 +4,7 @@
 
 import express from 'express'
 import { processML } from '../engines/ml/index.js'
-import { generateAIWorkoutPlan, generateAINutritionPlan, generateAIWeeklySummary, generateAIInsights, interpretPrompt } from '../engines/ai/index.js'
+import { generateAIWorkoutPlan, generateAINutritionPlan, generateAIWeeklySummary, generateAIInsights, generateAIPageInsights, interpretPrompt } from '../engines/ai/index.js'
 import { getFromDatabase } from '../database/index.js'
 import { mlLimiter } from '../middleware/rateLimiter.js'
 import { logError } from '../utils/logger.js'
@@ -112,6 +112,32 @@ mlRouter.post('/insights', async (req, res, next) => {
     res.json({
       success: true,
       insights
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+// Page-specific insights
+mlRouter.post('/page-insights', async (req, res, next) => {
+  try {
+    const userId = req.userId
+    const { page, context } = req.body || {}
+
+    const pageKey = (page || '').toString().trim()
+    if (!pageKey || pageKey.length > 40) {
+      return res.status(400).json({ success: false, message: 'Invalid page' })
+    }
+
+    const dataContext = await loadDataContext(userId)
+    const mlResults = await processML(userId, dataContext)
+
+    const insights = await generateAIPageInsights(userId, dataContext, mlResults, pageKey, context)
+
+    res.json({
+      success: true,
+      page: pageKey,
+      ...insights
     })
   } catch (error) {
     next(error)

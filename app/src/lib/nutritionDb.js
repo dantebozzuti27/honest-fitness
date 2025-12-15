@@ -104,6 +104,7 @@ export async function saveMealToSupabase(userId, date, meal, options = {}) {
   let meals = []
   let totalCalories = 0
   let totalMacros = { protein: 0, carbs: 0, fat: 0 }
+  let totalMicros = {}
   
   if (existing && existing.meals) {
     try {
@@ -117,11 +118,18 @@ export async function saveMealToSupabase(userId, date, meal, options = {}) {
           totalMacros = { protein: 0, carbs: 0, fat: 0 }
         }
       }
+      if (existing.micros) {
+        totalMicros = typeof existing.micros === 'string' ? JSON.parse(existing.micros) : existing.micros
+        if (!totalMicros || typeof totalMicros !== 'object') {
+          totalMicros = {}
+        }
+      }
     } catch (e) {
       logError('Error parsing existing meals', e)
       meals = []
       totalCalories = 0
       totalMacros = { protein: 0, carbs: 0, fat: 0 }
+      totalMicros = {}
     }
   }
   
@@ -152,6 +160,11 @@ export async function saveMealToSupabase(userId, date, meal, options = {}) {
   
   // Ensure calories is a number
   mealToAdd.calories = Number(mealToAdd.calories) || 0
+
+  // Ensure micros is an object (optional)
+  if (!mealToAdd.micros || typeof mealToAdd.micros !== 'object') {
+    mealToAdd.micros = {}
+  }
   
   // Check if meal with this ID already exists
   const existingMealIndex = meals.findIndex(m => m.id === mealToAdd.id)
@@ -173,6 +186,18 @@ export async function saveMealToSupabase(userId, date, meal, options = {}) {
       fat: macros.fat + (Number(mMacros.fat) || Number(m.fat) || 0)
     }
   }, { protein: 0, carbs: 0, fat: 0 })
+
+  const toNum = (v) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : 0
+  }
+  totalMicros = meals.reduce((acc, m) => {
+    const micros = (m && typeof m.micros === 'object' && m.micros) ? m.micros : {}
+    for (const [k, v] of Object.entries(micros)) {
+      acc[k] = toNum(acc[k]) + toNum(v)
+    }
+    return acc
+  }, {})
   
   // Save to database - JSONB columns can accept objects directly
   // But we'll stringify to ensure compatibility
@@ -182,7 +207,8 @@ export async function saveMealToSupabase(userId, date, meal, options = {}) {
       date: date,
       calories_consumed: totalCalories,
       meals: meals, // JSONB accepts objects/arrays directly
-      macros: totalMacros // JSONB accepts objects directly
+      macros: totalMacros, // JSONB accepts objects directly
+      micros: totalMicros // JSONB accepts objects directly
     }
   
   // Only include updated_at if the column exists (to avoid schema errors)
@@ -204,7 +230,7 @@ export async function saveMealToSupabase(userId, date, meal, options = {}) {
     
     // Step 3: Enrich data (after saving)
     try {
-      await saveEnrichedData('nutrition', { ...data, meals, macros: totalMacros }, userId)
+      await saveEnrichedData('nutrition', { ...data, meals, macros: totalMacros, micros: totalMicros }, userId)
     } catch (enrichError) {
       // Don't fail the save if enrichment fails
       logError('Error enriching nutrition data', enrichError)
@@ -299,6 +325,25 @@ export async function getMealsFromSupabase(userId, date) {
       macros = { protein: 0, carbs: 0, fat: 0 }
     }
   }
+
+  let micros = {}
+  if (data.micros) {
+    try {
+      if (typeof data.micros === 'string') {
+        micros = JSON.parse(data.micros)
+      } else if (typeof data.micros === 'object' && !Array.isArray(data.micros)) {
+        micros = data.micros
+      } else {
+        micros = {}
+      }
+      if (!micros || typeof micros !== 'object' || Array.isArray(micros)) {
+        micros = {}
+      }
+    } catch (e) {
+      logWarn('Error parsing micros', { message: e?.message })
+      micros = {}
+    }
+  }
   
   safeLogDebug(`Loaded meals for ${date}: ${meals.length} meals`)
   
@@ -306,6 +351,7 @@ export async function getMealsFromSupabase(userId, date) {
       meals: meals || [],
       calories: Number(data.calories_consumed) || 0,
       macros: macros || { protein: 0, carbs: 0, fat: 0 },
+      micros: micros || {},
       water: Number(data.water) || 0
     }
 }
@@ -328,6 +374,7 @@ export async function getNutritionRangeFromSupabase(userId, startDate, endDate) 
   return (data || []).map(item => {
     let meals = []
     let macros = { protein: 0, carbs: 0, fat: 0 }
+    let micros = {}
     
     if (item.meals) {
       try {
@@ -344,12 +391,22 @@ export async function getNutritionRangeFromSupabase(userId, startDate, endDate) 
         macros = { protein: 0, carbs: 0, fat: 0 }
       }
     }
+
+    if (item.micros) {
+      try {
+        micros = typeof item.micros === 'string' ? JSON.parse(item.micros) : item.micros
+        if (!micros || typeof micros !== 'object' || Array.isArray(micros)) micros = {}
+      } catch (e) {
+        micros = {}
+      }
+    }
     
     return {
       date: item.date,
       meals,
       calories: item.calories_consumed || 0,
       macros,
+      micros,
       water: item.water || 0
     }
   })

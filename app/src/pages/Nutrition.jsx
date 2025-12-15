@@ -22,6 +22,8 @@ import HomeButton from '../components/HomeButton'
 import HistoryCard from '../components/HistoryCard'
 import EmptyState from '../components/EmptyState'
 import { chatWithAI } from '../lib/chatApi'
+import InsightsCard from '../components/InsightsCard'
+import { usePageInsights } from '../hooks/usePageInsights'
 // All charts are now BarChart only
 import styles from './Nutrition.module.css'
 
@@ -49,6 +51,7 @@ export default function Nutrition() {
   const [targetMacros, setTargetMacros] = useState(null)
   const [currentCalories, setCurrentCalories] = useState(0)
   const [currentMacros, setCurrentMacros] = useState({ protein: 0, carbs: 0, fat: 0 })
+  const [currentMicros, setCurrentMicros] = useState({})
   const [meals, setMeals] = useState([])
   const [waterIntake, setWaterIntake] = useState(0)
   const [selectedDate, setSelectedDate] = useState(getTodayEST())
@@ -84,6 +87,20 @@ export default function Nutrition() {
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedNutritionForShare, setSelectedNutritionForShare] = useState(null)
   const fastingTimerRef = useRef(null)
+
+  // Page-specific AI insights (nutrition-focused)
+  const { data: pageInsights } = usePageInsights(
+    'Nutrition',
+    {
+      activeTab,
+      selectedDate,
+      currentCalories,
+      currentMacros,
+      mealsCount: Array.isArray(meals) ? meals.length : 0,
+      waterIntake
+    },
+    Boolean(user)
+  )
 
   useEffect(() => {
     if (!user) return
@@ -196,11 +213,12 @@ export default function Nutrition() {
       ])
       setFoodCategories(categories)
       // Combine favorites, recent, and system foods (prioritize favorites/recent)
-      const allSuggestions = [
+      let allSuggestions = [
         ...favoriteFoods.map(f => ({ ...f, isFavorite: true })),
         ...recentFoods.map(f => ({ ...f, isRecent: true })),
         ...systemFoods.filter(f => !favoriteFoods.some(fav => fav.id === f.id) && !recentFoods.some(rec => rec.id === f.id))
       ]
+
       setFoodSuggestions(allSuggestions.slice(0, 50)) // Limit to 50 suggestions
     } catch (error) {
       logError('Error loading food suggestions', error)
@@ -320,6 +338,7 @@ export default function Nutrition() {
       setMeals(dayData.meals || [])
       setCurrentCalories(dayData.calories || 0)
       setCurrentMacros(dayData.macros || { protein: 0, carbs: 0, fat: 0 })
+      setCurrentMicros(dayData.micros || {})
       setWaterIntake(dayData.water || 0)
       
       const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -332,6 +351,7 @@ export default function Nutrition() {
           meals: item.meals,
           calories: item.calories,
           macros: item.macros,
+          micros: item.micros || {},
           water: item.water
         }
       })
@@ -341,10 +361,11 @@ export default function Nutrition() {
       const saved = localStorage.getItem(`ghostMode_${user.id}`)
       if (saved) {
         const data = JSON.parse(saved)
-        const dayData = data.historyData?.[date] || { meals: [], calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, water: 0 }
+        const dayData = data.historyData?.[date] || { meals: [], calories: 0, macros: { protein: 0, carbs: 0, fat: 0 }, micros: {}, water: 0 }
         setMeals(dayData.meals || [])
         setCurrentCalories(dayData.calories || 0)
         setCurrentMacros(dayData.macros || { protein: 0, carbs: 0, fat: 0 })
+        setCurrentMicros(dayData.micros || {})
         setWaterIntake(dayData.water || 0)
         setHistoryData(data.historyData || {})
       }
@@ -366,6 +387,7 @@ export default function Nutrition() {
         meals,
         calories: currentCalories,
         macros: currentMacros,
+        micros: currentMicros,
         water: waterIntake
       }
     }
@@ -403,6 +425,11 @@ export default function Nutrition() {
       const carbs = Number(newMeal.macros?.carbs ?? newMeal.carbs ?? 0) || 0
       const fat = Number(newMeal.macros?.fat ?? newMeal.fat ?? 0) || 0
       const calories = Number(newMeal.calories ?? 0) || 0
+      const micros = (newMeal && typeof newMeal.micros === 'object' && newMeal.micros) ? newMeal.micros : {}
+      const toNum = (v) => {
+        const n = Number(v)
+        return Number.isFinite(n) ? n : 0
+      }
 
       const updatedMeals = [...meals, newMeal]
       const updatedCalories = (Number(currentCalories) || 0) + calories
@@ -411,16 +438,22 @@ export default function Nutrition() {
         carbs: (Number(currentMacros?.carbs) || 0) + carbs,
         fat: (Number(currentMacros?.fat) || 0) + fat
       }
+      const updatedMicros = { ...(currentMicros || {}) }
+      for (const [k, v] of Object.entries(micros)) {
+        updatedMicros[k] = toNum(updatedMicros[k]) + toNum(v)
+      }
 
       setMeals(updatedMeals)
       setCurrentCalories(updatedCalories)
       setCurrentMacros(updatedMacros)
+      setCurrentMicros(updatedMicros)
       setHistoryData(prev => ({
         ...(prev || {}),
         [selectedDate]: {
           meals: updatedMeals,
           calories: updatedCalories,
           macros: updatedMacros,
+          micros: updatedMicros,
           water: waterIntake
         }
       }))
@@ -535,9 +568,16 @@ export default function Nutrition() {
         carbs: Math.max(0, currentMacros.carbs - (meal.macros?.carbs || 0)),
         fat: Math.max(0, currentMacros.fat - (meal.macros?.fat || 0))
       }
+      const updatedMicros = { ...(currentMicros || {}) }
+      const micros = (meal && typeof meal.micros === 'object' && meal.micros) ? meal.micros : {}
+      for (const [k, v] of Object.entries(micros)) {
+        const next = (Number(updatedMicros[k]) || 0) - (Number(v) || 0)
+        updatedMicros[k] = Math.max(0, next)
+      }
       setMeals(updatedMeals)
       setCurrentCalories(updatedCalories)
       setCurrentMacros(updatedMacros)
+      setCurrentMicros(updatedMicros)
       
       // Update history data immediately
       const updatedHistory = {
@@ -546,6 +586,7 @@ export default function Nutrition() {
           meals: updatedMeals,
           calories: updatedCalories,
           macros: updatedMacros,
+          micros: updatedMicros,
           water: waterIntake
         }
       }
@@ -802,6 +843,14 @@ export default function Nutrition() {
       <div className={styles.content}>
         {activeTab === 'Today' && (
           <div>
+            {pageInsights?.insights?.length > 0 && (
+              <InsightsCard
+                title={pageInsights.title || 'Nutrition Insights'}
+                insights={(pageInsights.insights || []).map(i => ({ message: i?.message || '' }))}
+                type="info"
+                expandable
+              />
+            )}
             {/* Log Meal Button */}
             <div className={styles.logMealActions}>
               <button
@@ -847,6 +896,7 @@ export default function Nutrition() {
                     const protein = food.protein_per_100g || 0
                     const carbs = food.carbs_per_100g || 0
                     const fat = food.fat_per_100g || 0
+                    const micros = (food && typeof food.micros_per_100g === 'object' && food.micros_per_100g) ? food.micros_per_100g : {}
                     
                     return (
                       <button
@@ -860,6 +910,13 @@ export default function Nutrition() {
                               protein: Math.round(protein),
                               carbs: Math.round(carbs),
                               fat: Math.round(fat)
+                            },
+                            micros: {
+                              ...micros,
+                              // Include these “micros” even if the JSONB blob is empty.
+                              fiber_g: Number(food.fiber_per_100g) || 0,
+                              sugar_g: Number(food.sugar_per_100g) || 0,
+                              sodium_mg: Number(food.sodium_per_100g) || 0
                             },
                             foods: [food.name],
                             type: 'suggestion',
@@ -1085,6 +1142,40 @@ export default function Nutrition() {
                   })}
                 </div>
               )}
+            </div>
+
+            {/* Micronutrients (best-effort; populated when foods include micros) */}
+            <div className={styles.summaryCard}>
+              <h3 style={{ marginTop: 0 }}>Micros (today)</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <div className={styles.label}>Fiber</div>
+                  <div>{Math.round(Number(currentMicros?.fiber_g || 0))} g</div>
+                </div>
+                <div>
+                  <div className={styles.label}>Sodium</div>
+                  <div>{Math.round(Number(currentMicros?.sodium_mg || 0))} mg</div>
+                </div>
+                <div>
+                  <div className={styles.label}>Potassium</div>
+                  <div>{Math.round(Number(currentMicros?.potassium_mg || 0))} mg</div>
+                </div>
+                <div>
+                  <div className={styles.label}>Calcium</div>
+                  <div>{Math.round(Number(currentMicros?.calcium_mg || 0))} mg</div>
+                </div>
+                <div>
+                  <div className={styles.label}>Iron</div>
+                  <div>{Number(currentMicros?.iron_mg || 0).toFixed(1)} mg</div>
+                </div>
+                <div>
+                  <div className={styles.label}>Vitamin C</div>
+                  <div>{Math.round(Number(currentMicros?.vitamin_c_mg || 0))} mg</div>
+                </div>
+              </div>
+              <div className={styles.emptyHint} style={{ marginTop: 10 }}>
+                Tip: micros show up when foods include micronutrient data (system foods will grow over time; custom foods can include it too).
+              </div>
             </div>
             )}
 

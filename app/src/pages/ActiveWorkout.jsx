@@ -383,10 +383,18 @@ export default function ActiveWorkout() {
                 }
                 // Delete paused workout since we're resuming
                 await deletePausedWorkoutFromSupabase(user.id)
+                try {
+                  localStorage.removeItem(`pausedWorkout_${user.id}`)
+                  localStorage.removeItem('pausedWorkout')
+                } catch {}
                 hasResumedPaused = true
               } else {
                 // User chose not to resume, delete paused workout
                 await deletePausedWorkoutFromSupabase(user.id)
+                try {
+                  localStorage.removeItem(`pausedWorkout_${user.id}`)
+                  localStorage.removeItem('pausedWorkout')
+                } catch {}
               }
             }
           } catch (error) {
@@ -1485,6 +1493,13 @@ export default function ActiveWorkout() {
       } catch (error) {
         // Silently fail
       }
+    }
+    // Clear local paused backups
+    if (user) {
+      try {
+        localStorage.removeItem(`pausedWorkout_${user.id}`)
+        localStorage.removeItem('pausedWorkout')
+      } catch {}
     }
 
     // Clear localStorage backup

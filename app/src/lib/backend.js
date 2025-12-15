@@ -185,6 +185,18 @@ export async function getInsights(userId) {
 }
 
 /**
+ * ML Engine - Get page-specific insights
+ * @param {string} page - Page key, e.g. 'Nutrition', 'Health'
+ * @param {Object} context - lightweight page context (selected date, totals, etc.)
+ */
+export async function getPageInsights(page, context = {}) {
+  return apiRequest('/api/ml/page-insights', {
+    method: 'POST',
+    body: { page, context }
+  })
+}
+
+/**
  * ML Engine - Generate weekly summary
  */
 export async function getWeeklySummary(userId, week) {

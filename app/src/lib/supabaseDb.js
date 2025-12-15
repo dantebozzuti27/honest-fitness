@@ -568,10 +568,11 @@ export async function getPausedWorkoutFromSupabase(userId) {
 export async function deletePausedWorkoutFromSupabase(userId) {
   try {
     if (pausedWorkoutsDisabled) return
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('paused_workouts')
       .delete()
       .eq('user_id', userId)
+      .select('id')
 
     // If table doesn't exist, silently succeed (migration not run)
     if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
@@ -580,6 +581,15 @@ export async function deletePausedWorkoutFromSupabase(userId) {
       return
     }
     if (error) throw error
+
+    // If a row existed but we couldn't delete due to RLS/auth, PostgREST can "succeed" with 0 rows affected.
+    // Surface that so the UI can tell the user what’s wrong.
+    if (!data || (Array.isArray(data) && data.length === 0)) {
+      // It's also valid for there to be nothing to delete; callers that *know* a paused workout exists
+      // can treat this as a failure.
+      return { deleted: false }
+    }
+    return { deleted: true }
   } catch (error) {
     // If table doesn't exist, silently succeed
     if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {

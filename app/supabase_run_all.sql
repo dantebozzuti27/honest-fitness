@@ -1651,6 +1651,26 @@ CREATE TABLE IF NOT EXISTS scheduled_workouts (
   UNIQUE(user_id, date)
 );
 
+-- IMPORTANT: CREATE TABLE IF NOT EXISTS does NOT add new constraints to an existing table.
+-- If you created scheduled_workouts before we added UNIQUE(user_id, date), PostgREST upserts with
+-- on_conflict=user_id,date will fail with 400. This block ensures the unique constraint exists.
+DO $$
+BEGIN
+  IF to_regclass('public.scheduled_workouts') IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint c
+      WHERE c.conrelid = 'public.scheduled_workouts'::regclass
+        AND c.contype = 'u'
+        AND c.conname = 'scheduled_workouts_user_id_date_key'
+    ) THEN
+      ALTER TABLE public.scheduled_workouts
+        ADD CONSTRAINT scheduled_workouts_user_id_date_key UNIQUE (user_id, date);
+    END IF;
+  END IF;
+END
+$$;
+
 ALTER TABLE scheduled_workouts ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view own scheduled_workouts" ON scheduled_workouts;

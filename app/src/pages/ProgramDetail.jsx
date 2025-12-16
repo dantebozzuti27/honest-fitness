@@ -333,7 +333,17 @@ export default function ProgramDetail() {
       setEnrollOpen(false)
     } catch (e) {
       logError('Enroll failed', e)
-      showToast('Failed to enroll/schedule. Make sure the new `scheduled_workouts` table exists and try again.', 'error', 6500)
+      const msg = String(e?.message || e?.details || e?.hint || '').trim()
+      const looksLikeOnConflict = /on conflict|unique|constraint|scheduled_workouts/i.test(msg)
+      if (looksLikeOnConflict) {
+        showToast(
+          'Enroll failed: your `scheduled_workouts` table is missing the UNIQUE(user_id, date) constraint needed for upserts. Run the scheduled_workouts hotfix from `app/supabase_run_all.sql`, then retry.',
+          'error',
+          7500
+        )
+      } else {
+        showToast(`Failed to enroll/schedule.${msg ? ` ${msg}` : ''}`, 'error', 7500)
+      }
     } finally {
       setEnrolling(false)
     }

@@ -2037,53 +2037,15 @@ export default function ActiveWorkout() {
             if (hasProgress) {
               const confirmCancel = await confirmAsync({
                 title: 'Cancel session?',
-                message: 'You have workout progress. Cancel the session? Your progress will be saved for recovery.',
-                confirmText: 'Cancel session',
+                message: 'This will delete this workout session and you will NOT be able to resume it. Continue?',
+                confirmText: 'Delete session',
                 cancelText: 'Keep going',
-                isDestructive: false
+                isDestructive: true
               })
               if (!confirmCancel) return
             }
             
-            // Save progress before canceling (for recovery)
-            if (user && exercises.length > 0 && workoutStartTimeRef.current) {
-              try {
-                await saveActiveWorkoutSession(user.id, {
-                  workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
-                  pausedTimeMs: pausedTimeRef.current || 0,
-                  restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
-                  restDurationSeconds: restDurationRef.current || null,
-                  isResting: false,
-                  exercises: exercises
-                })
-                // Also save to localStorage
-                localStorage.setItem(`activeWorkout_${user.id}`, JSON.stringify({
-                  exercises,
-                  workoutTime,
-                  restTime,
-                  isResting,
-                  sessionType,
-                  sessionTypeMode,
-                  templateId,
-                  date: getTodayEST(),
-                  timestamp: Date.now()
-                }))
-              } catch (error) {
-                // Only log unexpected errors
-                const isExpectedError = error.code === 'PGRST205' || 
-                                        error.code === '42P01' ||
-                                        error.code === '42703' ||
-                                        error.message?.includes('Could not find the table') ||
-                                        error.message?.includes('column') ||
-                                        error.message?.includes('does not exist')
-                
-                if (!isExpectedError) {
-                  logError('Error saving workout before cancel', error)
-                }
-              }
-            }
-            
-            // Clear workout timer when canceling
+            // Cancel means DELETE: clear persisted progress (Supabase + localStorage) so it won't show up anywhere.
             if (user) {
               try {
                 await deleteActiveWorkoutSession(user.id)
@@ -2096,6 +2058,14 @@ export default function ActiveWorkout() {
                 if (!isExpectedError) {
                   logError('Error deleting active workout session on cancel', error)
                 }
+              }
+              try {
+                localStorage.removeItem(`activeWorkout_${user.id}`)
+                localStorage.removeItem(`workoutStartMetrics_${user.id}`)
+                localStorage.removeItem(`pausedWorkout_${user.id}`)
+                localStorage.removeItem('pausedWorkout')
+              } catch {
+                // ignore
               }
             }
             navigate('/')

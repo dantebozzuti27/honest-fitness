@@ -444,6 +444,20 @@ export default function Home() {
       }
     }
     window.addEventListener('feedUpdated', handleFeedUpdate)
+
+    // Listen for schedule changes (Program enroll/reschedule, Calendar actions)
+    const handleScheduledWorkoutsUpdate = async () => {
+      if (!mounted || !user?.id) return
+      try {
+        const scheduled = await getScheduledWorkoutsFromSupabase(user.id)
+        const today = getTodayEST()
+        const upcoming = (scheduled || []).filter(s => s.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 5)
+        if (mounted) setScheduledWorkouts(upcoming)
+      } catch (e) {
+        logError('Error refreshing scheduled workouts', e)
+      }
+    }
+    window.addEventListener('scheduledWorkoutsUpdated', handleScheduledWorkoutsUpdate)
     
     // Load pending requests
     const loadPendingRequests = async () => {
@@ -469,6 +483,7 @@ export default function Home() {
       mounted = false
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('feedUpdated', handleFeedUpdate)
+      window.removeEventListener('scheduledWorkoutsUpdated', handleScheduledWorkoutsUpdate)
     }
   }, [user, navigate, feedFilter]) // Add feedFilter to dependencies
 
@@ -746,19 +761,69 @@ export default function Home() {
 
             <div className={styles.planCard}>
               <div className={styles.cardLabel}>Plan</div>
-              {scheduledWorkouts.length > 0 ? (
-                <div className={styles.planLine}>
-                  Next: <span className={styles.planStrong}>{scheduledWorkouts[0]?.template_id === 'freestyle' ? 'Freestyle' : 'Workout'}</span>
-                  <span className={styles.planMuted}> · {formatDate(scheduledWorkouts[0]?.date)}</span>
-                </div>
-              ) : (
-                <div className={styles.planLine}>
-                  No workout scheduled <span className={styles.planMuted}>· add one in Calendar</span>
-                </div>
-              )}
-              <button className={styles.readinessLink} onClick={() => navigate('/calendar')}>
-                Open calendar
-              </button>
+              {(() => {
+                const today = getTodayEST()
+                const todays = (scheduledWorkouts || []).find(s => s?.date === today) || null
+                const next = (scheduledWorkouts || [])[0] || null
+                const labelFor = (s) => (s?.template_id === 'freestyle' ? 'Freestyle' : 'Workout')
+
+                if (todays) {
+                  return (
+                    <>
+                      <div className={styles.planLine}>
+                        Today: <span className={styles.planStrong}>{labelFor(todays)}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+                        <Button
+                          unstyled
+                          className={styles.readinessLink}
+                          onClick={() => {
+                            if (todays.template_id === 'freestyle') {
+                              navigate('/workout/active')
+                              return
+                            }
+                            if (!todays.template_id) {
+                              navigate('/calendar')
+                              return
+                            }
+                            navigate('/workout/active', { state: { templateId: todays.template_id, scheduledDate: todays.date } })
+                          }}
+                        >
+                          Start
+                        </Button>
+                        <button className={styles.readinessLink} onClick={() => navigate('/calendar')}>
+                          Open calendar
+                        </button>
+                      </div>
+                    </>
+                  )
+                }
+
+                if (next) {
+                  return (
+                    <>
+                      <div className={styles.planLine}>
+                        Next: <span className={styles.planStrong}>{labelFor(next)}</span>
+                        <span className={styles.planMuted}> · {formatDate(next?.date)}</span>
+                      </div>
+                      <button className={styles.readinessLink} onClick={() => navigate('/calendar')}>
+                        Open calendar
+                      </button>
+                    </>
+                  )
+                }
+
+                return (
+                  <>
+                    <div className={styles.planLine}>
+                      No workout scheduled <span className={styles.planMuted}>· add one in Calendar</span>
+                    </div>
+                    <button className={styles.readinessLink} onClick={() => navigate('/calendar')}>
+                      Open calendar
+                    </button>
+                  </>
+                )
+              })()}
             </div>
           </div>
         </div>
@@ -789,9 +854,23 @@ export default function Home() {
                     <Button
                       unstyled
                       className={styles.scheduledWorkoutAction}
-                      onClick={() => navigate('/calendar')}
+                      onClick={() => {
+                        if (isToday) {
+                          if (scheduled.template_id === 'freestyle') {
+                            navigate('/workout/active')
+                            return
+                          }
+                          if (!scheduled.template_id) {
+                            navigate('/calendar')
+                            return
+                          }
+                          navigate('/workout/active', { state: { templateId: scheduled.template_id, scheduledDate: scheduled.date } })
+                          return
+                        }
+                        navigate('/calendar')
+                      }}
                     >
-                      View Calendar
+                      {isToday ? 'Start' : 'View Calendar'}
                     </Button>
                   </div>
                 )

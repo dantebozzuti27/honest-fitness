@@ -15,9 +15,19 @@ export async function getScheduledWorkoutByDateFromSupabase(userId, date) {
   return m.getScheduledWorkoutByDateFromSupabase(userId, date)
 }
 
+export async function getScheduledWorkoutsByDateFromSupabase(userId, date) {
+  const m = await import('../supabaseDb')
+  return m.getScheduledWorkoutsByDateFromSupabase(userId, date)
+}
+
 export async function deleteScheduledWorkoutByDateFromSupabase(userId, date) {
   const m = await import('../supabaseDb')
   return m.deleteScheduledWorkoutByDateFromSupabase(userId, date)
+}
+
+export async function deleteScheduledWorkoutByIdFromSupabase(userId, id) {
+  const m = await import('../supabaseDb')
+  return m.deleteScheduledWorkoutByIdFromSupabase(userId, id)
 }
 
 export async function deleteScheduledWorkoutsByTemplatePrefixFromSupabase(userId, templateIdPrefix) {

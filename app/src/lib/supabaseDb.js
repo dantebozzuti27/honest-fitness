@@ -1110,14 +1110,27 @@ export async function getAllMetricsFromSupabase(userId) {
 // ============ SCHEDULED WORKOUTS ============
 
 export async function scheduleWorkoutSupabase(userId, date, templateId) {
+  // Allow multiple scheduled workouts per date. Avoid inserting exact duplicates for the same template/date.
+  const { data: existing, error: existingError } = await supabase
+    .from('scheduled_workouts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', date)
+    .eq('template_id', templateId)
+    .limit(1)
+    .maybeSingle()
+  if (existingError && existingError.code !== 'PGRST116') throw existingError
+  if (existing) return existing
+
   const { data, error } = await supabase
     .from('scheduled_workouts')
-    .upsert({
+    .insert({
       user_id: userId,
-      date: date,
+      date,
       template_id: templateId
-    }, { onConflict: 'user_id,date' })
+    })
     .select()
+    .single()
 
   if (error) throw error
   return data
@@ -1136,16 +1149,29 @@ export async function getScheduledWorkoutsFromSupabase(userId) {
 }
 
 export async function getScheduledWorkoutByDateFromSupabase(userId, date) {
+  // Back-compat: return the most recently created scheduled workout for a date (if multiple exist).
   const { data, error } = await supabase
     .from('scheduled_workouts')
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle()
 
-  // maybeSingle returns null when no row matches; no 406 spam on empty dates.
-  if (error && error.code !== 'PGRST116') throw error // PGRST116 is "not found" which is OK
+  if (error && error.code !== 'PGRST116') throw error
   return data
+}
+
+export async function getScheduledWorkoutsByDateFromSupabase(userId, date) {
+  const { data, error } = await supabase
+    .from('scheduled_workouts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', date)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return Array.isArray(data) ? data : []
 }
 
 export async function deleteScheduledWorkoutByDateFromSupabase(userId, date) {
@@ -1157,6 +1183,17 @@ export async function deleteScheduledWorkoutByDateFromSupabase(userId, date) {
     .select()
   if (error) throw error
   return data
+}
+
+export async function deleteScheduledWorkoutByIdFromSupabase(userId, id) {
+  const { data, error } = await supabase
+    .from('scheduled_workouts')
+    .delete()
+    .eq('user_id', userId)
+    .eq('id', id)
+    .select()
+  if (error) throw error
+  return Array.isArray(data) ? data[0] : null
 }
 
 export async function deleteScheduledWorkoutsByTemplatePrefixFromSupabase(userId, templateIdPrefix) {

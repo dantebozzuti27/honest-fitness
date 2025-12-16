@@ -763,7 +763,8 @@ export default function Home() {
               <div className={styles.cardLabel}>Plan</div>
               {(() => {
                 const today = getTodayEST()
-                const todays = (scheduledWorkouts || []).find(s => s?.date === today) || null
+                const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
+                const todays = todaysList[0] || null
                 const next = (scheduledWorkouts || [])[0] || null
                 const labelFor = (s) => (s?.template_id === 'freestyle' ? 'Freestyle' : 'Workout')
 
@@ -771,7 +772,7 @@ export default function Home() {
                   return (
                     <>
                       <div className={styles.planLine}>
-                        Today: <span className={styles.planStrong}>{labelFor(todays)}</span>
+                        Today: <span className={styles.planStrong}>{todaysList.length > 1 ? `${todaysList.length} workouts` : labelFor(todays)}</span>
                       </div>
                       <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
                         <Button

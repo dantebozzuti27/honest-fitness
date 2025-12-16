@@ -7,7 +7,9 @@ import {
   scheduleWorkoutSupabase,
   deleteScheduledWorkoutByDateFromSupabase,
   getScheduledWorkoutByDateFromSupabase,
-  getScheduledWorkoutsFromSupabase
+  getScheduledWorkoutsFromSupabase,
+  getScheduledWorkoutsByDateFromSupabase,
+  deleteScheduledWorkoutByIdFromSupabase
 } from '../lib/db/scheduledWorkoutsDb'
 import { generateWorkoutPlan } from '../lib/workoutPlanning'
 import { useAuth } from '../context/AuthContext'
@@ -25,13 +27,14 @@ export default function Calendar() {
   const { toast, showToast, hideToast } = useToast()
   const [currentDate, setCurrentDate] = useState(new Date())
   const [workoutDates, setWorkoutDates] = useState([])
-  const [scheduledDates, setScheduledDates] = useState({})
+  const [scheduledDates, setScheduledDates] = useState({}) // { [date]: scheduled_workouts[] }
   const [selectedDate, setSelectedDate] = useState(null)
   const [selectedWorkout, setSelectedWorkout] = useState(null)
   const [streak, setStreak] = useState(0)
   const [templates, setTemplates] = useState([])
   const [showScheduler, setShowScheduler] = useState(false) // false, 'workout', 'meal', 'goal'
-  const [scheduledInfo, setScheduledInfo] = useState(null)
+  const [scheduledInfo, setScheduledInfo] = useState(null) // back-compat single
+  const [scheduledInfoList, setScheduledInfoList] = useState([]) // multiple per day
   const [weeklyPlan, setWeeklyPlan] = useState(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const shownScheduledLoadErrorRef = useRef(false)
@@ -47,8 +50,11 @@ export default function Calendar() {
       try {
         const scheduled = await getScheduledWorkoutsFromSupabase(user.id)
         const scheduledMap = {}
-        scheduled.forEach(sw => {
-          scheduledMap[sw.date] = sw.template_id
+        ;(scheduled || []).forEach(sw => {
+          const d = sw?.date
+          if (!d) return
+          if (!scheduledMap[d]) scheduledMap[d] = []
+          scheduledMap[d].push(sw)
         })
         setScheduledDates(scheduledMap)
       } catch (error) {
@@ -134,13 +140,13 @@ export default function Calendar() {
     const todayEST = getTodayEST()
     for (let i = 1; i <= lastDay.getDate(); i++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`
-      const isScheduled = scheduledDates[dateStr] !== undefined
+      const isScheduled = Array.isArray(scheduledDates[dateStr]) && scheduledDates[dateStr].length > 0
       days.push({
         day: i,
         date: dateStr,
         hasWorkout: workoutDates.includes(dateStr),
         isScheduled: isScheduled,
-        scheduledTemplateId: scheduledDates[dateStr],
+        scheduledItems: scheduledDates[dateStr] || [],
         isToday: dateStr === todayEST
       })
     }
@@ -165,10 +171,13 @@ export default function Calendar() {
       const workouts = await getWorkoutsByDateFromSupabase(user.id, day.date)
       setSelectedWorkout(workouts[0])
       setScheduledInfo(null)
+      setScheduledInfoList([])
     } else {
       setSelectedWorkout(null)
       if (user) {
-        const scheduled = await getScheduledWorkoutByDateFromSupabase(user.id, day.date)
+        const list = await getScheduledWorkoutsByDateFromSupabase(user.id, day.date).catch(() => [])
+        setScheduledInfoList(Array.isArray(list) ? list : [])
+        const scheduled = await getScheduledWorkoutByDateFromSupabase(user.id, day.date).catch(() => null)
         setScheduledInfo(scheduled)
       }
     }
@@ -179,6 +188,7 @@ export default function Calendar() {
     setSelectedWorkout(null)
     setShowScheduler(false)
     setScheduledInfo(null)
+    setScheduledInfoList([])
   }
 
   const handleScheduleGoal = () => {
@@ -192,25 +202,43 @@ export default function Calendar() {
   const handleSchedule = async (templateId) => {
     if (!user) return
     await scheduleWorkoutSupabase(user.id, selectedDate, templateId)
-    setScheduledDates(prev => ({ ...prev, [selectedDate]: templateId }))
+    // refresh from server to pick up multiple rows per date
+    await refreshData()
     setShowScheduler(false)
-    const scheduled = await getScheduledWorkoutByDateFromSupabase(user.id, selectedDate)
+    const list = await getScheduledWorkoutsByDateFromSupabase(user.id, selectedDate).catch(() => [])
+    setScheduledInfoList(Array.isArray(list) ? list : [])
+    const scheduled = await getScheduledWorkoutByDateFromSupabase(user.id, selectedDate).catch(() => null)
     setScheduledInfo(scheduled)
   }
 
   const handleUnschedule = async () => {
     if (!user || !selectedDate) return
     await deleteScheduledWorkoutByDateFromSupabase(user.id, selectedDate)
-    setScheduledDates(prev => {
-      const next = { ...(prev || {}) }
-      delete next[selectedDate]
-      return next
-    })
+    await refreshData()
     setScheduledInfo(null)
+    setScheduledInfoList([])
     setShowScheduler(false)
     try {
       window.dispatchEvent(new CustomEvent('scheduledWorkoutsUpdated'))
     } catch {}
+  }
+
+  const handleDeleteScheduledById = async (rowId) => {
+    if (!user?.id || !selectedDate || !rowId) return
+    try {
+      await deleteScheduledWorkoutByIdFromSupabase(user.id, rowId)
+      await refreshData()
+      const list = await getScheduledWorkoutsByDateFromSupabase(user.id, selectedDate).catch(() => [])
+      setScheduledInfoList(Array.isArray(list) ? list : [])
+      const scheduled = await getScheduledWorkoutByDateFromSupabase(user.id, selectedDate).catch(() => null)
+      setScheduledInfo(scheduled)
+      showToast('Scheduled workout removed.', 'success')
+      try {
+        window.dispatchEvent(new CustomEvent('scheduledWorkoutsUpdated'))
+      } catch {}
+    } catch (e) {
+      showToast('Failed to remove scheduled workout. If this persists, re-run scheduled_workouts RLS policies in `supabase_run_all.sql`.', 'error', 8000)
+    }
   }
 
   const isFutureDate = (dateStr) => {
@@ -262,7 +290,7 @@ export default function Calendar() {
               className={`${styles.day} ${day?.hasWorkout ? styles.hasWorkout : ''} ${day?.isScheduled ? styles.isScheduled : ''} ${day?.isToday ? styles.today : ''}`}
               onClick={() => selectDay(day)}
               disabled={!day}
-              title={day?.isScheduled ? `Scheduled: ${templates.find(t => t.id === day.scheduledTemplateId)?.name || 'Workout'}` : ''}
+              title={day?.isScheduled ? `Scheduled: ${Array.isArray(day.scheduledItems) ? day.scheduledItems.length : 1} workout(s)` : ''}
             >
               {day?.day}
               {day?.isScheduled && !day?.hasWorkout && <span className={styles.scheduledDot}>●</span>}
@@ -405,31 +433,51 @@ export default function Calendar() {
                 {scheduledInfo ? (
                   <>
                     <p className={styles.scheduledLabel}>Scheduled:</p>
-                    <p className={styles.scheduledName}>
-                      {scheduledInfo.template_id === 'freestyle' ? 'Freestyle' : templates.find(t => t.id === scheduledInfo.template_id)?.name || 'Workout'}
-                    </p>
-                    {isSelectedDateToday ? (
-                      <div className={styles.scheduleActions} style={{ marginTop: 10 }}>
-                        <button
-                          className={styles.scheduleAction}
-                          onClick={() => {
-                            const tid = scheduledInfo?.template_id
-                            if (!tid) {
-                              showToast('This scheduled workout is missing a template. Re-schedule it from Calendar.', 'error')
-                              return
-                            }
-                            closeModal()
-                            if (tid === 'freestyle') {
-                              navigate('/workout/active')
-                              return
-                            }
-                            navigate('/workout/active', { state: { templateId: tid, scheduledDate: selectedDate } })
-                          }}
-                        >
-                          Start scheduled workout
-                        </button>
+                    {Array.isArray(scheduledInfoList) && scheduledInfoList.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {scheduledInfoList.map((sw) => (
+                          <div key={sw.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                            <div className={styles.scheduledName} style={{ margin: 0 }}>
+                              {sw.template_id === 'freestyle' ? 'Freestyle' : templates.find(t => t.id === sw.template_id)?.name || 'Workout'}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              {isSelectedDateToday ? (
+                                <button
+                                  className={styles.scheduleAction}
+                                  onClick={() => {
+                                    const tid = sw?.template_id
+                                    if (!tid) {
+                                      showToast('This scheduled workout is missing a template. Re-schedule it from Calendar.', 'error')
+                                      return
+                                    }
+                                    closeModal()
+                                    if (tid === 'freestyle') {
+                                      navigate('/workout/active')
+                                      return
+                                    }
+                                    navigate('/workout/active', { state: { templateId: tid, scheduledDate: selectedDate } })
+                                  }}
+                                >
+                                  Start
+                                </button>
+                              ) : null}
+                              <button className={styles.scheduleAction} onClick={() => handleDeleteScheduledById(sw.id)}>
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        {scheduledInfoList.length > 1 ? (
+                          <button className={styles.scheduleAction} onClick={handleUnschedule}>
+                            Remove all for this date
+                          </button>
+                        ) : null}
                       </div>
-                    ) : null}
+                    ) : (
+                      <p className={styles.scheduledName}>
+                        {scheduledInfo.template_id === 'freestyle' ? 'Freestyle' : templates.find(t => t.id === scheduledInfo.template_id)?.name || 'Workout'}
+                      </p>
+                    )}
                   </>
                 ) : (
                   <p>No workout recorded</p>

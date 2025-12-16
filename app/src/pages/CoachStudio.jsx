@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import BackButton from '../components/BackButton'
 import Button from '../components/Button'
@@ -87,6 +88,7 @@ function newDayPlan(nextDayNumber = 1) {
 }
 
 export default function CoachStudio() {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
   const editorRef = useRef(null)

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { getAllExercises } from '../db/lazyDb'
 import ExercisePicker from './ExercisePicker'
 import { useToast } from '../hooks/useToast'
@@ -379,12 +380,13 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
           </>
         )}
 
-        {showPicker && (
+        {showPicker && createPortal(
           <ExercisePicker
             exercises={Array.isArray(allExercises) ? allExercises : []}
             onSelect={handleAddExercise}
             onClose={() => setShowPicker(false)}
-          />
+          />,
+          document.body
         )}
 
         <ConfirmDialog

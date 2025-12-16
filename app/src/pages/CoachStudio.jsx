@@ -104,6 +104,7 @@ export default function CoachStudio() {
 
   const [draft, setDraft] = useState(emptyDraft())
   const [showTemplatesEditor, setShowTemplatesEditor] = useState(false)
+  const [programEditingTemplate, setProgramEditingTemplate] = useState(null)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createDraft, setCreateDraft] = useState(emptyDraft())
   const [editorTab, setEditorTab] = useState('overview') // overview | schedule | publish
@@ -388,6 +389,12 @@ export default function CoachStudio() {
         : [...current, tpl]
       return { ...prev, content: { ...(prev.content || {}), workoutTemplates: next } }
     })
+  }
+
+  const openNewProgramTemplate = () => {
+    const id = `program-template-${Date.now()}`
+    setProgramEditingTemplate({ id, name: '', exercises: [] })
+    setShowTemplatesEditor(true)
   }
 
   const templateOnDelete = (templateId) => {
@@ -1086,7 +1093,21 @@ export default function CoachStudio() {
                     variant="secondary"
                     onClick={() => setShowTemplatesEditor(true)}
                   >
-                    Workout templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
+                    Program templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
+                  </Button>
+                  <Button
+                    className={styles.btn}
+                    variant="secondary"
+                    onClick={openNewProgramTemplate}
+                  >
+                    + New program template
+                  </Button>
+                  <Button
+                    className={styles.btn}
+                    variant="secondary"
+                    onClick={() => navigate('/fitness', { state: { openTemplates: true } })}
+                  >
+                    Fitness templates
                   </Button>
                 </div>
               </>
@@ -1104,7 +1125,7 @@ export default function CoachStudio() {
               </Button>
             </div>
             <div className={styles.muted} style={{ marginTop: 8 }}>
-              Program templates live inside this program. Click <b>Save</b> to persist them. Use <b>Export to Fitness</b> to add them to your personal templates library.
+              <b>Program templates</b> live inside this program (Save to persist). <b>Fitness templates</b> are your personal template library. Use <b>Export to Fitness</b> to copy program templates into your library.
             </div>
 
             <div className={styles.hr} />
@@ -1114,7 +1135,13 @@ export default function CoachStudio() {
                   <div style={{ fontWeight: 900 }}>Day-by-day plan</div>
                   <div className={styles.miniBtnRow}>
                     <Button variant="secondary" className={styles.miniBtn} onClick={() => setShowTemplatesEditor(true)}>
-                      Templates
+                      Program templates
+                    </Button>
+                    <Button variant="secondary" className={styles.miniBtn} onClick={openNewProgramTemplate}>
+                      + New
+                    </Button>
+                    <Button variant="secondary" className={styles.miniBtn} onClick={() => navigate('/fitness', { state: { openTemplates: true } })}>
+                      Fitness templates
                     </Button>
                     <Button variant="secondary" className={styles.miniBtn} onClick={exportProgramTemplatesToFitness} disabled={!draft?.id}>
                       Export to Fitness
@@ -1235,7 +1262,21 @@ export default function CoachStudio() {
                             variant="secondary"
                             onClick={() => setShowTemplatesEditor(true)}
                           >
-                            Manage workout templates
+                            Program templates
+                          </Button>
+                          <Button
+                            className={styles.btn}
+                            variant="secondary"
+                            onClick={openNewProgramTemplate}
+                          >
+                            + New
+                          </Button>
+                          <Button
+                            className={styles.btn}
+                            variant="secondary"
+                            onClick={() => navigate('/fitness', { state: { openTemplates: true } })}
+                          >
+                            Fitness templates
                           </Button>
                           <Button
                             className={styles.btn}
@@ -1518,7 +1559,14 @@ export default function CoachStudio() {
                     variant="secondary"
                     onClick={() => setShowTemplatesEditor(true)}
                   >
-                    Edit workout templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
+                    Program templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
+                  </Button>
+                  <Button
+                    className={styles.btn}
+                    variant="secondary"
+                    onClick={() => navigate('/fitness', { state: { openTemplates: true } })}
+                  >
+                    Fitness templates
                   </Button>
                 </div>
                 <div style={{ height: 10 }} />
@@ -1559,11 +1607,17 @@ export default function CoachStudio() {
           {showTemplatesEditor && (
             <TemplateEditor
               templates={Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates : []}
-              onClose={() => setShowTemplatesEditor(false)}
-              onSave={templateOnSave}
+              onClose={() => {
+                setShowTemplatesEditor(false)
+                setProgramEditingTemplate(null)
+              }}
+              onSave={(t) => {
+                templateOnSave(t)
+                setProgramEditingTemplate(null)
+              }}
               onDelete={templateOnDelete}
-              onEdit={() => {}}
-              editingTemplate={null}
+              onEdit={(t) => setProgramEditingTemplate(t)}
+              editingTemplate={programEditingTemplate}
             />
           )}
 

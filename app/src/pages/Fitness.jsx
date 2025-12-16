@@ -201,6 +201,14 @@ export default function Fitness() {
       navigate(location.pathname, { replace: true, state: {} })
     }
 
+    // Deep-link: allow other pages (Coach Studio, Command Palette, etc.) to open Templates + Manage modal directly.
+    if (location.state?.openTemplates) {
+      setActiveTab('Templates')
+      setShowTemplateEditor(true)
+      // Clear state so refresh/back doesn't reopen
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+
     async function load() {
       const t = await getAllTemplates()
       setTemplates(t)

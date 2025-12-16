@@ -48,6 +48,10 @@
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--glass-modal-bg);
 }
 
 .header h2 {
@@ -67,6 +71,11 @@
 .search {
   padding: 12px 14px;
   flex-shrink: 0;
+  position: sticky;
+  top: 58px;
+  z-index: 2;
+  background: var(--glass-modal-bg);
+  border-bottom: 1px solid var(--border);
 }
 
 .filterSection {

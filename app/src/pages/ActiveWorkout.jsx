@@ -1890,6 +1890,60 @@ export default function ActiveWorkout() {
     showToast('Unstacked', 'success')
   }
 
+  const handleStackNext = ({ exerciseId, stackGroup, isLastSet }) => {
+    if (!exerciseId || !stackGroup) return
+    setExercises(prev => {
+      const list = Array.isArray(prev) ? prev : []
+      const currentIdx = list.findIndex(ex => ex?.id === exerciseId)
+      if (currentIdx === -1) return prev
+
+      const groupMembers = list.filter(ex => ex?.stacked && ex?.stackGroup === stackGroup)
+      if (groupMembers.length <= 1) return prev
+
+      // Optionally mark the current exercise completed if it finished its last set.
+      const nextList = list.map(ex => {
+        if (ex?.id !== exerciseId) return ex
+        if (!isLastSet) return ex
+        return { ...ex, completed: true, expanded: false }
+      })
+
+      // Determine next exercise in the stack: cycle through members, skipping completed ones.
+      const orderedMembers = list.filter(ex => ex?.stacked && ex?.stackGroup === stackGroup)
+      const currentInGroupIndex = orderedMembers.findIndex(ex => ex?.id === exerciseId)
+      const candidates = orderedMembers.filter(ex => !ex?.completed)
+
+      // If everything in the group is completed, move focus to the next non-stack exercise after the group.
+      if (candidates.length === 0) {
+        // Find the last index of this group in the main list.
+        const indices = list
+          .map((ex, idx) => ({ ex, idx }))
+          .filter(({ ex }) => ex?.stacked && ex?.stackGroup === stackGroup)
+          .map(({ idx }) => idx)
+        const lastIdx = indices.length ? Math.max(...indices) : currentIdx
+
+        // Expand the next non-stacked exercise if it exists.
+        return nextList.map((ex, idx) => ({
+          ...ex,
+          expanded: idx === lastIdx + 1 ? true : false
+        }))
+      }
+
+      // Find next in the ordered cycle.
+      const nextExpandedId = (() => {
+        for (let step = 1; step <= orderedMembers.length; step++) {
+          const candidate = orderedMembers[(currentInGroupIndex + step) % orderedMembers.length]
+          if (candidate && !candidate.completed) return candidate.id
+        }
+        return orderedMembers[(currentInGroupIndex + 1) % orderedMembers.length]?.id
+      })()
+
+      return nextList.map((ex) => ({
+        ...ex,
+        expanded: ex?.id === nextExpandedId
+      }))
+    })
+  }
+
   const renderItems = (() => {
     const items = []
     const firstIndexByGroup = new Map()
@@ -2203,6 +2257,7 @@ export default function ActiveWorkout() {
                         onMove={(dir) => moveExercise(exercise.id, dir)}
                         onStartRest={startRest}
                         onComplete={() => completeExercise(exercise.id)}
+                        onStackNext={handleStackNext}
                         onToggleStack={() => toggleExerciseStack(exercise.id)}
                         onAddToStack={() => {}}
                         onRemoveFromStack={() => removeFromStack(exercise.id)}
@@ -2257,6 +2312,7 @@ export default function ActiveWorkout() {
               onMove={(dir) => moveExercise(exercise.id, dir)}
               onStartRest={startRest}
               onComplete={() => completeExercise(exercise.id)}
+              onStackNext={handleStackNext}
               onToggleStack={() => toggleExerciseStack(exercise.id)}
               onAddToStack={(targetGroup) => addToStack(exercise.id, targetGroup)}
               onRemoveFromStack={() => removeFromStack(exercise.id)}

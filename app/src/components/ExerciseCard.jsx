@@ -13,6 +13,7 @@ export default function ExerciseCard({
   onMove,
   onStartRest,
   onComplete,
+  onStackNext,
   stacked,
   stackGroup,
   stackMembers,
@@ -120,6 +121,22 @@ export default function ExerciseCard({
   }
 
   const handleNextSet = () => {
+    // Stacked flow: alternate to the next exercise after *every* set.
+    if (stacked && stackGroup && Array.isArray(stackMembers) && stackMembers.length > 1 && onStackNext) {
+      const isLastSet = activeSet >= (exercise.sets.length - 1)
+      const nextSetIndex = Math.min(activeSet + 1, Math.max(0, exercise.sets.length - 1))
+      if (!isLastSet) {
+        setActiveSet(nextSetIndex)
+      }
+      onStartRest?.()
+      onStackNext({
+        exerciseId: exercise.id,
+        stackGroup,
+        isLastSet
+      })
+      return
+    }
+
     if (activeSet < exercise.sets.length - 1) {
       setActiveSet(activeSet + 1)
       onStartRest()

@@ -13,6 +13,8 @@ import TemplateEditor from '../components/TemplateEditor'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { logError } from '../utils/logger'
 import { normalizeTemplateExercises } from '../utils/templateUtils'
+import SearchField from '../components/SearchField'
+import { getSystemFoods } from '../lib/foodLibrary'
 import {
   archiveProgram,
   createProgram,
@@ -37,6 +39,21 @@ function centsToDollars(cents) {
   // Explicitly show zero so coaches can set free programs without the UI “clearing” the value.
   if (n === 0) return '0.00'
   return String((n / 100).toFixed(2))
+}
+
+function deepClone(value) {
+  try {
+    // structuredClone is supported in modern browsers; fall back for older environments.
+    // eslint-disable-next-line no-undef
+    if (typeof structuredClone === 'function') return structuredClone(value)
+  } catch {
+    // ignore
+  }
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch {
+    return value
+  }
 }
 
 function emptyDraft() {
@@ -107,7 +124,25 @@ export default function CoachStudio() {
   const [draft, setDraft] = useState(emptyDraft())
   const [showTemplatesEditor, setShowTemplatesEditor] = useState(false)
   const [programEditingTemplate, setProgramEditingTemplate] = useState(null)
-  // NOTE: We previously had a "templates hub" stub; keep the UX simple: open Program templates directly.
+  const [importTemplateOpen, setImportTemplateOpen] = useState(false)
+  const [myTemplates, setMyTemplates] = useState([])
+  const [myTemplateSearch, setMyTemplateSearch] = useState('')
+  const [foodSearchOpen, setFoodSearchOpen] = useState(false)
+  const [foodSearchQuery, setFoodSearchQuery] = useState('')
+  const [foodSearchLoading, setFoodSearchLoading] = useState(false)
+  const [foodSearchResults, setFoodSearchResults] = useState([])
+  const [foodSearchTarget, setFoodSearchTarget] = useState(null) // { dayId, mealIndex, itemIndex }
+  const [templatesHubOpen, setTemplatesHubOpen] = useState(false)
+  const [bulkActionsOpen, setBulkActionsOpen] = useState(false)
+  const [duplicateWeekOpen, setDuplicateWeekOpen] = useState(false)
+  const [duplicateWeekIndex, setDuplicateWeekIndex] = useState(0)
+  const [duplicateWeekCopies, setDuplicateWeekCopies] = useState('1')
+  const [bulkApplyTemplateOpen, setBulkApplyTemplateOpen] = useState(false)
+  const [bulkApplyTemplateId, setBulkApplyTemplateId] = useState('')
+  const [bulkApplyDayIds, setBulkApplyDayIds] = useState([])
+  const [copyMealsOpen, setCopyMealsOpen] = useState(false)
+  const [copyMealsTargetDayId, setCopyMealsTargetDayId] = useState(null)
+  const [copyMealsSourceDayId, setCopyMealsSourceDayId] = useState('')
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createDraft, setCreateDraft] = useState(emptyDraft())
   const [editorTab, setEditorTab] = useState('overview') // overview | schedule | publish
@@ -116,6 +151,25 @@ export default function CoachStudio() {
   const [dayEditorTab, setDayEditorTab] = useState('day') // day | workout | meals | health
   const [deleteProgramConfirm, setDeleteProgramConfirm] = useState({ open: false, program: null })
   const [discardConfirm, setDiscardConfirm] = useState({ open: false, action: null, payload: null })
+  const editorTabs = ['overview', 'schedule', 'publish']
+
+  const goPrevEditorTab = () => {
+    const idx = editorTabs.indexOf(editorTab)
+    if (idx <= 0) return
+    setEditorTab(editorTabs[idx - 1])
+    requestAnimationFrame(() => {
+      try { editorRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }) } catch {}
+    })
+  }
+
+  const goNextEditorTab = () => {
+    const idx = editorTabs.indexOf(editorTab)
+    if (idx === -1 || idx >= editorTabs.length - 1) return
+    setEditorTab(editorTabs[idx + 1])
+    requestAnimationFrame(() => {
+      try { editorRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }) } catch {}
+    })
+  }
 
   const selectedProgram = useMemo(() => {
     if (!draft?.id) return null
@@ -281,6 +335,10 @@ export default function CoachStudio() {
     if (!user?.id || !draft?.id) return
     setPublishing(true)
     try {
+      if (publishChecklist.blockers.length > 0) {
+        showToast(publishChecklist.blockers[0], 'error', 6500)
+        return
+      }
       if (Number(draft.priceCents || 0) > 0) {
         showToast('Paid checkout is not wired yet. Set price to $0 for now to test.', 'error', 6500)
         return
@@ -300,6 +358,15 @@ export default function CoachStudio() {
     if (!user?.id || !p?.id) return
     setPublishing(true)
     try {
+      if (!String(p?.title || '').trim()) {
+        showToast('Title is required before publishing.', 'error', 6500)
+        return
+      }
+      const dp = Array.isArray(p?.content?.dayPlans) ? p.content.dayPlans : []
+      if (dp.length === 0) {
+        showToast('Add at least one day before publishing.', 'error', 6500)
+        return
+      }
       if (Number(p.priceCents || 0) > 0) {
         showToast('Paid checkout is not wired yet. Set price to $0 for now to test.', 'error', 6500)
         return
@@ -401,8 +468,86 @@ export default function CoachStudio() {
   }
 
   const openTemplatesHub = () => {
-    // Default: open program templates (this is what coaches are doing most of the time)
+    setTemplatesHubOpen(true)
+  }
+
+  const openProgramTemplatesEditor = () => {
+    setTemplatesHubOpen(false)
     setShowTemplatesEditor(true)
+  }
+
+  const openImportFromMyTemplates = async () => {
+    try {
+      const db = await import('../db/lazyDb')
+      const list = await db.getAllTemplates()
+      setMyTemplates(Array.isArray(list) ? list : [])
+    } catch {
+      setMyTemplates([])
+    }
+    setMyTemplateSearch('')
+    setImportTemplateOpen(true)
+  }
+
+  const computeScaledFood = (food, grams) => {
+    const g = Math.max(0, Number(grams) || 0)
+    const scale = g / 100
+    const calories = (Number(food?.calories_per_100g) || 0) * scale
+    const protein = (Number(food?.protein_per_100g) || 0) * scale
+    const carbs = (Number(food?.carbs_per_100g) || 0) * scale
+    const fat = (Number(food?.fat_per_100g) || 0) * scale
+    return {
+      calories,
+      protein,
+      carbs,
+      fat
+    }
+  }
+
+  const openFoodSearchForMealItem = (dayId, mealIndex, itemIndex) => {
+    setFoodSearchTarget({ dayId, mealIndex, itemIndex })
+    setFoodSearchQuery('')
+    setFoodSearchResults([])
+    setFoodSearchOpen(true)
+  }
+
+  useEffect(() => {
+    if (!foodSearchOpen) return
+    const q = (foodSearchQuery || '').toString().trim()
+    let cancelled = false
+
+    const t = setTimeout(async () => {
+      try {
+        setFoodSearchLoading(true)
+        const rows = q.length >= 2 ? await getSystemFoods({ search: q, limit: 50 }) : await getSystemFoods({ limit: 50 })
+        if (cancelled) return
+        setFoodSearchResults(Array.isArray(rows) ? rows : [])
+      } catch (e) {
+        if (cancelled) return
+        setFoodSearchResults([])
+      } finally {
+        if (!cancelled) setFoodSearchLoading(false)
+      }
+    }, 200)
+
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [foodSearchOpen, foodSearchQuery])
+
+  const importMyTemplateIntoProgram = (template) => {
+    if (!template || !template.id) return
+    const copied = {
+      id: `prog_${draft?.id || 'draft'}_${String(template.id)}`,
+      name: template.name || 'Template',
+      exercises: normalizeTemplateExercises(template.exercises)
+    }
+    templateOnSave(copied)
+    if (dayEditorOpen && dayEditorId) {
+      patchDayWorkout(dayEditorId, { templateId: copied.id })
+    }
+    setImportTemplateOpen(false)
+    showToast('Template added to program.', 'success', 2000)
   }
 
   const templateOnDelete = (templateId) => {
@@ -438,6 +583,52 @@ export default function CoachStudio() {
   }
 
   const dayPlans = Array.isArray(draft.content?.dayPlans) ? draft.content.dayPlans : []
+
+  const weekGroups = useMemo(() => {
+    const weeks = []
+    const dp = Array.isArray(draft?.content?.dayPlans) ? draft.content.dayPlans : []
+    const totalWeeks = Math.max(1, Math.ceil(dp.length / 7))
+    for (let w = 0; w < totalWeeks; w += 1) {
+      const start = w * 7
+      const slice = dp.slice(start, start + 7)
+      if (slice.length === 0) continue
+      const firstDay = slice[0]?.dayNumber || (start + 1)
+      const lastDay = slice[slice.length - 1]?.dayNumber || (start + slice.length)
+      weeks.push({ index: w, start, endExclusive: start + slice.length, firstDay, lastDay, days: slice })
+    }
+    return weeks
+  }, [draft?.content?.dayPlans])
+
+  const publishChecklist = useMemo(() => {
+    const blockers = []
+    const warnings = []
+
+    const titleOk = Boolean(String(draft?.title || '').trim())
+    if (!titleOk) blockers.push('Title is required.')
+    if (!draft?.id) blockers.push('Save the program before publishing.')
+    if (Number(draft?.priceCents || 0) > 0) blockers.push('Paid checkout is not wired yet. Set price to $0 to publish for now.')
+
+    const dp = Array.isArray(draft?.content?.dayPlans) ? draft.content.dayPlans : []
+    if (dp.length === 0) blockers.push('Add at least one day to the schedule.')
+
+    const templates = Array.isArray(draft?.content?.workoutTemplates) ? draft.content.workoutTemplates : []
+    const templateIds = new Set(templates.map(t => t?.id).filter(Boolean))
+    let emptyDays = 0
+    let missingTemplates = 0
+    dp.forEach((d) => {
+      const hasWorkoutTemplate = Boolean(d?.workout?.templateId)
+      const hasWorkoutSteps = Array.isArray(d?.workout?.steps) && d.workout.steps.some(s => String(s?.title || '').trim() || String(s?.notes || '').trim())
+      const hasMeals = Array.isArray(d?.meals) && d.meals.length > 0
+      const hasMetrics = Array.isArray(d?.healthMetrics) && d.healthMetrics.length > 0
+      const hasAny = hasWorkoutTemplate || hasWorkoutSteps || hasMeals || hasMetrics || String(d?.notes || '').trim()
+      if (!hasAny) emptyDays += 1
+      if (hasWorkoutTemplate && !templateIds.has(d.workout.templateId)) missingTemplates += 1
+    })
+    if (emptyDays > 0) warnings.push(`${emptyDays} day${emptyDays === 1 ? '' : 's'} have no workout/meals/metrics yet.`)
+    if (missingTemplates > 0) warnings.push(`${missingTemplates} day${missingTemplates === 1 ? '' : 's'} reference a workout template that is missing from this program.`)
+
+    return { blockers, warnings }
+  }, [draft?.id, draft?.title, draft?.priceCents, draft?.content?.dayPlans, draft?.content?.workoutTemplates])
 
   const updateDayPlans = (updater) => {
     setDraft(prev => {
@@ -483,7 +674,7 @@ export default function CoachStudio() {
     updateDayPlans((current) => {
       const idx = current.findIndex(d => d.id === dayId)
       if (idx < 0) return current
-      const d = current[idx]
+      const d = deepClone(current[idx] || {})
       const copy = {
         ...(d || {}),
         id: `day_${Date.now()}_${Math.random().toString(16).slice(2)}`,
@@ -492,6 +683,53 @@ export default function CoachStudio() {
       const next = [...current.slice(0, idx + 1), copy, ...current.slice(idx + 1)]
       return next.map((x, i) => ({ ...x, dayNumber: i + 1 }))
     })
+  }
+
+  const duplicateLastWeek = () => {
+    updateDayPlans((current) => {
+      if (!Array.isArray(current) || current.length === 0) return current
+      const take = Math.min(7, current.length)
+      const slice = current.slice(current.length - take)
+      const clones = slice.map((day, i) => {
+        const c = deepClone(day || {})
+        return {
+          ...(c || {}),
+          id: `day_${Date.now()}_${Math.random().toString(16).slice(2)}_${i}`,
+          title: c?.title ? `${c.title} (copy)` : `Day ${(c?.dayNumber || i + 1)} (copy)`
+        }
+      })
+      const next = [...current, ...clones]
+      return next.map((x, i) => ({ ...x, dayNumber: i + 1, title: x?.title || `Day ${i + 1}` }))
+    })
+    showToast('Duplicated last week.', 'success', 1800)
+  }
+
+  const duplicateWeek = (weekIdx, copiesRaw) => {
+    const copies = Math.min(12, Math.max(1, Number(copiesRaw) || 1))
+    updateDayPlans((current) => {
+      if (!Array.isArray(current) || current.length === 0) return current
+      const totalWeeks = Math.max(1, Math.ceil(current.length / 7))
+      const safeWeekIdx = Math.min(totalWeeks - 1, Math.max(0, Number(weekIdx) || 0))
+      const start = safeWeekIdx * 7
+      const slice = current.slice(start, start + 7)
+      if (slice.length === 0) return current
+
+      const next = [...current]
+      for (let c = 0; c < copies; c += 1) {
+        slice.forEach((day, i) => {
+          const base = deepClone(day || {})
+          const suffix = copies === 1 ? ' (copy)' : ` (copy ${c + 1})`
+          next.push({
+            ...(base || {}),
+            id: `day_${Date.now()}_${Math.random().toString(16).slice(2)}_${c}_${i}`,
+            title: base?.title ? `${base.title}${suffix}` : `Day ${(base?.dayNumber || (start + i + 1))}${suffix}`
+          })
+        })
+      }
+
+      return next.map((x, i) => ({ ...x, dayNumber: i + 1, title: x?.title || `Day ${i + 1}` }))
+    })
+    showToast('Week duplicated.', 'success', 1800)
   }
 
   const openDayEditor = (dayId) => {
@@ -1101,21 +1339,7 @@ export default function CoachStudio() {
                     variant="secondary"
                     onClick={openTemplatesHub}
                   >
-                    Program templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
-                  </Button>
-                  <Button
-                    className={styles.btn}
-                    variant="secondary"
-                    onClick={openNewProgramTemplate}
-                  >
-                    New template
-                  </Button>
-                  <Button
-                    className={styles.btn}
-                    variant="secondary"
-                    onClick={() => navigate('/fitness', { state: { openTemplates: true } })}
-                  >
-                    My templates
+                    Templates… ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
                   </Button>
                 </div>
               </>
@@ -1143,7 +1367,10 @@ export default function CoachStudio() {
                   <div style={{ fontWeight: 900 }}>Day-by-day plan</div>
                   <div className={styles.miniBtnRow}>
                     <Button variant="secondary" className={styles.miniBtn} onClick={openTemplatesHub}>
-                      Templates
+                      Templates…
+                    </Button>
+                    <Button variant="secondary" className={styles.miniBtn} onClick={() => setBulkActionsOpen(true)}>
+                      Bulk actions
                     </Button>
                     <Button variant="secondary" className={styles.miniBtn} onClick={addDay}>
                       + Add day
@@ -1261,8 +1488,11 @@ export default function CoachStudio() {
                             variant="secondary"
                             onClick={openTemplatesHub}
                           >
-                            Templates
+                            Templates…
                           </Button>
+                        </div>
+                        <div className={styles.muted}>
+                          Choose a template below (program templates only). Use “Templates…” to create/import/manage program templates.
                         </div>
                         <SelectField
                           label="Workout template"
@@ -1324,6 +1554,18 @@ export default function CoachStudio() {
                         <div className={styles.miniBtnRow}>
                           <Button variant="secondary" className={styles.miniBtn} onClick={() => addMeal(currentDay.id)}>
                             + Add meal
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            className={styles.miniBtn}
+                            onClick={() => {
+                              setCopyMealsTargetDayId(currentDay.id)
+                              setCopyMealsSourceDayId('')
+                              setCopyMealsOpen(true)
+                            }}
+                            disabled={dayPlans.length <= 1}
+                          >
+                            Copy meals from…
                           </Button>
                         </div>
                         {(Array.isArray(currentDay?.meals) ? currentDay.meals : []).map((meal, mi) => (
@@ -1416,7 +1658,14 @@ export default function CoachStudio() {
                                   onChange={(e) => patchMealItem(currentDay.id, mi, ii, { grams: e.target.value })}
                                   placeholder="e.g., 250"
                                 />
-                                <div style={{ display: 'flex', alignItems: 'end' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'stretch', justifyContent: 'flex-end' }}>
+                                  <Button
+                                    variant="secondary"
+                                    className={styles.miniBtn}
+                                    onClick={() => openFoodSearchForMealItem(currentDay.id, mi, ii)}
+                                  >
+                                    Search
+                                  </Button>
                                   <Button variant="destructive" className={styles.miniBtn} onClick={() => removeMealItem(currentDay.id, mi, ii)}>
                                     Remove
                                   </Button>
@@ -1534,17 +1783,29 @@ export default function CoachStudio() {
                   <Button
                     className={styles.btn}
                     variant="secondary"
-                    onClick={() => setShowTemplatesEditor(true)}
+                    onClick={openTemplatesHub}
                   >
-                    Program templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
+                    Templates…
                   </Button>
-                  <Button
-                    className={styles.btn}
-                    variant="secondary"
-                    onClick={() => navigate('/fitness', { state: { openTemplates: true } })}
-                  >
-                    Fitness templates
-                  </Button>
+                </div>
+                <div style={{ height: 10 }} />
+                <div className={styles.checklistCard}>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Publish checklist</div>
+                  {publishChecklist.blockers.length === 0 ? (
+                    <div className={styles.checklistItemOk}>Ready to publish.</div>
+                  ) : (
+                    publishChecklist.blockers.map((b, i) => (
+                      <div key={`b_${i}`} className={styles.checklistItemBad}>• {b}</div>
+                    ))
+                  )}
+                  {publishChecklist.warnings.length > 0 ? (
+                    <div style={{ marginTop: 8 }}>
+                      <div className={styles.muted} style={{ marginBottom: 4 }}>Warnings (you can still publish):</div>
+                      {publishChecklist.warnings.map((w, i) => (
+                        <div key={`w_${i}`} className={styles.checklistItemWarn}>• {w}</div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div style={{ height: 10 }} />
                 <div className={styles.btnRow}>
@@ -1552,7 +1813,7 @@ export default function CoachStudio() {
                     className={styles.btn}
                     onClick={onPublish}
                     loading={publishing}
-                    disabled={!draft?.id || publishing}
+                    disabled={!draft?.id || publishing || publishChecklist.blockers.length > 0}
                   >
                     Publish
                   </Button>
@@ -1576,6 +1837,25 @@ export default function CoachStudio() {
               </>
             ) : null}
 
+            {/* Guided navigation: one clear primary action per step */}
+            <div className={styles.wizardFooter}>
+              <Button
+                variant="secondary"
+                className={styles.wizardBtn}
+                onClick={goPrevEditorTab}
+                disabled={editorTab === 'overview'}
+              >
+                Back
+              </Button>
+              <Button
+                className={styles.wizardBtn}
+                onClick={goNextEditorTab}
+                disabled={editorTab === 'publish'}
+              >
+                {editorTab === 'overview' ? 'Next: Schedule' : editorTab === 'schedule' ? 'Next: Publish' : 'Done'}
+              </Button>
+            </div>
+
             <div className={styles.muted} style={{ marginTop: 10 }}>
               MVP behavior: free programs can be “claimed” by users. Paid checkout will be wired with Stripe Connect next.
             </div>
@@ -1597,6 +1877,410 @@ export default function CoachStudio() {
               editingTemplate={programEditingTemplate}
             />
           )}
+
+          {templatesHubOpen ? (
+            <div className={styles.modalOverlay} onMouseDown={() => setTemplatesHubOpen(false)} role="dialog" aria-modal="true" aria-label="Templates">
+              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                <div className={styles.modalHeader}>
+                  <h2 className={styles.modalTitle}>Templates</h2>
+                  <Button unstyled onClick={() => setTemplatesHubOpen(false)}>✕</Button>
+                </div>
+                <div className={styles.modalBody}>
+                  <div className={styles.muted}>
+                    Program templates ship with this program. “My templates” are your personal Fitness library.
+                  </div>
+                  <div className={styles.btnRow} style={{ marginTop: 10 }}>
+                    <Button className={styles.btn} onClick={openProgramTemplatesEditor}>
+                      Manage program templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
+                    </Button>
+                    <Button
+                      className={styles.btn}
+                      variant="secondary"
+                      onClick={() => {
+                        setTemplatesHubOpen(false)
+                        openNewProgramTemplate()
+                      }}
+                    >
+                      Create new program template
+                    </Button>
+                    <Button
+                      className={styles.btn}
+                      variant="secondary"
+                      onClick={() => {
+                        setTemplatesHubOpen(false)
+                        openImportFromMyTemplates()
+                      }}
+                    >
+                      Import from My templates
+                    </Button>
+                    <Button
+                      className={styles.btn}
+                      variant="secondary"
+                      onClick={() => navigate('/fitness', { state: { openTemplates: true } })}
+                    >
+                      Open My templates
+                    </Button>
+                    <Button
+                      className={styles.btn}
+                      variant="secondary"
+                      onClick={() => {
+                        setTemplatesHubOpen(false)
+                        exportProgramTemplatesToFitness()
+                      }}
+                    >
+                      Export program templates → Fitness
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {bulkActionsOpen ? (
+            <div className={styles.modalOverlay} onMouseDown={() => setBulkActionsOpen(false)} role="dialog" aria-modal="true" aria-label="Bulk actions">
+              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                <div className={styles.modalHeader}>
+                  <h2 className={styles.modalTitle}>Bulk actions</h2>
+                  <Button unstyled onClick={() => setBulkActionsOpen(false)}>✕</Button>
+                </div>
+                <div className={styles.modalBody}>
+                  <div className={styles.btnRow} style={{ marginTop: 0 }}>
+                    <Button
+                      className={styles.btn}
+                      variant="secondary"
+                      onClick={() => {
+                        setBulkActionsOpen(false)
+                        const lastIdx = weekGroups.length > 0 ? weekGroups[weekGroups.length - 1].index : 0
+                        setDuplicateWeekIndex(lastIdx)
+                        setDuplicateWeekCopies('1')
+                        setDuplicateWeekOpen(true)
+                      }}
+                      disabled={dayPlans.length === 0}
+                    >
+                      Duplicate week…
+                    </Button>
+                    <Button
+                      className={styles.btn}
+                      variant="secondary"
+                      onClick={() => {
+                        setBulkActionsOpen(false)
+                        setBulkApplyTemplateId('')
+                        setBulkApplyDayIds([])
+                        setBulkApplyTemplateOpen(true)
+                      }}
+                      disabled={dayPlans.length === 0 || (Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0) === 0}
+                    >
+                      Apply workout template to days…
+                    </Button>
+                  </div>
+                  <div className={styles.muted} style={{ marginTop: 8 }}>
+                    Tip: Use “Copy meals from…” inside a day to reuse meal plans.
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {duplicateWeekOpen ? (
+            <div className={styles.modalOverlay} onMouseDown={() => setDuplicateWeekOpen(false)} role="dialog" aria-modal="true" aria-label="Duplicate week">
+              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                <div className={styles.modalHeader}>
+                  <h2 className={styles.modalTitle}>Duplicate a week</h2>
+                  <Button unstyled onClick={() => setDuplicateWeekOpen(false)}>✕</Button>
+                </div>
+                <div className={styles.modalBody}>
+                  <SelectField
+                    label="Week"
+                    value={String(duplicateWeekIndex)}
+                    onChange={(e) => setDuplicateWeekIndex(Number(e.target.value) || 0)}
+                  >
+                    {weekGroups.map((w) => (
+                      <option key={w.index} value={String(w.index)}>
+                        Week {w.index + 1} (Days {w.firstDay}–{w.lastDay})
+                      </option>
+                    ))}
+                    {weekGroups.length === 0 ? <option value="0">Week 1</option> : null}
+                  </SelectField>
+                  <div style={{ height: 10 }} />
+                  <InputField
+                    label="Copies"
+                    inputMode="numeric"
+                    value={duplicateWeekCopies}
+                    onChange={(e) => setDuplicateWeekCopies(e.target.value)}
+                    placeholder="1"
+                  />
+                  <div className={styles.muted} style={{ marginTop: 6 }}>
+                    This appends the selected week to the end of the program.
+                  </div>
+                  <div style={{ height: 12 }} />
+                  <div className={styles.btnRow}>
+                    <Button
+                      className={styles.btn}
+                      onClick={() => {
+                        duplicateWeek(duplicateWeekIndex, duplicateWeekCopies)
+                        setDuplicateWeekOpen(false)
+                      }}
+                      disabled={dayPlans.length === 0}
+                    >
+                      Duplicate
+                    </Button>
+                    <Button className={styles.btn} variant="secondary" onClick={() => setDuplicateWeekOpen(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {bulkApplyTemplateOpen ? (
+            <div className={styles.modalOverlay} onMouseDown={() => setBulkApplyTemplateOpen(false)} role="dialog" aria-modal="true" aria-label="Apply workout template">
+              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                <div className={styles.modalHeader}>
+                  <h2 className={styles.modalTitle}>Apply template to days</h2>
+                  <Button unstyled onClick={() => setBulkApplyTemplateOpen(false)}>✕</Button>
+                </div>
+                <div className={styles.modalBody}>
+                  <SelectField
+                    label="Workout template"
+                    value={bulkApplyTemplateId}
+                    onChange={(e) => setBulkApplyTemplateId(e.target.value)}
+                  >
+                    <option value="">Choose a program template</option>
+                    {(Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates : []).map((t) => (
+                      <option key={t.id} value={t.id}>{t.name || 'Template'}</option>
+                    ))}
+                  </SelectField>
+                  <div style={{ height: 8 }} />
+                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Days</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <Button variant="secondary" className={styles.miniBtn} onClick={() => setBulkApplyDayIds(dayPlans.map(d => d.id))} disabled={dayPlans.length === 0}>
+                      Select all
+                    </Button>
+                    <Button variant="secondary" className={styles.miniBtn} onClick={() => setBulkApplyDayIds([])} disabled={bulkApplyDayIds.length === 0}>
+                      Clear
+                    </Button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflow: 'auto' }}>
+                    {dayPlans.map((d) => {
+                      const checked = bulkApplyDayIds.includes(d.id)
+                      return (
+                        <label key={d.id} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...bulkApplyDayIds, d.id]
+                                : bulkApplyDayIds.filter(x => x !== d.id)
+                              setBulkApplyDayIds(next)
+                            }}
+                          />
+                          <span>Day {d.dayNumber}{d.title ? ` — ${d.title}` : ''}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <div style={{ height: 12 }} />
+                  <div className={styles.btnRow}>
+                    <Button
+                      className={styles.btn}
+                      onClick={() => {
+                        if (!bulkApplyTemplateId || bulkApplyDayIds.length === 0) {
+                          showToast('Choose a template and at least one day.', 'error')
+                          return
+                        }
+                        updateDayPlans((current) => current.map((d) => {
+                          if (!bulkApplyDayIds.includes(d.id)) return d
+                          return { ...d, workout: { ...(d.workout || {}), templateId: bulkApplyTemplateId } }
+                        }))
+                        setBulkApplyTemplateOpen(false)
+                        showToast('Applied template to selected days.', 'success', 1800)
+                      }}
+                      disabled={!bulkApplyTemplateId || bulkApplyDayIds.length === 0}
+                    >
+                      Apply
+                    </Button>
+                    <Button className={styles.btn} variant="secondary" onClick={() => setBulkApplyTemplateOpen(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {copyMealsOpen ? (
+            <div className={styles.modalOverlay} onMouseDown={() => setCopyMealsOpen(false)} role="dialog" aria-modal="true" aria-label="Copy meals">
+              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                <div className={styles.modalHeader}>
+                  <h2 className={styles.modalTitle}>Copy meals from another day</h2>
+                  <Button unstyled onClick={() => setCopyMealsOpen(false)}>✕</Button>
+                </div>
+                <div className={styles.modalBody}>
+                  <SelectField
+                    label="Source day"
+                    value={copyMealsSourceDayId}
+                    onChange={(e) => setCopyMealsSourceDayId(e.target.value)}
+                  >
+                    <option value="">Choose a day</option>
+                    {dayPlans
+                      .filter(d => d.id !== copyMealsTargetDayId)
+                      .map((d) => (
+                        <option key={d.id} value={d.id}>
+                          Day {d.dayNumber}{d.title ? ` — ${d.title}` : ''}
+                        </option>
+                      ))}
+                  </SelectField>
+                  <div className={styles.muted} style={{ marginTop: 8 }}>
+                    This replaces the current day’s meals. You can still edit everything after copying.
+                  </div>
+                  <div style={{ height: 12 }} />
+                  <div className={styles.btnRow}>
+                    <Button
+                      className={styles.btn}
+                      onClick={() => {
+                        if (!copyMealsTargetDayId || !copyMealsSourceDayId) {
+                          showToast('Choose a source day.', 'error')
+                          return
+                        }
+                        const src = dayPlans.find(d => d.id === copyMealsSourceDayId) || null
+                        const nextMeals = deepClone(Array.isArray(src?.meals) ? src.meals : [])
+                        patchDay(copyMealsTargetDayId, { meals: nextMeals })
+                        setCopyMealsOpen(false)
+                        showToast('Meals copied.', 'success', 1500)
+                      }}
+                      disabled={!copyMealsSourceDayId}
+                    >
+                      Copy meals
+                    </Button>
+                    <Button className={styles.btn} variant="secondary" onClick={() => setCopyMealsOpen(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+        {importTemplateOpen ? (
+          <div className={styles.modalOverlay} onMouseDown={() => setImportTemplateOpen(false)} role="dialog" aria-modal="true" aria-label="Import template">
+            <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+              <div className={styles.modalHeader}>
+                <h2 className={styles.modalTitle}>Import from My templates</h2>
+                <Button unstyled onClick={() => setImportTemplateOpen(false)}>✕</Button>
+              </div>
+              <div className={styles.modalBody}>
+                <SearchField
+                  value={myTemplateSearch}
+                  onChange={(e) => setMyTemplateSearch(e.target.value)}
+                  placeholder="Search your templates…"
+                  onClear={() => setMyTemplateSearch('')}
+                />
+                <div className={styles.muted}>
+                  This copies a Fitness template into the program so it can ship with the plan.
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(Array.isArray(myTemplates) ? myTemplates : [])
+                    .filter(t => {
+                      const q = (myTemplateSearch || '').toString().toLowerCase().trim()
+                      if (!q) return true
+                      return (t?.name || '').toString().toLowerCase().includes(q)
+                    })
+                    .map((t) => (
+                      <Button
+                        key={t.id}
+                        variant="secondary"
+                        className={styles.btn}
+                        onClick={() => importMyTemplateIntoProgram(t)}
+                      >
+                        {t.name || 'Template'}
+                      </Button>
+                    ))}
+                  {(Array.isArray(myTemplates) ? myTemplates : []).length === 0 ? (
+                    <div className={styles.muted}>No templates found in your library yet. Create one in Fitness → Templates.</div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {foodSearchOpen ? (
+          <div
+            className={styles.modalOverlay}
+            style={{ zIndex: 12000 }}
+            onMouseDown={() => setFoodSearchOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Search foods"
+          >
+            <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+              <div className={styles.modalHeader}>
+                <h2 className={styles.modalTitle}>Search foods</h2>
+                <Button unstyled onClick={() => setFoodSearchOpen(false)}>✕</Button>
+              </div>
+              <div className={styles.modalBody}>
+                <SearchField
+                  value={foodSearchQuery}
+                  onChange={(e) => setFoodSearchQuery(e.target.value)}
+                  placeholder="Search food library…"
+                  onClear={() => setFoodSearchQuery('')}
+                  autoFocus
+                />
+                <div className={styles.muted}>
+                  Pick a food to fill the item (name + macros). Adjust grams anytime.
+                </div>
+                {foodSearchLoading ? (
+                  <div className={styles.muted}>Searching…</div>
+                ) : null}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(Array.isArray(foodSearchResults) ? foodSearchResults : []).slice(0, 40).map((f) => {
+                    const cals = Number(f?.calories_per_100g) || 0
+                    const p = Number(f?.protein_per_100g) || 0
+                    const c = Number(f?.carbs_per_100g) || 0
+                    const fat = Number(f?.fat_per_100g) || 0
+                    return (
+                      <Button
+                        key={f.id || f.name}
+                        variant="secondary"
+                        className={styles.btn}
+                        onClick={() => {
+                          const target = foodSearchTarget
+                          if (!target) return
+                          const { dayId, mealIndex, itemIndex } = target
+                          const currentItems = Array.isArray(currentDay?.meals?.[mealIndex]?.items) ? currentDay.meals[mealIndex].items : []
+                          const existingGrams = currentItems?.[itemIndex]?.grams
+                          const grams = Number(existingGrams) > 0 ? Number(existingGrams) : 100
+                          const scaled = computeScaledFood(f, grams)
+                          patchMealItem(dayId, mealIndex, itemIndex, {
+                            food: f?.name || '',
+                            grams: String(grams),
+                            calories: String(Math.round(scaled.calories)),
+                            proteinG: String(Math.round(scaled.protein)),
+                            carbsG: String(Math.round(scaled.carbs)),
+                            fatG: String(Math.round(scaled.fat))
+                          })
+                          setFoodSearchOpen(false)
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, width: '100%' }}>
+                          <span style={{ fontWeight: 800 }}>{f?.name || 'Food'}</span>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                            {Math.round(cals)} cal · P {Math.round(p)} · C {Math.round(c)} · F {Math.round(fat)} (per 100g)
+                          </span>
+                        </div>
+                      </Button>
+                    )
+                  })}
+                  {(Array.isArray(foodSearchResults) ? foodSearchResults : []).length === 0 && !foodSearchLoading ? (
+                    <div className={styles.muted}>No results. Try a different search.</div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
           <ConfirmDialog
             isOpen={deleteProgramConfirm.open}

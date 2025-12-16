@@ -107,6 +107,7 @@ export default function CoachStudio() {
   const [draft, setDraft] = useState(emptyDraft())
   const [showTemplatesEditor, setShowTemplatesEditor] = useState(false)
   const [programEditingTemplate, setProgramEditingTemplate] = useState(null)
+  // NOTE: We previously had a "templates hub" stub; keep the UX simple: open Program templates directly.
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createDraft, setCreateDraft] = useState(emptyDraft())
   const [editorTab, setEditorTab] = useState('overview') // overview | schedule | publish
@@ -396,6 +397,11 @@ export default function CoachStudio() {
   const openNewProgramTemplate = () => {
     const id = `program-template-${Date.now()}`
     setProgramEditingTemplate({ id, name: '', exercises: [] })
+    setShowTemplatesEditor(true)
+  }
+
+  const openTemplatesHub = () => {
+    // Default: open program templates (this is what coaches are doing most of the time)
     setShowTemplatesEditor(true)
   }
 
@@ -1093,7 +1099,7 @@ export default function CoachStudio() {
                   <Button
                     className={styles.btn}
                     variant="secondary"
-                    onClick={() => setShowTemplatesEditor(true)}
+                    onClick={openTemplatesHub}
                   >
                     Program templates ({Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0})
                   </Button>
@@ -1102,14 +1108,14 @@ export default function CoachStudio() {
                     variant="secondary"
                     onClick={openNewProgramTemplate}
                   >
-                    + New program template
+                    New template
                   </Button>
                   <Button
                     className={styles.btn}
                     variant="secondary"
                     onClick={() => navigate('/fitness', { state: { openTemplates: true } })}
                   >
-                    Fitness templates
+                    My templates
                   </Button>
                 </div>
               </>
@@ -1136,17 +1142,8 @@ export default function CoachStudio() {
                 <div className={styles.dayPlansHeader} style={{ marginTop: 0 }}>
                   <div style={{ fontWeight: 900 }}>Day-by-day plan</div>
                   <div className={styles.miniBtnRow}>
-                    <Button variant="secondary" className={styles.miniBtn} onClick={() => setShowTemplatesEditor(true)}>
-                      Program templates
-                    </Button>
-                    <Button variant="secondary" className={styles.miniBtn} onClick={openNewProgramTemplate}>
-                      + New
-                    </Button>
-                    <Button variant="secondary" className={styles.miniBtn} onClick={() => navigate('/fitness', { state: { openTemplates: true } })}>
-                      Fitness templates
-                    </Button>
-                    <Button variant="secondary" className={styles.miniBtn} onClick={exportProgramTemplatesToFitness} disabled={!draft?.id}>
-                      Export to Fitness
+                    <Button variant="secondary" className={styles.miniBtn} onClick={openTemplatesHub}>
+                      Templates
                     </Button>
                     <Button variant="secondary" className={styles.miniBtn} onClick={addDay}>
                       + Add day
@@ -1262,31 +1259,9 @@ export default function CoachStudio() {
                           <Button
                             className={styles.btn}
                             variant="secondary"
-                            onClick={() => setShowTemplatesEditor(true)}
+                            onClick={openTemplatesHub}
                           >
-                            Program templates
-                          </Button>
-                          <Button
-                            className={styles.btn}
-                            variant="secondary"
-                            onClick={openNewProgramTemplate}
-                          >
-                            + New
-                          </Button>
-                          <Button
-                            className={styles.btn}
-                            variant="secondary"
-                            onClick={() => navigate('/fitness', { state: { openTemplates: true } })}
-                          >
-                            Fitness templates
-                          </Button>
-                          <Button
-                            className={styles.btn}
-                            variant="secondary"
-                            onClick={exportProgramTemplatesToFitness}
-                            disabled={!draft?.id}
-                          >
-                            Export to Fitness
+                            Templates
                           </Button>
                         </div>
                         <SelectField

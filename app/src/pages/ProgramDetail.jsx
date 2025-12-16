@@ -334,8 +334,15 @@ export default function ProgramDetail() {
     } catch (e) {
       logError('Enroll failed', e)
       const msg = String(e?.message || e?.details || e?.hint || '').trim()
+      const looksLikeMissingUpdatedAt = /record "new" has no field "updated_at"|updated_at/i.test(msg)
       const looksLikeOnConflict = /on conflict|unique|constraint|scheduled_workouts/i.test(msg)
-      if (looksLikeOnConflict) {
+      if (looksLikeMissingUpdatedAt) {
+        showToast(
+          'Enroll failed: your `scheduled_workouts` table is missing the `updated_at` column (old table). Run the scheduled_workouts hotfix from `app/supabase_run_all.sql` (it adds created_at/updated_at + UNIQUE(user_id,date)), then retry.',
+          'error',
+          9000
+        )
+      } else if (looksLikeOnConflict) {
         showToast(
           'Enroll failed: your `scheduled_workouts` table is missing the UNIQUE(user_id, date) constraint needed for upserts. Run the scheduled_workouts hotfix from `app/supabase_run_all.sql`, then retry.',
           'error',

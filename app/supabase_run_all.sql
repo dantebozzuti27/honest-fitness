@@ -1657,6 +1657,22 @@ CREATE TABLE IF NOT EXISTS scheduled_workouts (
 DO $$
 BEGIN
   IF to_regclass('public.scheduled_workouts') IS NOT NULL THEN
+    -- Same issue for columns: older tables may be missing created_at/updated_at, which breaks our update trigger.
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'scheduled_workouts' AND column_name = 'created_at'
+    ) THEN
+      ALTER TABLE public.scheduled_workouts
+        ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'scheduled_workouts' AND column_name = 'updated_at'
+    ) THEN
+      ALTER TABLE public.scheduled_workouts
+        ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    END IF;
+
     IF NOT EXISTS (
       SELECT 1
       FROM pg_constraint c

@@ -218,6 +218,11 @@ export default function Calendar() {
     return dateStr > today
   }
 
+  const isSelectedDateToday = useMemo(() => {
+    if (!selectedDate) return false
+    return selectedDate === getTodayEST()
+  }, [selectedDate])
+
   const handleDeleteWorkout = async () => {
     if (!selectedWorkout || !user) return
     setDeleteConfirmOpen(true)
@@ -403,6 +408,28 @@ export default function Calendar() {
                     <p className={styles.scheduledName}>
                       {scheduledInfo.template_id === 'freestyle' ? 'Freestyle' : templates.find(t => t.id === scheduledInfo.template_id)?.name || 'Workout'}
                     </p>
+                    {isSelectedDateToday ? (
+                      <div className={styles.scheduleActions} style={{ marginTop: 10 }}>
+                        <button
+                          className={styles.scheduleAction}
+                          onClick={() => {
+                            const tid = scheduledInfo?.template_id
+                            if (!tid) {
+                              showToast('This scheduled workout is missing a template. Re-schedule it from Calendar.', 'error')
+                              return
+                            }
+                            closeModal()
+                            if (tid === 'freestyle') {
+                              navigate('/workout/active')
+                              return
+                            }
+                            navigate('/workout/active', { state: { templateId: tid, scheduledDate: selectedDate } })
+                          }}
+                        >
+                          Start scheduled workout
+                        </button>
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <p>No workout recorded</p>

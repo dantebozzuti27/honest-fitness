@@ -13,6 +13,8 @@
 .modal {
   width: 100%;
   max-height: 90vh;
+  max-height: 90dvh;
+  height: min(90vh, 90dvh);
   /* Apple Liquid Glass Effect - Authentic */
   background: var(--glass-modal-bg);
   backdrop-filter: var(--glass-blur-strong);
@@ -23,6 +25,8 @@
   padding-bottom: env(safe-area-inset-bottom, 0);
   position: relative;
   animation: modalSlideUp 300ms ease-out;
+  overflow: hidden;
+  min-height: 0; /* allow scroll areas to size correctly in flex layouts */
 }
 
 .modal::before {
@@ -43,6 +47,7 @@
   align-items: center;
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .header h2 {
@@ -61,6 +66,7 @@
 
 .search {
   padding: 12px 14px;
+  flex-shrink: 0;
 }
 
 .filterSection {
@@ -103,6 +109,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 0 14px 14px;
+  min-height: 0; /* critical so the list scrolls instead of pushing header/search off-screen */
 }
 
 .groupTitle {

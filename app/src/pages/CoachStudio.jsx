@@ -1380,6 +1380,9 @@ export default function CoachStudio() {
                 <div className={styles.muted}>
                   Edit one day at a time in a focused modal (Day / Workout / Meals / Health).
                 </div>
+                <div className={styles.muted} style={{ marginTop: 6 }}>
+                  Tip: To make a multi-week program fast, use <b>Bulk actions</b> → <b>Duplicate week…</b>
+                </div>
 
                 {dayPlans.length === 0 ? (
                   <div className={styles.muted} style={{ marginTop: 10 }}>

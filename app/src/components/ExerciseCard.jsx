@@ -4,6 +4,7 @@ import styles from './ExerciseCard.module.css'
 export default function ExerciseCard({
   exercise,
   lastInfo,
+  adjustmentFactor = 1,
   index,
   total,
   onToggle,
@@ -41,6 +42,39 @@ export default function ExerciseCard({
     if (lastInfo?.best?.e1rm) parts.push(`Best ${Math.round(lastInfo.best.e1rm)} e1RM`)
     return parts.join(' · ')
   })()
+
+  const roundTo2_5 = (n) => {
+    const x = Number(n)
+    if (!Number.isFinite(x)) return null
+    return Math.round(x / 2.5) * 2.5
+  }
+
+  const computeStrengthSuggestion = (set) => {
+    const cat = (exercise?.category || '').toString()
+    if (cat === 'Cardio' || cat === 'Recovery') return null
+
+    const weightFilled = set?.weight != null && String(set.weight).trim() !== ''
+    if (weightFilled) return null
+
+    const best = lastInfo?.best
+    const e1rm = Number(best?.e1rm)
+    if (!Number.isFinite(e1rm) || e1rm <= 0) return null
+
+    const repsFilled = set?.reps != null && String(set.reps).trim() !== ''
+    const desiredRepsRaw = repsFilled ? Number(set.reps) : Number(best?.reps)
+    const desiredReps = Number.isFinite(desiredRepsRaw) && desiredRepsRaw > 0
+      ? Math.max(1, Math.min(20, Math.floor(desiredRepsRaw)))
+      : 5
+
+    const base = e1rm / (1 + desiredReps / 30)
+    const factor = Number(adjustmentFactor)
+    const safeFactor = Number.isFinite(factor) ? Math.max(0.6, Math.min(1.0, factor)) : 1
+    const adjusted = base * safeFactor
+    const weight = roundTo2_5(adjusted)
+    if (!Number.isFinite(weight) || weight <= 0) return null
+
+    return { weight, reps: desiredReps }
+  }
 
   // Cardio timer (per exercise card; applied to the active set row)
   const cardioTimerIntervalRef = useRef(null)
@@ -484,6 +518,25 @@ export default function ExerciseCard({
                 {/* Elite set-entry quick actions (active set only) */}
                 {idx === activeSet ? (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginLeft: 8 }}>
+                    {(() => {
+                      const s = computeStrengthSuggestion(set)
+                      if (!s) return null
+                      return (
+                        <button
+                          type="button"
+                          className={styles.suggestBtn}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            onUpdateSet(idx, 'reps', String(s.reps))
+                            onUpdateSet(idx, 'weight', String(s.weight))
+                          }}
+                          title="Apply suggested next set from your recent best"
+                        >
+                          Apply {s.reps}×{s.weight}
+                        </button>
+                      )
+                    })()}
                     <button
                       type="button"
                       className={styles.nextBtn}

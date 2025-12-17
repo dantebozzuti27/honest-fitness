@@ -152,6 +152,16 @@
   color: rgba(254, 202, 202, 0.95);
 }
 
+.syncChip {
+  font-size: var(--text-sm);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  color: rgba(167, 243, 208, 0.95);
+  font-weight: 800;
+}
+
 .primaryCtaButton {
   width: 100%;
   border-radius: var(--radius-md);

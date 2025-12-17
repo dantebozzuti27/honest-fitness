@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import SideMenu from '../components/SideMenu'
 import BackButton from '../components/BackButton'
 import Skeleton from '../components/Skeleton'
+import ProgressShareModal from '../components/ProgressShareModal'
 import { useAuth } from '../context/AuthContext'
 import { getRecentWorkoutsFromSupabase } from '../lib/db/workoutsDb'
 import { getLocalDate, getTodayEST } from '../utils/dateUtils'
@@ -13,6 +14,7 @@ export default function Progress() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [recentWorkouts, setRecentWorkouts] = useState([])
+  const [shareOpen, setShareOpen] = useState(false)
 
   useEffect(() => {
     if (!user?.id) return
@@ -85,8 +87,29 @@ export default function Progress() {
     return Array.from(byPart.values()).sort((a, b) => b.sets - a.sets).slice(0, 10)
   }, [recentWorkouts])
 
+  const shareItems = useMemo(() => {
+    const top = prList.slice(0, 6).map((r) => ({
+      title: r.name,
+      sub: `Best: ${r.reps}×${Math.round(r.weight)} · ${r.date}`,
+      value: `${Math.round(r.e1rm)} e1RM`
+    }))
+    const volume = weeklyMuscleSummary.slice(0, 6).map((m) => ({
+      title: m.bodyPart,
+      sub: `${m.sets} sets`,
+      value: `${Math.round(m.volume).toLocaleString()} vol`
+    }))
+    return [...top, ...volume]
+  }, [prList, weeklyMuscleSummary])
+
   return (
     <div className={styles.container}>
+      <ProgressShareModal
+        isOpen={shareOpen}
+        onClose={() => setShareOpen(false)}
+        title="Weekly Progress"
+        subtitle="Top PRs + weekly volume"
+        items={shareItems}
+      />
       <header className={styles.header}>
         <SideMenu />
         <h1 className={styles.title}>Progress</h1>
@@ -115,9 +138,14 @@ export default function Progress() {
       <div className={styles.section}>
         <div className={styles.sectionHeaderRow}>
           <div className={styles.sectionTitle}>Top PRs (Estimated 1RM)</div>
-          <button className={styles.sectionLink} onClick={() => navigate('/progress/prs')} type="button">
-            See more →
-          </button>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button className={styles.sectionLink} onClick={() => setShareOpen(true)} type="button">
+              Share
+            </button>
+            <button className={styles.sectionLink} onClick={() => navigate('/progress/prs')} type="button">
+              See more →
+            </button>
+          </div>
         </div>
         {loading ? (
           <div className={styles.card} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

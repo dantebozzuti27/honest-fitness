@@ -28,6 +28,7 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { nonBlocking } from '../utils/nonBlocking'
+import { getOutboxPendingCount, flushOutbox } from '../lib/syncOutbox'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -59,6 +60,8 @@ export default function Home() {
   const [lastWorkoutSummary, setLastWorkoutSummary] = useState(null) // { date, label } or null
   const [todayNutrition, setTodayNutrition] = useState(null) // { calories, macros, water } or null
   const [todayHealthMetrics, setTodayHealthMetrics] = useState(null) // health_metrics row or null
+  const [pendingSyncCount, setPendingSyncCount] = useState(0)
+  const [syncBusy, setSyncBusy] = useState(false)
   const feedContainerRef = useRef(null)
   const pullStartY = useRef(0)
   const isPulling = useRef(false)
@@ -86,6 +89,22 @@ export default function Home() {
       })
     })
   }
+
+  // Trust-grade sync status: show pending outbox items and allow manual flush.
+  useEffect(() => {
+    if (!user?.id) {
+      setPendingSyncCount(0)
+      return
+    }
+    const refresh = () => setPendingSyncCount(getOutboxPendingCount(user.id))
+    refresh()
+    window.addEventListener('outboxUpdated', refresh)
+    window.addEventListener('online', refresh)
+    return () => {
+      window.removeEventListener('outboxUpdated', refresh)
+      window.removeEventListener('online', refresh)
+    }
+  }, [user?.id])
 
   const resolveConfirm = (result) => {
     setConfirmDialog(prev => ({ ...prev, open: false }))
@@ -833,6 +852,31 @@ export default function Home() {
                 >
                   {isPrivateModeOn ? 'Private: ON' : 'Private: Off'}
                 </Button>
+                {pendingSyncCount > 0 ? (
+                  <Button
+                    unstyled
+                    type="button"
+                    className={styles.syncChip}
+                    disabled={syncBusy}
+                    onClick={async () => {
+                      if (!user?.id) return
+                      setSyncBusy(true)
+                      try {
+                        await flushOutbox(user.id)
+                      } catch {
+                        // non-blocking; outbox will retry
+                      } finally {
+                        setSyncBusy(false)
+                        try {
+                          setPendingSyncCount(getOutboxPendingCount(user.id))
+                        } catch {}
+                      }
+                    }}
+                    title="Sync pending offline actions"
+                  >
+                    {syncBusy ? 'Syncing…' : `Sync: ${pendingSyncCount}`}
+                  </Button>
+                ) : null}
               </div>
             </div>
             <Button

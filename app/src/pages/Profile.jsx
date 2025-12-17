@@ -826,6 +826,7 @@ export default function Profile() {
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Support & Legal</h2>
           <div className={styles.supportRow}>
+            <button className={styles.actionBtn} onClick={() => navigate('/pricing')}>Pro</button>
             <button className={styles.actionBtn} onClick={() => navigate(SUPPORT_PATH)}>Support</button>
             <button className={styles.actionBtn} onClick={() => navigate(PRIVACY_PATH)}>Privacy Policy</button>
             <button className={styles.actionBtn} onClick={() => navigate(TERMS_PATH)}>Terms</button>

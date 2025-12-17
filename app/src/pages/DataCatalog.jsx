@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { DATA_DICTIONARY, METRIC_DEFINITIONS, searchDataCatalog } from '../lib/dataCatalog'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
+import SearchField from '../components/SearchField'
 import styles from './DataCatalog.module.css'
 
 export default function DataCatalog() {
@@ -37,12 +38,11 @@ export default function DataCatalog() {
       <div className={styles.content}>
         {/* Search */}
         <div className={styles.searchSection}>
-          <input
-            type="text"
-            placeholder="Search tables, columns, or metrics..."
+          <SearchField
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className={styles.searchInput}
+            onClear={() => setSearchQuery('')}
+            placeholder="Search tables, columns, or metrics…"
           />
         </div>
 

@@ -70,24 +70,10 @@
   border-bottom: 1px solid var(--border);
 }
 
-.searchInputContainer {
+.searchRow {
   display: flex;
+  align-items: center;
   gap: var(--space-sm);
-}
-
-.searchInput {
-  flex: 1;
-  padding: var(--space-sm) var(--space-md);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: var(--text-base);
-}
-
-.searchInput:focus {
-  outline: none;
-  border-color: var(--accent);
 }
 
 .searchBtn {

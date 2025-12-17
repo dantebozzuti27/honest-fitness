@@ -5,6 +5,7 @@ import { useToast } from '../hooks/useToast'
 import { logError } from '../utils/logger'
 import Button from './Button'
 import Modal from './Modal'
+import SearchField from './SearchField'
 import styles from './AddFriend.module.css'
 
 export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = '' }) {
@@ -136,17 +137,14 @@ export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = 
         </div>
         
         <div className={styles.searchSection}>
-          <div className={styles.searchInputContainer}>
-            <input
-              type="text"
-              className={styles.searchInput}
-              placeholder="Search by username or name..."
+          <div className={styles.searchRow}>
+            <SearchField
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onClear={() => setSearchTerm('')}
+              placeholder="Search by username or name…"
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleSearchByUsername()
-                }
+                if (e.key === 'Enter') handleSearchByUsername()
               }}
             />
             <Button unstyled className={styles.searchBtn} onClick={handleSearchByUsername} disabled={searching || !searchTerm.trim()}>

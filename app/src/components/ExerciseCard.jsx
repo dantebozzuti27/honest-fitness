@@ -35,6 +35,13 @@ export default function ExerciseCard({
 }) {
   const [activeSet, setActiveSet] = useState(0)
 
+  const headerHint = (() => {
+    const parts = []
+    if (lastInfo?.summary) parts.push(`Last ${lastInfo.summary}`)
+    if (lastInfo?.best?.e1rm) parts.push(`Best ${Math.round(lastInfo.best.e1rm)} e1RM`)
+    return parts.join(' · ')
+  })()
+
   // Cardio timer (per exercise card; applied to the active set row)
   const cardioTimerIntervalRef = useRef(null)
   const cardioTimerStartMsRef = useRef(null)
@@ -228,10 +235,13 @@ export default function ExerciseCard({
         </div>
       )}
       <button className={styles.header} onClick={onToggle}>
-        <span className={styles.name}>{exercise.name}</span>
-        <span className={styles.summary}>
-          {exercise.expanded ? '−' : `${exercise.sets.length} sets`}
+        <span className={styles.headerMain}>
+          <span className={styles.name}>{exercise.name}</span>
+          {headerHint ? (
+            <span className={styles.subline}>{headerHint}</span>
+          ) : null}
         </span>
+        <span className={styles.summary}>{exercise.expanded ? '−' : `${exercise.sets.length} sets`}</span>
       </button>
 
       {exercise.expanded && (

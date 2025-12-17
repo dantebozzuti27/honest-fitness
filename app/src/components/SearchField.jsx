@@ -8,7 +8,8 @@ export default function SearchField({
   autoFocus = false,
   inputRef,
   onClear,
-  disabled = false
+  disabled = false,
+  ariaLabel = 'Search'
 }) {
   const canClear = Boolean(!disabled && onClear && value && String(value).length > 0)
 
@@ -43,6 +44,7 @@ export default function SearchField({
         autoFocus={autoFocus}
         disabled={disabled}
         className={styles.input}
+        aria-label={ariaLabel}
       />
 
       {canClear ? (

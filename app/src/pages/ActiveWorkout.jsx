@@ -20,6 +20,7 @@ import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Button from '../components/Button'
 import TextAreaField from '../components/TextAreaField'
+import SearchField from '../components/SearchField'
 import { enqueueOutboxItem } from '../lib/syncOutbox'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
@@ -43,6 +44,7 @@ export default function ActiveWorkout() {
   const [exercises, setExercises] = useState([])
   const [allExercises, setAllExercises] = useState([])
   const [showPicker, setShowPicker] = useState(false)
+  const [exerciseFilter, setExerciseFilter] = useState('')
   const [workoutTime, setWorkoutTime] = useState(0)
   const [restTime, setRestTime] = useState(0)
   const [isResting, setIsResting] = useState(false)
@@ -2087,6 +2089,27 @@ export default function ActiveWorkout() {
     return items
   })()
 
+  const exerciseFilterKey = normalizeNameKey(exerciseFilter)
+  const filteredRenderItems = exerciseFilterKey
+    ? renderItems
+        .map((item) => {
+          if (item?.kind === 'stack') {
+            const members = (Array.isArray(item.members) ? item.members : []).filter((m) =>
+              normalizeNameKey(m?.name).includes(exerciseFilterKey)
+            )
+            if (members.length === 0) return null
+            return { ...item, members }
+          }
+          if (item?.kind === 'single') {
+            const ex = item.exercise
+            if (!ex) return null
+            return normalizeNameKey(ex?.name).includes(exerciseFilterKey) ? item : null
+          }
+          return null
+        })
+        .filter(Boolean)
+    : renderItems
+
   return (
     <div className={styles.container}>
       {showTimesUp && (
@@ -2286,6 +2309,16 @@ export default function ActiveWorkout() {
       </header>
 
       <div className={styles.content}>
+        {exercises.length >= 2 && (
+          <div className={styles.findRow}>
+            <SearchField
+              value={exerciseFilter}
+              onChange={(e) => setExerciseFilter(e.target.value)}
+              onClear={() => setExerciseFilter('')}
+              placeholder="Find exercise in this workout…"
+            />
+          </div>
+        )}
         {/* Stacking Helper Info */}
         {exercises.length >= 2 && exercises.some(ex => !ex.stacked) && (
           <div className={styles.stackHelper}>
@@ -2296,7 +2329,7 @@ export default function ActiveWorkout() {
           </div>
         )}
         
-        {renderItems.map((item) => {
+        {filteredRenderItems.map((item) => {
           if (item.kind === 'stack') {
             const members = Array.isArray(item.members) ? item.members : []
             const label = members.length === 2 ? 'Superset' : 'Circuit'

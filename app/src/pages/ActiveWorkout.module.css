@@ -275,6 +275,11 @@
   line-height: 1.4;
 }
 
+.findRow {
+  display: flex;
+  align-items: center;
+}
+
 .content {
   flex: 1;
   overflow-y: auto;

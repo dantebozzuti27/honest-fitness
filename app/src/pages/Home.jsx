@@ -23,6 +23,7 @@ import { PeopleIcon } from '../components/Icons'
 import Skeleton from '../components/Skeleton'
 import EmptyState from '../components/EmptyState'
 import Button from '../components/Button'
+import MetricPills from '../components/MetricPills'
 import { useHaptic } from '../hooks/useHaptic'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -62,6 +63,7 @@ export default function Home() {
   const [resumeSession, setResumeSession] = useState(null) // { sessionType: 'workout'|'recovery', timestamp, hasExercises }
   const [privateModeUntil, setPrivateModeUntil] = useState(null) // timestamp ms; when set, redact timestamps/notes in feed
   const [lastWorkoutSummary, setLastWorkoutSummary] = useState(null) // { date, label } or null
+  const [todayWorkoutSummary, setTodayWorkoutSummary] = useState(null) // { date, label, templateId } or null
   const [todayNutrition, setTodayNutrition] = useState(null) // { calories, macros, water } or null
   const [todayHealthMetrics, setTodayHealthMetrics] = useState(null) // health_metrics row or null
   const [pendingSyncCount, setPendingSyncCount] = useState(0)
@@ -512,12 +514,14 @@ export default function Home() {
           )
 
           // Load last workout summary (small recent window only) - non-blocking.
-          getRecentWorkoutsFromSupabase(user.id, 5)
+          getRecentWorkoutsFromSupabase(user.id, 20)
             .then((rows) => {
               if (!mounted) return
-              const w = (Array.isArray(rows) ? rows : [])[0] || null
+              const list = Array.isArray(rows) ? rows : []
+              const w = list[0] || null
               if (!w?.date) {
                 setLastWorkoutSummary(null)
+                setTodayWorkoutSummary(null)
                 return
               }
               const mins = Math.floor((Number(w.duration || 0) || 0) / 60)
@@ -527,6 +531,22 @@ export default function Home() {
                 date: String(w.date),
                 label: duration ? `${duration}` : 'Logged'
               })
+
+              // If there is a workout logged today, surface it prominently.
+              const today = getTodayEST()
+              const todayW = list.find(x => String(x?.date || '') === today) || null
+              if (todayW?.date) {
+                const tmins = Math.floor((Number(todayW.duration || 0) || 0) / 60)
+                const tsecs = (Number(todayW.duration || 0) || 0) % 60
+                const tduration = (todayW.duration != null) ? `${tmins}:${String(tsecs).padStart(2, '0')}` : ''
+                setTodayWorkoutSummary({
+                  date: String(todayW.date),
+                  label: tduration ? `${tduration}` : 'Logged',
+                  templateId: todayW.template_id || null
+                })
+              } else {
+                setTodayWorkoutSummary(null)
+              }
             })
             .catch(() => {})
           
@@ -857,43 +877,11 @@ export default function Home() {
               gap: 12
             }}
           >
-            <div className={styles.heroTop} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className={styles.heroTop} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div className={styles.heroTitle}>Your day</div>
-              <div className={styles.heroMeta} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                <span className={styles.heroMetaItem}>{streak > 0 ? `${streak} day streak` : 'Start your streak'}</span>
-                {fitbitSteps?.steps != null && <span className={styles.heroMetaItem}>{Number(fitbitSteps.steps).toLocaleString()} steps</span>}
-                <button
-                  type="button"
-                  className={`${styles.heroChip} ${isPrivateModeOn ? styles.heroChipOn : ''}`}
-                  onClick={togglePrivateMode}
-                  title={isPrivateModeOn ? 'Private mode is ON (local only). Tap to turn off.' : 'Turn on Private mode for 24h (local only).'}
-                >
-                  {isPrivateModeOn ? 'Private: ON' : 'Private: Off'}
-                </button>
-                {pendingSyncCount > 0 ? (
-                  <button
-                    type="button"
-                    className={styles.heroChip}
-                    disabled={syncBusy}
-                    onClick={async () => {
-                      if (!user?.id) return
-                      setSyncBusy(true)
-                      try {
-                        await flushOutbox(user.id)
-                      } catch {
-                        // outbox will retry
-                      } finally {
-                        setSyncBusy(false)
-                        try {
-                          setPendingSyncCount(getOutboxPendingCount(user.id))
-                        } catch {}
-                      }
-                    }}
-                    title="Sync pending offline actions"
-                  >
-                    {syncBusy ? 'Syncing…' : `Sync: ${pendingSyncCount}`}
-                  </button>
-                ) : null}
+              <div className={styles.heroKicker}>
+                {streak > 0 ? `${streak} day streak` : 'Start your streak'}
+                {fitbitSteps?.steps != null ? ` · ${Number(fitbitSteps.steps).toLocaleString()} steps` : ''}
               </div>
             </div>
 
@@ -933,7 +921,9 @@ export default function Home() {
                     })()}
               </div>
               <div className={styles.heroPrimarySub}>
-                {lastWorkoutSummary?.date ? `Last: ${formatDate(lastWorkoutSummary.date)} · ${lastWorkoutSummary.label}` : 'Keep it simple: show up, log it, move on.'}
+                {todayWorkoutSummary?.date
+                  ? `Completed today${todayWorkoutSummary?.templateId ? `: ${getTemplateLabel(todayWorkoutSummary.templateId)}` : ''} · ${todayWorkoutSummary.label}`
+                  : (lastWorkoutSummary?.date ? `Last: ${formatDate(lastWorkoutSummary.date)} · ${lastWorkoutSummary.label}` : 'Keep it simple: show up, log it, move on.')}
               </div>
             </button>
 
@@ -942,6 +932,7 @@ export default function Home() {
               style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}
             >
               <button
+                type="button"
                 className={styles.quickCard}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
                 onClick={() => navigate('/nutrition', { state: { openMealModal: true } })}
@@ -950,6 +941,7 @@ export default function Home() {
                 <div className={styles.quickCardSub}>Fast add</div>
               </button>
               <button
+                type="button"
                 className={styles.quickCard}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
                 onClick={() => navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })}
@@ -958,6 +950,7 @@ export default function Home() {
                 <div className={styles.quickCardSub}>Add exercises</div>
               </button>
               <button
+                type="button"
                 className={styles.quickCard}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
                 onClick={() => navigate('/health', { state: { openLogModal: true } })}
@@ -966,6 +959,7 @@ export default function Home() {
                 <div className={styles.quickCardSub}>Log health</div>
               </button>
               <button
+                type="button"
                 className={styles.quickCard}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
                 onClick={() => navigate('/calendar')}
@@ -1024,17 +1018,11 @@ export default function Home() {
               <div className={styles.summaryLabel}>Health</div>
               {(() => {
                 const steps = fitbitSteps?.steps != null ? Number(fitbitSteps.steps) : Number(todayHealthMetrics?.steps)
-                const sleep = formatSleep(todayHealthMetrics?.sleep_duration)
                 const weight = todayHealthMetrics?.weight != null ? Number(todayHealthMetrics.weight) : null
-                const any = (Number.isFinite(steps) && steps > 0) || Boolean(sleep) || (Number.isFinite(weight) && weight > 0)
+                const sleepRaw = todayHealthMetrics?.sleep_duration
+                const any = (Number.isFinite(steps) && steps > 0) || (sleepRaw != null && Number(sleepRaw) > 0) || (Number.isFinite(weight) && weight > 0)
                 if (!any) return <div className={styles.summaryEmpty}>No metrics yet</div>
-                return (
-                  <div className={styles.summarySub}>
-                    {Number.isFinite(steps) ? `${Math.max(0, Math.round(steps)).toLocaleString()} steps` : ''}
-                    {sleep ? `${Number.isFinite(steps) ? ' · ' : ''}Sleep ${sleep}` : ''}
-                    {Number.isFinite(weight) ? `${(Number.isFinite(steps) || sleep) ? ' · ' : ''}${Math.round(weight * 10) / 10} wt` : ''}
-                  </div>
-                )
+                return <MetricPills steps={steps} sleep={sleepRaw} weight={weight} />
               })()}
             </button>
 

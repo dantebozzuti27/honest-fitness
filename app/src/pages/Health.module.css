@@ -123,6 +123,10 @@ h1 {
   display: none;
 }
 
+.metricPillsRow {
+  margin: 2px 0 12px 0;
+}
+
 .tab {
   flex: 1;
   min-width: 60px;

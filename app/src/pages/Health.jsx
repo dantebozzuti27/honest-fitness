@@ -34,6 +34,8 @@ import { usePageInsights } from '../hooks/usePageInsights'
 import { useModalA11y } from '../hooks/useModalA11y'
 import { getWorkoutRecommendation } from '../lib/autoAdjust'
 import styles from './Health.module.css'
+import MetricPills from '../components/MetricPills'
+import { formatSleep, formatSteps, formatWeightLbs } from '../utils/metricFormatters'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
 
@@ -811,6 +813,9 @@ export default function Health() {
               )}
 
               {/* Dashboard Grid - Individual Metric Cards */}
+              <div className={styles.metricPillsRow}>
+                <MetricPills steps={todayMetric?.steps} sleep={todayMetric?.sleep_time} weight={todayMetric?.weight} />
+              </div>
               <div className={styles.dashboardGrid}>
                 {/* Steps Card - Clickable to edit just steps */}
                 <div 
@@ -834,9 +839,7 @@ export default function Health() {
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Steps</span>
                     <span className={styles.dashboardStatValue}>
-                      {todayMetric?.steps != null
-                        ? Number(todayMetric.steps).toLocaleString()
-                        : '-'}
+                      {formatSteps(todayMetric?.steps) || '-'}
                     </span>
                   </div>
                   <Button
@@ -976,10 +979,7 @@ export default function Health() {
                           logWarn('Sleep duration seems too high, capping', { minutes: sleepMinutes })
                           sleepMinutes = 1440
                         }
-                        
-                        const hours = Math.floor(sleepMinutes / 60)
-                        const minutes = Math.round(sleepMinutes % 60)
-                        return `${hours}:${minutes.toString().padStart(2, '0')}`
+                        return formatSleep(sleepMinutes) || '-'
                       })()}
                     </span>
                   </div>
@@ -1044,9 +1044,7 @@ export default function Health() {
                   <div className={styles.dashboardStat}>
                     <span className={styles.dashboardStatLabel}>Weight</span>
                     <span className={styles.dashboardStatValue}>
-                      {todayMetric?.weight != null 
-                        ? `${todayMetric.weight} lbs`
-                        : '-'}
+                      {formatWeightLbs(todayMetric?.weight) || '-'}
                     </span>
                   </div>
                   <Button

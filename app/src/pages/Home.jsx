@@ -715,26 +715,42 @@ export default function Home() {
                 textAlign: 'left'
               }}
               onClick={() => {
-                if (resumeSession?.hasExercises) {
-                  navigate('/workout/active', { state: { resumePaused: true, sessionType: resumeSession.sessionType } })
-                  return
+                try {
+                  if (resumeSession?.hasExercises) {
+                    navigate('/workout/active', { state: { resumePaused: true, sessionType: resumeSession.sessionType } })
+                    return
+                  }
+
+                  const today = getTodayEST()
+                  const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
+                  const first = todaysList.find(s => s?.template_id && s.template_id !== 'freestyle') || todaysList[0] || null
+
+                  // Keep this consistent with the working "Train" quick action contract.
+                  if (first?.template_id === 'freestyle') {
+                    navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })
+                    return
+                  }
+                  if (first?.template_id) {
+                    navigate('/workout/active', { state: { sessionType: 'workout', templateId: first.template_id, scheduledDate: first.date } })
+                    return
+                  }
+
+                  navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })
+                } catch (e) {
+                  // Last-ditch fallback: never let the primary CTA feel dead.
+                  navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })
                 }
-                const today = getTodayEST()
-                const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
-                const first = todaysList.find(s => s?.template_id && s.template_id !== 'freestyle') || todaysList[0] || null
-                if (first?.template_id === 'freestyle') return navigate('/workout/active')
-                if (first?.template_id) return navigate('/workout/active', { state: { templateId: first.template_id, scheduledDate: first.date } })
-                navigate('/workout/active')
               }}
             >
-              <div className={styles.heroPrimaryTitle}>
+              <div className={styles.heroPrimaryLabel}>Fitness</div>
+              <div className={styles.heroPrimaryValue}>
                 {resumeSession?.hasExercises
                   ? (resumeSession.sessionType === 'recovery' ? 'Resume recovery' : 'Resume workout')
                   : (() => {
                       const today = getTodayEST()
                       const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
                       const first = todaysList.find(s => s?.template_id && s.template_id !== 'freestyle') || todaysList[0] || null
-                      return first ? `Start: ${getTemplateLabel(first.template_id)}` : 'Start a session'
+                      return first ? getTemplateLabel(first.template_id) : 'Start workout'
                     })()}
               </div>
               <div className={styles.heroPrimarySub}>

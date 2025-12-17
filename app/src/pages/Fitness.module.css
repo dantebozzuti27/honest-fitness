@@ -135,6 +135,13 @@ h1 {
   gap: 10px;
 }
 
+.historyQuickActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
 .historyChips {
   display: flex;
   gap: 8px;

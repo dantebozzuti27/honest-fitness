@@ -115,7 +115,7 @@ export default function Progress() {
       <div className={styles.section}>
         <div className={styles.sectionHeaderRow}>
           <div className={styles.sectionTitle}>Top PRs (Estimated 1RM)</div>
-          <button className={styles.sectionLink} onClick={() => navigate('/analytics')} type="button">
+          <button className={styles.sectionLink} onClick={() => navigate('/progress/prs')} type="button">
             See more →
           </button>
         </div>

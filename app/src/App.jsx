@@ -40,6 +40,7 @@ const Marketplace = lazy(() => import('./pages/Marketplace'))
 const ProgramDetail = lazy(() => import('./pages/ProgramDetail'))
 const CoachStudio = lazy(() => import('./pages/CoachStudio'))
 const Library = lazy(() => import('./pages/Library'))
+const PRs = lazy(() => import('./pages/PRs'))
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -288,6 +289,7 @@ export default function App() {
           <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
           <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
           <Route path="/progress" element={<ProtectedRoute><Progress /></ProtectedRoute>} />
+          <Route path="/progress/prs" element={<ProtectedRoute><PRs /></ProtectedRoute>} />
           <Route path="/planner" element={<ProtectedRoute><Planner /></ProtectedRoute>} />
           <Route path="/log" element={<ProtectedRoute><Log /></ProtectedRoute>} />
           <Route path="/goals" element={<ProtectedRoute><Goals /></ProtectedRoute>} />

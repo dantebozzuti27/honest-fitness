@@ -95,6 +95,7 @@ export default function Analytics() {
   const [trendsCategory, setTrendsCategory] = useState('Frequency')
   const [trendsDateRange, setTrendsDateRange] = useState('Last 30 Days')
   const [trendsChartTypeVisual, setTrendsChartTypeVisual] = useState('Bar')
+  const [tonnageBodyPart, setTonnageBodyPart] = useState('')
   const [data, setData] = useState({
     bodyParts: {},
     bodyPartReps: {},
@@ -1355,6 +1356,45 @@ export default function Analytics() {
     return weeks
   }, [data.workouts])
 
+  const tonnageData = useMemo(() => {
+    // Weekly tonnage (sum of weight * reps) for strength sets.
+    const overall = {}
+    const byPart = {}
+    const parts = new Set()
+
+    const add = (map, weekKey, value) => {
+      map[weekKey] = (map[weekKey] || 0) + value
+    }
+
+    for (const w of Array.isArray(data.workouts) ? data.workouts : []) {
+      const date = new Date(String(w?.date || '') + 'T12:00:00')
+      if (Number.isNaN(date.getTime())) continue
+      const weekStart = new Date(date)
+      weekStart.setDate(date.getDate() - date.getDay())
+      const weekKey = getLocalDate(weekStart)
+
+      for (const ex of Array.isArray(w?.workout_exercises) ? w.workout_exercises : []) {
+        const bodyPart = (ex?.body_part || 'Other').toString() || 'Other'
+        parts.add(bodyPart)
+        const sets = Array.isArray(ex?.workout_sets) ? ex.workout_sets : []
+        for (const s of sets) {
+          const weight = Number(s?.weight)
+          const reps = Number(s?.reps)
+          if (!Number.isFinite(weight) || !Number.isFinite(reps) || weight <= 0 || reps <= 0) continue
+          const tonnage = weight * reps
+          add(overall, weekKey, tonnage)
+          byPart[bodyPart] = byPart[bodyPart] || {}
+          add(byPart[bodyPart], weekKey, tonnage)
+        }
+      }
+    }
+
+    const sortedParts = Array.from(parts.values())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+    return { overall, byPart, parts: sortedParts }
+  }, [data.workouts])
+
   // Generate insights from workout data - Improved calculations
   const generateWorkoutInsights = useMemo(() => {
     if (!weeklyWorkoutData || Object.keys(weeklyWorkoutData).length === 0) return []
@@ -2067,6 +2107,10 @@ export default function Analytics() {
 
         {/* Trends Categories */}
         {(() => {
+          const selectedTonnageData = tonnageBodyPart
+            ? (tonnageData.byPart?.[tonnageBodyPart] || {})
+            : (tonnageData.overall || {})
+
           const trendsCategories = [
             { 
               id: 'Frequency', 
@@ -2079,6 +2123,12 @@ export default function Analytics() {
               label: 'Volume', 
               data: volumeChartData,
               dates: Object.keys(volumeChartData)
+            },
+            {
+              id: 'Tonnage',
+              label: tonnageBodyPart ? `Tonnage (${tonnageBodyPart})` : 'Tonnage',
+              data: selectedTonnageData,
+              dates: Object.keys(selectedTonnageData || {})
             },
             { 
               id: 'Exercises', 
@@ -2272,6 +2322,30 @@ export default function Analytics() {
               onExport={() => showToast('Export coming soon.', 'info')}
               dataFreshness={lastDataUpdate ? `${Math.round((new Date() - lastDataUpdate) / (1000 * 60 * 60))} hours ago` : null}
             >
+              {trendsCategory === 'Tonnage' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <div style={{ fontWeight: 800 }}>Muscle:</div>
+                  <select
+                    value={tonnageBodyPart}
+                    onChange={(e) => setTonnageBodyPart(e.target.value)}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 10,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)'
+                    }}
+                  >
+                    <option value="">All</option>
+                    {(tonnageData.parts || []).map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                    Weekly tonnage = sum(weight × reps) for strength sets.
+                  </div>
+                </div>
+              ) : null}
               {trendsCategory === 'Exercises' ? (
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1 }}>

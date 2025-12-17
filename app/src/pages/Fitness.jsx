@@ -170,6 +170,70 @@ export default function Fitness() {
     return sortedWorkoutHistory.filter(matches)
   }, [historyExerciseQuery, sortedWorkoutHistory])
 
+  const repeatYesterdayTemplate = useCallback(async (mode = 'start') => {
+    if (!user?.id) return
+    try {
+      const y = getYesterdayEST()
+      const yesterday = (Array.isArray(workoutHistory) ? workoutHistory : []).find(w => String(w?.date || '') === String(y))
+      if (!yesterday) {
+        showToast('No workout found for yesterday.', 'info')
+        return
+      }
+
+      const exs = Array.isArray(yesterday?.workout_exercises) ? yesterday.workout_exercises : []
+      if (exs.length === 0) {
+        showToast('Yesterday’s workout had no exercises.', 'info')
+        return
+      }
+
+      const template = {
+        id: `repeat-${y}-${Date.now()}`,
+        name: `Repeat: ${y}`,
+        exercises: exs.map((ex) => {
+          const name = (ex?.exercise_name || ex?.name || '').toString().trim()
+          const setCount = Array.isArray(ex?.workout_sets) ? ex.workout_sets.length : 0
+          const repsFromLast = (() => {
+            const first = Array.isArray(ex?.workout_sets) ? ex.workout_sets.find(s => s?.reps) : null
+            return first?.reps ? String(first.reps) : ''
+          })()
+          const weightFromLast = (() => {
+            const first = Array.isArray(ex?.workout_sets) ? ex.workout_sets.find(s => s?.weight) : null
+            return first?.weight ? String(first.weight) : ''
+          })()
+          return {
+            name: name || 'Exercise',
+            sets: Math.max(1, Math.min(12, setCount || 4)),
+            reps: repsFromLast ? `${repsFromLast}` : '8-12',
+            time: '',
+            notes: weightFromLast ? `Last: ${repsFromLast || ''}×${weightFromLast}`.trim() : '',
+            stackGroup: null
+          }
+        })
+      }
+
+      await saveTemplate(template)
+
+      if (mode === 'schedule') {
+        const today = getTodayEST()
+        try {
+          const { scheduleWorkoutSupabase } = await import('../lib/db/scheduledWorkoutsDb')
+          await scheduleWorkoutSupabase(user.id, today, template.id)
+          showToast('Scheduled for today.', 'success', 1800)
+        } catch (e) {
+          logError('Failed scheduling repeated workout', e)
+          showToast('Template created, but scheduling failed.', 'error')
+        }
+        return
+      }
+
+      showToast('Template created from yesterday. Starting now…', 'success', 1400)
+      navigate('/workout/active', { state: { templateId: template.id } })
+    } catch (e) {
+      logError('Repeat yesterday workout failed', e)
+      showToast('Failed to repeat yesterday. Try again.', 'error')
+    }
+  }, [user?.id, workoutHistory, showToast, navigate])
+
   const loadPausedWorkout = useCallback(async () => {
     if (!user) return
     try {
@@ -743,6 +807,14 @@ export default function Fitness() {
         {activeTab === 'History' && (
           <div className={styles.historyContent}>
             <h2 className={styles.sectionTitle}>Workout & Recovery History</h2>
+            <div className={styles.historyQuickActions}>
+              <Button variant="secondary" onClick={() => repeatYesterdayTemplate('start')}>
+                Repeat yesterday (start)
+              </Button>
+              <Button variant="secondary" onClick={() => repeatYesterdayTemplate('schedule')}>
+                Repeat yesterday (schedule today)
+              </Button>
+            </div>
             <div className={styles.historySearch}>
               <SearchField
                 value={historyExerciseQuery}

@@ -16,14 +16,12 @@ import HomeButton from '../components/HomeButton'
 import ShareCard from '../components/ShareCard'
 import AddFriend from '../components/AddFriend'
 import FriendRequests from '../components/FriendRequests'
-import Spinner from '../components/Spinner'
 import { getPendingFriendRequests } from '../lib/friendsDb'
-import { getReadinessScore } from '../lib/readiness'
 import { PeopleIcon } from '../components/Icons'
 import Skeleton from '../components/Skeleton'
 import EmptyState from '../components/EmptyState'
 import Button from '../components/Button'
-import MetricPills from '../components/MetricPills'
+import { formatSleep, formatSteps, formatWeightLbs } from '../utils/metricFormatters'
 import { useHaptic } from '../hooks/useHaptic'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -55,11 +53,8 @@ export default function Home() {
   const [addFriendPrefill, setAddFriendPrefill] = useState('')
   const [showFriendRequests, setShowFriendRequests] = useState(false)
   const [pendingRequestCount, setPendingRequestCount] = useState(0)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [pullDistance, setPullDistance] = useState(0)
   const [scheduledWorkouts, setScheduledWorkouts] = useState([])
   const [templateNameById, setTemplateNameById] = useState({})
-  const [readiness, setReadiness] = useState(null) // { score, zone, date, ... } or null
   const [resumeSession, setResumeSession] = useState(null) // { sessionType: 'workout'|'recovery', timestamp, hasExercises }
   const [privateModeUntil, setPrivateModeUntil] = useState(null) // timestamp ms; when set, redact timestamps/notes in feed
   const [lastWorkoutSummary, setLastWorkoutSummary] = useState(null) // { date, label } or null
@@ -70,8 +65,6 @@ export default function Home() {
   const [syncBusy, setSyncBusy] = useState(false)
   const [feedExpanded, setFeedExpanded] = useState(false)
   const feedContainerRef = useRef(null)
-  const pullStartY = useRef(0)
-  const isPulling = useRef(false)
   const shownErrorsRef = useRef({ feed: false, init: false, scheduled: false, pending: false })
   const confirmResolverRef = useRef(null)
   const [confirmDialog, setConfirmDialog] = useState({
@@ -118,22 +111,6 @@ export default function Home() {
     const resolve = confirmResolverRef.current
     confirmResolverRef.current = null
     if (resolve) resolve(result)
-  }
-
-  const formatSleep = (raw) => {
-    const n = Number(raw)
-    if (!Number.isFinite(n) || n <= 0) return null
-    // If it's > 24, it's likely minutes (Fitbit/Oura exports often use minutes).
-    if (n > 24) {
-      const mins = Math.max(0, Math.floor(n))
-      const h = Math.floor(mins / 60)
-      const m = mins % 60
-      if (h <= 0) return `${m}m`
-      return m > 0 ? `${h}h ${m}m` : `${h}h`
-    }
-    // Otherwise treat as hours.
-    const hours = Math.round(n * 10) / 10
-    return `${hours}h`
   }
 
   const loadTodayStats = useCallback(async (userId, { nonBlockingMode = false } = {}) => {
@@ -183,13 +160,9 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location?.state])
 
-  const loadRecentLogs = async (userId, showRefreshIndicator = false, cursor = null, { append = false } = {}) => {
+  const loadRecentLogs = async (userId, cursor = null, { append = false } = {}) => {
     try {
-      if (showRefreshIndicator) {
-        setIsRefreshing(true)
-      } else {
-        setLoading(true)
-      }
+      setLoading(true)
       
       const logs = []
       let nextCursor = null
@@ -200,7 +173,6 @@ export default function Home() {
         setFeedCursor(null)
         setFeedHasMore(false)
         setLoading(false)
-        setIsRefreshing(false)
         return
       }
 
@@ -302,18 +274,16 @@ export default function Home() {
       setFeedCursor(nextCursor)
       setFeedHasMore(hasMore)
       setLoading(false)
-      setIsRefreshing(false)
     } catch (error) {
       logError('Error in loadRecentLogs', error)
       if (!shownErrorsRef.current.feed && showToast && typeof showToast === 'function') {
         shownErrorsRef.current.feed = true
-        showToast('Failed to load your feed. Pull to refresh to retry.', 'error')
+        showToast('Failed to load your feed. Please try again.', 'error')
       }
       setRecentLogs([])
       setFeedCursor(null)
       setFeedHasMore(false)
       setLoading(false)
-      setIsRefreshing(false)
     }
   }
 
@@ -333,100 +303,11 @@ export default function Home() {
     try {
       await deleteFeedItemFromSupabase(log.id, user.id)
       showToast('Post deleted.', 'success')
-      await loadRecentLogs(user.id, false)
+      await loadRecentLogs(user.id)
     } catch (e) {
       logError('Failed to delete feed post', e)
       showToast('Failed to delete post. Please try again.', 'error')
     }
-  }
-  
-  // Pull-to-refresh handlers (Twitter-style)
-  const handleTouchStart = (e) => {
-    const container = feedContainerRef.current
-    if (!container) return
-    
-    const scrollTop = container.scrollTop
-    
-    // Only allow pull-to-refresh when at the top
-    if (scrollTop <= 5) {
-      pullStartY.current = e.touches[0].clientY
-      isPulling.current = true
-    }
-  }
-  
-  const handleTouchMove = (e) => {
-    if (!isPulling.current) return
-    
-    const currentY = e.touches[0].clientY
-    const pullDistance = Math.max(0, currentY - pullStartY.current)
-    
-    // Limit pull distance and add resistance
-    const maxPull = 120
-    const resistance = 2.5
-    const adjustedDistance = Math.min(pullDistance / resistance, maxPull)
-    
-    setPullDistance(adjustedDistance)
-    
-    // Prevent default scrolling when pulling down
-    if (pullDistance > 10) {
-      e.preventDefault()
-    }
-  }
-  
-  const handleTouchEnd = () => {
-    if (!isPulling.current) return
-    
-    const threshold = 60 // Distance needed to trigger refresh
-    
-    if (pullDistance >= threshold && user) {
-      haptic?.success?.()
-      // Trigger refresh (social is hidden; refresh today's stats)
-      loadTodayStats(user.id, { nonBlockingMode: false })
-    } else if (pullDistance > 10) {
-      haptic?.light?.()
-    }
-    
-    // Reset
-    isPulling.current = false
-    setPullDistance(0)
-  }
-  
-  // Mouse drag support for desktop (optional)
-  const handleMouseDown = (e) => {
-    const container = feedContainerRef.current
-    if (!container) return
-    
-    const scrollTop = container.scrollTop
-    
-    if (scrollTop <= 5) {
-      pullStartY.current = e.clientY
-      isPulling.current = true
-    }
-  }
-  
-  const handleMouseMove = (e) => {
-    if (!isPulling.current) return
-    
-    const currentY = e.clientY
-    const pullDistance = Math.max(0, currentY - pullStartY.current)
-    const maxPull = 120
-    const resistance = 2.5
-    const adjustedDistance = Math.min(pullDistance / resistance, maxPull)
-    
-    setPullDistance(adjustedDistance)
-  }
-  
-  const handleMouseUp = () => {
-    if (!isPulling.current) return
-    
-    const threshold = 60
-    
-    if (pullDistance >= threshold && user) {
-      loadTodayStats(user.id, { nonBlockingMode: false })
-    }
-    
-    isPulling.current = false
-    setPullDistance(0)
   }
 
   useEffect(() => {
@@ -490,14 +371,6 @@ export default function Home() {
           nonBlocking(
             loadTodayStats(user.id, { nonBlockingMode: true }),
             { key: 'today_stats', shownRef: shownErrorsRef, showToast, message: 'Some today stats are unavailable.', level: 'info' }
-          )
-
-          // Load readiness snapshot (non-blocking)
-          nonBlocking(
-            getReadinessScore(user.id).then(r => {
-              if (mounted) setReadiness(r || null)
-            }),
-            { key: 'readiness', shownRef: shownErrorsRef, showToast, message: 'Readiness is unavailable right now.', level: 'info' }
           )
 
           // Load template names (local IndexedDB) - non-blocking but improves trust/clarity for scheduling.
@@ -571,7 +444,7 @@ export default function Home() {
           logError('Home init failed', e)
           if (!shownErrorsRef.current.init && showToast && typeof showToast === 'function') {
             shownErrorsRef.current.init = true
-            showToast('Failed to load Home data. Pull to refresh to retry.', 'error')
+            showToast('Failed to load Home data. Please try again.', 'error')
           }
         }
       }
@@ -720,28 +593,6 @@ export default function Home() {
       }
     } catch {}
   }
-  
-  // Add event listeners for pull-to-refresh
-  useEffect(() => {
-    const container = feedContainerRef.current
-    if (!container) return
-    
-    container.addEventListener('touchstart', handleTouchStart, { passive: false })
-    container.addEventListener('touchmove', handleTouchMove, { passive: false })
-    container.addEventListener('touchend', handleTouchEnd)
-    container.addEventListener('mousedown', handleMouseDown)
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-    
-    return () => {
-      container.removeEventListener('touchstart', handleTouchStart)
-      container.removeEventListener('touchmove', handleTouchMove)
-      container.removeEventListener('touchend', handleTouchEnd)
-      container.removeEventListener('mousedown', handleMouseDown)
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleMouseDown, handleMouseMove, handleMouseUp])
 
 
   if (loading) {
@@ -832,40 +683,6 @@ export default function Home() {
       </div>
 
       <div className={styles.content} ref={feedContainerRef}>
-        {/* Pull-to-refresh indicator */}
-        {(pullDistance > 0 || isRefreshing) && (
-          <div 
-            className={styles.pullToRefresh}
-            style={{ 
-              transform: `translateY(${Math.max(0, pullDistance - 20)}px)`,
-              opacity: Math.min(1, pullDistance / 60)
-            }}
-          >
-            <div className={styles.pullToRefreshIcon}>
-              {isRefreshing ? (
-                <Spinner size="sm" color="primary" />
-              ) : pullDistance >= 60 ? (
-                <span style={{ 
-                  fontSize: 'var(--icon-md)',
-                  transform: 'rotate(180deg)',
-                  display: 'inline-block',
-                  transition: 'transform var(--transition-fast)'
-                }}>↓</span>
-              ) : (
-                <span style={{ 
-                  transform: `rotate(${pullDistance * 3}deg)`, 
-                  display: 'inline-block',
-                  fontSize: 'var(--icon-md)',
-                  transition: 'transform var(--transition-fast)'
-                }}>↓</span>
-              )}
-            </div>
-            <span className={styles.pullToRefreshText}>
-              {isRefreshing ? 'Refreshing...' : pullDistance >= 60 ? 'Release to refresh' : 'Pull to refresh'}
-            </span>
-          </div>
-        )}
-
         {/* Redesigned Today Dashboard */}
         <div className={styles.dashboard}>
           <div
@@ -979,17 +796,66 @@ export default function Home() {
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
               onClick={() => navigate('/health')}
             >
-              <div className={styles.summaryLabel}>Readiness</div>
-              {readiness?.score != null ? (
-                <div className={styles.summaryValueRow}>
-                  <div className={styles.summaryValue}>{readiness.score}</div>
-                  <div className={`${styles.summaryPill} ${styles[`zone_${readiness.zone || 'yellow'}`]}`}>
-                    {(readiness.zone || 'yellow').toString().toUpperCase()}
-                  </div>
-                </div>
-              ) : (
-                <div className={styles.summaryEmpty}>Connect wearable</div>
-              )}
+              <div className={styles.summaryLabel}>Health</div>
+              {(() => {
+                const steps = fitbitSteps?.steps != null ? Number(fitbitSteps.steps) : Number(todayHealthMetrics?.steps)
+                const sleepRaw = todayHealthMetrics?.sleep_duration
+                const weight = todayHealthMetrics?.weight != null ? Number(todayHealthMetrics.weight) : null
+                const calories = Number(todayHealthMetrics?.calories_burned ?? todayHealthMetrics?.calories)
+
+                const stepsText = formatSteps(steps)
+                const sleepText = formatSleep(sleepRaw)
+                const weightText = weight != null ? formatWeightLbs(weight) : null
+                const caloriesText = (Number.isFinite(calories) && calories > 0) ? String(Math.round(calories)) : null
+
+                const any = Boolean(caloriesText) || Boolean(stepsText) || Boolean(sleepText) || Boolean(weightText)
+                if (!any) return <div className={styles.summaryEmpty}>No metrics yet</div>
+
+                // Mirror Nutrition: big primary number + compact secondary line
+                if (caloriesText) {
+                  return (
+                    <>
+                      <div className={styles.summaryValue}>{caloriesText}<span className={styles.summaryUnit}> cal</span></div>
+                      <div className={styles.summarySub}>
+                        {stepsText ? `Steps ${stepsText}` : ''}
+                        {sleepText ? `${stepsText ? ' · ' : ''}Sleep ${sleepText}` : ''}
+                        {weightText ? `${(stepsText || sleepText) ? ' · ' : ''}Wt ${weightText}` : ''}
+                      </div>
+                    </>
+                  )
+                }
+
+                // Fallback primary value if calories are unavailable
+                if (stepsText) {
+                  return (
+                    <>
+                      <div className={styles.summaryValue}>{stepsText}<span className={styles.summaryUnit}> steps</span></div>
+                      <div className={styles.summarySub}>
+                        {sleepText ? `Sleep ${sleepText}` : ''}
+                        {weightText ? `${sleepText ? ' · ' : ''}Wt ${weightText}` : ''}
+                      </div>
+                    </>
+                  )
+                }
+
+                if (sleepText) {
+                  return (
+                    <>
+                      <div className={styles.summaryValue}>{sleepText}</div>
+                      <div className={styles.summarySub}>
+                        {weightText ? `Wt ${weightText}` : ''}
+                      </div>
+                    </>
+                  )
+                }
+
+                return (
+                  <>
+                    <div className={styles.summaryValue}>{weightText}</div>
+                    <div className={styles.summarySub}>Weight</div>
+                  </>
+                )
+              })()}
             </button>
 
             <button
@@ -1008,22 +874,6 @@ export default function Home() {
               ) : (
                 <div className={styles.summaryEmpty}>No food logged</div>
               )}
-            </button>
-
-            <button
-              className={styles.summaryCard}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
-              onClick={() => navigate('/health')}
-            >
-              <div className={styles.summaryLabel}>Health</div>
-              {(() => {
-                const steps = fitbitSteps?.steps != null ? Number(fitbitSteps.steps) : Number(todayHealthMetrics?.steps)
-                const weight = todayHealthMetrics?.weight != null ? Number(todayHealthMetrics.weight) : null
-                const sleepRaw = todayHealthMetrics?.sleep_duration
-                const any = (Number.isFinite(steps) && steps > 0) || (sleepRaw != null && Number(sleepRaw) > 0) || (Number.isFinite(weight) && weight > 0)
-                if (!any) return <div className={styles.summaryEmpty}>No metrics yet</div>
-                return <MetricPills steps={steps} sleep={sleepRaw} weight={weight} />
-              })()}
             </button>
 
             <button
@@ -1247,7 +1097,7 @@ export default function Home() {
                       if (!user?.id || !feedCursor) return
                       setFeedLoadingMore(true)
                       try {
-                        await loadRecentLogs(user.id, false, feedCursor, { append: true })
+                        await loadRecentLogs(user.id, feedCursor, { append: true })
                       } finally {
                         setFeedLoadingMore(false)
                       }

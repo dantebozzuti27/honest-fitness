@@ -100,6 +100,31 @@ export default function ActiveWorkout() {
     isDestructive: false
   })
 
+  // Session type must be declared before any effects that reference it (dependency arrays are evaluated during render).
+  const [sessionType, setSessionType] = useState(
+    (initialSessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout'
+  ) // 'workout' | 'recovery'
+  const [sessionTypeMode, setSessionTypeMode] = useState(
+    initialSessionType ? 'manual' : 'auto'
+  ) // 'auto' | 'manual'
+  const [isPaused, setIsPaused] = useState(false)
+  const [pausedTime, setPausedTime] = useState(0) // Accumulated paused time
+  const [isSaving, setIsSaving] = useState(false)
+  const [calculatedWorkoutMetrics, setCalculatedWorkoutMetrics] = useState({ calories: null, steps: null }) // Calculated workout metrics for display
+  const pauseStartTime = useRef(null)
+  const pausedTimeRef = useRef(0) // Ref to track paused time for timer calculations
+  const workoutTimerRef = useRef(null)
+  const restTimerRef = useRef(null)
+  const workoutStartTimeRef = useRef(null)
+  const restStartTimeRef = useRef(null)
+  const restDurationRef = useRef(0)
+  const timeoutRefs = useRef([]) // Track all timeouts for cleanup
+  const autoSaveIntervalRef = useRef(null) // Auto-save interval
+  const lastSavedExercisesRef = useRef(null) // Track last saved exercises to avoid unnecessary saves
+  const workoutStartMetricsRef = useRef(null) // Track wearable metrics at workout start (calories, steps)
+  const pausedMetricsRef = useRef([]) // Track metrics during paused periods: [{pauseTime, resumeTime, metricsAtPause, metricsAtResume}]
+  const didQuickAddRef = useRef(false)
+
   const confirmAsync = ({ title, message, confirmText = 'Confirm', cancelText = 'Cancel', isDestructive = false }) => {
     return new Promise((resolve) => {
       confirmResolverRef.current = resolve
@@ -256,29 +281,6 @@ export default function ActiveWorkout() {
     confirmResolverRef.current = null
     if (resolve) resolve(result)
   }
-  const [sessionType, setSessionType] = useState(
-    (initialSessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout'
-  ) // 'workout' | 'recovery'
-  const [sessionTypeMode, setSessionTypeMode] = useState(
-    initialSessionType ? 'manual' : 'auto'
-  ) // 'auto' | 'manual'
-  const [isPaused, setIsPaused] = useState(false)
-  const [pausedTime, setPausedTime] = useState(0) // Accumulated paused time
-  const [isSaving, setIsSaving] = useState(false)
-  const [calculatedWorkoutMetrics, setCalculatedWorkoutMetrics] = useState({ calories: null, steps: null }) // Calculated workout metrics for display
-  const pauseStartTime = useRef(null)
-  const pausedTimeRef = useRef(0) // Ref to track paused time for timer calculations
-  const workoutTimerRef = useRef(null)
-  const restTimerRef = useRef(null)
-  const workoutStartTimeRef = useRef(null)
-  const restStartTimeRef = useRef(null)
-  const restDurationRef = useRef(0)
-  const timeoutRefs = useRef([]) // Track all timeouts for cleanup
-  const autoSaveIntervalRef = useRef(null) // Auto-save interval
-  const lastSavedExercisesRef = useRef(null) // Track last saved exercises to avoid unnecessary saves
-  const workoutStartMetricsRef = useRef(null) // Track wearable metrics at workout start (calories, steps)
-  const pausedMetricsRef = useRef([]) // Track metrics during paused periods: [{pauseTime, resumeTime, metricsAtPause, metricsAtResume}]
-  const didQuickAddRef = useRef(false)
 
   const inferSessionTypeFromExercises = (exs) => {
     const list = Array.isArray(exs) ? exs : []

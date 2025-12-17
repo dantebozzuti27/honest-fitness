@@ -7,47 +7,43 @@ import App from './App'
 import { supabaseConfigOk, supabaseConfigErrorMessage } from './lib/supabase'
 import './styles/global.css'
 
-// CRITICAL: Unregister ALL service workers immediately to prevent blank screens
-// This ensures the app always loads fresh
+/**
+ * Service Worker strategy
+ * - Register the (safe-mode) SW for faster repeat loads/offline resilience.
+ * - Keep a watchdog: if the app fails to render, recover by unregistering + cache clear once.
+ */
 if ('serviceWorker' in navigator) {
-  // Immediately unregister all service workers on page load
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    registrations.forEach((registration) => {
-      registration.unregister().catch(() => {})
-    })
-    // Clear all caches
-    if ('caches' in window) {
-      caches.keys().then((cacheNames) => {
-        cacheNames.forEach((cacheName) => {
-          caches.delete(cacheName).catch(() => {})
-        })
-      })
-    }
-  }).catch(() => {})
-  
-  // Also unregister on page load event
+  // Register after load so it never blocks first paint.
   window.addEventListener('load', () => {
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-      registrations.forEach((registration) => {
-        registration.unregister().catch(() => {})
-      })
-    }).catch(() => {})
+    navigator.serviceWorker.register('/sw.js').catch(() => {})
   })
-  
-  // Emergency: Unregister if page doesn't render within 3 seconds
+
+  // Recovery watchdog: if the root never renders, try the "nuke SW" fix once per session.
+  const RECOVERY_FLAG = 'sw_recovery_attempted'
   setTimeout(() => {
-    const root = document.getElementById('root')
-    if (root && root.children.length === 0) {
-      console.warn('Page not rendering, unregistering service workers...')
+    try {
+      const root = document.getElementById('root')
+      const alreadyAttempted = sessionStorage.getItem(RECOVERY_FLAG) === '1'
+      if (!root || root.children.length > 0 || alreadyAttempted) return
+
+      sessionStorage.setItem(RECOVERY_FLAG, '1')
+      console.warn('Page not rendering — attempting service worker recovery...')
+
       navigator.serviceWorker.getRegistrations().then((registrations) => {
-        registrations.forEach((registration) => {
-          registration.unregister().then(() => {
-            window.location.reload()
-          }).catch(() => {})
-        })
-      }).catch(() => {})
+        return Promise.allSettled(registrations.map((r) => r.unregister()))
+      }).finally(() => {
+        if ('caches' in window) {
+          caches.keys()
+            .then((names) => Promise.allSettled(names.map((n) => caches.delete(n))))
+            .finally(() => window.location.reload())
+        } else {
+          window.location.reload()
+        }
+      })
+    } catch {
+      // If anything goes sideways, don't make it worse.
     }
-  }, 3000)
+  }, 3500)
 }
 
 // Ensure root element exists before rendering

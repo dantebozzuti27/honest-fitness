@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { HomeIcon, AnalyticsIcon, ProfileIcon } from './Icons'
 import { useAuth } from '../context/AuthContext'
 import { getOutboxPendingCount } from '../lib/syncOutbox'
+import QuickActionsModal from './QuickActionsModal'
+import { useHaptic } from '../hooks/useHaptic'
+import { getLastQuickAction } from '../utils/quickActions'
 import styles from './BottomNav.module.css'
 
 export default function BottomNav() {
@@ -10,6 +13,10 @@ export default function BottomNav() {
   const location = useLocation()
   const { user } = useAuth()
   const [pendingSyncCount, setPendingSyncCount] = useState(0)
+  const [quickOpen, setQuickOpen] = useState(false)
+  const haptics = useHaptic()
+  const longPressTimerRef = useRef(null)
+  const longPressTriggeredRef = useRef(false)
 
   useEffect(() => {
     if (!user) return
@@ -52,7 +59,66 @@ export default function BottomNav() {
 
   const handleNavClick = (item) => {
     if (item.path) {
+      if (item.id === 'log') {
+        if (longPressTriggeredRef.current) {
+          longPressTriggeredRef.current = false
+          return
+        }
+        setQuickOpen(true)
+        return
+      }
       navigate(item.path)
+    }
+  }
+
+  const runLastQuickAction = () => {
+    const action = getLastQuickAction()
+
+    if (!action?.type) {
+      setQuickOpen(true)
+      return
+    }
+
+    try {
+      haptics?.selection?.()
+    } catch {}
+
+    if (action.type === 'meal') {
+      navigate('/nutrition', {
+        state: { openMealModal: true, mealType: action.mealType || undefined }
+      })
+      return
+    }
+
+    if (action.type === 'continue_workout') {
+      navigate('/workout/active')
+      return
+    }
+
+    if (action.type === 'start_workout') {
+      const sessionType = action.sessionType === 'recovery' ? 'recovery' : 'workout'
+      navigate('/workout/active', { state: { sessionType, openPicker: true } })
+      return
+    }
+
+    // Unknown type -> fall back to the sheet
+    setQuickOpen(true)
+  }
+
+  const startLongPress = () => {
+    clearLongPress()
+    longPressTriggeredRef.current = false
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true
+      setQuickOpen(false)
+      runLastQuickAction()
+    }, 450)
+  }
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
     }
   }
 
@@ -70,6 +136,10 @@ export default function BottomNav() {
             key={item.id}
             className={`${styles.navButton} ${isActive(item.path) ? styles.active : ''}`}
             onClick={() => handleNavClick(item)}
+            onPointerDown={item.id === 'log' ? startLongPress : undefined}
+            onPointerUp={item.id === 'log' ? clearLongPress : undefined}
+            onPointerCancel={item.id === 'log' ? clearLongPress : undefined}
+            onContextMenu={item.id === 'log' ? (e) => e.preventDefault() : undefined}
             aria-label={item.label}
           >
             {item.id === 'log' ? (
@@ -89,6 +159,11 @@ export default function BottomNav() {
           </button>
         ))}
       </nav>
+      <QuickActionsModal
+        isOpen={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        pendingSyncCount={pendingSyncCount}
+      />
     </>
   )
 }

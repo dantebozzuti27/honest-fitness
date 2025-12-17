@@ -22,10 +22,12 @@ import Button from '../components/Button'
 import TextAreaField from '../components/TextAreaField'
 import SearchField from '../components/SearchField'
 import { enqueueOutboxItem } from '../lib/syncOutbox'
+import { trackWorkoutEvent, trackFeatureUsage } from '../lib/eventTracking'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import ShareModal from '../components/ShareModal'
 import { shareWorkoutToFeed } from '../utils/shareUtils'
+import { setLastQuickAction } from '../utils/quickActions'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import styles from './ActiveWorkout.module.css'
 
@@ -38,8 +40,37 @@ export default function ActiveWorkout() {
   const randomWorkout = location.state?.randomWorkout
   const aiWorkout = location.state?.aiWorkout
   const initialSessionType = location.state?.sessionType
-  const openPickerOnLoad = location.state?.openPicker === true
-  const quickAddExerciseName = location.state?.quickAddExerciseName
+  const openPickerOnLoad = location.state?.openPicker === true || (() => {
+    try {
+      const p = new URLSearchParams(location.search || '')
+      return p.get('quick') === '1' || p.get('picker') === '1'
+    } catch {
+      return false
+    }
+  })()
+  const quickAddExerciseName = location.state?.quickAddExerciseName || (() => {
+    try {
+      const p = new URLSearchParams(location.search || '')
+      return p.get('exercise') || null
+    } catch {
+      return null
+    }
+  })()
+
+  // Learn "repeat last action" from all workout entry paths (not just Quick Actions).
+  useEffect(() => {
+    try {
+      if (initialSessionType === 'workout' || initialSessionType === 'recovery') {
+        setLastQuickAction({ type: 'start_workout', sessionType: initialSessionType })
+        return
+      }
+      // If the user navigates directly to ActiveWorkout with no sessionType, it's typically a resume.
+      setLastQuickAction({ type: 'continue_workout' })
+    } catch {
+      // ignore
+    }
+    // location.key changes on navigation to the same route
+  }, [location.key, initialSessionType])
   
   const [exercises, setExercises] = useState([])
   const [allExercises, setAllExercises] = useState([])
@@ -57,6 +88,9 @@ export default function ActiveWorkout() {
   const [savedWorkout, setSavedWorkout] = useState(null)
   const [lastByExerciseName, setLastByExerciseName] = useState({})
   const confirmResolverRef = useRef(null)
+  const trackedStartRef = useRef(false)
+  const trackedFirstSetRef = useRef(false)
+  const trackedCompleteRef = useRef(false)
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: 'Confirm',
@@ -178,6 +212,43 @@ export default function ActiveWorkout() {
       mounted = false
     }
   }, [user?.id, exercises])
+
+  // Retention/activation instrumentation (best-effort; telemetry is OFF unless enabled).
+  useEffect(() => {
+    if (!user?.id) return
+    if (!Array.isArray(exercises) || exercises.length === 0) return
+    if (trackedStartRef.current) return
+    trackedStartRef.current = true
+    try {
+      trackWorkoutEvent('start', null, {
+        session_type: sessionType,
+        template_id: templateId || null,
+        exercise_count: exercises.length
+      })
+    } catch {}
+  }, [user?.id, exercises?.length, sessionType, templateId])
+
+  useEffect(() => {
+    if (!user?.id) return
+    if (trackedFirstSetRef.current) return
+    const anySetLogged = (Array.isArray(exercises) ? exercises : []).some(ex =>
+      (Array.isArray(ex?.sets) ? ex.sets : []).some(s =>
+        (s?.weight != null && String(s.weight).trim() !== '') ||
+        (s?.reps != null && String(s.reps).trim() !== '') ||
+        (s?.time != null && String(s.time).trim() !== '') ||
+        (s?.time_seconds != null && String(s.time_seconds).trim() !== '')
+      )
+    )
+    if (!anySetLogged) return
+    trackedFirstSetRef.current = true
+    try {
+      trackWorkoutEvent('first_set_logged', null, {
+        session_type: sessionType,
+        template_id: templateId || null
+      })
+      trackFeatureUsage('activation_first_set_logged', { session_type: sessionType })
+    } catch {}
+  }, [user?.id, exercises, sessionType, templateId])
 
   const resolveConfirm = (result) => {
     setConfirmDialog(prev => ({ ...prev, open: false }))
@@ -1752,6 +1823,19 @@ export default function ActiveWorkout() {
     try {
       // Save to local IndexedDB first (fast, local backup)
       await saveWorkout(workout)
+
+      if (!trackedCompleteRef.current) {
+        trackedCompleteRef.current = true
+        try {
+          trackWorkoutEvent('complete', null, {
+            session_type: sessionType,
+            template_id: templateId || null,
+            duration_seconds: workoutTime,
+            exercise_count: (Array.isArray(exercises) ? exercises.length : 0)
+          })
+          trackFeatureUsage('activation_workout_completed', { session_type: sessionType })
+        } catch {}
+      }
       
       // Save to Supabase if logged in (with retry logic)
       if (user) {
@@ -2358,6 +2442,7 @@ export default function ActiveWorkout() {
                         key={exercise.id}
                         exercise={exercise}
                         lastInfo={lastByExerciseName?.[normalizeNameKey(exercise?.name)] || null}
+                        adjustmentFactor={adjustmentInfo?.factor || 1}
                         index={0}
                         total={0}
                         stacked={exercise.stacked}
@@ -2414,6 +2499,7 @@ export default function ActiveWorkout() {
               key={exercise.id}
               exercise={exercise}
               lastInfo={lastByExerciseName?.[normalizeNameKey(exercise?.name)] || null}
+              adjustmentFactor={adjustmentInfo?.factor || 1}
               index={exercises.findIndex(e => e.id === exercise.id)}
               total={exercises.length}
               stacked={exercise.stacked}

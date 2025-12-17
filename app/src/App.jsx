@@ -1,21 +1,14 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from './context/AuthContext'
-import { startTokenRefreshInterval } from './lib/tokenManager'
-import { getAllConnectedAccounts, syncFitbitData, syncOuraData } from './lib/wearables'
 import { getTodayEST } from './utils/dateUtils'
-import { getUserPreferences } from './lib/db/userPreferencesDb'
 import { lazy, Suspense } from 'react'
 import BottomNav from './components/BottomNav'
 import Onboarding from './components/Onboarding'
 import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
 import DebugOverlay from './components/DebugOverlay'
-import { initializePassiveCollection } from './lib/passiveDataCollection'
-import { trackError, trackPageView, retryQueuedEvents } from './lib/eventTracking'
-import { ensureLocalExercisesLoaded } from './lib/exerciseBootstrap'
 import { logWarn, logError } from './utils/logger'
-import { flushOutbox, migrateLegacyFailedWorkouts } from './lib/syncOutbox'
 
 // Lazy load heavy components for code splitting
 const Home = lazy(() => import('./pages/Home'))
@@ -42,6 +35,7 @@ const ProgramDetail = lazy(() => import('./pages/ProgramDetail'))
 const CoachStudio = lazy(() => import('./pages/CoachStudio'))
 const Library = lazy(() => import('./pages/Library'))
 const PRs = lazy(() => import('./pages/PRs'))
+const Pricing = lazy(() => import('./pages/Pricing'))
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -88,12 +82,17 @@ export default function App() {
           const routeRenderMs = Math.max(0, end - start)
           const deltaSinceLastRouteMs = Math.max(0, start - (lastRouteMarkRef.current || start))
           lastRouteMarkRef.current = start
-          trackPageView(pageName, {
-            path: location.pathname,
-            search: location.search,
-            route_render_ms: Math.round(routeRenderMs),
-            route_delta_ms: Math.round(deltaSinceLastRouteMs)
-          })
+          // Lazy-load analytics to keep initial bundle small.
+          import('./lib/eventTracking')
+            .then(({ trackPageView }) => {
+              trackPageView(pageName, {
+                path: location.pathname,
+                search: location.search,
+                route_render_ms: Math.round(routeRenderMs),
+                route_delta_ms: Math.round(deltaSinceLastRouteMs)
+              })
+            })
+            .catch(() => {})
         })
       })
     }
@@ -103,22 +102,31 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     
-    // Initialize passive data collection
-    initializePassiveCollection()
-    
-    // Retry any queued events from previous sessions
-    retryQueuedEvents()
+    // Lazy-load background subsystems to avoid bloating initial chunk.
+    import('./lib/passiveDataCollection')
+      .then(({ initializePassiveCollection }) => initializePassiveCollection())
+      .catch(() => {})
+
+    import('./lib/eventTracking')
+      .then(({ retryQueuedEvents }) => retryQueuedEvents())
+      .catch(() => {})
   }, [user])
 
   // Flush queued Supabase writes (offline → eventual sync)
   useEffect(() => {
     if (!user) return
 
-    migrateLegacyFailedWorkouts(user.id)
-    flushOutbox(user.id).catch(() => {})
+    import('./lib/syncOutbox')
+      .then(({ migrateLegacyFailedWorkouts, flushOutbox }) => {
+        migrateLegacyFailedWorkouts(user.id)
+        flushOutbox(user.id).catch(() => {})
+      })
+      .catch(() => {})
 
     const onOnline = () => {
-      flushOutbox(user.id).catch(() => {})
+      import('./lib/syncOutbox')
+        .then(({ flushOutbox }) => flushOutbox(user.id).catch(() => {}))
+        .catch(() => {})
     }
     window.addEventListener('online', onOnline)
     return () => window.removeEventListener('online', onOnline)
@@ -145,12 +153,16 @@ export default function App() {
     const onError = (event) => {
       // event.error may be undefined for some resource errors
       const err = event?.error || new Error(event?.message || 'Unknown error')
-      trackError(err, { properties: { source: 'window.error' } })
+      import('./lib/eventTracking')
+        .then(({ trackError }) => trackError(err, { properties: { source: 'window.error' } }))
+        .catch(() => {})
     }
     const onUnhandledRejection = (event) => {
       const reason = event?.reason
       const err = reason instanceof Error ? reason : new Error(typeof reason === 'string' ? reason : 'Unhandled promise rejection')
-      trackError(err, { properties: { source: 'window.unhandledrejection' } })
+      import('./lib/eventTracking')
+        .then(({ trackError }) => trackError(err, { properties: { source: 'window.unhandledrejection' } }))
+        .catch(() => {})
     }
     window.addEventListener('error', onError)
     window.addEventListener('unhandledrejection', onUnhandledRejection)
@@ -163,7 +175,9 @@ export default function App() {
   // Ensure local exercise cache exists (IndexedDB can be empty after storage clear or domain change)
   useEffect(() => {
     if (!user) return
-    ensureLocalExercisesLoaded().catch(() => {})
+    import('./lib/exerciseBootstrap')
+      .then(({ ensureLocalExercisesLoaded }) => ensureLocalExercisesLoaded().catch(() => {}))
+      .catch(() => {})
   }, [user])
   
   // Check if user needs onboarding (non-blocking, runs after initial render)
@@ -178,6 +192,7 @@ export default function App() {
     
     const checkOnboarding = async () => {
       try {
+        const { getUserPreferences } = await import('./lib/db/userPreferencesDb')
         const prefs = await getUserPreferences(user.id)
         // Safely check onboarding_completed (column may not exist yet)
         const completed = prefs?.onboarding_completed === true
@@ -202,8 +217,19 @@ export default function App() {
   // Start token refresh interval when user is logged in
   useEffect(() => {
     if (user) {
-      const cleanup = startTokenRefreshInterval(user.id)
-      return cleanup
+      let cleanup = null
+      let cancelled = false
+      import('./lib/tokenManager')
+        .then(({ startTokenRefreshInterval }) => {
+          if (cancelled) return
+          cleanup = startTokenRefreshInterval(user.id)
+        })
+        .catch(() => {})
+
+      return () => {
+        cancelled = true
+        if (typeof cleanup === 'function') cleanup()
+      }
     }
   }, [user])
   
@@ -224,32 +250,36 @@ export default function App() {
       sessionStorage.setItem(syncKey, now.toString())
       
       // Sync wearable data in background (non-blocking)
-      getAllConnectedAccounts(user.id).then(connected => {
-        if (!connected || connected.length === 0) return
-        
-        const fitbitAccount = connected.find(a => a.provider === 'fitbit')
-        const ouraAccount = connected.find(a => a.provider === 'oura')
-        const today = getTodayEST()
-        
-        // Sync Fitbit if connected
-        if (fitbitAccount) {
-          syncFitbitData(user.id, today).catch(err => {
-            // Silently fail - will retry on next load
-            logWarn('Auto-sync Fitbit failed on app load', { message: err?.message, code: err?.code })
+      import('./lib/wearables')
+        .then(({ getAllConnectedAccounts, syncFitbitData, syncOuraData }) => {
+          return getAllConnectedAccounts(user.id).then(connected => {
+            if (!connected || connected.length === 0) return
+
+            const fitbitAccount = connected.find(a => a.provider === 'fitbit')
+            const ouraAccount = connected.find(a => a.provider === 'oura')
+            const today = getTodayEST()
+
+            // Sync Fitbit if connected
+            if (fitbitAccount) {
+              syncFitbitData(user.id, today).catch(err => {
+                // Silently fail - will retry on next load
+                logWarn('Auto-sync Fitbit failed on app load', { message: err?.message, code: err?.code })
+              })
+            }
+
+            // Sync Oura if connected
+            if (ouraAccount) {
+              syncOuraData(user.id, today).catch(err => {
+                // Silently fail - will retry on next load
+                logWarn('Auto-sync Oura failed on app load', { message: err?.message, code: err?.code })
+              })
+            }
           })
-        }
-        
-        // Sync Oura if connected
-        if (ouraAccount) {
-          syncOuraData(user.id, today).catch(err => {
-            // Silently fail - will retry on next load
-            logWarn('Auto-sync Oura failed on app load', { message: err?.message, code: err?.code })
-          })
-        }
-      }).catch(err => {
-        // Silently fail
-        logError('Error checking connected accounts on app load', err)
-      })
+        })
+        .catch(err => {
+          // Silently fail
+          logError('Error checking connected accounts on app load', err)
+        })
     }
   }, [user])
   
@@ -296,6 +326,7 @@ export default function App() {
           <Route path="/log" element={<ProtectedRoute><Log /></ProtectedRoute>} />
           <Route path="/goals" element={<ProtectedRoute><Goals /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
           <Route path="/wearables" element={<ProtectedRoute><Wearables /></ProtectedRoute>} />
           <Route path="/invite/:identifier" element={<ProtectedRoute><Invite /></ProtectedRoute>} />
           <Route path="/data-catalog" element={<ProtectedRoute><DataCatalog /></ProtectedRoute>} />

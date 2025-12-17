@@ -26,6 +26,7 @@ import { usePageInsights } from '../hooks/usePageInsights'
 import Modal from '../components/Modal'
 // All charts are now BarChart only
 import SearchField from '../components/SearchField'
+import { setLastQuickAction } from '../utils/quickActions'
 import styles from './Nutrition.module.css'
 
 const TABS = ['Today', 'History', 'Plan', 'Goals', 'Settings']
@@ -40,6 +41,15 @@ const COMMON_FOODS = [
   { name: 'Rice (100g cooked)', calories: 130, macros: { protein: 3, carbs: 28, fat: 0 } },
   { name: 'Avocado (half)', calories: 160, macros: { protein: 2, carbs: 9, fat: 15 } }
 ]
+
+function getDefaultMealType() {
+  // Simple local-time heuristic
+  const hour = new Date().getHours()
+  if (hour < 11) return 'Breakfast'
+  if (hour < 15) return 'Lunch'
+  if (hour < 21) return 'Dinner'
+  return 'Snacks'
+}
 
 export default function Nutrition() {
   const navigate = useNavigate()
@@ -174,15 +184,53 @@ export default function Nutrition() {
     Boolean(user)
   )
 
+  // Quick entry: open the meal logger immediately (used by BottomNav quick actions and deep links).
   useEffect(() => {
     if (!user) return
-    
-    // Check if meal modal should open from quick log
+    let open = false
+    let mealType = null
+
+    // State-based (internal navigation)
     if (location.state?.openMealModal) {
-      setShowManualEntry(true)
-      // Clear the state to prevent reopening on re-render
+      open = true
+      mealType = location.state?.mealType || null
+    }
+
+    // URL-based (PWA shortcuts / links): /nutrition?quick=1&mealType=Lunch
+    try {
+      const params = new URLSearchParams(location.search || '')
+      if (params.get('quick') === '1' || params.get('openMeal') === '1') {
+        open = true
+        mealType = mealType || params.get('mealType') || params.get('meal') || null
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!open) return
+
+    const normalized = (mealType || '').toString().trim()
+    const finalMealType = MEAL_TYPES.includes(normalized) ? normalized : getDefaultMealType()
+    setSelectedMealType(finalMealType)
+    setLastQuickAction({ type: 'meal', mealType: finalMealType })
+    setShowManualEntry(true)
+
+    // Clear state + quick params so it won't reopen on refresh/back.
+    try {
+      const params = new URLSearchParams(location.search || '')
+      params.delete('quick')
+      params.delete('openMeal')
+      params.delete('mealType')
+      params.delete('meal')
+      const next = params.toString()
+      navigate(`${location.pathname}${next ? `?${next}` : ''}`, { replace: true, state: {} })
+    } catch {
       navigate(location.pathname, { replace: true, state: {} })
     }
+  }, [user, location.key])
+
+  useEffect(() => {
+    if (!user) return
     
     loadSettings()
     loadDateDataFromSupabase(selectedDate)
@@ -614,6 +662,9 @@ export default function Nutrition() {
         mealType: meal.mealType || selectedMealType,
         timestamp: new Date().toISOString()
       }
+
+      // Learn "repeat last action" from any meal logging path.
+      setLastQuickAction({ type: 'meal', mealType: newMeal.mealType })
       
       safeLogDebug('addMeal: Saving meal', newMeal)
 

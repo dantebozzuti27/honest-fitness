@@ -12,7 +12,9 @@
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: #ffffff;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -21,9 +23,9 @@
 
 .timesUpText {
   font-family: inherit;
-  font-size: 28px;
-  font-weight: 700;
-  color: #000;
+  font-size: 24px;
+  font-weight: 900;
+  color: #fff;
   text-transform: uppercase;
   letter-spacing: 2px;
   text-align: center;
@@ -43,8 +45,10 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
   padding-top: env(safe-area-inset-top, 0);
 }
 
@@ -65,19 +69,21 @@
 }
 
 .sessionTypeLabel {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 800;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
 }
 
 .sessionTypeAuto {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--glass-card-bg);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--text-muted);
 }
@@ -85,8 +91,8 @@
 .sessionTypeToggle {
   display: flex;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   overflow: hidden;
 }
 
@@ -95,10 +101,11 @@
   font-size: 13px;
   color: var(--text-secondary);
   background: transparent;
+  font-weight: 800;
 }
 
 .sessionTypeActive {
-  background: rgba(59, 130, 246, 0.85);
+  background: rgba(255, 255, 255, 0.16);
   color: #fff;
 }
 
@@ -109,33 +116,40 @@
 }
 
 .cancelBtn {
-  font-size: 16px;
-  color: var(--danger);
-  padding: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(254, 202, 202, 0.95);
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  min-height: 34px;
 }
 
 .clearBtn {
-  font-size: 14px;
+  font-size: 12px;
+  font-weight: 900;
   color: var(--text-secondary);
-  padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  background: var(--glass-card-bg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
   cursor: pointer;
   transition: all var(--transition-fast);
   margin-right: 8px;
+  min-height: 34px;
 }
 
 .clearBtn:hover {
-  background: var(--bg-elevated);
-  border-color: var(--accent);
-  color: var(--text-primary);
+  background: var(--glass-card-bg-hover);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #fff;
 }
 
 .workoutTimer {
   font-family: var(--font-mono);
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 800;
   color: var(--text-primary);
   display: flex;
   align-items: center;
@@ -160,27 +174,28 @@
 }
 
 .pauseBtn {
-  font-size: 14px;
-  font-weight: 600;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--glass-card-bg);
+  color: #fff;
   cursor: pointer;
   transition: all var(--transition-fast);
   white-space: nowrap;
+  min-height: 34px;
 }
 
 .pauseBtn:hover {
-  background: var(--bg-elevated);
-  border-color: var(--accent);
+  background: var(--glass-card-bg-hover);
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
 .pauseBtn.paused {
-  background: var(--accent);
-  color: var(--bg-primary);
-  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.26);
 }
 
 .pauseBtn.paused:hover {
@@ -203,10 +218,14 @@
 }
 
 .finishBtn {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--accent);
-  padding: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #000;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  min-height: 34px;
 }
 
 .restBar {
@@ -214,19 +233,22 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  color: #fff;
   font-family: var(--font-mono);
   font-size: 18px;
   font-weight: 600;
 }
 
 .restBar button {
-  font-size: 14px;
-  padding: 6px 12px;
-  background: var(--bg-primary);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
 .adjustmentBanner {
@@ -234,7 +256,7 @@
   font-size: 13px;
   font-weight: 600;
   text-align: center;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
 }
 
 .adjustmentBanner.adjustmentred {
@@ -257,8 +279,11 @@
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: rgba(var(--accent-rgb, 255, 255, 255), 0.1);
-  border: 1px solid var(--accent-dim);
+  background: var(--glass-card-bg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: var(--glass-card-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border-radius: var(--radius-md);
   margin-bottom: 12px;
   font-size: 13px;
@@ -291,8 +316,11 @@
 }
 
 .stackGroupBox {
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--glass-card-bg);
+  box-shadow: var(--glass-card-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
@@ -302,8 +330,8 @@
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .stackGroupTitle {
@@ -318,13 +346,13 @@
 }
 
 .stackGroupAction {
-  padding: 6px 10px;
+  padding: 8px 10px;
   font-size: 12px;
   font-weight: 800;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
 }
 
@@ -351,8 +379,8 @@
 .quickAddChip {
   padding: 10px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--glass-card-bg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   color: var(--text-primary);
   font-weight: 800;
   font-size: 12px;
@@ -367,23 +395,26 @@
   width: 100%;
   padding: 16px;
   font-size: 16px;
-  font-weight: 500;
-  color: var(--accent);
-  background: var(--bg-secondary);
-  border: 1px dashed var(--border);
+  font-weight: 900;
+  color: #000;
+  background: var(--accent);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: var(--radius-md);
   margin-top: 8px;
+  box-shadow: var(--glass-card-shadow);
 }
 
 .addExerciseBtn:active {
-  background: var(--bg-tertiary);
+  transform: scale(0.99);
 }
 
 /* Summary Modal */
 .summaryOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -395,7 +426,11 @@
 .summaryModal {
   width: 100%;
   max-width: 360px;
-  background: var(--bg-secondary);
+  background: var(--glass-card-bg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: var(--glass-card-shadow);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
   border-radius: var(--radius-lg);
   padding: 20px 16px;
   text-align: center;
@@ -406,7 +441,7 @@
 .summaryModal h2 {
   font-size: 20px;
   margin-bottom: 6px;
-  color: var(--accent);
+  color: #fff;
 }
 
 .summaryDuration {
@@ -423,7 +458,8 @@
   justify-content: center;
   margin-bottom: 20px;
   padding: 12px;
-  background: var(--bg-tertiary);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: var(--radius-md);
 }
 
@@ -470,9 +506,10 @@
   padding: 10px 0;
   font-size: 13px;
   font-weight: 600;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.10);
 }
 
 .rpeBtn.rpeActive {
@@ -499,9 +536,10 @@
   padding: 12px 0;
   font-size: 14px;
   font-weight: 600;
-  background: var(--bg-tertiary);
+  background: rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-md);
-  color: var(--text-secondary);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.10);
   transition: all 0.15s;
 }
 
@@ -517,8 +555,8 @@
   padding: 12px;
   font-size: 14px;
   font-family: inherit;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   resize: none;

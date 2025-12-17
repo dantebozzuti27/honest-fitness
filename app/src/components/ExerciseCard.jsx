@@ -366,7 +366,7 @@ export default function ExerciseCard({
                         className={`${styles.stackMember} ${idx === stackIndex ? styles.activeStackMember : ''}`}
                         title={member.name}
                       >
-                        {member.name.length > 15 ? member.name.substring(0, 15) + '...' : member.name}
+                        {member?.name || ''}
                       </span>
                     ))}
                   </div>
@@ -515,6 +515,16 @@ export default function ExerciseCard({
                     </div>
                   </>
                 )}
+
+                  {idx === activeSet && (
+                    <button
+                      type="button"
+                      className={`${styles.nextBtn} ${styles.setNextBtn}`}
+                      onClick={handleNextSet}
+                    >
+                      {idx === exercise.sets.length - 1 ? 'Complete' : 'Next'}
+                    </button>
+                  )}
                 </div>
 
                 {/* Elite set-entry quick actions (active set only) */}
@@ -593,12 +603,6 @@ export default function ExerciseCard({
                     ) : null}
                   </div>
                 ) : null}
-
-                {idx === activeSet && (
-                  <button className={styles.nextBtn} onClick={handleNextSet}>
-                    {idx === exercise.sets.length - 1 ? 'Complete' : 'Next'}
-                  </button>
-                )}
               </div>
             ))}
           </div>

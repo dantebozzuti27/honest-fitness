@@ -5,6 +5,7 @@
 
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
+import { getLocalDate } from '../utils/dateUtils'
 
 // Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
 const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
@@ -223,7 +224,7 @@ export async function segmentUsers(segmentationCriteria) {
     const { data: workouts } = await supabase
       .from('workouts')
       .select('user_id, date')
-      .gte('date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+      .gte('date', getLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)))
     
     if (!workouts || workouts.length === 0) return null
     

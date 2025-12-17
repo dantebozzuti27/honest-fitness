@@ -107,6 +107,7 @@ export async function shareNative(title, text, url, imageUrl = null) {
 }
 
 import { logError, logWarn } from './logger'
+import { getTodayEST } from './dateUtils'
 
 /**
  * Copy image to clipboard (works on Apple devices)
@@ -281,7 +282,7 @@ export async function shareWorkoutToFeed(workout, userId) {
       return shareWorkoutToFeedLocalStorage(workout)
     }
 
-    const today = new Date().toISOString().split('T')[0]
+    const today = getTodayEST()
     const duration = workout.duration || 0
     const minutes = Math.floor(duration / 60)
     const seconds = duration % 60
@@ -329,7 +330,7 @@ export async function shareWorkoutToFeed(workout, userId) {
  */
 function shareWorkoutToFeedLocalStorage(workout) {
   try {
-    const today = new Date().toISOString().split('T')[0]
+    const today = getTodayEST()
     const duration = workout.duration || 0
     const minutes = Math.floor(duration / 60)
     const seconds = duration % 60

@@ -8,6 +8,7 @@ import { getAllTemplates } from '../db/lazyDb'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import { logError } from '../utils/logger'
+import { nonBlocking } from '../utils/nonBlocking'
 import { chatWithAI } from '../lib/chatApi'
 import ConfirmDialog from '../components/ConfirmDialog'
 import BackButton from '../components/BackButton'
@@ -36,6 +37,22 @@ const EQUIPMENT = [
   'Barbell', 'Dumbbells', 'Cables', 'Machines', 'Bodyweight', 'Kettlebell', 'Resistance Bands'
 ]
 
+const SPLITS = [
+  { id: 'ppl', label: 'Push / Pull / Legs (PPL)' },
+  { id: 'upper_lower', label: 'Upper / Lower' },
+  { id: 'full_body', label: 'Full Body' },
+  { id: 'bro_split', label: 'Body-part split (Bro split)' },
+  { id: 'custom', label: 'Custom / Coach' }
+]
+
+const PROGRESSION = [
+  { id: 'double_progression', label: 'Double progression (reps then weight)' },
+  { id: 'linear', label: 'Linear (add weight weekly)' },
+  { id: 'rpe', label: 'RPE-based (auto-adjust)' }
+]
+
+const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Legs', 'Arms', 'Core']
+
 export default function Planner() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -56,7 +73,10 @@ export default function Planner() {
     availableDays: [],
     sessionDuration: 60,
     equipmentAvailable: [],
-    injuries: ''
+    injuries: '',
+    trainingSplit: 'ppl',
+    progressionModel: 'double_progression',
+    weeklySetsTargets: { Chest: 12, Back: 12, Shoulders: 10, Legs: 14, Arms: 10, Core: 6 }
   })
 
   // AI Chat state
@@ -82,7 +102,12 @@ export default function Planner() {
               availableDays: existing.available_days || [],
               sessionDuration: existing.session_duration || 60,
               equipmentAvailable: existing.equipment_available || [],
-              injuries: existing.injuries || ''
+              injuries: existing.injuries || '',
+              trainingSplit: existing.training_split || 'ppl',
+              progressionModel: existing.progression_model || 'double_progression',
+              weeklySetsTargets: (existing.weekly_sets_targets && typeof existing.weekly_sets_targets === 'object')
+                ? existing.weekly_sets_targets
+                : { Chest: 12, Back: 12, Shoulders: 10, Legs: 14, Arms: 10, Core: 6 }
             })
             // Generate current plan view
             const plan = generateWorkoutPlan({
@@ -91,7 +116,10 @@ export default function Planner() {
               availableDays: existing.available_days || [],
               sessionDuration: existing.session_duration || 60,
               equipmentAvailable: existing.equipment_available || [],
-              injuries: existing.injuries
+              injuries: existing.injuries,
+              trainingSplit: existing.training_split || 'ppl',
+              progressionModel: existing.progression_model || 'double_progression',
+              weeklySetsTargets: existing.weekly_sets_targets || {}
             }, [])
             setCurrentPlan({ ...plan, name: existing.plan_name })
           }
@@ -113,7 +141,7 @@ export default function Planner() {
             preferences: existing
           })
         } catch (e) {
-          // Error loading, continue without data
+          nonBlocking(Promise.reject(e), { showToast, message: 'Some Planner data failed to load.', level: 'info' })
         }
       }
       const t = await getAllTemplates()
@@ -175,6 +203,15 @@ export default function Planner() {
       case 4: return true
       default: return false
     }
+  }
+
+  const setWeeklyTarget = (muscle, value) => {
+    const n = Number(value)
+    const v = Number.isFinite(n) ? Math.max(0, Math.min(40, Math.floor(n))) : 0
+    setPrefs(p => ({
+      ...p,
+      weeklySetsTargets: { ...(p.weeklySetsTargets || {}), [muscle]: v }
+    }))
   }
 
   const handleDeletePlan = async () => {
@@ -475,6 +512,51 @@ export default function Planner() {
                 onChange={(e) => setPrefs(p => ({ ...p, injuries: e.target.value }))}
                 rows={3}
               />
+
+              <div className={styles.planConfig}>
+                <h3 className={styles.subhead}>Training split</h3>
+                <select
+                  className={styles.select}
+                  value={prefs.trainingSplit}
+                  onChange={(e) => setPrefs(p => ({ ...p, trainingSplit: e.target.value }))}
+                >
+                  {SPLITS.map(s => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
+
+                <h3 className={styles.subhead}>Progression model</h3>
+                <select
+                  className={styles.select}
+                  value={prefs.progressionModel}
+                  onChange={(e) => setPrefs(p => ({ ...p, progressionModel: e.target.value }))}
+                >
+                  {PROGRESSION.map(p => (
+                    <option key={p.id} value={p.id}>{p.label}</option>
+                  ))}
+                </select>
+
+                <h3 className={styles.subhead}>Weekly sets targets (per muscle)</h3>
+                <div className={styles.targetsGrid}>
+                  {MUSCLES.map((m) => (
+                    <label key={m} className={styles.targetRow}>
+                      <span className={styles.targetLabel}>{m}</span>
+                      <input
+                        className={styles.targetInput}
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={40}
+                        value={Number(prefs.weeklySetsTargets?.[m] ?? 0)}
+                        onChange={(e) => setWeeklyTarget(m, e.target.value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <div className={styles.helperText}>
+                  Targets are saved to your profile and will be used by future program features and coach plans.
+                </div>
+              </div>
             </div>
           )}
 

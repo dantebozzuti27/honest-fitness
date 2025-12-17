@@ -115,7 +115,33 @@ export default function Profile() {
     if (!file || !user) return
     
     try {
-      // Convert to base64 (simpler than storage bucket)
+      // Prefer Storage bucket if available (scales better than base64-in-DB).
+      // Fallback to base64 if the bucket/policies aren't configured yet.
+      if (supabase?.storage) {
+        try {
+          const ext = (file.name || '').split('.').pop() || 'png'
+          const path = `${user.id}/${Date.now()}.${ext}`
+          const upload = await supabase.storage.from('avatars').upload(path, file, {
+            upsert: true,
+            contentType: file.type || 'image/*'
+          })
+          if (!upload.error) {
+            const pub = supabase.storage.from('avatars').getPublicUrl(path)
+            const url = pub?.data?.publicUrl
+            if (url) {
+              setProfilePictureUrl(url)
+              setProfilePicture(url)
+              showToast('Profile photo uploaded.', 'success', 1200)
+              return
+            }
+          }
+        } catch (storageErr) {
+          // Fall back to base64 below.
+          logError('Profile picture storage upload failed; falling back to base64', storageErr)
+        }
+      }
+
+      // Fallback: Convert to base64 (simpler but less scalable)
       const reader = new FileReader()
       reader.onloadend = async () => {
         try {

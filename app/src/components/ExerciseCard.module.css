@@ -120,6 +120,21 @@
   color: var(--text-muted);
 }
 
+.bestInfo {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+}
+
+.bestInfoLabel {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bestInfoDate {
+  color: var(--text-muted);
+}
+
 .controls {
   display: flex;
   justify-content: space-between;

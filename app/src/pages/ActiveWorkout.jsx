@@ -80,6 +80,20 @@ export default function ActiveWorkout() {
 
   const normalizeNameKey = (name) => (name || '').toString().trim().toLowerCase()
 
+  const parseTimeToSeconds = (raw) => {
+    if (raw == null) return null
+    const s = String(raw).trim()
+    if (!s) return null
+    if (s.includes(':')) {
+      const [mm, ss] = s.split(':').map(v => v.trim())
+      const m = Number(mm)
+      const sec = Number(ss)
+      if (Number.isFinite(m) && Number.isFinite(sec)) return Math.max(0, Math.floor(m * 60 + sec))
+    }
+    const n = Number(s)
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : null
+  }
+
   const formatLastSummary = (exRow) => {
     const sets = Array.isArray(exRow?.workout_sets) ? exRow.workout_sets : []
     // prefer weight/reps sets if present
@@ -97,7 +111,7 @@ export default function ActiveWorkout() {
     const withTime = sets.filter(s => s?.time != null && String(s.time).trim() !== '')
     if (withTime.length > 0) {
       const t = withTime[withTime.length - 1]?.time
-      const n = Number(t)
+      const n = parseTimeToSeconds(t)
       if (Number.isFinite(n)) {
         const mins = Math.floor(Math.max(0, n) / 60)
         const secs = Math.max(0, n) % 60
@@ -119,19 +133,41 @@ export default function ActiveWorkout() {
         if (wanted.size === 0) return
         const recent = await getRecentWorkoutsFromSupabase(user.id, 30)
         const map = {}
+        const best = {}
         for (const w of Array.isArray(recent) ? recent : []) {
           const wDate = w?.date ? String(w.date) : ''
           for (const exRow of Array.isArray(w?.workout_exercises) ? w.workout_exercises : []) {
             const key = normalizeNameKey(exRow?.exercise_name)
             if (!key || !wanted.has(key)) continue
-            if (map[key]) continue // already found most recent
-            const summary = formatLastSummary(exRow)
-            if (!summary) continue
-            map[key] = { summary, date: wDate }
+            // Best e1RM (over recent window) for strength sets.
+            const sets = Array.isArray(exRow?.workout_sets) ? exRow.workout_sets : []
+            for (const s of sets) {
+              const weight = Number(s?.weight)
+              const reps = Number(s?.reps)
+              if (!Number.isFinite(weight) || !Number.isFinite(reps) || weight <= 0 || reps <= 0) continue
+              const e1rm = weight * (1 + reps / 30)
+              const prev = best[key]
+              if (!prev || e1rm > prev.e1rm) {
+                best[key] = { e1rm, weight, reps, date: wDate }
+              }
+            }
+
+            // Most recent summary for display.
+            if (!map[key]) {
+              const summary = formatLastSummary(exRow)
+              if (summary) map[key] = { summary, date: wDate }
+            }
           }
-          if (Object.keys(map).length >= wanted.size) break
+          if (Object.keys(map).length >= wanted.size && Object.keys(best).length >= wanted.size) break
         }
-        if (mounted) setLastByExerciseName(map)
+        // Merge best into lastInfo map.
+        const merged = {}
+        for (const key of Array.from(wanted.values())) {
+          if (map[key] || best[key]) {
+            merged[key] = { ...(map[key] || {}), best: best[key] || null }
+          }
+        }
+        if (mounted) setLastByExerciseName(merged)
       } catch (e) {
         // non-blocking
       }
@@ -1313,7 +1349,7 @@ export default function ActiveWorkout() {
   const addSet = (exerciseId) => {
     setExercises(prev => prev.map(ex => {
       if (ex.id !== exerciseId) return ex
-      const lastSet = ex.sets[ex.sets.length - 1] || { weight: '', reps: '', time: '', speed: '', incline: '' }
+      const lastSet = ex.sets[ex.sets.length - 1] || { weight: '', reps: '', time: '', time_seconds: '', speed: '', incline: '' }
       return { 
         ...ex, 
         // Keep a consistent set shape across all exercise types (Supabase persists: weight, reps, time, speed, incline).
@@ -1323,6 +1359,7 @@ export default function ActiveWorkout() {
             weight: lastSet.weight ?? '',
             reps: lastSet.reps ?? '',
             time: lastSet.time ?? '',
+            time_seconds: lastSet.time_seconds ?? '',
             speed: lastSet.speed ?? '',
             incline: lastSet.incline ?? ''
           }
@@ -1347,7 +1384,7 @@ export default function ActiveWorkout() {
       name: exercise.name,
       category: exercise.category,
       bodyPart: exercise.bodyPart,
-      sets: Array(defaultSets).fill(null).map(() => ({ weight: '', reps: '', time: '', speed: '', incline: '' })),
+      sets: Array(defaultSets).fill(null).map(() => ({ weight: '', reps: '', time: '', time_seconds: '', speed: '', incline: '' })),
       expanded: true
     }
     setExercises(prev => [...prev.map(e => ({ ...e, expanded: false })), newExercise])

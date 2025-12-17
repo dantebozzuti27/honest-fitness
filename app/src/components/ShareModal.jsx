@@ -13,6 +13,7 @@ import Button from './Button'
 import Modal from './Modal'
 import styles from './ShareModal.module.css'
 import { logError, logWarn } from '../utils/logger'
+import { getTodayEST } from '../utils/dateUtils'
 
 export default function ShareModal({ type, data, onClose }) {
   const { user } = useAuth()
@@ -144,7 +145,7 @@ export default function ShareModal({ type, data, onClose }) {
             title: 'Echelon Share'
           })
         } else {
-          downloadImage(imageToCopy, `echelon-${type}-${new Date().toISOString().split('T')[0]}.png`)
+          downloadImage(imageToCopy, `echelon-${type}-${getTodayEST()}.png`)
         }
       }
     } catch (error) {
@@ -155,12 +156,12 @@ export default function ShareModal({ type, data, onClose }) {
 
   const handleDownload = () => {
     if (imageDataUrl) {
-      downloadImage(imageDataUrl, `echelon-${type}-${new Date().toISOString().split('T')[0]}.png`)
+      downloadImage(imageDataUrl, `echelon-${type}-${getTodayEST()}.png`)
     } else {
       // Generate and download
       generateShareImage(cardRef.current).then(url => {
         if (url) {
-          downloadImage(url, `echelon-${type}-${new Date().toISOString().split('T')[0]}.png`)
+          downloadImage(url, `echelon-${type}-${getTodayEST()}.png`)
         }
       })
     }
@@ -173,7 +174,7 @@ export default function ShareModal({ type, data, onClose }) {
         return
       }
 
-      const today = new Date().toISOString().split('T')[0]
+      const today = getTodayEST()
       let title = ''
       let subtitle = ''
       
@@ -268,7 +269,7 @@ export default function ShareModal({ type, data, onClose }) {
       } else {
         // Fallback to localStorage for PGRST205 errors (only if feedItem was defined)
         try {
-          const today = new Date().toISOString().split('T')[0]
+          const today = getTodayEST()
           let title = ''
           let subtitle = ''
           

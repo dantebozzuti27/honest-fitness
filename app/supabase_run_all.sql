@@ -371,6 +371,28 @@ BEGIN
   ) THEN
     ALTER TABLE user_preferences ADD COLUMN height_feet INTEGER;
   END IF;
+
+  -- Lifter plan config (Planner)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'training_split'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN training_split TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'progression_model'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN progression_model TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'weekly_sets_targets'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN weekly_sets_targets JSONB NOT NULL DEFAULT '{}'::jsonb;
+  END IF;
 END $$;
 
 -- Function to calculate age from date of birth

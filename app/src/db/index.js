@@ -1,4 +1,5 @@
 import { openDB } from 'idb'
+import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 
 const DB_NAME = 'honest-fitness'
 const DB_VERSION = 1
@@ -98,7 +99,7 @@ export async function saveWorkout(workout) {
   const db = await getDB()
   return db.add('workouts', {
     ...workout,
-    date: workout.date || new Date().toISOString().split('T')[0],
+    date: workout.date || getTodayEST(),
     timestamp: new Date().toISOString()
   })
 }
@@ -147,8 +148,8 @@ export async function calculateStreak() {
   if (dates.length === 0) return 0
   
   const sortedDates = dates.sort((a, b) => new Date(b) - new Date(a))
-  const today = new Date().toISOString().split('T')[0]
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+  const today = getTodayEST()
+  const yesterday = getYesterdayEST()
   
   // Check if most recent workout is today or yesterday
   if (sortedDates[0] !== today && sortedDates[0] !== yesterday) {

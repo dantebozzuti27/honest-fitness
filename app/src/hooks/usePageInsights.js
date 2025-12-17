@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getPageInsights } from '../lib/backend'
 import { logError } from '../utils/logger'
+import { getTodayEST } from '../utils/dateUtils'
 
 function cacheKey(page, context) {
-  const day = new Date().toISOString().split('T')[0]
+  const day = getTodayEST()
   const ctx = context && typeof context === 'object' ? context : {}
   return `page_insights:${page}:${day}:${JSON.stringify(ctx).slice(0, 500)}`
 }

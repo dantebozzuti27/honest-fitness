@@ -16,6 +16,7 @@ import { logError } from '../utils/logger'
 import { normalizeTemplateExercises } from '../utils/templateUtils'
 import SearchField from '../components/SearchField'
 import { getSystemFoods } from '../lib/foodLibrary'
+import { supabase } from '../lib/supabase'
 import {
   archiveProgram,
   createProgram,
@@ -169,6 +170,8 @@ export default function CoachStudio() {
   const [enrollmentsLoading, setEnrollmentsLoading] = useState(false)
   const [enrollments, setEnrollments] = useState([])
   const [enrollmentProfiles, setEnrollmentProfiles] = useState({})
+  const [enrollmentStatsLoading, setEnrollmentStatsLoading] = useState(false)
+  const [enrollmentStatsByUserId, setEnrollmentStatsByUserId] = useState({})
 
   const createProgramModalRef = useRef(null)
   const createProgramCloseBtnRef = useRef(null)
@@ -265,6 +268,8 @@ export default function CoachStudio() {
     }
     setEnrollmentsOpen(true)
     setEnrollmentsLoading(true)
+    setEnrollmentStatsLoading(false)
+    setEnrollmentStatsByUserId({})
     try {
       const rows = await listProgramEnrollmentsForCoach(draft.id)
       setEnrollments(Array.isArray(rows) ? rows : [])
@@ -278,6 +283,41 @@ export default function CoachStudio() {
       setEnrollmentProfiles({})
     } finally {
       setEnrollmentsLoading(false)
+    }
+  }
+
+  const loadEnrollmentStats = async () => {
+    if (!draft?.id) return
+    if (!supabase) {
+      showToast('Supabase is not configured.', 'error')
+      return
+    }
+    setEnrollmentStatsLoading(true)
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data?.session?.access_token
+      if (!token) {
+        showToast('Not authenticated.', 'error')
+        return
+      }
+      const resp = await fetch(`/api/coach/enrollment-stats?programId=${encodeURIComponent(draft.id)}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const json = await resp.json().catch(() => ({}))
+      if (!resp.ok || !json?.success) {
+        throw new Error(json?.message || `Failed (${resp.status})`)
+      }
+      setEnrollmentStatsByUserId(json.statsByUserId || {})
+      if (json.profilesByUserId && typeof json.profilesByUserId === 'object') {
+        setEnrollmentProfiles(json.profilesByUserId)
+      }
+      showToast('Enrollment stats loaded.', 'success', 1500)
+    } catch (e) {
+      logError('Enrollment stats load failed', e)
+      showToast('Failed to load enrollment stats.', 'error')
+    } finally {
+      setEnrollmentStatsLoading(false)
     }
   }
 
@@ -2401,7 +2441,13 @@ export default function CoachStudio() {
                 </div>
                 <div className={styles.modalBody}>
                   <div className={styles.muted}>
-                    Coaches can see enrollment records for their programs. More detailed “stats” (adherence, workouts completed, nutrition/health) can be layered on next.
+                    Enrollment records are visible to the program owner. Stats below are computed via a secure server endpoint and only for your program.
+                  </div>
+                  <div style={{ height: 10 }} />
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <Button className={styles.modalBtn} variant="secondary" onClick={loadEnrollmentStats} disabled={enrollmentsLoading || enrollmentStatsLoading}>
+                      {enrollmentStatsLoading ? 'Loading stats…' : 'Load stats'}
+                    </Button>
                   </div>
                   <div style={{ height: 10 }} />
                   {enrollmentsLoading ? (
@@ -2428,6 +2474,18 @@ export default function CoachStudio() {
                           <div className={styles.muted} style={{ marginTop: 4 }}>
                             Start: {String(r.start_date || '')} · Scheduled: {Number(r.scheduled_count || 0)}
                           </div>
+                          {(() => {
+                            const s = enrollmentStatsByUserId?.[r.user_id] || null
+                            if (!s) return null
+                            const tonnage30 = Math.round(Number(s.tonnage30d || 0))
+                            const tonnage7 = Math.round(Number(s.tonnage7d || 0))
+                            return (
+                              <div className={styles.muted} style={{ marginTop: 6 }}>
+                                Workouts: {Number(s.workouts7d || 0)} (7d) · {Number(s.workouts30d || 0)} (30d) · Tonnage: {tonnage7.toLocaleString()} (7d) · {tonnage30.toLocaleString()} (30d)
+                                {s.lastWorkoutDate ? ` · Last: ${String(s.lastWorkoutDate)}` : ''}
+                              </div>
+                            )
+                          })()}
                           <div className={styles.muted} style={{ marginTop: 4 }}>
                             Updated: {r.updated_at ? new Date(r.updated_at).toLocaleString() : ''}
                           </div>

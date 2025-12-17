@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { calculateStreakFromSupabase, getWorkoutsFromSupabase } from '../lib/db/workoutsDb'
+import { calculateStreakFromSupabase, getRecentWorkoutsFromSupabase } from '../lib/db/workoutsDb'
 import { getUserPreferences } from '../lib/db/userPreferencesDb'
 import { getSocialFeedItems, deleteFeedItemFromSupabase } from '../lib/db/feedDb'
 import { getScheduledWorkoutsFromSupabase } from '../lib/db/scheduledWorkoutsDb'
@@ -10,6 +10,7 @@ import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutr
 import { getMetricsFromSupabase } from '../lib/db/metricsDb'
 import { getLocalDate, getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
+import { getAllTemplates } from '../db/lazyDb'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import ShareCard from '../components/ShareCard'
@@ -26,6 +27,7 @@ import { useHaptic } from '../hooks/useHaptic'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { nonBlocking } from '../utils/nonBlocking'
 import styles from './Home.module.css'
 
 export default function Home() {
@@ -40,6 +42,9 @@ export default function Home() {
   const [recentLogs, setRecentLogs] = useState([])
   const [profilePicture, setProfilePicture] = useState(null)
   const [feedFilter, setFeedFilter] = useState('all') // 'all', 'me', 'friends'
+  const [feedCursor, setFeedCursor] = useState(null)
+  const [feedHasMore, setFeedHasMore] = useState(false)
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false)
   const [showAddFriend, setShowAddFriend] = useState(false)
   const [addFriendPrefill, setAddFriendPrefill] = useState('')
   const [showFriendRequests, setShowFriendRequests] = useState(false)
@@ -47,9 +52,11 @@ export default function Home() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [pullDistance, setPullDistance] = useState(0)
   const [scheduledWorkouts, setScheduledWorkouts] = useState([])
+  const [templateNameById, setTemplateNameById] = useState({})
   const [readiness, setReadiness] = useState(null) // { score, zone, date, ... } or null
   const [resumeSession, setResumeSession] = useState(null) // { sessionType: 'workout'|'recovery', timestamp, hasExercises }
   const [privateModeUntil, setPrivateModeUntil] = useState(null) // timestamp ms; when set, redact timestamps/notes in feed
+  const [lastWorkoutSummary, setLastWorkoutSummary] = useState(null) // { date, label } or null
   const feedContainerRef = useRef(null)
   const pullStartY = useRef(0)
   const isPulling = useRef(false)
@@ -104,7 +111,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location?.state])
 
-  const loadRecentLogs = async (userId, showRefreshIndicator = false, cursor = null) => {
+  const loadRecentLogs = async (userId, showRefreshIndicator = false, cursor = null, { append = false } = {}) => {
     try {
       if (showRefreshIndicator) {
         setIsRefreshing(true)
@@ -113,9 +120,13 @@ export default function Home() {
       }
       
       const logs = []
+      let nextCursor = null
+      let hasMore = false
       
       if (!userId) {
         setRecentLogs([])
+        setFeedCursor(null)
+        setFeedHasMore(false)
         setLoading(false)
         setIsRefreshing(false)
         return
@@ -124,9 +135,13 @@ export default function Home() {
       // OPTIMIZED: Get feed items with pagination support
       try {
         const feedItems = await getSocialFeedItems(userId, feedFilter, 20, cursor)
+        const raw = Array.isArray(feedItems) ? feedItems : []
+        // Cursor is the last item's created_at (if available).
+        nextCursor = raw.length > 0 ? (raw[raw.length - 1]?.created_at || null) : null
+        hasMore = raw.length >= 20 && Boolean(nextCursor)
         
-        if (feedItems && feedItems.length > 0) {
-          feedItems.forEach((item) => {
+        if (raw.length > 0) {
+          raw.forEach((item) => {
             // Get user profile info
             const userProfile = item.user_profiles || null
             const authorName = userProfile?.display_name || userProfile?.username || 'User'
@@ -194,7 +209,26 @@ export default function Home() {
       })
       
       
-      setRecentLogs(logs)
+      if (append) {
+        setRecentLogs(prev => {
+          const merged = new Map()
+          for (const it of Array.isArray(prev) ? prev : []) {
+            if (it?.id) merged.set(it.id, it)
+          }
+          for (const it of logs) {
+            if (it?.id) merged.set(it.id, it)
+          }
+          return Array.from(merged.values()).sort((a, b) => {
+            const dateA = new Date(a.timestamp || a.date)
+            const dateB = new Date(b.timestamp || b.date)
+            return dateB - dateA
+          })
+        })
+      } else {
+        setRecentLogs(logs)
+      }
+      setFeedCursor(nextCursor)
+      setFeedHasMore(hasMore)
       setLoading(false)
       setIsRefreshing(false)
     } catch (error) {
@@ -204,6 +238,8 @@ export default function Home() {
         showToast('Failed to load your feed. Pull to refresh to retry.', 'error')
       }
       setRecentLogs([])
+      setFeedCursor(null)
+      setFeedHasMore(false)
       setLoading(false)
       setIsRefreshing(false)
     }
@@ -331,11 +367,14 @@ export default function Home() {
       if (user) {
         try {
           // Load profile picture once
-          getUserPreferences(user.id).then(prefs => {
-            if (mounted && prefs?.profile_picture) {
-              setProfilePicture(prefs.profile_picture)
-            }
-          }).catch(() => {})
+          nonBlocking(
+            getUserPreferences(user.id).then(prefs => {
+              if (mounted && prefs?.profile_picture) {
+                setProfilePicture(prefs.profile_picture)
+              }
+            }),
+            { key: 'prefs', shownRef: shownErrorsRef, showToast, message: 'Some profile data failed to load.', level: 'info' }
+          )
           
           // Load data in parallel
           const [currentStreak] = await Promise.all([
@@ -374,9 +413,44 @@ export default function Home() {
           }
 
           // Load readiness snapshot (non-blocking)
-          getReadinessScore(user.id).then(r => {
-            if (mounted) setReadiness(r || null)
-          }).catch(() => {})
+          nonBlocking(
+            getReadinessScore(user.id).then(r => {
+              if (mounted) setReadiness(r || null)
+            }),
+            { key: 'readiness', shownRef: shownErrorsRef, showToast, message: 'Readiness is unavailable right now.', level: 'info' }
+          )
+
+          // Load template names (local IndexedDB) - non-blocking but improves trust/clarity for scheduling.
+          nonBlocking(
+            getAllTemplates().then((rows) => {
+              if (!mounted) return
+              const map = {}
+              for (const t of Array.isArray(rows) ? rows : []) {
+                if (t?.id) map[String(t.id)] = String(t.name || '').trim()
+              }
+              setTemplateNameById(map)
+            }),
+            { key: 'templates', shownRef: shownErrorsRef, showToast, message: 'Some template names could not be loaded.', level: 'info' }
+          )
+
+          // Load last workout summary (small recent window only) - non-blocking.
+          getRecentWorkoutsFromSupabase(user.id, 5)
+            .then((rows) => {
+              if (!mounted) return
+              const w = (Array.isArray(rows) ? rows : [])[0] || null
+              if (!w?.date) {
+                setLastWorkoutSummary(null)
+                return
+              }
+              const mins = Math.floor((Number(w.duration || 0) || 0) / 60)
+              const secs = (Number(w.duration || 0) || 0) % 60
+              const duration = (w.duration != null) ? `${mins}:${String(secs).padStart(2, '0')}` : ''
+              setLastWorkoutSummary({
+                date: String(w.date),
+                label: duration ? `${duration}` : 'Logged'
+              })
+            })
+            .catch(() => {})
           
           // Load scheduled workouts
           if (mounted) {
@@ -627,6 +701,13 @@ export default function Home() {
     }
   }
 
+  const getTemplateLabel = (templateId) => {
+    if (!templateId) return 'Workout'
+    if (templateId === 'freestyle') return 'Freestyle'
+    const name = templateNameById?.[String(templateId)]
+    return name || 'Workout'
+  }
+
   return (
     <div className={styles.container}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
@@ -714,15 +795,37 @@ export default function Home() {
               onClick={() => {
                 if (resumeSession?.hasExercises) {
                   navigate('/workout/active', { state: { resumePaused: true, sessionType: resumeSession.sessionType } })
-                } else {
-                  navigate('/workout/active')
+                  return
                 }
+                const today = getTodayEST()
+                const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
+                const first = todaysList.find(s => s?.template_id && s.template_id !== 'freestyle') || todaysList[0] || null
+                if (first?.template_id === 'freestyle') {
+                  navigate('/workout/active')
+                  return
+                }
+                if (first?.template_id) {
+                  navigate('/workout/active', { state: { templateId: first.template_id, scheduledDate: first.date } })
+                  return
+                }
+                navigate('/workout/active')
               }}
             >
               {resumeSession?.hasExercises
                 ? (resumeSession.sessionType === 'recovery' ? 'Resume Recovery' : 'Resume Workout')
-                : 'Start Session'}
+                : (() => {
+                    const today = getTodayEST()
+                    const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
+                    const first = todaysList.find(s => s?.template_id && s.template_id !== 'freestyle') || todaysList[0] || null
+                    return first ? `Start: ${getTemplateLabel(first.template_id)}` : 'Start Session'
+                  })()}
             </Button>
+            {lastWorkoutSummary?.date ? (
+              <div className={styles.primaryCtaHint}>
+                Last session: <span className={styles.primaryCtaHintStrong}>{formatDate(lastWorkoutSummary.date)}</span>
+                <span className={styles.primaryCtaHintMuted}> · {lastWorkoutSummary.label}</span>
+              </div>
+            ) : null}
             <div className={styles.primaryCtaSubActions}>
               <Button
                 unstyled
@@ -737,6 +840,14 @@ export default function Home() {
                 onClick={() => navigate('/workout/active', { state: { sessionType: 'recovery' } })}
               >
                 Start recovery
+              </Button>
+            </div>
+            <div className={styles.primaryCtaSubActions} style={{ marginTop: 10 }}>
+              <Button unstyled className={styles.secondaryCtaButton} onClick={() => navigate('/progress/prs')}>
+                PRs
+              </Button>
+              <Button unstyled className={styles.secondaryCtaButton} onClick={() => navigate('/fitness', { state: { activeTab: 'History' } })}>
+                History
               </Button>
             </div>
           </div>
@@ -766,7 +877,7 @@ export default function Home() {
                 const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
                 const todays = todaysList[0] || null
                 const next = (scheduledWorkouts || [])[0] || null
-                const labelFor = (s) => (s?.template_id === 'freestyle' ? 'Freestyle' : 'Workout')
+                const labelFor = (s) => getTemplateLabel(s?.template_id)
 
                 if (todays) {
                   return (
@@ -850,7 +961,7 @@ export default function Home() {
                   <div key={idx} className={styles.scheduledWorkoutCard}>
                     <div className={styles.scheduledWorkoutDate}>{dateLabel}</div>
                     <div className={styles.scheduledWorkoutName}>
-                      {scheduled.template_id === 'freestyle' ? 'Freestyle' : 'Workout'}
+                      {getTemplateLabel(scheduled.template_id)}
                     </div>
                     <Button
                       unstyled
@@ -1018,6 +1129,25 @@ export default function Home() {
                 // Fallback for any unsupported items
                 return null
               })}
+              {feedHasMore ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 16px' }}>
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      if (!user?.id || !feedCursor) return
+                      setFeedLoadingMore(true)
+                      try {
+                        await loadRecentLogs(user.id, false, feedCursor, { append: true })
+                      } finally {
+                        setFeedLoadingMore(false)
+                      }
+                    }}
+                    disabled={feedLoadingMore || !feedCursor}
+                  >
+                    {feedLoadingMore ? 'Loading…' : 'Load more'}
+                  </Button>
+                </div>
+              ) : null}
             </div>
           )}
         </div>

@@ -5,7 +5,7 @@ import BackButton from '../components/BackButton'
 import Skeleton from '../components/Skeleton'
 import { useAuth } from '../context/AuthContext'
 import { getRecentWorkoutsFromSupabase } from '../lib/db/workoutsDb'
-import { getTodayEST } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 import styles from './Progress.module.css'
 
 export default function Progress() {
@@ -63,7 +63,7 @@ export default function Progress() {
     const today = getTodayEST()
     const dt = new Date(`${today}T12:00:00`)
     dt.setDate(dt.getDate() - 6)
-    const cutoff = dt.toISOString().slice(0, 10)
+    const cutoff = getLocalDate(dt)
 
     const byPart = new Map()
     for (const w of Array.isArray(recentWorkouts) ? recentWorkouts : []) {

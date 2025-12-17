@@ -175,6 +175,22 @@
   margin-top: 10px;
 }
 
+.primaryCtaHint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.2;
+}
+
+.primaryCtaHintStrong {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.primaryCtaHintMuted {
+  color: var(--text-secondary);
+}
+
 .secondaryCtaButton {
   border-radius: var(--radius-md);
   padding: 12px 12px;

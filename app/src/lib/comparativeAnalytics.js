@@ -5,6 +5,7 @@
 
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
+import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 
 // Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
 const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
@@ -51,8 +52,8 @@ export async function compareToPeers(userId, metric, period = 30) {
   try {
     // Get user's data
     const userData = await getPeriodData(userId, metric, {
-      start: new Date(Date.now() - period * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      end: new Date().toISOString().split('T')[0]
+      start: getLocalDate(new Date(Date.now() - period * 24 * 60 * 60 * 1000)),
+      end: getTodayEST()
     })
     
     if (!userData) return null
@@ -86,8 +87,8 @@ export async function compareToBenchmarks(userId, metric) {
   try {
     // Get user's current value
     const userData = await getPeriodData(userId, metric, {
-      start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      end: new Date().toISOString().split('T')[0]
+      start: getLocalDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+      end: getTodayEST()
     })
     
     if (!userData) return null
@@ -148,8 +149,8 @@ export async function compareGoalVsActual(userId, goalId) {
 // Helper functions
 
 async function getPeriodData(userId, metric, period) {
-  const startDate = typeof period.start === 'string' ? period.start : period.start.toISOString().split('T')[0]
-  const endDate = typeof period.end === 'string' ? period.end : period.end.toISOString().split('T')[0]
+  const startDate = typeof period.start === 'string' ? period.start : getLocalDate(period.start)
+  const endDate = typeof period.end === 'string' ? period.end : getLocalDate(period.end)
   
   switch (metric) {
     case 'workout_count':

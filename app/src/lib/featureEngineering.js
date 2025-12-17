@@ -5,6 +5,7 @@
 
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
+import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 
 // Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
 const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
@@ -14,8 +15,8 @@ const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(
  */
 export async function calculateRollingStats(userId, metricType, windowDays = 7) {
   try {
-    const endDate = new Date().toISOString().split('T')[0]
-    const startDate = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const endDate = getTodayEST()
+    const startDate = getLocalDate(new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000))
     
     let data = []
     
@@ -111,8 +112,8 @@ function calculateAcceleration(data) {
  */
 export async function calculateRatioFeatures(userId, dateRange = {}) {
   try {
-    const endDate = dateRange.end || new Date().toISOString().split('T')[0]
-    const startDate = dateRange.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const endDate = dateRange.end || getTodayEST()
+    const startDate = dateRange.start || getLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
     
     // Get workout data
     const { data: workouts } = await supabase
@@ -178,8 +179,8 @@ export async function calculateRatioFeatures(userId, dateRange = {}) {
  */
 export async function calculateInteractionFeatures(userId, dateRange = {}) {
   try {
-    const endDate = dateRange.end || new Date().toISOString().split('T')[0]
-    const startDate = dateRange.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const endDate = dateRange.end || getTodayEST()
+    const startDate = dateRange.start || getLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
     
     // Get workouts with dates
     const { data: workouts } = await supabase

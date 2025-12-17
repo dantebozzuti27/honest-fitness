@@ -1,5 +1,5 @@
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
-import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug, logWarn } from '../utils/logger'
 import { saveEnrichedData } from './dataEnrichment'
@@ -355,7 +355,7 @@ export async function saveWorkoutToSupabase(workout, userId) {
     if (exerciseError) throw exerciseError
 
     // Insert sets (only sets with actual data)
-    const validSets = ex.sets.filter(s => s.weight || s.reps || s.time)
+    const validSets = ex.sets.filter(s => s.weight || s.reps || s.time || s.time_seconds)
     if (validSets.length > 0) {
       const setsToInsert = validSets.map((set, idx) => ({
         workout_exercise_id: exerciseData.id,
@@ -813,7 +813,7 @@ export async function updateWorkoutInSupabase(workoutId, workout, userId) {
     if (exerciseError) throw exerciseError
 
     // Insert sets (only sets with actual data)
-    const validSets = ex.sets.filter(s => s.weight || s.reps || s.time)
+    const validSets = ex.sets.filter(s => s.weight || s.reps || s.time || s.time_seconds)
     if (validSets.length > 0) {
       const setsToInsert = validSets.map((set, idx) => ({
         workout_exercise_id: exerciseData.id,
@@ -1199,7 +1199,7 @@ export async function getScheduledWorkoutsFromSupabase(userId) {
     .from('scheduled_workouts')
     .select('*')
     .eq('user_id', userId)
-    .gte('date', new Date().toISOString().split('T')[0])
+    .gte('date', getTodayEST())
     .order('date', { ascending: true })
 
   if (error) throw error
@@ -1325,7 +1325,7 @@ export async function calculateStreakFromSupabase(userId) {
 export async function getWorkoutFrequency(userId, days = 30) {
   // Use getWorkoutsFromSupabase to get filtered workouts (no dummy data)
   const workouts = await getWorkoutsFromSupabase(userId)
-  const startDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0]
+  const startDate = getLocalDate(new Date(Date.now() - days * 86400000))
   
   // Group by date (only valid workouts)
   const frequency = {}
@@ -1393,6 +1393,19 @@ export async function saveUserPreferences(userId, prefs) {
     injuries: prefs.injuries,
     updated_at: new Date().toISOString()
   }
+
+  // Planner lifter fields (columns may not exist until latest SQL is run)
+  if (prefs.trainingSplit !== undefined) {
+    upsertData.training_split = prefs.trainingSplit || null
+  }
+  if (prefs.progressionModel !== undefined) {
+    upsertData.progression_model = prefs.progressionModel || null
+  }
+  if (prefs.weeklySetsTargets !== undefined) {
+    upsertData.weekly_sets_targets = (prefs.weeklySetsTargets && typeof prefs.weeklySetsTargets === 'object')
+      ? prefs.weeklySetsTargets
+      : {}
+  }
   
   // Only include username if provided (column may not exist yet)
   if (prefs.username !== undefined) {
@@ -1423,12 +1436,18 @@ export async function saveUserPreferences(userId, prefs) {
   if (error && (
     error.message?.includes('profile_picture') ||
     error.message?.includes('username') ||
-    error.message?.includes('default_visibility')
+    error.message?.includes('default_visibility') ||
+    error.message?.includes('training_split') ||
+    error.message?.includes('progression_model') ||
+    error.message?.includes('weekly_sets_targets')
   )) {
     // Remove the problematic fields and try again
     delete upsertData.username
     delete upsertData.profile_picture
     delete upsertData.default_visibility
+    delete upsertData.training_split
+    delete upsertData.progression_model
+    delete upsertData.weekly_sets_targets
     
     const { data: retryData, error: retryError } = await supabase
       .from('user_preferences')
@@ -2574,7 +2593,7 @@ export async function getUserEventStats(userId, days = 30) {
       }
       
       // Track daily activity
-      const date = new Date(event.timestamp).toISOString().split('T')[0]
+      const date = getLocalDate(new Date(event.timestamp))
       dailyActivity[date] = (dailyActivity[date] || 0) + 1
     })
     

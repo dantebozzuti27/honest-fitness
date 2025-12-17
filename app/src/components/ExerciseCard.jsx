@@ -92,6 +92,12 @@ export default function ExerciseCard({
     return { mins, secs }
   }
 
+  function secondsToMMSSString(totalSeconds) {
+    const safe = Number.isFinite(Number(totalSeconds)) ? Math.max(0, Math.floor(Number(totalSeconds))) : 0
+    const { mins, secs } = secondsToMMSS(safe)
+    return `${mins}:${String(secs).padStart(2, '0')}`
+  }
+
   function startCardioTimer(setIdx, existingSeconds) {
     if (cardioTimerIntervalRef.current) {
       clearInterval(cardioTimerIntervalRef.current)
@@ -170,6 +176,7 @@ export default function ExerciseCard({
     // Copy only the relevant fields for the exercise type.
     if (exercise.category === 'Cardio') {
       onUpdateSet(setIdx, 'time', prev.time ?? '')
+      if (prev.time_seconds != null) onUpdateSet(setIdx, 'time_seconds', prev.time_seconds)
       onUpdateSet(setIdx, 'speed', prev.speed ?? '')
       onUpdateSet(setIdx, 'incline', prev.incline ?? '')
       return
@@ -233,6 +240,14 @@ export default function ExerciseCard({
             <div className={styles.lastInfo}>
               <span className={styles.lastInfoLabel}>Last:</span> {lastInfo.summary}
               {lastInfo?.date ? <span className={styles.lastInfoDate}> · {lastInfo.date}</span> : null}
+            </div>
+          ) : null}
+          {lastInfo?.best?.e1rm ? (
+            <div className={styles.bestInfo}>
+              <span className={styles.bestInfoLabel}>Best:</span> {Math.round(lastInfo.best.e1rm)} e1RM
+              {lastInfo.best?.reps != null && lastInfo.best?.weight != null
+                ? <span className={styles.bestInfoDate}> · {lastInfo.best.reps}×{Math.round(lastInfo.best.weight)} · {lastInfo.best.date || ''}</span>
+                : null}
             </div>
           ) : null}
           <div className={styles.controls}>
@@ -333,7 +348,9 @@ export default function ExerciseCard({
                   <>
                     {(() => {
                       const isTimerRunning = cardioTimerIntervalRef.current && cardioTimerSetIdxRef.current === idx
-                      const storedSeconds = parseCardioSeconds(set.time)
+                      const storedSeconds = Number.isFinite(Number(set?.time_seconds))
+                        ? Math.max(0, Math.floor(Number(set.time_seconds)))
+                        : parseCardioSeconds(set.time)
                       const displaySeconds = isTimerRunning ? cardioTimerSeconds : storedSeconds
                       const { mins, secs } = secondsToMMSS(displaySeconds)
 
@@ -350,7 +367,8 @@ export default function ExerciseCard({
                                 const nextMins = Number(e.target.value || 0)
                                 const safeMins = Number.isFinite(nextMins) ? Math.max(0, Math.floor(nextMins)) : 0
                                 const total = safeMins * 60 + (Number.isFinite(secs) ? secs : 0)
-                                onUpdateSet(idx, 'time', String(total))
+                                onUpdateSet(idx, 'time_seconds', total)
+                                onUpdateSet(idx, 'time', secondsToMMSSString(total))
                               }}
                               className={`${styles.input} ${styles.cardioMinInput}`}
                             />
@@ -365,7 +383,8 @@ export default function ExerciseCard({
                                 const nextSecs = Number(e.target.value || 0)
                                 const safeSecs = Number.isFinite(nextSecs) ? Math.max(0, Math.min(59, Math.floor(nextSecs))) : 0
                                 const total = (Number.isFinite(mins) ? mins : 0) * 60 + safeSecs
-                                onUpdateSet(idx, 'time', String(total))
+                                onUpdateSet(idx, 'time_seconds', total)
+                                onUpdateSet(idx, 'time', secondsToMMSSString(total))
                               }}
                               className={`${styles.input} ${styles.cardioSecInput}`}
                             />
@@ -381,7 +400,8 @@ export default function ExerciseCard({
 
                                 if (isTimerRunning) {
                                   // Commit current timer value to this set and stop.
-                                  onUpdateSet(idx, 'time', String(cardioTimerSeconds))
+                                  onUpdateSet(idx, 'time_seconds', cardioTimerSeconds)
+                                  onUpdateSet(idx, 'time', secondsToMMSSString(cardioTimerSeconds))
                                   stopCardioTimer()
                                 } else {
                                   startCardioTimer(idx, storedSeconds)

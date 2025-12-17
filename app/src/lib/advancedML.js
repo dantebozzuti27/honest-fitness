@@ -5,6 +5,7 @@
 
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
+import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 import { calculateRollingStats, calculateRatioFeatures, calculateInteractionFeatures } from './featureEngineering'
 
 // Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
@@ -93,8 +94,8 @@ export async function forecastWorkoutPerformance(userId) {
 export async function predictInjuryRisk(userId) {
   try {
     // Get recent data
-    const endDate = new Date().toISOString().split('T')[0]
-    const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const endDate = getTodayEST()
+    const startDate = getLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
     
     // Get workouts
     const { data: workouts } = await supabase
@@ -248,8 +249,8 @@ export async function estimateGoalAchievementProbability(userId, goalId) {
 export async function recommendOptimalTrainingLoad(userId) {
   try {
     // Get recent data
-    const endDate = new Date().toISOString().split('T')[0]
-    const startDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const endDate = getTodayEST()
+    const startDate = getLocalDate(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000))
     
     // Get recent workouts
     const { data: workouts } = await supabase

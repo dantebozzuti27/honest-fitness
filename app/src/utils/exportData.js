@@ -1,5 +1,6 @@
 import { getWorkoutsFromSupabase } from '../lib/db/workoutsDb'
 import { getAllMetricsFromSupabase } from '../lib/db/metricsDb'
+import { getTodayEST } from './dateUtils'
 
 /**
  * Convert array of objects to CSV string
@@ -46,7 +47,7 @@ export async function exportWorkoutData(userId, userEmail) {
     getAllMetricsFromSupabase(userId)
   ])
 
-  const dateStr = new Date().toISOString().split('T')[0]
+  const dateStr = getTodayEST()
   const baseFilename = `HonestFitness_Export_${dateStr}`
 
   // Workouts Summary CSV

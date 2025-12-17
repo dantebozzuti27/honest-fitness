@@ -43,6 +43,7 @@ export default function Fitness() {
   const [showTemplateEditor, setShowTemplateEditor] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [workoutHistory, setWorkoutHistory] = useState([])
+  const [historyPageSize, setHistoryPageSize] = useState(30)
   const [historyExerciseQuery, setHistoryExerciseQuery] = useState('')
   const [fitnessGoals, setFitnessGoals] = useState([])
   const [scheduledWorkouts, setScheduledWorkouts] = useState([])
@@ -123,6 +124,7 @@ export default function Fitness() {
     try {
       const workouts = await getWorkoutsFromSupabase(user.id)
       setWorkoutHistory(workouts)
+      setHistoryPageSize(30)
     } catch (e) {
       logError('Error loading workout history', e)
       if (!hasShownHistoryLoadErrorRef.current) {
@@ -169,6 +171,13 @@ export default function Fitness() {
     }
     return sortedWorkoutHistory.filter(matches)
   }, [historyExerciseQuery, sortedWorkoutHistory])
+
+  const pagedWorkoutHistory = useMemo(() => {
+    const list = Array.isArray(filteredWorkoutHistory) ? filteredWorkoutHistory : []
+    const n = Number(historyPageSize)
+    const size = Number.isFinite(n) ? Math.max(10, Math.min(300, n)) : 30
+    return list.slice(0, size)
+  }, [filteredWorkoutHistory, historyPageSize])
 
   const repeatYesterdayTemplate = useCallback(async (mode = 'start') => {
     if (!user?.id) return
@@ -853,9 +862,9 @@ export default function Fitness() {
               />
             ) : (
               <div className={styles.historyCards}>
-                {filteredWorkoutHistory
+                {pagedWorkoutHistory
                   .map((workout, index) => {
-                    const previousWorkout = filteredWorkoutHistory[index + 1]
+                    const previousWorkout = pagedWorkoutHistory[index + 1]
                     return (
                       <HistoryCard
                         key={workout.id}
@@ -884,6 +893,13 @@ export default function Fitness() {
                       />
                     )
                   })}
+                {filteredWorkoutHistory.length > pagedWorkoutHistory.length ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
+                    <Button variant="secondary" onClick={() => setHistoryPageSize(s => (Number(s) || 30) + 30)}>
+                      Load more
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

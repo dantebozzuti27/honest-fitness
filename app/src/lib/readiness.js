@@ -1,7 +1,7 @@
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { getWorkoutsFromSupabase } from './db/workoutsDb'
 import { getAllMetricsFromSupabase } from './db/metricsDb'
-import { getTodayEST } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 
 // Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
 const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
@@ -24,8 +24,8 @@ export async function calculateReadinessScore(userId, date = null) {
   const startDate = new Date(targetDateObj)
   startDate.setDate(startDate.getDate() - 28)
   
-  const startDateStr = startDate.toISOString().split('T')[0]
-  const endDateStr = endDate.toISOString().split('T')[0]
+  const startDateStr = getLocalDate(startDate)
+  const endDateStr = getLocalDate(endDate)
   
   // Get workouts and metrics
   const workouts = await getWorkoutsFromSupabase(userId)
@@ -229,7 +229,7 @@ function calculatePreviousDayStrain(workouts, targetDate) {
   const targetDateObj = new Date(targetDate)
   const yesterday = new Date(targetDateObj)
   yesterday.setDate(yesterday.getDate() - 1)
-  const yesterdayStr = yesterday.toISOString().split('T')[0]
+  const yesterdayStr = getLocalDate(yesterday)
   
   const yesterdayWorkouts = workouts.filter(w => w.date === yesterdayStr)
   

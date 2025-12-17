@@ -21,6 +21,7 @@ import {
   deleteProgram,
   getCoachProfile,
   listMyPrograms,
+  listProgramEnrollmentsForCoach,
   publishProgram,
   updateProgram,
   upsertCoachProfile
@@ -162,6 +163,9 @@ export default function CoachStudio() {
   const [dayEditorTab, setDayEditorTab] = useState('day') // day | workout | meals | health
   const [deleteProgramConfirm, setDeleteProgramConfirm] = useState({ open: false, program: null })
   const [discardConfirm, setDiscardConfirm] = useState({ open: false, action: null, payload: null })
+  const [enrollmentsOpen, setEnrollmentsOpen] = useState(false)
+  const [enrollmentsLoading, setEnrollmentsLoading] = useState(false)
+  const [enrollments, setEnrollments] = useState([])
   const [weeklyScheduleConfirm, setWeeklyScheduleConfirm] = useState({ open: false })
   const editorTabs = ['overview', 'schedule', 'publish']
 
@@ -219,6 +223,25 @@ export default function CoachStudio() {
       return
     }
     setDiscardConfirm({ open: true, action, payload })
+  }
+
+  const openEnrollments = async () => {
+    if (!draft?.id) {
+      showToast('Save the program first.', 'error')
+      return
+    }
+    setEnrollmentsOpen(true)
+    setEnrollmentsLoading(true)
+    try {
+      const rows = await listProgramEnrollmentsForCoach(draft.id)
+      setEnrollments(Array.isArray(rows) ? rows : [])
+    } catch (e) {
+      logError('Load enrollments failed', e)
+      showToast('Failed to load enrollments. Make sure `coach_program_enrollments` exists and RLS is applied.', 'error', 6500)
+      setEnrollments([])
+    } finally {
+      setEnrollmentsLoading(false)
+    }
   }
 
   const loadAll = async () => {
@@ -1944,6 +1967,14 @@ export default function CoachStudio() {
                   <Button
                     className={styles.btn}
                     variant="secondary"
+                    onClick={openEnrollments}
+                    disabled={!draft?.id}
+                  >
+                    Enrollments
+                  </Button>
+                  <Button
+                    className={styles.btn}
+                    variant="secondary"
                     onClick={onArchive}
                     disabled={!draft?.id}
                   >
@@ -2282,6 +2313,47 @@ export default function CoachStudio() {
                       Cancel
                     </Button>
                   </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {enrollmentsOpen ? (
+            <div className={styles.modalOverlay} onMouseDown={() => setEnrollmentsOpen(false)} role="dialog" aria-modal="true" aria-label="Program enrollments">
+              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                <div className={styles.modalHeader}>
+                  <h2 className={styles.modalTitle}>Enrollments</h2>
+                  <Button unstyled onClick={() => setEnrollmentsOpen(false)}>✕</Button>
+                </div>
+                <div className={styles.modalBody}>
+                  <div className={styles.muted}>
+                    Coaches can see enrollment records for their programs. More detailed “stats” (adherence, workouts completed, nutrition/health) can be layered on next.
+                  </div>
+                  <div style={{ height: 10 }} />
+                  {enrollmentsLoading ? (
+                    <div className={styles.muted}>Loading…</div>
+                  ) : enrollments.length === 0 ? (
+                    <div className={styles.muted}>No enrollments yet.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {enrollments.map((r) => (
+                        <div key={r.id} className={styles.card} style={{ padding: 12 }}>
+                          <div style={{ fontWeight: 900 }}>{String(r.user_id)}</div>
+                          <div className={styles.muted} style={{ marginTop: 4 }}>
+                            Start: {String(r.start_date || '')} · Scheduled: {Number(r.scheduled_count || 0)}
+                          </div>
+                          <div className={styles.muted} style={{ marginTop: 4 }}>
+                            Updated: {r.updated_at ? new Date(r.updated_at).toLocaleString() : ''}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className={styles.modalFooter}>
+                  <Button className={styles.modalBtn} variant="secondary" onClick={() => setEnrollmentsOpen(false)}>
+                    Done
+                  </Button>
                 </div>
               </div>
             </div>

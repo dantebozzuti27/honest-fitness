@@ -10,7 +10,14 @@ import Skeleton from '../components/Skeleton'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import { logError } from '../utils/logger'
-import { claimFreeProgram, getCoachProfile, getMyPurchaseForProgram, getProgramById } from '../lib/db/marketplaceDb'
+import {
+  claimFreeProgram,
+  deleteProgramEnrollment,
+  getCoachProfile,
+  getMyPurchaseForProgram,
+  getProgramById,
+  upsertProgramEnrollment
+} from '../lib/db/marketplaceDb'
 import { scheduleWorkoutSupabase, deleteScheduledWorkoutsByTemplatePrefixFromSupabase } from '../lib/db/scheduledWorkoutsDb'
 import { normalizeTemplateExercises } from '../utils/templateUtils'
 import styles from './ProgramDetail.module.css'
@@ -237,6 +244,12 @@ export default function ProgramDetail() {
       const deletedScheduled = Number(res?.deleted || 0)
       const deletedTemplates = await removeLocalProgramTemplates(program, user.id)
       try {
+        await deleteProgramEnrollment(user.id, program.id)
+      } catch (e) {
+        // non-blocking; do not block unenroll if this fails
+        logError('Failed to delete program enrollment row', e)
+      }
+      try {
         localStorage.removeItem(`program_enroll_${user.id}_${program.id}`)
       } catch {}
       setEnrollmentInfo(null)
@@ -280,6 +293,16 @@ export default function ProgramDetail() {
       }
 
       const nextInfo = { startDate: rescheduleStartDate, scheduledCount, enrolledAt: enrollmentInfo?.enrolledAt || new Date().toISOString() }
+      // Persist enrollment so coach can see it (not just localStorage)
+      try {
+        await upsertProgramEnrollment(user.id, program.id, {
+          startDate: rescheduleStartDate,
+          scheduledCount,
+          metadata: { scheduledCount, startDate: rescheduleStartDate, source: 'reschedule' }
+        })
+      } catch (e) {
+        logError('Failed to persist program enrollment (reschedule)', e)
+      }
       try {
         localStorage.setItem(`program_enroll_${user.id}_${program.id}`, JSON.stringify(nextInfo))
       } catch {}
@@ -339,6 +362,17 @@ export default function ProgramDetail() {
         // ignore
       }
       setEnrollmentInfo({ startDate: enrollStartDate, scheduledCount, enrolledAt: new Date().toISOString() })
+
+      // Persist enrollment so coach can see it (not just localStorage)
+      try {
+        await upsertProgramEnrollment(user.id, program.id, {
+          startDate: enrollStartDate,
+          scheduledCount,
+          metadata: { scheduledCount, startDate: enrollStartDate, source: 'enroll' }
+        })
+      } catch (e) {
+        logError('Failed to persist program enrollment', e)
+      }
 
       showToast(`Enrolled! Scheduled ${scheduledCount} workouts on your calendar.`, 'success', 5500)
       try {

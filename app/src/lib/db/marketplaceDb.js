@@ -250,4 +250,58 @@ export async function claimFreeProgram(buyerId, program) {
   return data
 }
 
+export async function upsertProgramEnrollment(userId, programId, { startDate, scheduledCount = 0, metadata = {} } = {}) {
+  const supabase = requireSupabase()
+  const payload = {
+    program_id: programId,
+    user_id: userId,
+    start_date: startDate,
+    status: 'enrolled',
+    scheduled_count: Number(scheduledCount || 0),
+    metadata: metadata && typeof metadata === 'object' ? metadata : {}
+  }
+  const { data, error } = await supabase
+    .from('coach_program_enrollments')
+    .upsert(payload, { onConflict: 'program_id,user_id' })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function getMyProgramEnrollment(userId, programId) {
+  const supabase = requireSupabase()
+  const { data, error } = await supabase
+    .from('coach_program_enrollments')
+    .select('*')
+    .eq('program_id', programId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw error
+  return data || null
+}
+
+export async function deleteProgramEnrollment(userId, programId) {
+  const supabase = requireSupabase()
+  const { error } = await supabase
+    .from('coach_program_enrollments')
+    .delete()
+    .eq('program_id', programId)
+    .eq('user_id', userId)
+  if (error) throw error
+  return { deleted: true }
+}
+
+export async function listProgramEnrollmentsForCoach(programId) {
+  const supabase = requireSupabase()
+  const { data, error } = await supabase
+    .from('coach_program_enrollments')
+    .select('*')
+    .eq('program_id', programId)
+    .order('updated_at', { ascending: false })
+    .limit(200)
+  if (error) throw error
+  return Array.isArray(data) ? data : []
+}
+
 

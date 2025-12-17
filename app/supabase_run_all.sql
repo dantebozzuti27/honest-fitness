@@ -1852,4 +1852,72 @@ CREATE INDEX IF NOT EXISTS idx_coach_program_purchases_program_id ON coach_progr
 CREATE INDEX IF NOT EXISTS idx_coach_program_purchases_created_at ON coach_program_purchases(created_at DESC);
 
 
+-- Enrollments (coach-visible enrollment metadata + high-level progress fields)
+CREATE TABLE IF NOT EXISTS coach_program_enrollments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  program_id UUID NOT NULL REFERENCES coach_programs(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  start_date DATE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'enrolled' CHECK (status IN ('enrolled', 'unenrolled')),
+  scheduled_count INTEGER NOT NULL DEFAULT 0 CHECK (scheduled_count >= 0),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(program_id, user_id)
+);
+
+ALTER TABLE coach_program_enrollments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own program enrollments" ON coach_program_enrollments;
+CREATE POLICY "Users can view own program enrollments" ON coach_program_enrollments
+  FOR SELECT USING (
+    auth.uid() = user_id
+    OR EXISTS (
+      SELECT 1 FROM coach_programs p
+      WHERE p.id = coach_program_enrollments.program_id
+        AND p.coach_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Users can insert own program enrollments" ON coach_program_enrollments;
+CREATE POLICY "Users can insert own program enrollments" ON coach_program_enrollments
+  FOR INSERT WITH CHECK (
+    auth.uid() = user_id
+    AND (
+      -- Owner can enroll in their own program for testing
+      EXISTS (
+        SELECT 1 FROM coach_programs p
+        WHERE p.id = coach_program_enrollments.program_id
+          AND p.coach_id = auth.uid()
+      )
+      OR
+      -- Paid buyer can enroll
+      EXISTS (
+        SELECT 1 FROM coach_program_purchases pur
+        WHERE pur.program_id = coach_program_enrollments.program_id
+          AND pur.buyer_id = auth.uid()
+          AND pur.status = 'paid'
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS "Users can update own program enrollments" ON coach_program_enrollments;
+CREATE POLICY "Users can update own program enrollments" ON coach_program_enrollments
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own program enrollments" ON coach_program_enrollments;
+CREATE POLICY "Users can delete own program enrollments" ON coach_program_enrollments
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE INDEX IF NOT EXISTS idx_coach_program_enrollments_program_id ON coach_program_enrollments(program_id);
+CREATE INDEX IF NOT EXISTS idx_coach_program_enrollments_user_id ON coach_program_enrollments(user_id);
+CREATE INDEX IF NOT EXISTS idx_coach_program_enrollments_updated_at ON coach_program_enrollments(updated_at DESC);
+
+DROP TRIGGER IF EXISTS update_coach_program_enrollments_updated_at ON coach_program_enrollments;
+CREATE TRIGGER update_coach_program_enrollments_updated_at
+  BEFORE UPDATE ON coach_program_enrollments
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+
 

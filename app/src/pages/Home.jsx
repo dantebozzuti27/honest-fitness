@@ -848,10 +848,18 @@ export default function Home() {
 
         {/* Redesigned Today Dashboard */}
         <div className={styles.dashboard}>
-          <div className={styles.heroCard}>
-            <div className={styles.heroTop}>
+          <div
+            className={styles.heroCard}
+            style={{
+              // Layout-critical fallback (prevents “jumbled” UI if styles ever fail to load)
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}
+          >
+            <div className={styles.heroTop} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div className={styles.heroTitle}>Your day</div>
-              <div className={styles.heroMeta}>
+              <div className={styles.heroMeta} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                 <span className={styles.heroMetaItem}>{streak > 0 ? `${streak} day streak` : 'Start your streak'}</span>
                 {fitbitSteps?.steps != null && <span className={styles.heroMetaItem}>{Number(fitbitSteps.steps).toLocaleString()} steps</span>}
                 <button
@@ -892,6 +900,15 @@ export default function Home() {
             <button
               type="button"
               className={styles.heroPrimary}
+              style={{
+                // Layout-critical fallback
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: 6,
+                width: '100%',
+                textAlign: 'left'
+              }}
               onClick={() => {
                 if (resumeSession?.hasExercises) {
                   navigate('/workout/active', { state: { resumePaused: true, sessionType: resumeSession.sessionType } })
@@ -920,28 +937,54 @@ export default function Home() {
               </div>
             </button>
 
-            <div className={styles.quickGrid}>
-              <button className={styles.quickCard} onClick={() => navigate('/nutrition', { state: { openMealModal: true } })}>
+            <div
+              className={styles.quickGrid}
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}
+            >
+              <button
+                className={styles.quickCard}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
+                onClick={() => navigate('/nutrition', { state: { openMealModal: true } })}
+              >
                 <div className={styles.quickCardTitle}>Log meal</div>
                 <div className={styles.quickCardSub}>Fast add</div>
               </button>
-              <button className={styles.quickCard} onClick={() => navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })}>
+              <button
+                className={styles.quickCard}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
+                onClick={() => navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })}
+              >
                 <div className={styles.quickCardTitle}>Train</div>
                 <div className={styles.quickCardSub}>Add exercises</div>
               </button>
-              <button className={styles.quickCard} onClick={() => navigate('/health', { state: { openLogModal: true } })}>
+              <button
+                className={styles.quickCard}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
+                onClick={() => navigate('/health', { state: { openLogModal: true } })}
+              >
                 <div className={styles.quickCardTitle}>Metrics</div>
                 <div className={styles.quickCardSub}>Log health</div>
               </button>
-              <button className={styles.quickCard} onClick={() => navigate('/calendar')}>
+              <button
+                className={styles.quickCard}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
+                onClick={() => navigate('/calendar')}
+              >
                 <div className={styles.quickCardTitle}>Plan</div>
                 <div className={styles.quickCardSub}>Calendar</div>
               </button>
             </div>
           </div>
 
-          <div className={styles.summaryGrid}>
-            <button className={styles.summaryCard} onClick={() => navigate('/health')}>
+          <div
+            className={styles.summaryGrid}
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}
+          >
+            <button
+              className={styles.summaryCard}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
+              onClick={() => navigate('/health')}
+            >
               <div className={styles.summaryLabel}>Readiness</div>
               {readiness?.score != null ? (
                 <div className={styles.summaryValueRow}>
@@ -955,7 +998,11 @@ export default function Home() {
               )}
             </button>
 
-            <button className={styles.summaryCard} onClick={() => navigate('/nutrition')}>
+            <button
+              className={styles.summaryCard}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
+              onClick={() => navigate('/nutrition')}
+            >
               <div className={styles.summaryLabel}>Nutrition</div>
               {todayNutrition ? (
                 <>
@@ -969,7 +1016,11 @@ export default function Home() {
               )}
             </button>
 
-            <button className={styles.summaryCard} onClick={() => navigate('/health')}>
+            <button
+              className={styles.summaryCard}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
+              onClick={() => navigate('/health')}
+            >
               <div className={styles.summaryLabel}>Health</div>
               {(() => {
                 const steps = fitbitSteps?.steps != null ? Number(fitbitSteps.steps) : Number(todayHealthMetrics?.steps)
@@ -987,7 +1038,11 @@ export default function Home() {
               })()}
             </button>
 
-            <button className={styles.summaryCard} onClick={() => navigate('/calendar')}>
+            <button
+              className={styles.summaryCard}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
+              onClick={() => navigate('/calendar')}
+            >
               <div className={styles.summaryLabel}>Schedule</div>
               {(() => {
                 const today = getTodayEST()

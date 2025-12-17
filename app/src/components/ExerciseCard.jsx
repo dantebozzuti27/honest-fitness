@@ -386,9 +386,10 @@ export default function ExerciseCard({
                 key={idx} 
                 className={`${styles.setRow} ${idx === activeSet ? styles.activeSet : ''} ${idx < activeSet ? styles.completedSet : ''}`}
               >
-                <span className={styles.setNumber}>{idx + 1}</span>
-                
-                {exercise.category === 'Cardio' ? (
+                <div className={styles.setMainRow}>
+                  <span className={styles.setNumber}>{idx + 1}</span>
+
+                  {exercise.category === 'Cardio' ? (
                   <>
                     {(() => {
                       const isTimerRunning = cardioTimerIntervalRef.current && cardioTimerSetIdxRef.current === idx
@@ -498,7 +499,7 @@ export default function ExerciseCard({
                         placeholder="lbs"
                         value={set.weight}
                         onChange={(e) => onUpdateSet(idx, 'weight', e.target.value)}
-                        className={styles.input}
+                        className={`${styles.input} ${styles.bigNumberInput}`}
                       />
                     </div>
                     <div className={styles.inputGroup}>
@@ -509,15 +510,16 @@ export default function ExerciseCard({
                         placeholder="reps"
                         value={set.reps}
                         onChange={(e) => onUpdateSet(idx, 'reps', e.target.value)}
-                        className={styles.input}
+                        className={`${styles.input} ${styles.bigNumberInput}`}
                       />
                     </div>
                   </>
                 )}
+                </div>
 
                 {/* Elite set-entry quick actions (active set only) */}
                 {idx === activeSet ? (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginLeft: 8 }}>
+                  <div className={styles.setQuickRow}>
                     {(() => {
                       const s = computeStrengthSuggestion(set)
                       if (!s) return null
@@ -540,7 +542,6 @@ export default function ExerciseCard({
                     <button
                       type="button"
                       className={styles.nextBtn}
-                      style={{ opacity: 0.9 }}
                       onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
@@ -555,7 +556,6 @@ export default function ExerciseCard({
                         <button
                           type="button"
                           className={styles.nextBtn}
-                          style={{ opacity: 0.9 }}
                           onClick={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
@@ -568,7 +568,6 @@ export default function ExerciseCard({
                         <button
                           type="button"
                           className={styles.nextBtn}
-                          style={{ opacity: 0.9 }}
                           onClick={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
@@ -581,7 +580,6 @@ export default function ExerciseCard({
                         <button
                           type="button"
                           className={styles.nextBtn}
-                          style={{ opacity: 0.9 }}
                           onClick={(e) => {
                             e.preventDefault()
                             e.stopPropagation()

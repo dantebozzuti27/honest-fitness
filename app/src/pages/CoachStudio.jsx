@@ -151,7 +151,14 @@ export default function CoachStudio() {
   const [dayEditorTab, setDayEditorTab] = useState('day') // day | workout | meals | health
   const [deleteProgramConfirm, setDeleteProgramConfirm] = useState({ open: false, program: null })
   const [discardConfirm, setDiscardConfirm] = useState({ open: false, action: null, payload: null })
+  const [weeklyScheduleConfirm, setWeeklyScheduleConfirm] = useState({ open: false })
   const editorTabs = ['overview', 'schedule', 'publish']
+
+  const weekDayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+  const weekDayLabels = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
+  const [weeklyWeeksCount, setWeeklyWeeksCount] = useState('6')
+  const [weeklyWeekStart, setWeeklyWeekStart] = useState('mon') // mon..sun
+  const [weeklyPattern, setWeeklyPattern] = useState({ mon: '', tue: '', wed: '', thu: '', fri: '', sat: '', sun: '' }) // templateId per weekday ('' = rest)
 
   const goPrevEditorTab = () => {
     const idx = editorTabs.indexOf(editorTab)
@@ -583,6 +590,41 @@ export default function CoachStudio() {
   }
 
   const dayPlans = Array.isArray(draft.content?.dayPlans) ? draft.content.dayPlans : []
+
+  const generateDayPlansFromWeeklyPattern = () => {
+    const weeks = Math.min(52, Math.max(1, Number(weeklyWeeksCount) || 1))
+    const startKey = weekDayKeys.includes(weeklyWeekStart) ? weeklyWeekStart : 'mon'
+    const startIdx = Math.max(0, weekDayKeys.indexOf(startKey))
+    const orderedKeys = [...weekDayKeys.slice(startIdx), ...weekDayKeys.slice(0, startIdx)]
+
+    const next = []
+    let dayNumber = 1
+    for (let w = 1; w <= weeks; w += 1) {
+      for (const k of orderedKeys) {
+        const templateId = String(weeklyPattern?.[k] || '')
+        const label = weekDayLabels[k] || k
+        const isRest = !templateId
+        next.push({
+          ...newDayPlan(dayNumber),
+          dayNumber,
+          title: `Week ${w} · ${label}`,
+          notes: isRest ? 'Rest day' : '',
+          workout: {
+            templateId,
+            title: '',
+            notes: '',
+            steps: []
+          },
+          meals: [],
+          healthMetrics: [],
+          healthNotes: ''
+        })
+        dayNumber += 1
+      }
+    }
+    updateDayPlans(() => next)
+    showToast(`Generated ${next.length} days (${weeks} weeks).`, 'success', 3500)
+  }
 
   const weekGroups = useMemo(() => {
     const weeks = []
@@ -1382,6 +1424,56 @@ export default function CoachStudio() {
                 </div>
                 <div className={styles.muted} style={{ marginTop: 6 }}>
                   Tip: To make a multi-week program fast, use <b>Bulk actions</b> → <b>Duplicate week…</b>
+                </div>
+
+                <div className={styles.hr} />
+                <div className={styles.subSectionTitle}>Weekly scheduling (by day of week)</div>
+                <div className={styles.muted} style={{ marginBottom: 8 }}>
+                  Pick templates for Mon–Sun and generate a multi-week program instantly. (This replaces the current day-by-day plan.)
+                </div>
+                <div className={styles.inlineRow3}>
+                  <SelectField
+                    label="Week starts on"
+                    value={weeklyWeekStart}
+                    onChange={(e) => setWeeklyWeekStart(e.target.value)}
+                  >
+                    {weekDayKeys.map((k) => (
+                      <option key={k} value={k}>{weekDayLabels[k]}</option>
+                    ))}
+                  </SelectField>
+                  <InputField
+                    label="# of weeks"
+                    inputMode="numeric"
+                    value={weeklyWeeksCount}
+                    onChange={(e) => setWeeklyWeeksCount(e.target.value)}
+                    placeholder="6"
+                  />
+                  <div style={{ display: 'flex', alignItems: 'end' }}>
+                    <Button
+                      className={styles.btn}
+                      variant="secondary"
+                      onClick={() => setWeeklyScheduleConfirm({ open: true })}
+                      disabled={(Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates.length : 0) === 0}
+                    >
+                      Generate day plans
+                    </Button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+                  {weekDayKeys.map((k) => (
+                    <SelectField
+                      key={k}
+                      label={weekDayLabels[k]}
+                      value={weeklyPattern?.[k] || ''}
+                      onChange={(e) => setWeeklyPattern(prev => ({ ...(prev || {}), [k]: e.target.value }))}
+                    >
+                      <option value="">(Rest)</option>
+                      {(Array.isArray(draft.content?.workoutTemplates) ? draft.content.workoutTemplates : []).map((t) => (
+                        <option key={t.id} value={t.id}>{t.name || 'Template'}</option>
+                      ))}
+                    </SelectField>
+                  ))}
                 </div>
 
                 {dayPlans.length === 0 ? (
@@ -2312,6 +2404,25 @@ export default function CoachStudio() {
                 action?.(payload)
               } catch {
                 // ignore
+              }
+            }}
+          />
+
+          <ConfirmDialog
+            isOpen={weeklyScheduleConfirm.open}
+            title="Generate from weekly schedule?"
+            message={`This will replace your current day-by-day plan (${dayPlans.length} days). Continue?`}
+            confirmText="Generate"
+            cancelText="Cancel"
+            isDestructive
+            onClose={() => setWeeklyScheduleConfirm({ open: false })}
+            onConfirm={() => {
+              setWeeklyScheduleConfirm({ open: false })
+              try {
+                generateDayPlansFromWeeklyPattern()
+              } catch (e) {
+                logError('Weekly schedule generation failed', e)
+                showToast('Failed to generate schedule. Please try again.', 'error')
               }
             }}
           />

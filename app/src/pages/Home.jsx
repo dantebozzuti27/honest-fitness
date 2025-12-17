@@ -57,6 +57,8 @@ export default function Home() {
   const [resumeSession, setResumeSession] = useState(null) // { sessionType: 'workout'|'recovery', timestamp, hasExercises }
   const [privateModeUntil, setPrivateModeUntil] = useState(null) // timestamp ms; when set, redact timestamps/notes in feed
   const [lastWorkoutSummary, setLastWorkoutSummary] = useState(null) // { date, label } or null
+  const [todayNutrition, setTodayNutrition] = useState(null) // { calories, macros, water } or null
+  const [todayHealthMetrics, setTodayHealthMetrics] = useState(null) // health_metrics row or null
   const feedContainerRef = useRef(null)
   const pullStartY = useRef(0)
   const isPulling = useRef(false)
@@ -91,6 +93,44 @@ export default function Home() {
     confirmResolverRef.current = null
     if (resolve) resolve(result)
   }
+
+  const formatSleep = (raw) => {
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n <= 0) return null
+    // If it's > 24, it's likely minutes (Fitbit/Oura exports often use minutes).
+    if (n > 24) {
+      const mins = Math.max(0, Math.floor(n))
+      const h = Math.floor(mins / 60)
+      const m = mins % 60
+      if (h <= 0) return `${m}m`
+      return m > 0 ? `${h}h ${m}m` : `${h}h`
+    }
+    // Otherwise treat as hours.
+    const hours = Math.round(n * 10) / 10
+    return `${hours}h`
+  }
+
+  const loadTodayStats = useCallback(async (userId, { nonBlockingMode = false } = {}) => {
+    if (!userId) return
+    const today = getTodayEST()
+    try {
+      const [nutrition, metricsRows] = await Promise.all([
+        getMealsFromSupabase(userId, today).catch(() => null),
+        getMetricsFromSupabase(userId, today, today).catch(() => [])
+      ])
+
+      const row = Array.isArray(metricsRows) ? (metricsRows[0] || null) : null
+      setTodayNutrition(nutrition || null)
+      setTodayHealthMetrics(row || null)
+    } catch (e) {
+      logError('Home: loadTodayStats failed', e)
+      if (!nonBlockingMode) {
+        showToast?.('Failed to load today stats.', 'info')
+      }
+      setTodayNutrition(null)
+      setTodayHealthMetrics(null)
+    }
+  }, [showToast])
   
   // Reload feed when filter changes
   useEffect(() => {
@@ -411,6 +451,12 @@ export default function Home() {
           if (mounted) {
             await loadRecentLogs(user.id)
           }
+
+          // Load today's health + nutrition snapshot (non-blocking, small queries).
+          nonBlocking(
+            loadTodayStats(user.id, { nonBlockingMode: true }),
+            { key: 'today_stats', shownRef: shownErrorsRef, showToast, message: 'Some today stats are unavailable.', level: 'info' }
+          )
 
           // Load readiness snapshot (non-blocking)
           nonBlocking(
@@ -936,6 +982,55 @@ export default function Home() {
                   </>
                 )
               })()}
+            </div>
+
+            <div className={styles.nutritionCard}>
+              <div className={styles.cardLabel}>Nutrition</div>
+              {todayNutrition ? (
+                <>
+                  <div className={styles.planLine}>
+                    <span className={styles.planStrong}>{Math.round(Number(todayNutrition.calories || 0))}</span> cal
+                  </div>
+                  <div className={styles.statRow}>
+                    <span className={styles.statChip}>P {Math.round(Number(todayNutrition.macros?.protein || 0))}g</span>
+                    <span className={styles.statChip}>C {Math.round(Number(todayNutrition.macros?.carbs || 0))}g</span>
+                    <span className={styles.statChip}>F {Math.round(Number(todayNutrition.macros?.fat || 0))}g</span>
+                  </div>
+                </>
+              ) : (
+                <div className={styles.readinessEmpty}>No nutrition logged yet</div>
+              )}
+              <Button unstyled className={styles.readinessLink} onClick={() => navigate('/nutrition')}>
+                Log food
+              </Button>
+            </div>
+
+            <div className={styles.healthCard}>
+              <div className={styles.cardLabel}>Health</div>
+              {(() => {
+                const steps = fitbitSteps?.steps != null ? Number(fitbitSteps.steps) : Number(todayHealthMetrics?.steps)
+                const sleep = formatSleep(todayHealthMetrics?.sleep_duration)
+                const weight = todayHealthMetrics?.weight != null ? Number(todayHealthMetrics.weight) : null
+
+                const any = (Number.isFinite(steps) && steps > 0) || Boolean(sleep) || (Number.isFinite(weight) && weight > 0)
+                if (!any) {
+                  return <div className={styles.readinessEmpty}>No health metrics logged yet</div>
+                }
+                return (
+                  <>
+                    <div className={styles.statRow}>
+                      {Number.isFinite(steps) ? (
+                        <span className={styles.statChip}>{Math.max(0, Math.round(steps)).toLocaleString()} steps</span>
+                      ) : null}
+                      {sleep ? <span className={styles.statChip}>Sleep {sleep}</span> : null}
+                      {Number.isFinite(weight) ? <span className={styles.statChip}>{Math.round(weight * 10) / 10} wt</span> : null}
+                    </div>
+                  </>
+                )
+              })()}
+              <Button unstyled className={styles.readinessLink} onClick={() => navigate('/health')}>
+                Log metrics
+              </Button>
             </div>
           </div>
         </div>

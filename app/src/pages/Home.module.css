@@ -212,7 +212,9 @@
 }
 
 .readinessCard,
-.planCard {
+.planCard,
+.nutritionCard,
+.healthCard {
   background: var(--glass-card-bg);
   border: 1px solid var(--glass-card-border);
   border-radius: var(--radius-lg);
@@ -301,6 +303,22 @@
 
 .planMuted {
   color: var(--text-secondary);
+}
+
+.statRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.statChip {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  white-space: nowrap;
 }
 
 @media (max-width: 480px) {

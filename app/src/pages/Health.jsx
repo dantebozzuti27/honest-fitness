@@ -78,6 +78,30 @@ export default function Health() {
     Boolean(user)
   )
 
+  // Oura readiness is stored in today's metric `source_data`. Compute it once so it can be used
+  // outside the Today-tab render IIFE (e.g. training recommendation).
+  const ouraReadinessScore = useMemo(() => {
+    try {
+      const today = getTodayEST()
+      const todayMetric = (Array.isArray(metrics) ? metrics : []).find(m => m?.date === today)
+      if (!todayMetric) return null
+
+      const fitbitAccount = (Array.isArray(wearables) ? wearables : []).find(w => w?.provider === 'fitbit')
+      const ouraAccount = (Array.isArray(wearables) ? wearables : []).find(w => w?.provider === 'oura')
+      const connectedProvider = ouraAccount ? 'oura' : (fitbitAccount ? 'fitbit' : null)
+
+      const isOura = connectedProvider === 'oura' && todayMetric?.source_provider === 'oura'
+      if (!isOura) return null
+
+      const sourceData = todayMetric?.source_data || {}
+      const raw = sourceData?.readiness_score
+      const n = typeof raw === 'number' ? raw : Number(raw)
+      return Number.isFinite(n) ? n : null
+    } catch {
+      return null
+    }
+  }, [metrics, wearables])
+
   const recoveryStreak = useMemo(() => {
     // Recovery session: session_type === 'recovery' OR all exercises are category Recovery
     const dates = new Set()

@@ -31,6 +31,10 @@ import { nonBlocking } from '../utils/nonBlocking'
 import { getOutboxPendingCount, flushOutbox } from '../lib/syncOutbox'
 import styles from './Home.module.css'
 
+// Social is intentionally hidden for now (feature to ship later).
+// Enable explicitly via VITE_ENABLE_SOCIAL=true.
+const SOCIAL_ENABLED = import.meta.env.VITE_ENABLE_SOCIAL === 'true'
+
 export default function Home() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -62,6 +66,7 @@ export default function Home() {
   const [todayHealthMetrics, setTodayHealthMetrics] = useState(null) // health_metrics row or null
   const [pendingSyncCount, setPendingSyncCount] = useState(0)
   const [syncBusy, setSyncBusy] = useState(false)
+  const [feedExpanded, setFeedExpanded] = useState(false)
   const feedContainerRef = useRef(null)
   const pullStartY = useRef(0)
   const isPulling = useRef(false)
@@ -153,7 +158,7 @@ export default function Home() {
   
   // Reload feed when filter changes
   useEffect(() => {
-    if (user) {
+    if (SOCIAL_ENABLED && user) {
       loadRecentLogs(user.id)
     }
   }, [feedFilter, user])
@@ -161,10 +166,16 @@ export default function Home() {
   // Deep-link: allow Command Palette (or other surfaces) to open Add Friend directly
   useEffect(() => {
     const state = location?.state
-    if (state?.openAddFriend) {
+    if (SOCIAL_ENABLED && state?.openAddFriend) {
       setAddFriendPrefill(typeof state.addFriendQuery === 'string' ? state.addFriendQuery : '')
       setShowAddFriend(true)
       // Clear state so refresh/back doesn't reopen
+      navigate(location.pathname, { replace: true, state: {} })
+      return
+    }
+
+    // If social is disabled, still clear any social-intent state so nothing "leaks" hidden features.
+    if (!SOCIAL_ENABLED && (state?.openAddFriend || state?.openFriendRequests)) {
       navigate(location.pathname, { replace: true, state: {} })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -367,8 +378,8 @@ export default function Home() {
     
     if (pullDistance >= threshold && user) {
       haptic?.success?.()
-      // Trigger refresh
-      loadRecentLogs(user.id, true)
+      // Trigger refresh (social is hidden; refresh today's stats)
+      loadTodayStats(user.id, { nonBlockingMode: false })
     } else if (pullDistance > 10) {
       haptic?.light?.()
     }
@@ -409,7 +420,7 @@ export default function Home() {
     const threshold = 60
     
     if (pullDistance >= threshold && user) {
-      loadRecentLogs(user.id, true)
+      loadTodayStats(user.id, { nonBlockingMode: false })
     }
     
     isPulling.current = false
@@ -468,7 +479,9 @@ export default function Home() {
 
           // Load recent logs for feed - await this so feed loads
           if (mounted) {
-            await loadRecentLogs(user.id)
+            if (SOCIAL_ENABLED) {
+              await loadRecentLogs(user.id)
+            }
           }
 
           // Load today's health + nutrition snapshot (non-blocking, small queries).
@@ -575,14 +588,17 @@ export default function Home() {
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     
-    // Listen for feed updates
+    // Listen for feed updates (only when social is enabled)
     const handleFeedUpdate = () => {
+      if (!SOCIAL_ENABLED) return
       if (mounted && user) {
         loadRecentLogs(user.id)
         loadPendingRequests()
       }
     }
-    window.addEventListener('feedUpdated', handleFeedUpdate)
+    if (SOCIAL_ENABLED) {
+      window.addEventListener('feedUpdated', handleFeedUpdate)
+    }
 
     // Listen for schedule changes (Program enroll/reschedule, Calendar actions)
     const handleScheduledWorkoutsUpdate = async () => {
@@ -600,6 +616,7 @@ export default function Home() {
     
     // Load pending requests
     const loadPendingRequests = async () => {
+      if (!SOCIAL_ENABLED) return
       if (mounted && user) {
         try {
           const requests = await getPendingFriendRequests(user.id)
@@ -616,12 +633,12 @@ export default function Home() {
         }
       }
     }
-    loadPendingRequests()
+    if (SOCIAL_ENABLED) loadPendingRequests()
     
     return () => {
       mounted = false
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('feedUpdated', handleFeedUpdate)
+      if (SOCIAL_ENABLED) window.removeEventListener('feedUpdated', handleFeedUpdate)
       window.removeEventListener('scheduledWorkoutsUpdated', handleScheduledWorkoutsUpdate)
     }
   }, [user, navigate, feedFilter]) // Add feedFilter to dependencies
@@ -789,7 +806,7 @@ export default function Home() {
       <div className={styles.header}>
         <SideMenu />
         <div className={styles.logoContainer}>
-          <h1 className={styles.logo}>ECHELON</h1>
+          <h1 className={styles.logo}>Today</h1>
         </div>
         <HomeButton />
       </div>
@@ -829,34 +846,26 @@ export default function Home() {
           </div>
         )}
 
-        {/* Today Hero */}
-        <div className={styles.todayHero}>
-          <div className={styles.primaryCtaCard}>
-            <div className={styles.primaryCtaTop}>
-              <div className={styles.primaryCtaTitle}>Today</div>
-              <div className={styles.primaryCtaMeta}>
-                {streak > 0 ? (
-                  <span className={styles.primaryCtaMetaItem}>{streak} day streak</span>
-                ) : (
-                  <span className={styles.primaryCtaMetaItem}>Start your streak</span>
-                )}
-                {fitbitSteps?.steps != null && (
-                  <span className={styles.primaryCtaMetaItem}>{fitbitSteps.steps.toLocaleString()} steps</span>
-                )}
-                <Button
-                  unstyled
+        {/* Redesigned Today Dashboard */}
+        <div className={styles.dashboard}>
+          <div className={styles.heroCard}>
+            <div className={styles.heroTop}>
+              <div className={styles.heroTitle}>Your day</div>
+              <div className={styles.heroMeta}>
+                <span className={styles.heroMetaItem}>{streak > 0 ? `${streak} day streak` : 'Start your streak'}</span>
+                {fitbitSteps?.steps != null && <span className={styles.heroMetaItem}>{Number(fitbitSteps.steps).toLocaleString()} steps</span>}
+                <button
                   type="button"
-                  className={`${styles.privateModeChip} ${isPrivateModeOn ? styles.privateModeChipOn : ''}`}
+                  className={`${styles.heroChip} ${isPrivateModeOn ? styles.heroChipOn : ''}`}
                   onClick={togglePrivateMode}
                   title={isPrivateModeOn ? 'Private mode is ON (local only). Tap to turn off.' : 'Turn on Private mode for 24h (local only).'}
                 >
                   {isPrivateModeOn ? 'Private: ON' : 'Private: Off'}
-                </Button>
+                </button>
                 {pendingSyncCount > 0 ? (
-                  <Button
-                    unstyled
+                  <button
                     type="button"
-                    className={styles.syncChip}
+                    className={styles.heroChip}
                     disabled={syncBusy}
                     onClick={async () => {
                       if (!user?.id) return
@@ -864,7 +873,7 @@ export default function Home() {
                       try {
                         await flushOutbox(user.id)
                       } catch {
-                        // non-blocking; outbox will retry
+                        // outbox will retry
                       } finally {
                         setSyncBusy(false)
                         try {
@@ -875,13 +884,14 @@ export default function Home() {
                     title="Sync pending offline actions"
                   >
                     {syncBusy ? 'Syncing…' : `Sync: ${pendingSyncCount}`}
-                  </Button>
+                  </button>
                 ) : null}
               </div>
             </div>
-            <Button
-              unstyled
-              className={styles.primaryCtaButton}
+
+            <button
+              type="button"
+              className={styles.heroPrimary}
               onClick={() => {
                 if (resumeSession?.hasExercises) {
                   navigate('/workout/active', { state: { resumePaused: true, sessionType: resumeSession.sessionType } })
@@ -890,192 +900,105 @@ export default function Home() {
                 const today = getTodayEST()
                 const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
                 const first = todaysList.find(s => s?.template_id && s.template_id !== 'freestyle') || todaysList[0] || null
-                if (first?.template_id === 'freestyle') {
-                  navigate('/workout/active')
-                  return
-                }
-                if (first?.template_id) {
-                  navigate('/workout/active', { state: { templateId: first.template_id, scheduledDate: first.date } })
-                  return
-                }
+                if (first?.template_id === 'freestyle') return navigate('/workout/active')
+                if (first?.template_id) return navigate('/workout/active', { state: { templateId: first.template_id, scheduledDate: first.date } })
                 navigate('/workout/active')
               }}
             >
-              {resumeSession?.hasExercises
-                ? (resumeSession.sessionType === 'recovery' ? 'Resume Recovery' : 'Resume Workout')
-                : (() => {
-                    const today = getTodayEST()
-                    const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
-                    const first = todaysList.find(s => s?.template_id && s.template_id !== 'freestyle') || todaysList[0] || null
-                    return first ? `Start: ${getTemplateLabel(first.template_id)}` : 'Start Session'
-                  })()}
-            </Button>
-            {lastWorkoutSummary?.date ? (
-              <div className={styles.primaryCtaHint}>
-                Last session: <span className={styles.primaryCtaHintStrong}>{formatDate(lastWorkoutSummary.date)}</span>
-                <span className={styles.primaryCtaHintMuted}> · {lastWorkoutSummary.label}</span>
+              <div className={styles.heroPrimaryTitle}>
+                {resumeSession?.hasExercises
+                  ? (resumeSession.sessionType === 'recovery' ? 'Resume recovery' : 'Resume workout')
+                  : (() => {
+                      const today = getTodayEST()
+                      const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
+                      const first = todaysList.find(s => s?.template_id && s.template_id !== 'freestyle') || todaysList[0] || null
+                      return first ? `Start: ${getTemplateLabel(first.template_id)}` : 'Start a session'
+                    })()}
               </div>
-            ) : null}
-            <div className={styles.primaryCtaSubActions}>
-              <Button
-                unstyled
-                className={styles.secondaryCtaButton}
-                onClick={() => navigate('/workout/active', { state: { sessionType: 'workout' } })}
-              >
-                Start workout
-              </Button>
-              <Button
-                unstyled
-                className={styles.secondaryCtaButton}
-                onClick={() => navigate('/workout/active', { state: { sessionType: 'recovery' } })}
-              >
-                Start recovery
-              </Button>
-            </div>
-            <div className={styles.primaryCtaSubActions} style={{ marginTop: 10 }}>
-              <Button unstyled className={styles.secondaryCtaButton} onClick={() => navigate('/progress/prs')}>
-                PRs
-              </Button>
-              <Button unstyled className={styles.secondaryCtaButton} onClick={() => navigate('/fitness', { state: { activeTab: 'History' } })}>
-                History
-              </Button>
+              <div className={styles.heroPrimarySub}>
+                {lastWorkoutSummary?.date ? `Last: ${formatDate(lastWorkoutSummary.date)} · ${lastWorkoutSummary.label}` : 'Keep it simple: show up, log it, move on.'}
+              </div>
+            </button>
+
+            <div className={styles.quickGrid}>
+              <button className={styles.quickCard} onClick={() => navigate('/nutrition', { state: { openMealModal: true } })}>
+                <div className={styles.quickCardTitle}>Log meal</div>
+                <div className={styles.quickCardSub}>Fast add</div>
+              </button>
+              <button className={styles.quickCard} onClick={() => navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })}>
+                <div className={styles.quickCardTitle}>Train</div>
+                <div className={styles.quickCardSub}>Add exercises</div>
+              </button>
+              <button className={styles.quickCard} onClick={() => navigate('/health', { state: { openLogModal: true } })}>
+                <div className={styles.quickCardTitle}>Metrics</div>
+                <div className={styles.quickCardSub}>Log health</div>
+              </button>
+              <button className={styles.quickCard} onClick={() => navigate('/calendar')}>
+                <div className={styles.quickCardTitle}>Plan</div>
+                <div className={styles.quickCardSub}>Calendar</div>
+              </button>
             </div>
           </div>
 
-          <div className={styles.todayRow}>
-            <div className={styles.readinessCard}>
-              <div className={styles.cardLabel}>Readiness</div>
+          <div className={styles.summaryGrid}>
+            <button className={styles.summaryCard} onClick={() => navigate('/health')}>
+              <div className={styles.summaryLabel}>Readiness</div>
               {readiness?.score != null ? (
-                <div className={styles.readinessValueRow}>
-                  <div className={styles.readinessScore}>{readiness.score}</div>
-                  <div className={`${styles.readinessZone} ${styles[`zone_${readiness.zone || 'yellow'}`]}`}>
+                <div className={styles.summaryValueRow}>
+                  <div className={styles.summaryValue}>{readiness.score}</div>
+                  <div className={`${styles.summaryPill} ${styles[`zone_${readiness.zone || 'yellow'}`]}`}>
                     {(readiness.zone || 'yellow').toString().toUpperCase()}
                   </div>
                 </div>
               ) : (
-                <div className={styles.readinessEmpty}>Connect a wearable or log health metrics</div>
+                <div className={styles.summaryEmpty}>Connect wearable</div>
               )}
-              <Button unstyled className={styles.readinessLink} onClick={() => navigate('/health')}>
-                View details
-              </Button>
-            </div>
+            </button>
 
-            <div className={styles.planCard}>
-              <div className={styles.cardLabel}>Plan</div>
+            <button className={styles.summaryCard} onClick={() => navigate('/nutrition')}>
+              <div className={styles.summaryLabel}>Nutrition</div>
+              {todayNutrition ? (
+                <>
+                  <div className={styles.summaryValue}>{Math.round(Number(todayNutrition.calories || 0))}<span className={styles.summaryUnit}> cal</span></div>
+                  <div className={styles.summarySub}>
+                    P {Math.round(Number(todayNutrition.macros?.protein || 0))} · C {Math.round(Number(todayNutrition.macros?.carbs || 0))} · F {Math.round(Number(todayNutrition.macros?.fat || 0))}
+                  </div>
+                </>
+              ) : (
+                <div className={styles.summaryEmpty}>No food logged</div>
+              )}
+            </button>
+
+            <button className={styles.summaryCard} onClick={() => navigate('/health')}>
+              <div className={styles.summaryLabel}>Health</div>
+              {(() => {
+                const steps = fitbitSteps?.steps != null ? Number(fitbitSteps.steps) : Number(todayHealthMetrics?.steps)
+                const sleep = formatSleep(todayHealthMetrics?.sleep_duration)
+                const weight = todayHealthMetrics?.weight != null ? Number(todayHealthMetrics.weight) : null
+                const any = (Number.isFinite(steps) && steps > 0) || Boolean(sleep) || (Number.isFinite(weight) && weight > 0)
+                if (!any) return <div className={styles.summaryEmpty}>No metrics yet</div>
+                return (
+                  <div className={styles.summarySub}>
+                    {Number.isFinite(steps) ? `${Math.max(0, Math.round(steps)).toLocaleString()} steps` : ''}
+                    {sleep ? `${Number.isFinite(steps) ? ' · ' : ''}Sleep ${sleep}` : ''}
+                    {Number.isFinite(weight) ? `${(Number.isFinite(steps) || sleep) ? ' · ' : ''}${Math.round(weight * 10) / 10} wt` : ''}
+                  </div>
+                )
+              })()}
+            </button>
+
+            <button className={styles.summaryCard} onClick={() => navigate('/calendar')}>
+              <div className={styles.summaryLabel}>Schedule</div>
               {(() => {
                 const today = getTodayEST()
                 const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
                 const todays = todaysList[0] || null
                 const next = (scheduledWorkouts || [])[0] || null
-                const labelFor = (s) => getTemplateLabel(s?.template_id)
-
-                if (todays) {
-                  return (
-                    <>
-                      <div className={styles.planLine}>
-                        Today: <span className={styles.planStrong}>{todaysList.length > 1 ? `${todaysList.length} workouts` : labelFor(todays)}</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
-                        <Button
-                          unstyled
-                          className={styles.readinessLink}
-                          onClick={() => {
-                            if (todays.template_id === 'freestyle') {
-                              navigate('/workout/active')
-                              return
-                            }
-                            if (!todays.template_id) {
-                              navigate('/calendar')
-                              return
-                            }
-                            navigate('/workout/active', { state: { templateId: todays.template_id, scheduledDate: todays.date } })
-                          }}
-                        >
-                          Start
-                        </Button>
-                        <button className={styles.readinessLink} onClick={() => navigate('/calendar')}>
-                          Open calendar
-                        </button>
-                      </div>
-                    </>
-                  )
-                }
-
-                if (next) {
-                  return (
-                    <>
-                      <div className={styles.planLine}>
-                        Next: <span className={styles.planStrong}>{labelFor(next)}</span>
-                        <span className={styles.planMuted}> · {formatDate(next?.date)}</span>
-                      </div>
-                      <button className={styles.readinessLink} onClick={() => navigate('/calendar')}>
-                        Open calendar
-                      </button>
-                    </>
-                  )
-                }
-
-                return (
-                  <>
-                    <div className={styles.planLine}>
-                      No workout scheduled <span className={styles.planMuted}>· add one in Calendar</span>
-                    </div>
-                    <button className={styles.readinessLink} onClick={() => navigate('/calendar')}>
-                      Open calendar
-                    </button>
-                  </>
-                )
+                if (todays) return <div className={styles.summarySub}>{todaysList.length > 1 ? `${todaysList.length} workouts today` : `Today: ${getTemplateLabel(todays?.template_id)}`}</div>
+                if (next) return <div className={styles.summarySub}>Next: {getTemplateLabel(next?.template_id)} · {formatDate(next?.date)}</div>
+                return <div className={styles.summaryEmpty}>Nothing scheduled</div>
               })()}
-            </div>
-
-            <div className={styles.nutritionCard}>
-              <div className={styles.cardLabel}>Nutrition</div>
-              {todayNutrition ? (
-                <>
-                  <div className={styles.planLine}>
-                    <span className={styles.planStrong}>{Math.round(Number(todayNutrition.calories || 0))}</span> cal
-                  </div>
-                  <div className={styles.statRow}>
-                    <span className={styles.statChip}>P {Math.round(Number(todayNutrition.macros?.protein || 0))}g</span>
-                    <span className={styles.statChip}>C {Math.round(Number(todayNutrition.macros?.carbs || 0))}g</span>
-                    <span className={styles.statChip}>F {Math.round(Number(todayNutrition.macros?.fat || 0))}g</span>
-                  </div>
-                </>
-              ) : (
-                <div className={styles.readinessEmpty}>No nutrition logged yet</div>
-              )}
-              <Button unstyled className={styles.readinessLink} onClick={() => navigate('/nutrition')}>
-                Log food
-              </Button>
-            </div>
-
-            <div className={styles.healthCard}>
-              <div className={styles.cardLabel}>Health</div>
-              {(() => {
-                const steps = fitbitSteps?.steps != null ? Number(fitbitSteps.steps) : Number(todayHealthMetrics?.steps)
-                const sleep = formatSleep(todayHealthMetrics?.sleep_duration)
-                const weight = todayHealthMetrics?.weight != null ? Number(todayHealthMetrics.weight) : null
-
-                const any = (Number.isFinite(steps) && steps > 0) || Boolean(sleep) || (Number.isFinite(weight) && weight > 0)
-                if (!any) {
-                  return <div className={styles.readinessEmpty}>No health metrics logged yet</div>
-                }
-                return (
-                  <>
-                    <div className={styles.statRow}>
-                      {Number.isFinite(steps) ? (
-                        <span className={styles.statChip}>{Math.max(0, Math.round(steps)).toLocaleString()} steps</span>
-                      ) : null}
-                      {sleep ? <span className={styles.statChip}>Sleep {sleep}</span> : null}
-                      {Number.isFinite(weight) ? <span className={styles.statChip}>{Math.round(weight * 10) / 10} wt</span> : null}
-                    </div>
-                  </>
-                )
-              })()}
-              <Button unstyled className={styles.readinessLink} onClick={() => navigate('/health')}>
-                Log metrics
-              </Button>
-            </div>
+            </button>
           </div>
         </div>
         
@@ -1130,34 +1053,33 @@ export default function Home() {
           </div>
         )}
         
-        {/* Recent Activity Feed */}
+        {/* Social is intentionally hidden for now (ship later). */}
+        {SOCIAL_ENABLED ? (
         <div className={styles.feed}>
           <div className={styles.feedHeader}>
-            <h2 className={styles.feedTitle}>Recent Activity</h2>
+            <button className={styles.feedToggle} onClick={() => setFeedExpanded(v => !v)} aria-expanded={feedExpanded}>
+              <h2 className={styles.feedTitle}>Community</h2>
+              <span className={styles.feedToggleHint}>{feedExpanded ? 'Hide' : 'Show'}</span>
+            </button>
             <div className={styles.feedHeaderActions}>
               {pendingRequestCount > 0 && (
-                <button 
+                <button
                   className={styles.friendRequestsBtn}
                   onClick={() => setShowFriendRequests(true)}
                   aria-label="Friend Requests"
                 >
                   <span className={styles.friendRequestsIcon}><PeopleIcon size={18} /></span>
-                  {pendingRequestCount > 0 && (
-                    <span className={styles.friendRequestsBadge}>{pendingRequestCount}</span>
-                  )}
+                  <span className={styles.friendRequestsBadge}>{pendingRequestCount}</span>
                 </button>
               )}
-              <button 
-                className={styles.addFriendBtn}
-                onClick={() => setShowAddFriend(true)}
-                aria-label="Add Friend"
-              >
-                + Add Friend
+              <button className={styles.addFriendBtn} onClick={() => setShowAddFriend(true)} aria-label="Add Friend">
+                + Add
               </button>
             </div>
           </div>
           
           {/* Feed Filters */}
+          {feedExpanded && (
           <div className={styles.feedFilters}>
             <button
               className={`${styles.filterBtn} ${feedFilter === 'all' ? styles.active : ''}`}
@@ -1178,6 +1100,7 @@ export default function Home() {
               Friends
             </button>
           </div>
+          )}
           {loading ? (
             <div className={styles.emptyFeed}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
@@ -1206,7 +1129,7 @@ export default function Home() {
             </div>
           ) : (
             <div className={styles.feedList}>
-              {recentLogs.map((log, index) => {
+              {(feedExpanded ? recentLogs : recentLogs.slice(0, 2)).map((log, index) => {
                 // Support all types: workout, nutrition, health
                 if (log.data && (log.type === 'workout' || log.type === 'nutrition' || log.type === 'health')) {
                   return (
@@ -1268,6 +1191,11 @@ export default function Home() {
                 // Fallback for any unsupported items
                 return null
               })}
+              {!feedExpanded && recentLogs.length > 2 ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 16px 0' }}>
+                  <Button variant="secondary" onClick={() => setFeedExpanded(true)}>Show more</Button>
+                </div>
+              ) : null}
               {feedHasMore ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 16px' }}>
                   <Button
@@ -1290,9 +1218,10 @@ export default function Home() {
             </div>
           )}
         </div>
+        ) : null}
       </div>
 
-      {showAddFriend && (
+      {SOCIAL_ENABLED && showAddFriend && (
         <AddFriend 
           onClose={() => setShowAddFriend(false)}
           initialSearchTerm={addFriendPrefill}
@@ -1305,7 +1234,7 @@ export default function Home() {
         />
       )}
 
-      {showFriendRequests && (
+      {SOCIAL_ENABLED && showFriendRequests && (
         <FriendRequests 
           onClose={() => setShowFriendRequests(false)}
           onRequestHandled={() => {

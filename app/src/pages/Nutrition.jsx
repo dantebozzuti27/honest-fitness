@@ -84,6 +84,8 @@ export default function Nutrition() {
   const [debouncedFoodSearchQuery, setDebouncedFoodSearchQuery] = useState('')
   const [foodSearchLoading, setFoodSearchLoading] = useState(false)
   const [activeFoodIndex, setActiveFoodIndex] = useState(0)
+  const [foodQuickFilter, setFoodQuickFilter] = useState('all') // all | favorites | recents
+  const [showFoodFilters, setShowFoodFilters] = useState(false)
   const [showFoodLibrary, setShowFoodLibrary] = useState(false)
   const [foodCategoryFilterId, setFoodCategoryFilterId] = useState('')
   const [foodMeta, setFoodMeta] = useState({ categories: [], favorites: [], recents: [] })
@@ -144,6 +146,13 @@ export default function Nutrition() {
       </>
     )
   }
+
+  const displayedFoodSuggestions = useMemo(() => {
+    const list = Array.isArray(foodSuggestions) ? foodSuggestions : []
+    if (foodQuickFilter === 'favorites') return list.filter(f => Boolean(f?.isFavorite))
+    if (foodQuickFilter === 'recents') return list.filter(f => Boolean(f?.isRecent))
+    return list
+  }, [foodSuggestions, foodQuickFilter])
 
   // Rank results so search feels relevant: exact > prefix > token-prefix > substring.
   const foodSearchScore = (food, qNorm) => {
@@ -1304,9 +1313,9 @@ export default function Nutrition() {
                     <SearchField
                       value={foodSearchQuery}
                       onChange={(e) => setFoodSearchQuery(e.target.value)}
-                      placeholder="Search foods (2+ chars) or paste a barcode…"
+                      placeholder="Search foods or paste a barcode…"
                       onKeyDown={(e) => {
-                        const currentList = foodSuggestions || []
+                        const currentList = displayedFoodSuggestions || []
                         const max = Math.max(0, currentList.length - 1)
                         if (e.key === 'ArrowDown') {
                           e.preventDefault()
@@ -1332,32 +1341,52 @@ export default function Nutrition() {
                       onClear={() => setFoodSearchQuery('')}
                     />
 
-                    <div className={styles.foodSearchActionsRow}>
+                    <div className={styles.foodToolbar}>
                       <button
-                        className={styles.goalsBtn}
-                        onClick={() => setFoodSearchQuery('')}
-                        disabled={!foodSearchQuery}
                         type="button"
+                        className={`${styles.foodPillBtn} ${foodQuickFilter === 'all' ? styles.foodPillBtnActive : ''}`}
+                        onClick={() => setFoodQuickFilter('all')}
                       >
-                        Clear
+                        All
                       </button>
                       <button
-                        className={styles.goalsBtn}
-                        onClick={() => {
-                          setFoodCategoryFilterId('')
-                          setFoodSearchQuery('')
-                        }}
                         type="button"
+                        className={`${styles.foodPillBtn} ${foodQuickFilter === 'favorites' ? styles.foodPillBtnActive : ''}`}
+                        onClick={() => setFoodQuickFilter('favorites')}
                       >
-                        Reset
+                        Favorites
                       </button>
-                      {foodSearchLoading && <span className={styles.emptyHint}>Searching…</span>}
-                      {!foodSearchLoading && foodSearchQuery.trim().length > 0 && foodSearchQuery.trim().length < 2 && (
-                        <span className={styles.emptyHint}>Type 2+ characters for better results.</span>
+                      <button
+                        type="button"
+                        className={`${styles.foodPillBtn} ${foodQuickFilter === 'recents' ? styles.foodPillBtnActive : ''}`}
+                        onClick={() => setFoodQuickFilter('recents')}
+                      >
+                        Recents
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.foodPillBtn} ${showFoodFilters ? styles.foodPillBtnActive : ''}`}
+                        onClick={() => setShowFoodFilters(v => !v)}
+                        aria-expanded={showFoodFilters}
+                      >
+                        Filters{foodCategoryFilterId ? ' •' : ''}
+                      </button>
+                      {showFoodFilters && (
+                        <button
+                          type="button"
+                          className={styles.foodPillBtn}
+                          onClick={() => {
+                            setFoodCategoryFilterId('')
+                            setFoodQuickFilter('all')
+                          }}
+                        >
+                          Reset
+                        </button>
                       )}
+                      {foodSearchLoading && <span className={styles.foodToolbarHint}>Searching…</span>}
                     </div>
 
-                    {(foodMeta?.categories?.length || 0) > 0 && (
+                    {showFoodFilters && (foodMeta?.categories?.length || 0) > 0 && (
                       <div className={styles.foodCategoryRow}>
                         <button
                           type="button"
@@ -1382,9 +1411,9 @@ export default function Nutrition() {
                   </div>
 
                   <div className={styles.foodResults}>
-                    {foodSuggestions.length > 0 ? (
+                    {displayedFoodSuggestions.length > 0 ? (
                       <div className={styles.foodResultsList}>
-                        {foodSuggestions.map((food, idx) => {
+                        {displayedFoodSuggestions.map((food, idx) => {
                           const qNorm = normalizeFoodQuery(debouncedFoodSearchQuery)
                           const isActive = idx === activeFoodIndex
                           const calories = Number(food?.calories_per_100g) || 0

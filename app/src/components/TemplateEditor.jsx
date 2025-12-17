@@ -1,5 +1,4 @@
 import { useRef, useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import { getAllExercises } from '../db/lazyDb'
 import ExercisePicker from './ExercisePicker'
 import { useToast } from '../hooks/useToast'
@@ -8,7 +7,7 @@ import ConfirmDialog from './ConfirmDialog'
 import Button from './Button'
 import InputField from './InputField'
 import { normalizeTemplateExercises } from '../utils/templateUtils'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from './Modal'
 import styles from './TemplateEditor.module.css'
 
 export default function TemplateEditor({ templates, onClose, onSave, onDelete, onEdit, editingTemplate: initialEditingTemplate }) {
@@ -25,12 +24,6 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
 
   const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
-  useModalA11y({
-    open: true,
-    onClose,
-    containerRef: modalRef,
-    initialFocusRef: closeBtnRef
-  })
 
   useEffect(() => {
     async function load() {
@@ -195,8 +188,14 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
   }
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
-      <div ref={modalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+    <Modal
+      isOpen
+      onClose={onClose}
+      containerRef={modalRef}
+      initialFocusRef={closeBtnRef}
+      overlayClassName={styles.overlay}
+      modalClassName={styles.modal}
+    >
         <div className={styles.header}>
           <h2>Templates</h2>
           <Button ref={closeBtnRef} unstyled onClick={onClose}>✕</Button>
@@ -390,13 +389,12 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
           </>
         )}
 
-        {showPicker && createPortal(
+        {showPicker && (
           <ExercisePicker
             exercises={Array.isArray(allExercises) ? allExercises : []}
             onSelect={handleAddExercise}
             onClose={() => setShowPicker(false)}
-          />,
-          document.body
+          />
         )}
 
         <ConfirmDialog
@@ -416,8 +414,7 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
         />
 
         {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
-      </div>
-    </div>
+    </Modal>
   )
 }
 

@@ -1,7 +1,7 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
 import { useToast } from '../hooks/useToast'
 import Toast from './Toast'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from './Modal'
 import styles from './BarChart.module.css'
 
 export default function BarChart({ 
@@ -31,12 +31,6 @@ export default function BarChart({
   const chartRef = useRef(null)
   const detailModalRef = useRef(null)
   const detailCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(showDetail && selectedBar),
-    onClose: () => setShowDetail(false),
-    containerRef: detailModalRef,
-    initialFocusRef: detailCloseBtnRef
-  })
   const chartData = useMemo(() => {
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
     
@@ -444,9 +438,15 @@ export default function BarChart({
 
       {/* Detail Modal with Chart Popup */}
       {showDetail && selectedBar && (
-        <>
-          <div className={styles.modalOverlay} onClick={() => setShowDetail(false)} />
-          <div ref={detailModalRef} className={styles.detailModal} onClick={e => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(showDetail && selectedBar)}
+          onClose={() => setShowDetail(false)}
+          containerRef={detailModalRef}
+          initialFocusRef={detailCloseBtnRef}
+          overlayClassName={styles.modalOverlay}
+          modalClassName={styles.detailModal}
+          ariaLabel="Chart details"
+        >
             <div className={styles.modalHeader}>
               <h3>Chart Details</h3>
               <button ref={detailCloseBtnRef} className={styles.closeBtn} onClick={() => setShowDetail(false)}>×</button>
@@ -607,8 +607,7 @@ export default function BarChart({
                 </div>
               )}
             </div>
-          </div>
-        </>
+          </Modal>
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}

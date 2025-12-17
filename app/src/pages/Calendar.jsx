@@ -17,9 +17,9 @@ import { getTodayEST } from '../utils/dateUtils'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
 import ConfirmDialog from '../components/ConfirmDialog'
+import Modal from '../components/Modal'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
-import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './Calendar.module.css'
 
 export default function Calendar() {
@@ -42,12 +42,6 @@ export default function Calendar() {
 
   const dayModalRef = useRef(null)
   const dayModalCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(selectedDate),
-    onClose: () => closeModal(),
-    containerRef: dayModalRef,
-    initialFocusRef: dayModalCloseBtnRef
-  })
 
   const refreshData = async () => {
     if (user) {
@@ -340,8 +334,14 @@ export default function Calendar() {
       </div>
 
       {selectedDate && (
-        <div className={styles.overlay} onClick={closeModal}>
-          <div ref={dayModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(selectedDate)}
+          onClose={closeModal}
+          containerRef={dayModalRef}
+          initialFocusRef={dayModalCloseBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.modal}
+        >
             <div className={styles.modalHeader}>
               <h2>{new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
               <button ref={dayModalCloseBtnRef} onClick={closeModal}>✕</button>
@@ -524,8 +524,7 @@ export default function Calendar() {
                 )}
               </div>
             )}
-          </div>
-        </div>
+        </Modal>
       )}
 
       <ConfirmDialog

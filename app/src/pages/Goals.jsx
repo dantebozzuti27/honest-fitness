@@ -19,7 +19,7 @@ import SelectField from '../components/SelectField'
 import TextAreaField from '../components/TextAreaField'
 import InputField from '../components/InputField'
 import Button from '../components/Button'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from '../components/Modal'
 import styles from './Goals.module.css'
 
 const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
@@ -53,12 +53,6 @@ export default function Goals() {
   const [showNewGoal, setShowNewGoal] = useState(false)
   const newGoalModalRef = useRef(null)
   const newGoalCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(showNewGoal),
-    onClose: () => setShowNewGoal(false),
-    containerRef: newGoalModalRef,
-    initialFocusRef: newGoalCloseBtnRef
-  })
   const [showAnalyze, setShowAnalyze] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState(null)
@@ -690,8 +684,14 @@ export default function Goals() {
 
       {/* New Goal Modal */}
       {showNewGoal && (
-        <div className={styles.overlay} onClick={() => setShowNewGoal(false)}>
-          <div ref={newGoalModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(showNewGoal)}
+          onClose={() => setShowNewGoal(false)}
+          containerRef={newGoalModalRef}
+          initialFocusRef={newGoalCloseBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.modal}
+        >
             <div className={styles.modalHeader}>
               <h2>New Goal - {newGoal.category.charAt(0).toUpperCase() + newGoal.category.slice(1)}</h2>
               <Button ref={newGoalCloseBtnRef} unstyled onClick={() => setShowNewGoal(false)}>✕</Button>
@@ -781,8 +781,7 @@ export default function Goals() {
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
     </div>

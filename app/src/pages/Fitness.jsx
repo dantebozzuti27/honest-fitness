@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getAllTemplates, saveTemplate, deleteTemplate } from '../db/lazyDb'
@@ -969,7 +968,7 @@ export default function Fitness() {
         )}
 
         {/* Template Editor Modal */}
-        {showTemplateEditor && createPortal(
+        {showTemplateEditor && (
           <TemplateEditor
             templates={templates}
             onClose={() => {
@@ -995,8 +994,7 @@ export default function Fitness() {
               setEditingTemplate(template)
             }}
             editingTemplate={editingTemplate}
-          />,
-          document.body
+          />
         )}
 
       {/* Toast Notification */}

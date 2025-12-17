@@ -21,7 +21,7 @@ import Skeleton from '../components/Skeleton'
 import InputField from '../components/InputField'
 import TextAreaField from '../components/TextAreaField'
 import Button from '../components/Button'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from '../components/Modal'
 import { logError } from '../utils/logger'
 import styles from './Profile.module.css'
 
@@ -50,12 +50,6 @@ export default function Profile() {
   const [showEditModal, setShowEditModal] = useState(false)
   const editModalRef = useRef(null)
   const editModalCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(showEditModal),
-    onClose: () => setShowEditModal(false),
-    containerRef: editModalRef,
-    initialFocusRef: editModalCloseBtnRef
-  })
   const [defaultVisibility, setDefaultVisibility] = useState('public')
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [disconnectConfirm, setDisconnectConfirm] = useState({ open: false, provider: null })
@@ -450,8 +444,15 @@ export default function Profile() {
 
             {/* Edit Modal */}
             {showEditModal && (
-              <div className={styles.editModalOverlay} onClick={() => setShowEditModal(false)}>
-                <div ref={editModalRef} className={styles.editModal} onClick={(e) => e.stopPropagation()}>
+              <Modal
+                isOpen={Boolean(showEditModal)}
+                onClose={() => setShowEditModal(false)}
+                containerRef={editModalRef}
+                initialFocusRef={editModalCloseBtnRef}
+                overlayClassName={styles.editModalOverlay}
+                modalClassName={styles.editModal}
+                ariaLabel="Edit profile"
+              >
                   <div className={styles.editModalHeader}>
                     <h3>Edit Profile</h3>
                     <button ref={editModalCloseBtnRef} className={styles.closeBtn} onClick={() => setShowEditModal(false)}>×</button>
@@ -521,8 +522,7 @@ export default function Profile() {
                       {saving ? 'Saving...' : 'Save Changes'}
                     </Button>
                   </div>
-                </div>
-              </div>
+              </Modal>
             )}
           </>
         )}

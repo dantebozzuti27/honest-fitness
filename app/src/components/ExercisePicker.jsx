@@ -4,7 +4,7 @@ import Button from './Button'
 import InputField from './InputField'
 import SearchField from './SearchField'
 import SelectField from './SelectField'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from './Modal'
 import styles from './ExercisePicker.module.css'
 
 export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
@@ -21,12 +21,6 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
 
   const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
-  useModalA11y({
-    open: true,
-    onClose,
-    containerRef: modalRef,
-    initialFocusRef: closeBtnRef
-  })
 
   const normalize = (v) => (v || '').toString().toLowerCase()
 
@@ -103,8 +97,15 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
   }, [dedupedExercises, debouncedSearch])
 
   return (
-    <div className={styles.overlay} role="dialog" aria-modal="true" onMouseDown={onClose}>
-      <div ref={modalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+    <Modal
+      isOpen
+      onClose={onClose}
+      containerRef={modalRef}
+      initialFocusRef={closeBtnRef}
+      overlayClassName={styles.overlay}
+      modalClassName={styles.modal}
+      ariaLabel="Add exercise"
+    >
         <div className={styles.header}>
           <h2>Add Exercise</h2>
           <Button ref={closeBtnRef} unstyled className={styles.closeBtn} onClick={onClose}>✕</Button>
@@ -199,8 +200,7 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }) {
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 

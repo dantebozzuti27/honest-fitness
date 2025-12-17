@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import ShareCard from './ShareCard'
 import { generateShareImage, shareNative, copyImageToClipboard, downloadImage, getShareUrls, openShareUrl } from '../utils/shareUtils'
 import { trackShareClick } from '../utils/shareAnalytics'
@@ -11,9 +10,9 @@ import { getWorkoutsFromSupabase, calculateStreakFromSupabase } from '../lib/db/
 import { useToast } from '../hooks/useToast'
 import Toast from './Toast'
 import Button from './Button'
+import Modal from './Modal'
 import styles from './ShareModal.module.css'
 import { logError, logWarn } from '../utils/logger'
-import { useModalA11y } from '../hooks/useModalA11y'
 
 export default function ShareModal({ type, data, onClose }) {
   const { user } = useAuth()
@@ -29,15 +28,6 @@ export default function ShareModal({ type, data, onClose }) {
   const cardRef = useRef(null)
   const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
-
-  useModalA11y({
-    open: true,
-    onClose: () => {
-      if (onClose && typeof onClose === 'function') onClose()
-    },
-    containerRef: modalRef,
-    initialFocusRef: closeBtnRef
-  })
 
   // Set default visibility from user preference (public-by-default but user-controllable)
   useEffect(() => {
@@ -349,16 +339,16 @@ export default function ShareModal({ type, data, onClose }) {
   
   const currentTemplate = templates[template] || templates.standard
 
-  return createPortal(
-    <div 
-      className={styles.overlay} 
-      onClick={() => {
-        if (onClose && typeof onClose === 'function') {
-          onClose()
-        }
-      }}
+  return (
+    <Modal
+      isOpen
+      onClose={onClose}
+      containerRef={modalRef}
+      initialFocusRef={closeBtnRef}
+      overlayClassName={styles.overlay}
+      modalClassName={styles.modal}
+      ariaLabel={`Share ${type} summary`}
     >
-      <div ref={modalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <h2>Share Your {type === 'workout' ? 'Workout' : type === 'nutrition' ? 'Nutrition' : 'Health'} Summary</h2>
           <Button
@@ -598,9 +588,7 @@ export default function ShareModal({ type, data, onClose }) {
         </div>
 
         {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
-      </div>
-    </div>,
-    document.body
+    </Modal>
   )
 }
 

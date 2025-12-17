@@ -4,7 +4,7 @@ import { searchUsers, sendFriendRequest, getFriendshipStatus, getUserProfile } f
 import { useToast } from '../hooks/useToast'
 import { logError } from '../utils/logger'
 import Button from './Button'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from './Modal'
 import styles from './AddFriend.module.css'
 
 export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = '' }) {
@@ -16,7 +16,6 @@ export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = 
   const [friendStatuses, setFriendStatuses] = useState({})
   const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
-  useModalA11y({ open: true, onClose, containerRef: modalRef, initialFocusRef: closeBtnRef })
 
   useEffect(() => {
     if (typeof initialSearchTerm === 'string' && initialSearchTerm.trim()) {
@@ -110,15 +109,15 @@ export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = 
   }
 
   return (
-    <div 
-      className={styles.overlay} 
-      onClick={() => {
-        if (onClose && typeof onClose === 'function') {
-          onClose()
-        }
-      }}
+    <Modal
+      isOpen
+      onClose={onClose}
+      containerRef={modalRef}
+      initialFocusRef={closeBtnRef}
+      overlayClassName={styles.overlay}
+      modalClassName={styles.modal}
+      ariaLabel="Add friend"
     >
-      <div ref={modalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Add Friend</h2>
           <Button
@@ -218,8 +217,7 @@ export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = 
         {searchTerm.length >= 2 && !searching && searchResults.length === 0 && (
           <div className={styles.noResults}>No users found</div>
         )}
-      </div>
-    </div>
+    </Modal>
   )
 }
 

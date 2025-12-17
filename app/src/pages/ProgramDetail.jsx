@@ -7,9 +7,9 @@ import Button from '../components/Button'
 import ConfirmDialog from '../components/ConfirmDialog'
 import InputField from '../components/InputField'
 import Skeleton from '../components/Skeleton'
+import Modal from '../components/Modal'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
-import { useModalA11y } from '../hooks/useModalA11y'
 import { logError } from '../utils/logger'
 import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 import {
@@ -94,21 +94,9 @@ export default function ProgramDetail() {
 
   const enrollModalRef = useRef(null)
   const enrollCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(enrollOpen),
-    onClose: () => setEnrollOpen(false),
-    containerRef: enrollModalRef,
-    initialFocusRef: enrollCloseBtnRef
-  })
 
   const rescheduleModalRef = useRef(null)
   const rescheduleCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(rescheduleOpen),
-    onClose: () => setRescheduleOpen(false),
-    containerRef: rescheduleModalRef,
-    initialFocusRef: rescheduleCloseBtnRef
-  })
 
   const isOwner = Boolean(user?.id && program?.coachId && user.id === program.coachId)
   const hasAccess = isOwner || purchase?.status === 'paid'
@@ -720,8 +708,15 @@ export default function ProgramDetail() {
       )}
 
       {enrollOpen && program ? (
-        <div className={styles.modalOverlay} onMouseDown={() => setEnrollOpen(false)} role="dialog" aria-modal="true" aria-label="Enroll program">
-          <div ref={enrollModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(enrollOpen && program)}
+          onClose={() => setEnrollOpen(false)}
+          containerRef={enrollModalRef}
+          initialFocusRef={enrollCloseBtnRef}
+          overlayClassName={styles.modalOverlay}
+          modalClassName={styles.modal}
+          ariaLabel="Enroll program"
+        >
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>Enroll / Schedule</h2>
               <Button ref={enrollCloseBtnRef} unstyled onClick={() => setEnrollOpen(false)}>✕</Button>
@@ -748,13 +743,19 @@ export default function ProgramDetail() {
                 Enroll & schedule
               </Button>
             </div>
-          </div>
-        </div>
+        </Modal>
       ) : null}
 
       {rescheduleOpen && program ? (
-        <div className={styles.modalOverlay} onMouseDown={() => setRescheduleOpen(false)} role="dialog" aria-modal="true" aria-label="Reschedule program">
-          <div ref={rescheduleModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(rescheduleOpen && program)}
+          onClose={() => setRescheduleOpen(false)}
+          containerRef={rescheduleModalRef}
+          initialFocusRef={rescheduleCloseBtnRef}
+          overlayClassName={styles.modalOverlay}
+          modalClassName={styles.modal}
+          ariaLabel="Reschedule program"
+        >
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>Reschedule program</h2>
               <Button ref={rescheduleCloseBtnRef} unstyled onClick={() => setRescheduleOpen(false)}>✕</Button>
@@ -778,8 +779,7 @@ export default function ProgramDetail() {
                 Reschedule
               </Button>
             </div>
-          </div>
-        </div>
+        </Modal>
       ) : null}
 
       <ConfirmDialog

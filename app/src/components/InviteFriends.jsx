@@ -7,7 +7,7 @@ import { useToast } from '../hooks/useToast'
 import Toast from './Toast'
 import { logError } from '../utils/logger'
 import Button from './Button'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from './Modal'
 import styles from './InviteFriends.module.css'
 
 export default function InviteFriends({ onClose }) {
@@ -19,7 +19,6 @@ export default function InviteFriends({ onClose }) {
   const [copied, setCopied] = useState(false)
   const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
-  useModalA11y({ open: true, onClose, containerRef: modalRef, initialFocusRef: closeBtnRef })
 
   useEffect(() => {
     if (user) {
@@ -101,15 +100,15 @@ export default function InviteFriends({ onClose }) {
   }
 
   return (
-    <div 
-      className={styles.overlay} 
-      onClick={() => {
-        if (onClose && typeof onClose === 'function') {
-          onClose()
-        }
-      }}
+    <Modal
+      isOpen
+      onClose={onClose}
+      containerRef={modalRef}
+      initialFocusRef={closeBtnRef}
+      overlayClassName={styles.overlay}
+      modalClassName={styles.modal}
+      ariaLabel="Invite friends"
     >
-      <div ref={modalRef} className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Invite Friends</h2>
           <Button
@@ -192,8 +191,7 @@ export default function InviteFriends({ onClose }) {
         </div>
 
         {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
-      </div>
-    </div>
+    </Modal>
   )
 }
 

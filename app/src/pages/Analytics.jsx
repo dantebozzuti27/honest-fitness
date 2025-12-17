@@ -38,7 +38,7 @@ import BodyHeatmap from '../components/BodyHeatmap'
 import BarChart from '../components/BarChart'
 import PredictiveInsights from '../components/PredictiveInsights'
 import DataSummaryCard from '../components/DataSummaryCard'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from '../components/Modal'
 import DataFreshnessIndicator from '../components/DataFreshnessIndicator'
 import HelpTooltip from '../components/HelpTooltip'
 import EmptyState from '../components/EmptyState'
@@ -139,39 +139,15 @@ export default function Analytics() {
   // Modal a11y refs
   const selectedWorkoutModalRef = useRef(null)
   const selectedWorkoutCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(selectedWorkout),
-    onClose: () => setSelectedWorkout(null),
-    containerRef: selectedWorkoutModalRef,
-    initialFocusRef: selectedWorkoutCloseBtnRef
-  })
 
   const editWorkoutModalRef = useRef(null)
   const editWorkoutCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(editingWorkout),
-    onClose: () => setEditingWorkout(null),
-    containerRef: editWorkoutModalRef,
-    initialFocusRef: editWorkoutCloseBtnRef
-  })
 
   const editMetricModalRef = useRef(null)
   const editMetricCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(editingMetric),
-    onClose: () => setEditingMetric(null),
-    containerRef: editMetricModalRef,
-    initialFocusRef: editMetricCloseBtnRef
-  })
 
   const bodyPartModalRef = useRef(null)
   const bodyPartCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(selectedBodyPart),
-    onClose: () => setSelectedBodyPart(null),
-    containerRef: bodyPartModalRef,
-    initialFocusRef: bodyPartCloseBtnRef
-  })
 
   useEffect(() => {
     async function loadData() {
@@ -2404,8 +2380,14 @@ export default function Analytics() {
 
       {/* Workout Detail Modal */}
       {selectedWorkout && (
-        <div className={styles.overlay} onClick={() => setSelectedWorkout(null)}>
-          <div ref={selectedWorkoutModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(selectedWorkout)}
+          onClose={() => setSelectedWorkout(null)}
+          containerRef={selectedWorkoutModalRef}
+          initialFocusRef={selectedWorkoutCloseBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.modal}
+        >
             <div className={styles.modalHeader}>
               <h2>{new Date(selectedWorkout.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
               <button ref={selectedWorkoutCloseBtnRef} onClick={() => setSelectedWorkout(null)}>✕</button>
@@ -2460,8 +2442,7 @@ export default function Analytics() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       <ConfirmDialog
@@ -2490,8 +2471,14 @@ export default function Analytics() {
 
       {/* Edit Workout Modal */}
       {editingWorkout && (
-        <div className={styles.overlay} onClick={() => setEditingWorkout(null)}>
-          <div ref={editWorkoutModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(editingWorkout)}
+          onClose={() => setEditingWorkout(null)}
+          containerRef={editWorkoutModalRef}
+          initialFocusRef={editWorkoutCloseBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.modal}
+        >
             <div className={styles.modalHeader}>
               <h2>Edit Workout</h2>
               <button ref={editWorkoutCloseBtnRef} onClick={() => setEditingWorkout(null)}>✕</button>
@@ -2548,14 +2535,19 @@ export default function Analytics() {
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Edit Metric Modal */}
       {editingMetric && (
-        <div className={styles.overlay} onClick={() => setEditingMetric(null)}>
-          <div ref={editMetricModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(editingMetric)}
+          onClose={() => setEditingMetric(null)}
+          containerRef={editMetricModalRef}
+          initialFocusRef={editMetricCloseBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.modal}
+        >
             <div className={styles.modalHeader}>
               <h2>Edit Metric</h2>
               <button ref={editMetricCloseBtnRef} onClick={() => setEditingMetric(null)}>✕</button>
@@ -2636,14 +2628,19 @@ export default function Analytics() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Body Part Drilldown Modal */}
       {selectedBodyPart && (
-        <div className={styles.overlay} onClick={() => setSelectedBodyPart(null)}>
-          <div ref={bodyPartModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(selectedBodyPart)}
+          onClose={() => setSelectedBodyPart(null)}
+          containerRef={bodyPartModalRef}
+          initialFocusRef={bodyPartCloseBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.modal}
+        >
             <div className={styles.modalHeader}>
               <h2>{selectedBodyPart} History</h2>
               <button ref={bodyPartCloseBtnRef} onClick={() => setSelectedBodyPart(null)}>✕</button>
@@ -2683,8 +2680,7 @@ export default function Analytics() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
     </div>

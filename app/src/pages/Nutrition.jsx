@@ -1,7 +1,6 @@
 // Nutrition page - based on GhostMode but without CalAI
 // Includes Dietician LLM feature and Goals sync
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 // Dynamic import for code-splitting
@@ -24,7 +23,7 @@ import EmptyState from '../components/EmptyState'
 import { chatWithAI } from '../lib/chatApi'
 import InsightsCard from '../components/InsightsCard'
 import { usePageInsights } from '../hooks/usePageInsights'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from '../components/Modal'
 // All charts are now BarChart only
 import SearchField from '../components/SearchField'
 import styles from './Nutrition.module.css'
@@ -68,27 +67,9 @@ export default function Nutrition() {
   const [showFoodSuggestions, setShowFoodSuggestions] = useState(false)
   const foodSearchModalRef = useRef(null)
   const foodSearchCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(showFoodSuggestions),
-    onClose: () => {
-      setShowFoodSuggestions(false)
-      setSelectedFoodForAdd(null)
-    },
-    containerRef: foodSearchModalRef,
-    initialFocusRef: foodSearchCloseBtnRef
-  })
 
   const manualEntryModalRef = useRef(null)
   const manualEntryCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(showManualEntry),
-    onClose: () => {
-      setShowManualEntry(false)
-      setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
-    },
-    containerRef: manualEntryModalRef,
-    initialFocusRef: manualEntryCloseBtnRef
-  })
   const [foodSearchQuery, setFoodSearchQuery] = useState('')
   const [debouncedFoodSearchQuery, setDebouncedFoodSearchQuery] = useState('')
   const [foodSearchLoading, setFoodSearchLoading] = useState(false)
@@ -118,12 +99,6 @@ export default function Nutrition() {
   const [editingMealPlanDay, setEditingMealPlanDay] = useState(null)
   const mealPlanModalRef = useRef(null)
   const mealPlanCloseBtnRef = useRef(null)
-  useModalA11y({
-    open: Boolean(showMealPlanEditor && weeklyMealPlan),
-    onClose: () => setShowMealPlanEditor(false),
-    containerRef: mealPlanModalRef,
-    initialFocusRef: mealPlanCloseBtnRef
-  })
   const [goalsStartDate, setGoalsStartDate] = useState(getTodayEST())
   const [goalsEndDate, setGoalsEndDate] = useState(getTodayEST())
   const [showShareModal, setShowShareModal] = useState(false)
@@ -1246,9 +1221,18 @@ export default function Nutrition() {
             </div>
 
             {/* Food Search Modal (major rework: choose amount before adding) */}
-            {showFoodSuggestions && createPortal(
-              <div className={styles.foodSearchOverlay} role="dialog" aria-modal="true">
-                <div ref={foodSearchModalRef} className={styles.foodSearchModal}>
+            {showFoodSuggestions && (
+              <Modal
+                isOpen={Boolean(showFoodSuggestions)}
+                onClose={() => {
+                  setShowFoodSuggestions(false)
+                  setSelectedFoodForAdd(null)
+                }}
+                containerRef={foodSearchModalRef}
+                initialFocusRef={foodSearchCloseBtnRef}
+                overlayClassName={styles.foodSearchOverlay}
+                modalClassName={styles.foodSearchModal}
+              >
                   <div className={styles.foodSearchHeader}>
                     <div className={styles.foodSearchTitle}>Log food</div>
                     <button
@@ -1490,9 +1474,7 @@ export default function Nutrition() {
                       </div>
                     </div>
                   )}
-                </div>
-              </div>,
-              document.body
+              </Modal>
             )}
 
             {/* Remaining (hero) */}
@@ -2344,8 +2326,14 @@ export default function Nutrition() {
 
       {/* Weekly Meal Plan Editor Modal */}
       {showMealPlanEditor && weeklyMealPlan && (
-        <div className={styles.overlay} onClick={() => setShowMealPlanEditor(false)}>
-          <div ref={mealPlanModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+        <Modal
+          isOpen={Boolean(showMealPlanEditor && weeklyMealPlan)}
+          onClose={() => setShowMealPlanEditor(false)}
+          containerRef={mealPlanModalRef}
+          initialFocusRef={mealPlanCloseBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.modal}
+        >
             <div className={styles.modalHeader}>
               <h2>Structured Meal Plan</h2>
               <button ref={mealPlanCloseBtnRef} onClick={() => setShowMealPlanEditor(false)}>X</button>
@@ -2497,18 +2485,22 @@ export default function Nutrition() {
                 </button>
               </div>
             </div>
-          </div>
-          </div>
+        </Modal>
         )}
 
       {/* Log Meal Modal */}
-      {showManualEntry && createPortal(
-        <>
-          <div className={styles.overlay} onClick={() => {
+      {showManualEntry && (
+        <Modal
+          isOpen={Boolean(showManualEntry)}
+          onClose={() => {
             setShowManualEntry(false)
             setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
-          }}>
-            <div ref={manualEntryModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+          }}
+          containerRef={manualEntryModalRef}
+          initialFocusRef={manualEntryCloseBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.modal}
+        >
               <div className={styles.modalHeader}>
                 <h2>Log Meal</h2>
                 <button ref={manualEntryCloseBtnRef} onClick={() => {
@@ -2667,10 +2659,7 @@ export default function Nutrition() {
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
-        </>,
-        document.body
+        </Modal>
       )}
 
       {/* Toast Notification */}

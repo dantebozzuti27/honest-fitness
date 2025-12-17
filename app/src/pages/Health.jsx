@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import Modal from '../components/Modal'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getWorkoutsFromSupabase } from '../lib/db/workoutsDb'
@@ -60,17 +60,6 @@ export default function Health() {
   const logModalRef = useRef(null)
   const logModalCloseBtnRef = useRef(null)
   const logModalOpen = Boolean(editingMetric || showLogModal)
-
-  useModalA11y({
-    open: logModalOpen,
-    onClose: () => {
-      setEditingMetric(null)
-      setEditingMetricType(null)
-      setShowLogModal(false)
-    },
-    containerRef: logModalRef,
-    initialFocusRef: logModalCloseBtnRef
-  })
   const { toast, showToast, hideToast } = useToast()
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null, payload: null })
   const shownLoadErrorRef = useRef(false)
@@ -1620,14 +1609,19 @@ export default function Health() {
       </div>
 
       {/* Log/Edit Metric Modal */}
-      {(editingMetric || showLogModal) && createPortal(
-        <>
-          <div className={styles.overlay} onClick={() => {
+      {logModalOpen && (
+        <Modal
+          isOpen={logModalOpen}
+          onClose={() => {
             setEditingMetric(null)
             setEditingMetricType(null)
             setShowLogModal(false)
-          }}>
-            <div ref={logModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
+          }}
+          containerRef={logModalRef}
+          initialFocusRef={logModalCloseBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.modal}
+        >
             <div className={styles.modalHeader}>
               <h2>
                 {editingMetricType 
@@ -1919,10 +1913,7 @@ export default function Health() {
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
-        </>,
-        document.body
+        </Modal>
       )}
 
       {/* Toast Notification */}

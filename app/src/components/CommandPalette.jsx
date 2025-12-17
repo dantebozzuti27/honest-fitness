@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from './Modal'
 import styles from './CommandPalette.module.css'
 
 export default function CommandPalette({ isOpen, onClose }) {
@@ -166,18 +165,16 @@ export default function CommandPalette({ isOpen, onClose }) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [isOpen, results, activeIndex, onClose])
 
-  useModalA11y({
-    open: Boolean(isOpen),
-    onClose,
-    containerRef: paletteRef,
-    initialFocusRef: inputRef
-  })
-
-  if (!isOpen) return null
-
-  return createPortal(
-    <div className={styles.overlay} onMouseDown={onClose}>
-      <div ref={paletteRef} className={styles.palette} onMouseDown={(e) => e.stopPropagation()}>
+  return (
+    <Modal
+      isOpen={Boolean(isOpen)}
+      onClose={onClose}
+      containerRef={paletteRef}
+      initialFocusRef={inputRef}
+      overlayClassName={styles.overlay}
+      modalClassName={styles.palette}
+      ariaLabel="Command palette"
+    >
         <div className={styles.inputRow}>
           <input
             ref={inputRef}
@@ -214,9 +211,7 @@ export default function CommandPalette({ isOpen, onClose }) {
             ))
           )}
         </div>
-      </div>
-    </div>,
-    document.body
+    </Modal>
   )
 }
 

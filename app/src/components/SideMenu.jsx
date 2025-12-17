@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { createPortal } from 'react-dom'
-import { useModalA11y } from '../hooks/useModalA11y'
+import Modal from './Modal'
 import styles from './SideMenu.module.css'
 
 export default function SideMenu() {
@@ -10,13 +9,6 @@ export default function SideMenu() {
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef(null)
   const closeBtnRef = useRef(null)
-
-  useModalA11y({
-    open: Boolean(isOpen),
-    onClose: () => setIsOpen(false),
-    containerRef: menuRef,
-    initialFocusRef: closeBtnRef
-  })
 
   const menuItems = [
     { id: 'fitness', label: 'Fitness', path: '/fitness' },
@@ -51,10 +43,16 @@ export default function SideMenu() {
         </svg>
       </button>
 
-      {isOpen && createPortal(
-        <>
-          <div className={styles.overlay} onClick={() => setIsOpen(false)} />
-          <div ref={menuRef} className={styles.menu}>
+      {isOpen && (
+        <Modal
+          isOpen={Boolean(isOpen)}
+          onClose={() => setIsOpen(false)}
+          containerRef={menuRef}
+          initialFocusRef={closeBtnRef}
+          overlayClassName={styles.overlay}
+          modalClassName={styles.menu}
+          ariaLabel="Menu"
+        >
             <div className={styles.menuHeader}>
               <h2 className={styles.menuTitle}>Menu</h2>
               <button ref={closeBtnRef} className={styles.closeButton} onClick={() => setIsOpen(false)}>
@@ -80,9 +78,7 @@ export default function SideMenu() {
                 </button>
               ))}
             </nav>
-          </div>
-        </>,
-        document.body
+        </Modal>
       )}
     </>
   )

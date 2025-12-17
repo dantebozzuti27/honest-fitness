@@ -22,6 +22,7 @@ const Home = lazy(() => import('./pages/Home'))
 const Auth = lazy(() => import('./pages/Auth'))
 const Privacy = lazy(() => import('./pages/Privacy'))
 const Terms = lazy(() => import('./pages/Terms'))
+const Support = lazy(() => import('./pages/Support'))
 const Fitness = lazy(() => import('./pages/Fitness'))
 const Nutrition = lazy(() => import('./pages/Nutrition'))
 const Health = lazy(() => import('./pages/Health'))
@@ -280,6 +281,7 @@ export default function App() {
           <Route path="/auth" element={<Auth />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
+          <Route path="/support" element={<Support />} />
           <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
           <Route path="/fitness" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />
           <Route path="/workout" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />

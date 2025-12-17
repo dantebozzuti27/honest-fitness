@@ -6,9 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "node node_modules/vite/bin/vite.js build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cap:sync": "npx cap sync",
+    "cap:open:ios": "npx cap open ios",
+    "ios:build": "npm run build && npm run cap:sync"
   },
   "dependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2",
     "@supabase/supabase-js": "^2.39.0",
     "html2canvas": "^1.4.1",
     "idb": "^7.1.1",

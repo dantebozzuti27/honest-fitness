@@ -86,7 +86,7 @@ export function AuthProvider({ children }) {
       try {
         await getOrCreateUserProfile(data.user.id, {
           username,
-          phone_number: phoneNumber,
+          phone_number: phoneNumber || null,
           display_name: username // Default display name to username
         })
       } catch (profileError) {

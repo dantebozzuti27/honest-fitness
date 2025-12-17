@@ -532,6 +532,12 @@
   margin: 0;
 }
 
+.supportRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .actionBtn {
   padding: 14px 20px;
   font-size: 15px;

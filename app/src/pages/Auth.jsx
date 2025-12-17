@@ -8,6 +8,7 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import InputField from '../components/InputField'
 import { useHaptic } from '../hooks/useHaptic'
+import { SUPPORT_PATH, PRIVACY_PATH, TERMS_PATH } from '../config/appStore'
 import styles from './Auth.module.css'
 
 export default function Auth() {
@@ -30,6 +31,10 @@ export default function Auth() {
   const [showEmailCapture, setShowEmailCapture] = useState(false)
   const [socialLoading, setSocialLoading] = useState(null)
 
+  // For native builds (Capacitor), window.location.origin may be `capacitor://localhost`.
+  // Providers typically require an HTTPS redirect URL, so we allow overriding via env.
+  const publicSiteUrl = (import.meta?.env?.VITE_PUBLIC_SITE_URL || '').toString().trim() || window.location.origin
+
   // Social login handlers
   const handleSocialLogin = async (provider) => {
     setSocialLoading(provider)
@@ -39,7 +44,7 @@ export default function Auth() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider,
         options: {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo: `${publicSiteUrl}/`,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
@@ -100,12 +105,6 @@ export default function Auth() {
       return
     }
 
-    if (isSignUp && !phoneNumber.trim()) {
-      setError('Phone number is required')
-      haptic?.error?.()
-      return
-    }
-
     // Validate username format (alphanumeric, underscore, hyphen, 3-20 chars)
     if (isSignUp && username.trim()) {
       const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/
@@ -135,7 +134,7 @@ export default function Auth() {
         if (referralCode.trim()) {
           localStorage.setItem('signup_referral_code', referralCode.trim())
         }
-        await signUp(email, password, username.trim().toLowerCase(), phoneNumber.trim())
+        await signUp(email, password, username.trim().toLowerCase(), phoneNumber.trim() || null)
         setMessage('Check your email to confirm your account!')
         haptic?.success?.()
       } else {
@@ -251,18 +250,6 @@ export default function Auth() {
             )}
             <span>Continue with Google</span>
           </button>
-          <button
-            className={`${styles.socialBtn} ${styles.facebookBtn}`}
-            onClick={() => handleSocialLogin('facebook')}
-            disabled={socialLoading !== null}
-          >
-            {socialLoading === 'facebook' ? (
-              <span className={styles.loadingSpinner}>Loading...</span>
-            ) : (
-              <span className={styles.socialIcon}>f</span>
-            )}
-            <span>Continue with Facebook</span>
-          </button>
         </div>
 
         <div className={styles.divider}>
@@ -322,10 +309,9 @@ export default function Auth() {
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
                   placeholder="+1 (555) 123-4567"
-                  required
                 />
                 <small className={styles.helperText}>
-                  Required for account recovery and two-factor authentication
+                  Optional (used for account recovery and support)
                 </small>
               </div>
 
@@ -366,7 +352,7 @@ export default function Auth() {
                 />
                 <span>
                   I agree to the{' '}
-                  <Link to="/privacy" target="_blank" className={styles.link}>
+                  <Link to={PRIVACY_PATH} target="_blank" className={styles.link}>
                     Privacy Policy
                   </Link>
                 </span>
@@ -380,11 +366,14 @@ export default function Auth() {
                 />
                 <span>
                   I agree to the{' '}
-                  <Link to="/terms" target="_blank" className={styles.link}>
+                  <Link to={TERMS_PATH} target="_blank" className={styles.link}>
                     Terms of Service
                   </Link>
                 </span>
               </label>
+              <div className={styles.consentHelp}>
+                Need help? <Link to={SUPPORT_PATH} className={styles.link}>Support</Link>
+              </div>
             </div>
           )}
 

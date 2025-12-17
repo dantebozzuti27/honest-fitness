@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import HomeButton from '../components/HomeButton'
 import BackButton from '../components/BackButton'
 import styles from './Terms.module.css'
+import { SUPPORT_EMAIL, SUPPORT_PATH } from '../config/appStore'
 
 export default function Terms() {
   const navigate = useNavigate()
@@ -152,7 +153,7 @@ export default function Terms() {
         <section className={styles.section}>
           <h2>15. Contact Information</h2>
           <p>
-            If you have any questions about these Terms, please contact us through your profile settings or by email.
+            If you have any questions about these Terms, please contact us at <strong>{SUPPORT_EMAIL}</strong> or visit <a href={SUPPORT_PATH}>Support</a>.
           </p>
         </section>
       </div>

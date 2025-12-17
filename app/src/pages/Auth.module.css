@@ -273,6 +273,12 @@
   border: 1px solid var(--border);
 }
 
+.consentHelp {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .checkboxLabel {
   display: flex;
   align-items: flex-start;

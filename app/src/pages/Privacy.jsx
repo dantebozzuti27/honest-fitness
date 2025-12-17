@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import HomeButton from '../components/HomeButton'
 import BackButton from '../components/BackButton'
 import styles from './Privacy.module.css'
+import { SUPPORT_EMAIL, SUPPORT_PATH } from '../config/appStore'
 
 export default function Privacy() {
   const navigate = useNavigate()
@@ -144,7 +145,7 @@ export default function Privacy() {
         <section className={styles.section}>
           <h2>10. Contact Us</h2>
           <p>
-            If you have any questions about this Privacy Policy or our data practices, please contact us through your profile settings or by email.
+            If you have any questions about this Privacy Policy or our data practices, please contact us at <strong>{SUPPORT_EMAIL}</strong> or visit <a href={SUPPORT_PATH}>Support</a>.
           </p>
         </section>
       </div>

@@ -23,6 +23,7 @@ import TextAreaField from '../components/TextAreaField'
 import Button from '../components/Button'
 import Modal from '../components/Modal'
 import { logError } from '../utils/logger'
+import { SUPPORT_PATH, PRIVACY_PATH, TERMS_PATH } from '../config/appStore'
 import styles from './Profile.module.css'
 
 export default function Profile() {
@@ -172,11 +173,6 @@ export default function Profile() {
       return
     }
     
-    if (!phoneNumber.trim()) {
-      showToast('Phone number is required', 'error')
-      return
-    }
-    
     // Validate username format
     const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/
     if (!usernameRegex.test(username.trim())) {
@@ -184,11 +180,13 @@ export default function Profile() {
       return
     }
     
-    // Validate phone number
-    const digitsOnly = phoneNumber.replace(/\D/g, '')
-    if (digitsOnly.length < 10) {
-      showToast('Please enter a valid phone number', 'error')
-      return
+    // Validate phone number (optional)
+    if (phoneNumber.trim()) {
+      const digitsOnly = phoneNumber.replace(/\D/g, '')
+      if (digitsOnly.length < 10) {
+        showToast('Please enter a valid phone number', 'error')
+        return
+      }
     }
     
     setSaving(true)
@@ -196,7 +194,7 @@ export default function Profile() {
       // Update user profile (username, phone, display_name, bio, profile_picture)
       await updateUserProfile(user.id, {
         username: username.trim().toLowerCase(),
-        phone_number: phoneNumber.trim(),
+        phone_number: phoneNumber.trim() || null,
         display_name: displayName.trim() || null,
         bio: bio.trim() || null,
         profile_picture: profilePicture || profilePictureUrl || null
@@ -509,8 +507,8 @@ export default function Profile() {
                         onChange={(e) => setPhoneNumber(e.target.value)}
                         placeholder="+1 (555) 123-4567"
                         className={styles.input}
-                        required
                       />
+                      <small className={styles.helperText}>Optional</small>
                     </div>
 
                     <div className={styles.formGroup}>
@@ -822,6 +820,16 @@ export default function Profile() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* Support / Legal (App Store compliance: support URL + legal docs accessible in-app) */}
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>Support & Legal</h2>
+          <div className={styles.supportRow}>
+            <button className={styles.actionBtn} onClick={() => navigate(SUPPORT_PATH)}>Support</button>
+            <button className={styles.actionBtn} onClick={() => navigate(PRIVACY_PATH)}>Privacy Policy</button>
+            <button className={styles.actionBtn} onClick={() => navigate(TERMS_PATH)}>Terms</button>
+          </div>
         </div>
 
         <div className={styles.section}>

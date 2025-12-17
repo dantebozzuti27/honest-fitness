@@ -31,6 +31,8 @@ import InputField from '../components/InputField'
 import SelectField from '../components/SelectField'
 import InsightsCard from '../components/InsightsCard'
 import { usePageInsights } from '../hooks/usePageInsights'
+import { useModalA11y } from '../hooks/useModalA11y'
+import { getWorkoutRecommendation } from '../lib/autoAdjust'
 import styles from './Health.module.css'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
@@ -55,6 +57,20 @@ export default function Health() {
   const [showLogModal, setShowLogModal] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedMetricForShare, setSelectedMetricForShare] = useState(null)
+  const logModalRef = useRef(null)
+  const logModalCloseBtnRef = useRef(null)
+  const logModalOpen = Boolean(editingMetric || showLogModal)
+
+  useModalA11y({
+    open: logModalOpen,
+    onClose: () => {
+      setEditingMetric(null)
+      setEditingMetricType(null)
+      setShowLogModal(false)
+    },
+    containerRef: logModalRef,
+    initialFocusRef: logModalCloseBtnRef
+  })
   const { toast, showToast, hideToast } = useToast()
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null, payload: null })
   const shownLoadErrorRef = useRef(false)
@@ -107,6 +123,30 @@ export default function Health() {
     }
     return streak
   }, [workouts])
+
+  const trainingRecommendation = useMemo(() => {
+    // Use whichever readiness signal we have.
+    const score = (typeof ouraReadinessScore === 'number' ? ouraReadinessScore : (readiness?.score ?? null))
+    const zone = (typeof ouraReadinessScore === 'number'
+      ? (ouraReadinessScore >= 85 ? 'optimal' : ouraReadinessScore >= 70 ? 'good' : ouraReadinessScore >= 55 ? 'attention' : 'low')
+      : (readiness?.zone || null))
+
+    // Produce a lifter-friendly “Push / Maintain / Deload” call with concrete adjustments.
+    if (zone === 'optimal' || zone === 'green') {
+      return { title: 'Push', subtitle: 'You look primed. Consider a top set or a small progression today.', detail: 'Keep rest times honest. If bar speed is good, add a set or +2.5/+5.' }
+    }
+    if (zone === 'good') {
+      return { title: 'Maintain', subtitle: 'Solid day to train. Keep intensity, don’t chase fatigue.', detail: 'Aim for the planned work. Stop 1–2 reps shy of grindy sets.' }
+    }
+    if (zone === 'attention' || zone === 'yellow') {
+      return { title: 'Maintain (lower volume)', subtitle: 'Train, but trim the work so you recover faster.', detail: 'Reduce total sets by ~20–30% or cap RPE around 7–8.' }
+    }
+    if (zone === 'low' || zone === 'red') {
+      return { title: 'Deload / Recovery', subtitle: 'Prioritize recovery. If you train, keep it light and short.', detail: 'Cut volume by ~40–60%, avoid max effort, or do a recovery session.' }
+    }
+    // Fallback for missing readiness.
+    return null
+  }, [readiness?.score, readiness?.zone, ouraReadinessScore])
 
   const loadHealthGoals = async () => {
     if (!user) return
@@ -657,6 +697,26 @@ export default function Health() {
                   Share Health Summary
                 </Button>
               )}
+
+              {/* Training recommendation (lifter-first) */}
+              {trainingRecommendation ? (
+                <div className={styles.trainingRecoCard}>
+                  <div className={styles.trainingRecoTop}>
+                    <div>
+                      <div className={styles.trainingRecoTitle}>Today: {trainingRecommendation.title}</div>
+                      <div className={styles.trainingRecoSubtitle}>{trainingRecommendation.subtitle}</div>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      className={styles.trainingRecoBtn}
+                      onClick={() => navigate('/workout/active', { state: { sessionType: trainingRecommendation.title.toLowerCase().includes('deload') ? 'recovery' : 'workout' } })}
+                    >
+                      {trainingRecommendation.title.toLowerCase().includes('deload') ? 'Start recovery' : 'Start workout'}
+                    </Button>
+                  </div>
+                  <div className={styles.trainingRecoDetail}>{trainingRecommendation.detail}</div>
+                </div>
+              ) : null}
               
               {/* Oura Readiness Score Card - Show if Oura is connected */}
               {isOura && ouraReadinessScore != null && (
@@ -1567,7 +1627,7 @@ export default function Health() {
             setEditingMetricType(null)
             setShowLogModal(false)
           }}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div ref={logModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>
                 {editingMetricType 
@@ -1575,6 +1635,7 @@ export default function Health() {
                   : editingMetric?.date ? `Log Health Metrics - ${new Date(editingMetric.date + 'T12:00:00').toLocaleDateString()}` : 'Log Health Metrics'}
               </h2>
               <Button
+                ref={logModalCloseBtnRef}
                 unstyled
                 onClick={() => {
                   setEditingMetric(null)

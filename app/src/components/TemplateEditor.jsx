@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { getAllExercises } from '../db/lazyDb'
 import ExercisePicker from './ExercisePicker'
@@ -8,6 +8,7 @@ import ConfirmDialog from './ConfirmDialog'
 import Button from './Button'
 import InputField from './InputField'
 import { normalizeTemplateExercises } from '../utils/templateUtils'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './TemplateEditor.module.css'
 
 export default function TemplateEditor({ templates, onClose, onSave, onDelete, onEdit, editingTemplate: initialEditingTemplate }) {
@@ -20,6 +21,15 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
     id: '',
     name: '',
     exercises: []
+  })
+
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
+  useModalA11y({
+    open: true,
+    onClose,
+    containerRef: modalRef,
+    initialFocusRef: closeBtnRef
   })
 
   useEffect(() => {
@@ -186,10 +196,10 @@ export default function TemplateEditor({ templates, onClose, onSave, onDelete, o
 
   return (
     <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+      <div ref={modalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Templates</h2>
-          <Button unstyled onClick={onClose}>✕</Button>
+          <Button ref={closeBtnRef} unstyled onClick={onClose}>✕</Button>
         </div>
         
         {!editingTemplate ? (

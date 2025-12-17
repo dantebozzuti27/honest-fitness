@@ -11,6 +11,7 @@ import { useToast } from '../hooks/useToast'
 import Skeleton from '../components/Skeleton'
 import TemplateEditor from '../components/TemplateEditor'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { useModalA11y } from '../hooks/useModalA11y'
 import { logError } from '../utils/logger'
 import { normalizeTemplateExercises } from '../utils/templateUtils'
 import SearchField from '../components/SearchField'
@@ -168,6 +169,96 @@ export default function CoachStudio() {
   const [enrollmentsLoading, setEnrollmentsLoading] = useState(false)
   const [enrollments, setEnrollments] = useState([])
   const [enrollmentProfiles, setEnrollmentProfiles] = useState({})
+
+  const createProgramModalRef = useRef(null)
+  const createProgramCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(createModalOpen),
+    onClose: () => setCreateModalOpen(false),
+    containerRef: createProgramModalRef,
+    initialFocusRef: createProgramCloseBtnRef
+  })
+
+  const dayEditorModalRef = useRef(null)
+  const dayEditorCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(dayEditorOpen),
+    onClose: () => setDayEditorOpen(false),
+    containerRef: dayEditorModalRef,
+    initialFocusRef: dayEditorCloseBtnRef
+  })
+
+  const templatesHubModalRef = useRef(null)
+  const templatesHubCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(templatesHubOpen),
+    onClose: () => setTemplatesHubOpen(false),
+    containerRef: templatesHubModalRef,
+    initialFocusRef: templatesHubCloseBtnRef
+  })
+
+  const bulkActionsModalRef = useRef(null)
+  const bulkActionsCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(bulkActionsOpen),
+    onClose: () => setBulkActionsOpen(false),
+    containerRef: bulkActionsModalRef,
+    initialFocusRef: bulkActionsCloseBtnRef
+  })
+
+  const duplicateWeekModalRef = useRef(null)
+  const duplicateWeekCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(duplicateWeekOpen),
+    onClose: () => setDuplicateWeekOpen(false),
+    containerRef: duplicateWeekModalRef,
+    initialFocusRef: duplicateWeekCloseBtnRef
+  })
+
+  const bulkApplyTemplateModalRef = useRef(null)
+  const bulkApplyTemplateCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(bulkApplyTemplateOpen),
+    onClose: () => setBulkApplyTemplateOpen(false),
+    containerRef: bulkApplyTemplateModalRef,
+    initialFocusRef: bulkApplyTemplateCloseBtnRef
+  })
+
+  const copyMealsModalRef = useRef(null)
+  const copyMealsCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(copyMealsOpen),
+    onClose: () => setCopyMealsOpen(false),
+    containerRef: copyMealsModalRef,
+    initialFocusRef: copyMealsCloseBtnRef
+  })
+
+  const enrollmentsModalRef = useRef(null)
+  const enrollmentsCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(enrollmentsOpen),
+    onClose: () => setEnrollmentsOpen(false),
+    containerRef: enrollmentsModalRef,
+    initialFocusRef: enrollmentsCloseBtnRef
+  })
+
+  const importTemplateModalRef = useRef(null)
+  const importTemplateCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(importTemplateOpen),
+    onClose: () => setImportTemplateOpen(false),
+    containerRef: importTemplateModalRef,
+    initialFocusRef: importTemplateCloseBtnRef
+  })
+
+  const foodSearchModalRef = useRef(null)
+  const foodSearchCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(foodSearchOpen),
+    onClose: () => setFoodSearchOpen(false),
+    containerRef: foodSearchModalRef,
+    initialFocusRef: foodSearchCloseBtnRef
+  })
   const [weeklyScheduleConfirm, setWeeklyScheduleConfirm] = useState({ open: false })
   const editorTabs = ['overview', 'schedule', 'publish']
 
@@ -1010,10 +1101,10 @@ export default function CoachStudio() {
           aria-modal="true"
           aria-label="Create program"
         >
-          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+          <div ref={createProgramModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>Create program</h2>
-              <Button unstyled onClick={() => setCreateModalOpen(false)}>✕</Button>
+              <Button ref={createProgramCloseBtnRef} unstyled onClick={() => setCreateModalOpen(false)}>✕</Button>
             </div>
 
             <div className={styles.modalBody}>
@@ -1579,10 +1670,10 @@ export default function CoachStudio() {
                 aria-modal="true"
                 aria-label="Edit day"
               >
-                <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+                <div ref={dayEditorModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
                   <div className={styles.modalHeader}>
                     <h2 className={styles.modalTitle}>Edit Day {currentDay.dayNumber}</h2>
-                    <Button unstyled onClick={() => setDayEditorOpen(false)}>✕</Button>
+                    <Button ref={dayEditorCloseBtnRef} unstyled onClick={() => setDayEditorOpen(false)}>✕</Button>
                   </div>
 
                   <div className={styles.dayEditTabs}>
@@ -2041,10 +2132,10 @@ export default function CoachStudio() {
 
           {templatesHubOpen ? (
             <div className={styles.modalOverlay} onMouseDown={() => setTemplatesHubOpen(false)} role="dialog" aria-modal="true" aria-label="Templates">
-              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+              <div ref={templatesHubModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
                 <div className={styles.modalHeader}>
                   <h2 className={styles.modalTitle}>Templates</h2>
-                  <Button unstyled onClick={() => setTemplatesHubOpen(false)}>✕</Button>
+                  <Button ref={templatesHubCloseBtnRef} unstyled onClick={() => setTemplatesHubOpen(false)}>✕</Button>
                 </div>
                 <div className={styles.modalBody}>
                   <div className={styles.muted}>
@@ -2099,10 +2190,10 @@ export default function CoachStudio() {
 
           {bulkActionsOpen ? (
             <div className={styles.modalOverlay} onMouseDown={() => setBulkActionsOpen(false)} role="dialog" aria-modal="true" aria-label="Bulk actions">
-              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+              <div ref={bulkActionsModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
                 <div className={styles.modalHeader}>
                   <h2 className={styles.modalTitle}>Bulk actions</h2>
-                  <Button unstyled onClick={() => setBulkActionsOpen(false)}>✕</Button>
+                  <Button ref={bulkActionsCloseBtnRef} unstyled onClick={() => setBulkActionsOpen(false)}>✕</Button>
                 </div>
                 <div className={styles.modalBody}>
                   <div className={styles.btnRow} style={{ marginTop: 0 }}>
@@ -2144,10 +2235,10 @@ export default function CoachStudio() {
 
           {duplicateWeekOpen ? (
             <div className={styles.modalOverlay} onMouseDown={() => setDuplicateWeekOpen(false)} role="dialog" aria-modal="true" aria-label="Duplicate week">
-              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+              <div ref={duplicateWeekModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
                 <div className={styles.modalHeader}>
                   <h2 className={styles.modalTitle}>Duplicate a week</h2>
-                  <Button unstyled onClick={() => setDuplicateWeekOpen(false)}>✕</Button>
+                  <Button ref={duplicateWeekCloseBtnRef} unstyled onClick={() => setDuplicateWeekOpen(false)}>✕</Button>
                 </div>
                 <div className={styles.modalBody}>
                   <SelectField
@@ -2196,10 +2287,10 @@ export default function CoachStudio() {
 
           {bulkApplyTemplateOpen ? (
             <div className={styles.modalOverlay} onMouseDown={() => setBulkApplyTemplateOpen(false)} role="dialog" aria-modal="true" aria-label="Apply workout template">
-              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+              <div ref={bulkApplyTemplateModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
                 <div className={styles.modalHeader}>
                   <h2 className={styles.modalTitle}>Apply template to days</h2>
-                  <Button unstyled onClick={() => setBulkApplyTemplateOpen(false)}>✕</Button>
+                  <Button ref={bulkApplyTemplateCloseBtnRef} unstyled onClick={() => setBulkApplyTemplateOpen(false)}>✕</Button>
                 </div>
                 <div className={styles.modalBody}>
                   <SelectField
@@ -2273,10 +2364,10 @@ export default function CoachStudio() {
 
           {copyMealsOpen ? (
             <div className={styles.modalOverlay} onMouseDown={() => setCopyMealsOpen(false)} role="dialog" aria-modal="true" aria-label="Copy meals">
-              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+              <div ref={copyMealsModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
                 <div className={styles.modalHeader}>
                   <h2 className={styles.modalTitle}>Copy meals from another day</h2>
-                  <Button unstyled onClick={() => setCopyMealsOpen(false)}>✕</Button>
+                  <Button ref={copyMealsCloseBtnRef} unstyled onClick={() => setCopyMealsOpen(false)}>✕</Button>
                 </div>
                 <div className={styles.modalBody}>
                   <SelectField
@@ -2326,10 +2417,10 @@ export default function CoachStudio() {
 
           {enrollmentsOpen ? (
             <div className={styles.modalOverlay} onMouseDown={() => setEnrollmentsOpen(false)} role="dialog" aria-modal="true" aria-label="Program enrollments">
-              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+              <div ref={enrollmentsModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
                 <div className={styles.modalHeader}>
                   <h2 className={styles.modalTitle}>Enrollments</h2>
-                  <Button unstyled onClick={() => setEnrollmentsOpen(false)}>✕</Button>
+                  <Button ref={enrollmentsCloseBtnRef} unstyled onClick={() => setEnrollmentsOpen(false)}>✕</Button>
                 </div>
                 <div className={styles.modalBody}>
                   <div className={styles.muted}>
@@ -2379,10 +2470,10 @@ export default function CoachStudio() {
 
         {importTemplateOpen ? (
           <div className={styles.modalOverlay} onMouseDown={() => setImportTemplateOpen(false)} role="dialog" aria-modal="true" aria-label="Import template">
-            <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+            <div ref={importTemplateModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
               <div className={styles.modalHeader}>
                 <h2 className={styles.modalTitle}>Import from My templates</h2>
-                <Button unstyled onClick={() => setImportTemplateOpen(false)}>✕</Button>
+                <Button ref={importTemplateCloseBtnRef} unstyled onClick={() => setImportTemplateOpen(false)}>✕</Button>
               </div>
               <div className={styles.modalBody}>
                 <SearchField
@@ -2429,10 +2520,10 @@ export default function CoachStudio() {
             aria-modal="true"
             aria-label="Search foods"
           >
-            <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+            <div ref={foodSearchModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
               <div className={styles.modalHeader}>
                 <h2 className={styles.modalTitle}>Search foods</h2>
-                <Button unstyled onClick={() => setFoodSearchOpen(false)}>✕</Button>
+                <Button ref={foodSearchCloseBtnRef} unstyled onClick={() => setFoodSearchOpen(false)}>✕</Button>
               </div>
               <div className={styles.modalBody}>
                 <SearchField

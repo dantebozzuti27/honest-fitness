@@ -3,6 +3,7 @@ import styles from './ExerciseCard.module.css'
 
 export default function ExerciseCard({
   exercise,
+  lastInfo,
   index,
   total,
   onToggle,
@@ -146,6 +147,41 @@ export default function ExerciseCard({
     }
   }
 
+  const toNum = (v) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const adjustFieldNumber = (setIdx, field, delta, { min = 0, max = null, step = 1 } = {}) => {
+    const current = exercise?.sets?.[setIdx]?.[field]
+    const n = toNum(current)
+    const base = n == null ? 0 : n
+    let next = base + delta
+    if (step != null) next = Math.round(next / step) * step
+    if (min != null) next = Math.max(min, next)
+    if (max != null) next = Math.min(max, next)
+    // Preserve "" for zero if the user hasn't entered anything yet? Here we always set a number.
+    onUpdateSet(setIdx, field, String(next))
+  }
+
+  const copyPreviousSet = (setIdx) => {
+    if (!exercise?.sets || setIdx <= 0) return
+    const prev = exercise.sets[setIdx - 1] || {}
+    // Copy only the relevant fields for the exercise type.
+    if (exercise.category === 'Cardio') {
+      onUpdateSet(setIdx, 'time', prev.time ?? '')
+      onUpdateSet(setIdx, 'speed', prev.speed ?? '')
+      onUpdateSet(setIdx, 'incline', prev.incline ?? '')
+      return
+    }
+    if (exercise.category === 'Recovery') {
+      onUpdateSet(setIdx, 'time', prev.time ?? '')
+      return
+    }
+    onUpdateSet(setIdx, 'weight', prev.weight ?? '')
+    onUpdateSet(setIdx, 'reps', prev.reps ?? '')
+  }
+
   return (
     <div 
       className={`${styles.card} ${exercise.expanded ? styles.expanded : ''} ${exercise.completed ? styles.completed : ''} ${isDragging ? styles.dragging : ''} ${stacked ? styles.stacked : ''} ${containerClassName || ''}`}
@@ -193,6 +229,12 @@ export default function ExerciseCard({
 
       {exercise.expanded && (
         <div className={styles.content}>
+          {lastInfo?.summary ? (
+            <div className={styles.lastInfo}>
+              <span className={styles.lastInfoLabel}>Last:</span> {lastInfo.summary}
+              {lastInfo?.date ? <span className={styles.lastInfoDate}> · {lastInfo.date}</span> : null}
+            </div>
+          ) : null}
           <div className={styles.controls}>
             <div className={styles.setControls}>
               <button onClick={onRemoveSet} disabled={exercise.sets.length <= 1}>−</button>
@@ -387,6 +429,8 @@ export default function ExerciseCard({
                     <div className={styles.inputGroup}>
                       <input
                         type="number"
+                        inputMode="decimal"
+                        step="0.5"
                         placeholder="lbs"
                         value={set.weight}
                         onChange={(e) => onUpdateSet(idx, 'weight', e.target.value)}
@@ -396,6 +440,8 @@ export default function ExerciseCard({
                     <div className={styles.inputGroup}>
                       <input
                         type="number"
+                        inputMode="numeric"
+                        step="1"
                         placeholder="reps"
                         value={set.reps}
                         onChange={(e) => onUpdateSet(idx, 'reps', e.target.value)}
@@ -404,6 +450,68 @@ export default function ExerciseCard({
                     </div>
                   </>
                 )}
+
+                {/* Elite set-entry quick actions (active set only) */}
+                {idx === activeSet ? (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginLeft: 8 }}>
+                    <button
+                      type="button"
+                      className={styles.nextBtn}
+                      style={{ opacity: 0.9 }}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        copyPreviousSet(idx)
+                      }}
+                      title="Copy previous set"
+                    >
+                      Copy
+                    </button>
+                    {exercise.category !== 'Cardio' && exercise.category !== 'Recovery' ? (
+                      <>
+                        <button
+                          type="button"
+                          className={styles.nextBtn}
+                          style={{ opacity: 0.9 }}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            adjustFieldNumber(idx, 'weight', 2.5, { min: 0, step: 0.5 })
+                          }}
+                          title="Increase weight by 2.5"
+                        >
+                          +2.5
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.nextBtn}
+                          style={{ opacity: 0.9 }}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            adjustFieldNumber(idx, 'weight', 5, { min: 0, step: 0.5 })
+                          }}
+                          title="Increase weight by 5"
+                        >
+                          +5
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.nextBtn}
+                          style={{ opacity: 0.9 }}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            adjustFieldNumber(idx, 'reps', 1, { min: 0, step: 1 })
+                          }}
+                          title="Increase reps by 1"
+                        >
+                          +1 rep
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {idx === activeSet && (
                   <button className={styles.nextBtn} onClick={handleNextSet}>

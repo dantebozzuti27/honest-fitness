@@ -19,6 +19,7 @@ import HomeButton from '../components/HomeButton'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './Calendar.module.css'
 
 export default function Calendar() {
@@ -38,6 +39,15 @@ export default function Calendar() {
   const [weeklyPlan, setWeeklyPlan] = useState(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const shownScheduledLoadErrorRef = useRef(false)
+
+  const dayModalRef = useRef(null)
+  const dayModalCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(selectedDate),
+    onClose: () => closeModal(),
+    containerRef: dayModalRef,
+    initialFocusRef: dayModalCloseBtnRef
+  })
 
   const refreshData = async () => {
     if (user) {
@@ -331,10 +341,10 @@ export default function Calendar() {
 
       {selectedDate && (
         <div className={styles.overlay} onClick={closeModal}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div ref={dayModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>{new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
-              <button onClick={closeModal}>✕</button>
+              <button ref={dayModalCloseBtnRef} onClick={closeModal}>✕</button>
             </div>
             
             {selectedWorkout ? (

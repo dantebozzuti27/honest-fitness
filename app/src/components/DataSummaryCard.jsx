@@ -3,9 +3,10 @@
  * Progressive disclosure: Summary → Expandable Details → Full View
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import styles from './DataSummaryCard.module.css'
 import { useHaptic } from '../hooks/useHaptic'
+import { useModalA11y } from '../hooks/useModalA11y'
 
 export default function DataSummaryCard({
   title,
@@ -21,6 +22,14 @@ export default function DataSummaryCard({
   const [expanded, setExpanded] = useState(false)
   const [showFull, setShowFull] = useState(false)
   const { triggerHaptic } = useHaptic()
+  const fullModalRef = useRef(null)
+  const fullCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(showFull && fullData),
+    onClose: () => setShowFull(false),
+    containerRef: fullModalRef,
+    initialFocusRef: fullCloseBtnRef
+  })
   
   const handleExpand = () => {
     triggerHaptic('light')
@@ -109,13 +118,14 @@ export default function DataSummaryCard({
       {showFull && fullData && (
         <div className={styles.fullDataModal}>
           <div className={styles.modalOverlay} onClick={() => setShowFull(false)} />
-          <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
+          <div ref={fullModalRef} className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>{title} - Full Analysis</h2>
               <button 
                 className={styles.closeBtn}
                 onClick={() => setShowFull(false)}
                 aria-label="Close"
+                ref={fullCloseBtnRef}
               >
                 ×
               </button>

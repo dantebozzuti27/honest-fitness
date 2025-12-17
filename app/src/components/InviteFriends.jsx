@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getUserProfile } from '../lib/friendsDb'
 import { generateInviteLink, getInviteText } from '../lib/friendsDb'
@@ -7,6 +7,7 @@ import { useToast } from '../hooks/useToast'
 import Toast from './Toast'
 import { logError } from '../utils/logger'
 import Button from './Button'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './InviteFriends.module.css'
 
 export default function InviteFriends({ onClose }) {
@@ -16,6 +17,9 @@ export default function InviteFriends({ onClose }) {
   const [inviteLink, setInviteLink] = useState('')
   const [inviteText, setInviteText] = useState('')
   const [copied, setCopied] = useState(false)
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
+  useModalA11y({ open: true, onClose, containerRef: modalRef, initialFocusRef: closeBtnRef })
 
   useEffect(() => {
     if (user) {
@@ -105,10 +109,11 @@ export default function InviteFriends({ onClose }) {
         }
       }}
     >
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div ref={modalRef} className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Invite Friends</h2>
           <Button
+            ref={closeBtnRef}
             unstyled
             className={styles.closeBtn}
             onClick={() => {

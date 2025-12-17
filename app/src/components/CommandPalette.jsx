@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './CommandPalette.module.css'
 
 export default function CommandPalette({ isOpen, onClose }) {
   const navigate = useNavigate()
   const inputRef = useRef(null)
+  const paletteRef = useRef(null)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const [exerciseIndex, setExerciseIndex] = useState([]) // local IndexedDB exercises
@@ -164,11 +166,18 @@ export default function CommandPalette({ isOpen, onClose }) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [isOpen, results, activeIndex, onClose])
 
+  useModalA11y({
+    open: Boolean(isOpen),
+    onClose,
+    containerRef: paletteRef,
+    initialFocusRef: inputRef
+  })
+
   if (!isOpen) return null
 
   return createPortal(
     <div className={styles.overlay} onMouseDown={onClose}>
-      <div className={styles.palette} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={paletteRef} className={styles.palette} onMouseDown={(e) => e.stopPropagation()}>
         <div className={styles.inputRow}>
           <input
             ref={inputRef}

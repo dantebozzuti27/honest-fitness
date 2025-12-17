@@ -129,6 +129,41 @@ h1 {
   width: 100%;
 }
 
+.historySearch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.historyChips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.historyChip {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.historyChip:hover {
+  border-color: var(--accent);
+}
+
+.historySearchMeta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .historyCards {
   display: flex;
   flex-direction: column;

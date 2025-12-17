@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 // Dynamic imports for code-splitting - functions loaded as needed
@@ -19,6 +19,7 @@ import SelectField from '../components/SelectField'
 import TextAreaField from '../components/TextAreaField'
 import InputField from '../components/InputField'
 import Button from '../components/Button'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './Goals.module.css'
 
 const GOAL_CATEGORIES = ['fitness', 'health', 'nutrition']
@@ -50,6 +51,14 @@ export default function Goals() {
   const [allGoals, setAllGoals] = useState([])
   const [pastGoals, setPastGoals] = useState([])
   const [showNewGoal, setShowNewGoal] = useState(false)
+  const newGoalModalRef = useRef(null)
+  const newGoalCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(showNewGoal),
+    onClose: () => setShowNewGoal(false),
+    containerRef: newGoalModalRef,
+    initialFocusRef: newGoalCloseBtnRef
+  })
   const [showAnalyze, setShowAnalyze] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState(null)
@@ -682,10 +691,10 @@ export default function Goals() {
       {/* New Goal Modal */}
       {showNewGoal && (
         <div className={styles.overlay} onClick={() => setShowNewGoal(false)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div ref={newGoalModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>New Goal - {newGoal.category.charAt(0).toUpperCase() + newGoal.category.slice(1)}</h2>
-              <Button unstyled onClick={() => setShowNewGoal(false)}>✕</Button>
+              <Button ref={newGoalCloseBtnRef} unstyled onClick={() => setShowNewGoal(false)}>✕</Button>
             </div>
             <div className={styles.modalContent}>
               <div className={styles.formGroup}>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -28,6 +28,7 @@ import { chatWithAI } from '../lib/chatApi'
 import { FitnessIcon } from '../components/Icons'
 import EmptyState from '../components/EmptyState'
 import Button from '../components/Button'
+import SearchField from '../components/SearchField'
 import styles from './Fitness.module.css'
 
 const TABS = ['Workout', 'Templates', 'History', 'Scheduled', 'Goals']
@@ -43,6 +44,7 @@ export default function Fitness() {
   const [showTemplateEditor, setShowTemplateEditor] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [workoutHistory, setWorkoutHistory] = useState([])
+  const [historyExerciseQuery, setHistoryExerciseQuery] = useState('')
   const [fitnessGoals, setFitnessGoals] = useState([])
   const [scheduledWorkouts, setScheduledWorkouts] = useState([])
   const { toast, showToast, hideToast } = useToast()
@@ -132,6 +134,42 @@ export default function Fitness() {
       }
     }
   }, [user, showToast])
+
+  const sortedWorkoutHistory = useMemo(() => {
+    const list = Array.isArray(workoutHistory) ? workoutHistory.slice() : []
+    return list.sort((a, b) => String(b?.date || '').localeCompare(String(a?.date || '')))
+  }, [workoutHistory])
+
+  const historyTopExerciseChips = useMemo(() => {
+    const counts = new Map()
+    for (const w of Array.isArray(workoutHistory) ? workoutHistory : []) {
+      for (const ex of Array.isArray(w?.workout_exercises) ? w.workout_exercises : []) {
+        const name = (ex?.exercise_name || ex?.name || '').toString().trim()
+        if (!name) continue
+        counts.set(name, (counts.get(name) || 0) + 1)
+      }
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name]) => name)
+  }, [workoutHistory])
+
+  const filteredWorkoutHistory = useMemo(() => {
+    const q = (historyExerciseQuery || '').toString().trim().toLowerCase()
+    if (q.length < 2) return sortedWorkoutHistory
+    const tokens = q.split(/\s+/).filter(Boolean)
+    const matches = (w) => {
+      const exs = Array.isArray(w?.workout_exercises) ? w.workout_exercises : []
+      if (exs.length === 0) return false
+      return exs.some(ex => {
+        const name = (ex?.exercise_name || ex?.name || '').toString().toLowerCase()
+        if (!name) return false
+        return tokens.every(t => name.includes(t))
+      })
+    }
+    return sortedWorkoutHistory.filter(matches)
+  }, [historyExerciseQuery, sortedWorkoutHistory])
 
   const loadPausedWorkout = useCallback(async () => {
     if (!user) return
@@ -706,6 +744,34 @@ export default function Fitness() {
         {activeTab === 'History' && (
           <div className={styles.historyContent}>
             <h2 className={styles.sectionTitle}>Workout & Recovery History</h2>
+            <div className={styles.historySearch}>
+              <SearchField
+                value={historyExerciseQuery}
+                onChange={(e) => setHistoryExerciseQuery(e.target.value)}
+                onClear={() => setHistoryExerciseQuery('')}
+                placeholder="Search by exercise (e.g. bench, squat, lat pulldown)…"
+              />
+              {historyTopExerciseChips.length > 0 ? (
+                <div className={styles.historyChips}>
+                  {historyTopExerciseChips.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={styles.historyChip}
+                      onClick={() => setHistoryExerciseQuery(name)}
+                      title={`Filter history by ${name}`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {historyExerciseQuery.trim().length >= 2 ? (
+                <div className={styles.historySearchMeta}>
+                  Showing {filteredWorkoutHistory.length} session{filteredWorkoutHistory.length === 1 ? '' : 's'} matching “{historyExerciseQuery.trim()}”
+                </div>
+              ) : null}
+            </div>
             {workoutHistory.length === 0 ? (
               <EmptyState
                 icon={<FitnessIcon size={24} />}
@@ -716,12 +782,9 @@ export default function Fitness() {
               />
             ) : (
               <div className={styles.historyCards}>
-                {workoutHistory
-                  .sort((a, b) => b.date.localeCompare(a.date))
+                {filteredWorkoutHistory
                   .map((workout, index) => {
-                    const previousWorkout = workoutHistory
-                      .sort((a, b) => b.date.localeCompare(a.date))
-                      [index + 1]
+                    const previousWorkout = filteredWorkoutHistory[index + 1]
                     return (
                       <HistoryCard
                         key={workout.id}

@@ -24,6 +24,7 @@ import EmptyState from '../components/EmptyState'
 import { chatWithAI } from '../lib/chatApi'
 import InsightsCard from '../components/InsightsCard'
 import { usePageInsights } from '../hooks/usePageInsights'
+import { useModalA11y } from '../hooks/useModalA11y'
 // All charts are now BarChart only
 import SearchField from '../components/SearchField'
 import styles from './Nutrition.module.css'
@@ -58,12 +59,36 @@ export default function Nutrition() {
   const [selectedDate, setSelectedDate] = useState(getTodayEST())
   const [historyData, setHistoryData] = useState({})
   const [favorites, setFavorites] = useState([])
+  const [repeatBusy, setRepeatBusy] = useState(false)
   const [foodSuggestions, setFoodSuggestions] = useState([])
   const [foodCategories, setFoodCategories] = useState([])
   const shownGoalsLoadErrorRef = useRef(false)
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [showManualEntry, setShowManualEntry] = useState(false)
   const [showFoodSuggestions, setShowFoodSuggestions] = useState(false)
+  const foodSearchModalRef = useRef(null)
+  const foodSearchCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(showFoodSuggestions),
+    onClose: () => {
+      setShowFoodSuggestions(false)
+      setSelectedFoodForAdd(null)
+    },
+    containerRef: foodSearchModalRef,
+    initialFocusRef: foodSearchCloseBtnRef
+  })
+
+  const manualEntryModalRef = useRef(null)
+  const manualEntryCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(showManualEntry),
+    onClose: () => {
+      setShowManualEntry(false)
+      setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
+    },
+    containerRef: manualEntryModalRef,
+    initialFocusRef: manualEntryCloseBtnRef
+  })
   const [foodSearchQuery, setFoodSearchQuery] = useState('')
   const [debouncedFoodSearchQuery, setDebouncedFoodSearchQuery] = useState('')
   const [foodSearchLoading, setFoodSearchLoading] = useState(false)
@@ -91,6 +116,14 @@ export default function Nutrition() {
   const [weeklyMealPlan, setWeeklyMealPlan] = useState(null)
   const [showMealPlanEditor, setShowMealPlanEditor] = useState(false)
   const [editingMealPlanDay, setEditingMealPlanDay] = useState(null)
+  const mealPlanModalRef = useRef(null)
+  const mealPlanCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(showMealPlanEditor && weeklyMealPlan),
+    onClose: () => setShowMealPlanEditor(false),
+    containerRef: mealPlanModalRef,
+    initialFocusRef: mealPlanCloseBtnRef
+  })
   const [goalsStartDate, setGoalsStartDate] = useState(getTodayEST())
   const [goalsEndDate, setGoalsEndDate] = useState(getTodayEST())
   const [showShareModal, setShowShareModal] = useState(false)
@@ -990,6 +1023,160 @@ export default function Nutrition() {
   const deficit = currentCalories - targetCalories
   const isOver = deficit > 0
 
+  const remaining = useMemo(() => {
+    const hasCal = Number.isFinite(Number(targetCalories)) && Number(targetCalories) > 0
+    const hasMacros = targetMacros && typeof targetMacros === 'object'
+    const remainingCalories = hasCal ? Number(targetCalories) - (Number(currentCalories) || 0) : null
+    const r = {
+      calories: remainingCalories,
+      protein: hasMacros ? (Number(targetMacros.protein) || 0) - (Number(currentMacros?.protein) || 0) : null,
+      carbs: hasMacros ? (Number(targetMacros.carbs) || 0) - (Number(currentMacros?.carbs) || 0) : null,
+      fat: hasMacros ? (Number(targetMacros.fat) || 0) - (Number(currentMacros?.fat) || 0) : null
+    }
+    return r
+  }, [targetCalories, targetMacros, currentCalories, currentMacros])
+
+  const presetMeals = useMemo(() => {
+    const list = []
+    const seen = new Set()
+    const keyFor = (m) => {
+      const name = (m?.name || m?.description || (m?.foods && m.foods[0]) || '').toString().trim().toLowerCase()
+      const cal = Math.round(Number(m?.calories) || 0)
+      return `${name}|${cal}`
+    }
+
+    for (const f of Array.isArray(favorites) ? favorites : []) {
+      const k = keyFor(f)
+      if (!k || k.startsWith('|')) continue
+      if (seen.has(k)) continue
+      seen.add(k)
+      list.push(f)
+    }
+
+    // Fill remaining slots with recent meals (last ~14 days) so lifters can 1-tap common meals.
+    const allRecent = []
+    for (const [date, day] of Object.entries(historyData || {})) {
+      const meals = Array.isArray(day?.meals) ? day.meals : []
+      for (const m of meals) {
+        allRecent.push({ ...m, _date: date })
+      }
+    }
+    allRecent.sort((a, b) => String(b?.timestamp || '').localeCompare(String(a?.timestamp || '')))
+
+    for (const m of allRecent) {
+      if (list.length >= 10) break
+      const cal = Number(m?.calories) || 0
+      const name = (m?.name || m?.description || (m?.foods && m.foods[0]) || '').toString().trim()
+      if (!name || cal <= 0) continue
+      const k = keyFor(m)
+      if (!k || k.startsWith('|')) continue
+      if (seen.has(k)) continue
+      seen.add(k)
+      list.push({
+        name,
+        description: m?.description || name,
+        calories: cal,
+        macros: m?.macros || { protein: 0, carbs: 0, fat: 0 },
+        foods: Array.isArray(m?.foods) ? m.foods : [name],
+        mealType: m?.mealType || selectedMealType,
+        type: 'preset'
+      })
+    }
+
+    return list
+  }, [favorites, historyData, selectedMealType])
+
+  const repeatPreviousDay = async () => {
+    if (!user?.id) return
+    if (repeatBusy) return
+    setRepeatBusy(true)
+    try {
+      const dt = new Date(`${selectedDate}T12:00:00`)
+      dt.setDate(dt.getDate() - 1)
+      const sourceDate = getLocalDate(dt)
+
+      let sourceMeals = historyData?.[sourceDate]?.meals
+      if (!Array.isArray(sourceMeals)) {
+        const { getMealsFromSupabase } = await import('../lib/nutritionDb')
+        const day = await getMealsFromSupabase(user.id, sourceDate)
+        sourceMeals = Array.isArray(day?.meals) ? day.meals : []
+        setHistoryData(prev => ({
+          ...(prev || {}),
+          [sourceDate]: {
+            meals: sourceMeals,
+            calories: day?.calories || 0,
+            macros: day?.macros || { protein: 0, carbs: 0, fat: 0 },
+            micros: day?.micros || {},
+            water: day?.water || 0
+          }
+        }))
+      }
+
+      if (!sourceMeals || sourceMeals.length === 0) {
+        showToast('No meals found for the previous day.', 'info')
+        return
+      }
+
+      const nowIso = new Date().toISOString()
+      const copied = sourceMeals.map((m, i) => ({
+        ...m,
+        id: `${Date.now()}_${i}`,
+        timestamp: nowIso
+      }))
+
+      const toNum = (v) => {
+        const n = Number(v)
+        return Number.isFinite(n) ? n : 0
+      }
+      const mergedMeals = [...meals, ...copied]
+      const mergedCalories = mergedMeals.reduce((sum, m) => sum + (Number(m?.calories) || 0), 0)
+      const mergedMacros = mergedMeals.reduce((acc, m) => ({
+        protein: acc.protein + toNum(m?.macros?.protein ?? m?.protein),
+        carbs: acc.carbs + toNum(m?.macros?.carbs ?? m?.carbs),
+        fat: acc.fat + toNum(m?.macros?.fat ?? m?.fat)
+      }), { protein: 0, carbs: 0, fat: 0 })
+      const mergedMicros = mergedMeals.reduce((acc, m) => {
+        const micros = (m && typeof m.micros === 'object' && m.micros) ? m.micros : {}
+        for (const [k, v] of Object.entries(micros)) {
+          acc[k] = toNum(acc[k]) + toNum(v)
+        }
+        return acc
+      }, {})
+
+      // Local-first UI update
+      setMeals(mergedMeals)
+      setCurrentCalories(mergedCalories)
+      setCurrentMacros(mergedMacros)
+      setCurrentMicros(mergedMicros)
+      setHistoryData(prev => ({
+        ...(prev || {}),
+        [selectedDate]: {
+          meals: mergedMeals,
+          calories: mergedCalories,
+          macros: mergedMacros,
+          micros: mergedMicros,
+          water: waterIntake
+        }
+      }))
+
+      // Single write to Supabase (queues for sync if offline)
+      const { saveMealsBatchToSupabase } = await import('../lib/nutritionDb')
+      const result = await saveMealsBatchToSupabase(user.id, selectedDate, mergedMeals)
+      if (result?.queued) {
+        showToast(`Added ${copied.length} meals — will sync when online.`, 'info', 5000)
+        return
+      }
+
+      await loadDateDataFromSupabase(selectedDate)
+      showToast(`Added ${copied.length} meals from ${sourceDate}.`, 'success')
+    } catch (e) {
+      logError('Repeat previous day failed', e)
+      showToast('Failed to repeat previous day. Try again.', 'error')
+    } finally {
+      setRepeatBusy(false)
+    }
+  }
+
   const mealsByType = useMemo(() => {
     const grouped = {}
     MEAL_TYPES.forEach(type => {
@@ -1061,10 +1248,11 @@ export default function Nutrition() {
             {/* Food Search Modal (major rework: choose amount before adding) */}
             {showFoodSuggestions && createPortal(
               <div className={styles.foodSearchOverlay} role="dialog" aria-modal="true">
-                <div className={styles.foodSearchModal}>
+                <div ref={foodSearchModalRef} className={styles.foodSearchModal}>
                   <div className={styles.foodSearchHeader}>
                     <div className={styles.foodSearchTitle}>Log food</div>
                     <button
+                      ref={foodSearchCloseBtnRef}
                       className={styles.closeBtn}
                       onClick={() => {
                         setShowFoodSuggestions(false)
@@ -1306,6 +1494,102 @@ export default function Nutrition() {
               </div>,
               document.body
             )}
+
+            {/* Remaining (hero) */}
+            <div className={styles.remainingCard}>
+              <div className={styles.remainingTop}>
+                <div>
+                  <div className={styles.remainingLabel}>Remaining</div>
+                  {remaining.calories == null ? (
+                    <div className={styles.remainingCalories}>Set goals to see what’s left</div>
+                  ) : (
+                    <div className={`${styles.remainingCalories} ${remaining.calories < 0 ? styles.remainingOver : ''}`}>
+                      {Math.abs(Math.round(remaining.calories)).toLocaleString()} cal {remaining.calories < 0 ? 'over' : 'left'}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className={styles.repeatBtn}
+                  onClick={repeatPreviousDay}
+                  disabled={repeatBusy}
+                  title="Add meals from the previous day to today"
+                >
+                  {repeatBusy ? 'Repeating…' : 'Repeat yesterday'}
+                </button>
+              </div>
+
+              {targetMacros && (
+                <div className={styles.remainingGrid}>
+                  <div className={`${styles.remainingItem} ${remaining.protein < 0 ? styles.remainingOver : ''}`}>
+                    <div className={styles.remainingItemLabel}>Protein</div>
+                    <div className={styles.remainingItemValue}>{Math.abs(Math.round(remaining.protein || 0))}g</div>
+                    <div className={styles.remainingItemSub}>{(remaining.protein || 0) < 0 ? 'over' : 'left'}</div>
+                  </div>
+                  <div className={`${styles.remainingItem} ${remaining.carbs < 0 ? styles.remainingOver : ''}`}>
+                    <div className={styles.remainingItemLabel}>Carbs</div>
+                    <div className={styles.remainingItemValue}>{Math.abs(Math.round(remaining.carbs || 0))}g</div>
+                    <div className={styles.remainingItemSub}>{(remaining.carbs || 0) < 0 ? 'over' : 'left'}</div>
+                  </div>
+                  <div className={`${styles.remainingItem} ${remaining.fat < 0 ? styles.remainingOver : ''}`}>
+                    <div className={styles.remainingItemLabel}>Fat</div>
+                    <div className={styles.remainingItemValue}>{Math.abs(Math.round(remaining.fat || 0))}g</div>
+                    <div className={styles.remainingItemSub}>{(remaining.fat || 0) < 0 ? 'over' : 'left'}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Presets (favorites + recents) */}
+            <div className={styles.presetsSection}>
+              <div className={styles.presetsHeader}>
+                <div className={styles.sectionTitle}>Presets</div>
+                <button
+                  type="button"
+                  className={styles.presetsHintBtn}
+                  onClick={() => setShowManualEntry(true)}
+                >
+                  Manage
+                </button>
+              </div>
+              {presetMeals.length === 0 ? (
+                <div className={styles.presetsEmpty}>
+                  Star meals to save presets. They’ll show here for 1‑tap logging.
+                </div>
+              ) : (
+                <div className={styles.presetsRow}>
+                  {presetMeals.slice(0, 10).map((m, idx) => (
+                    <button
+                      key={`${m.id || m.name || 'preset'}_${idx}`}
+                      type="button"
+                      className={styles.presetChip}
+                      onClick={() => {
+                        addMeal({
+                          name: m.name || m.description || 'Meal',
+                          description: m.description || m.name || '',
+                          calories: m.calories || 0,
+                          macros: m.macros || { protein: 0, carbs: 0, fat: 0 },
+                          micros: m.micros || {},
+                          foods: m.foods || (m.name ? [m.name] : []),
+                          mealType: selectedMealType,
+                          type: 'preset'
+                        })
+                      }}
+                      title={`${m.name || m.description || 'Meal'} · ${Math.round(Number(m.calories) || 0)} cal`}
+                    >
+                      <div className={styles.presetChipName}>{m.name || m.description || 'Meal'}</div>
+                      <div className={styles.presetChipMeta}>
+                        <span>{Math.round(Number(m.calories) || 0)} cal</span>
+                        <span>·</span>
+                        <span>P {Math.round(m.macros?.protein || 0)}</span>
+                        <span>C {Math.round(m.macros?.carbs || 0)}</span>
+                        <span>F {Math.round(m.macros?.fat || 0)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Calories and Macros vs Goal */}
             <div className={styles.summaryCard}>
@@ -2061,10 +2345,10 @@ export default function Nutrition() {
       {/* Weekly Meal Plan Editor Modal */}
       {showMealPlanEditor && weeklyMealPlan && (
         <div className={styles.overlay} onClick={() => setShowMealPlanEditor(false)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div ref={mealPlanModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>Structured Meal Plan</h2>
-              <button onClick={() => setShowMealPlanEditor(false)}>X</button>
+              <button ref={mealPlanCloseBtnRef} onClick={() => setShowMealPlanEditor(false)}>X</button>
             </div>
             <div className={styles.modalContent}>
               <div className={styles.mealPlanEditor}>
@@ -2224,10 +2508,10 @@ export default function Nutrition() {
             setShowManualEntry(false)
             setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
           }}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div ref={manualEntryModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
               <div className={styles.modalHeader}>
                 <h2>Log Meal</h2>
-                <button onClick={() => {
+                <button ref={manualEntryCloseBtnRef} onClick={() => {
                   setShowManualEntry(false)
                   setManualEntry({ name: '', calories: '', protein: '', carbs: '', fat: '' })
                 }}>✕</button>

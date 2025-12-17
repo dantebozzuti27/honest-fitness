@@ -10,6 +10,7 @@ import {
   getActiveWorkoutSession,
   deleteActiveWorkoutSession
 } from '../lib/db/workoutsSessionDb'
+import { getRecentWorkoutsFromSupabase } from '../lib/db/workoutsDb'
 import { getTodayEST } from '../utils/dateUtils'
 import { useAuth } from '../context/AuthContext'
 import { logError } from '../utils/logger'
@@ -52,6 +53,7 @@ export default function ActiveWorkout() {
   const [adjustmentInfo, setAdjustmentInfo] = useState(null)
   const [showShareModal, setShowShareModal] = useState(false)
   const [savedWorkout, setSavedWorkout] = useState(null)
+  const [lastByExerciseName, setLastByExerciseName] = useState({})
   const confirmResolverRef = useRef(null)
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -75,6 +77,69 @@ export default function ActiveWorkout() {
       })
     })
   }
+
+  const normalizeNameKey = (name) => (name || '').toString().trim().toLowerCase()
+
+  const formatLastSummary = (exRow) => {
+    const sets = Array.isArray(exRow?.workout_sets) ? exRow.workout_sets : []
+    // prefer weight/reps sets if present
+    const strength = sets.filter(s => s?.weight || s?.reps)
+    if (strength.length > 0) {
+      // choose top set by weight (fallback to last)
+      const top = strength.slice().sort((a, b) => (Number(b.weight || 0) - Number(a.weight || 0)))[0] || strength[strength.length - 1]
+      const w = top?.weight ? Number(top.weight) : null
+      const r = top?.reps ? Number(top.reps) : null
+      if (w != null && r != null) return `${r}×${w} lbs`
+      if (w != null) return `${w} lbs`
+      if (r != null) return `${r} reps`
+    }
+    // cardio/recovery time
+    const withTime = sets.filter(s => s?.time != null && String(s.time).trim() !== '')
+    if (withTime.length > 0) {
+      const t = withTime[withTime.length - 1]?.time
+      const n = Number(t)
+      if (Number.isFinite(n)) {
+        const mins = Math.floor(Math.max(0, n) / 60)
+        const secs = Math.max(0, n) % 60
+        return `${mins}:${String(secs).padStart(2, '0')}`
+      }
+      return String(t)
+    }
+    return ''
+  }
+
+  // Last-time cues (best-effort). We only fetch a small recent window.
+  useEffect(() => {
+    if (!user?.id) return
+    if (!Array.isArray(exercises) || exercises.length === 0) return
+    let mounted = true
+    ;(async () => {
+      try {
+        const wanted = new Set(exercises.map(e => normalizeNameKey(e?.name)).filter(Boolean))
+        if (wanted.size === 0) return
+        const recent = await getRecentWorkoutsFromSupabase(user.id, 30)
+        const map = {}
+        for (const w of Array.isArray(recent) ? recent : []) {
+          const wDate = w?.date ? String(w.date) : ''
+          for (const exRow of Array.isArray(w?.workout_exercises) ? w.workout_exercises : []) {
+            const key = normalizeNameKey(exRow?.exercise_name)
+            if (!key || !wanted.has(key)) continue
+            if (map[key]) continue // already found most recent
+            const summary = formatLastSummary(exRow)
+            if (!summary) continue
+            map[key] = { summary, date: wDate }
+          }
+          if (Object.keys(map).length >= wanted.size) break
+        }
+        if (mounted) setLastByExerciseName(map)
+      } catch (e) {
+        // non-blocking
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [user?.id, exercises])
 
   const resolveConfirm = (result) => {
     setConfirmDialog(prev => ({ ...prev, open: false }))
@@ -2222,6 +2287,7 @@ export default function ActiveWorkout() {
                       <ExerciseCard
                         key={exercise.id}
                         exercise={exercise}
+                        lastInfo={lastByExerciseName?.[normalizeNameKey(exercise?.name)] || null}
                         index={0}
                         total={0}
                         stacked={exercise.stacked}
@@ -2277,6 +2343,7 @@ export default function ActiveWorkout() {
             <ExerciseCard
               key={exercise.id}
               exercise={exercise}
+              lastInfo={lastByExerciseName?.[normalizeNameKey(exercise?.name)] || null}
               index={exercises.findIndex(e => e.id === exercise.id)}
               total={exercises.length}
               stacked={exercise.stacked}

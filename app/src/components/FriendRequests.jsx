@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getPendingFriendRequests, acceptFriendRequest, declineFriendRequest } from '../lib/friendsDb'
 import { logError } from '../utils/logger'
 import { useToast } from '../hooks/useToast'
 import Toast from './Toast'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './FriendRequests.module.css'
 
 export default function FriendRequests({ onClose, onRequestHandled }) {
@@ -12,6 +13,9 @@ export default function FriendRequests({ onClose, onRequestHandled }) {
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [handling, setHandling] = useState(null)
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
+  useModalA11y({ open: true, onClose, containerRef: modalRef, initialFocusRef: closeBtnRef })
 
   useEffect(() => {
     if (user) {
@@ -87,10 +91,11 @@ export default function FriendRequests({ onClose, onRequestHandled }) {
         }
       }}
     >
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div ref={modalRef} className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2 className={styles.title}>Friend Requests</h2>
           <button 
+            ref={closeBtnRef}
             className={styles.closeBtn} 
             onClick={() => {
               if (onClose && typeof onClose === 'function') {

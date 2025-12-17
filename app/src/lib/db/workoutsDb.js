@@ -10,6 +10,11 @@ export async function getWorkoutsFromSupabase(userId) {
   return m.getWorkoutsFromSupabase(userId)
 }
 
+export async function getRecentWorkoutsFromSupabase(userId, limit = 30) {
+  const m = await import('../supabaseDb')
+  return m.getRecentWorkoutsFromSupabase(userId, limit)
+}
+
 export async function getWorkoutDatesFromSupabase(userId) {
   const m = await import('../supabaseDb')
   return m.getWorkoutDatesFromSupabase(userId)

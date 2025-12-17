@@ -261,6 +261,115 @@ export async function saveMealToSupabase(userId, date, meal, options = {}) {
 }
 
 /**
+ * Save a whole day's meals in one write (used for "Repeat yesterday").
+ * If offline, queues each meal for later via outbox so syncOutbox can replay them.
+ */
+export async function saveMealsBatchToSupabase(userId, date, meals, options = {}) {
+  const allowOutbox = options?.allowOutbox !== false
+  if (!userId) throw new Error('Missing userId')
+  if (!date) throw new Error('Missing date')
+  const mealList = Array.isArray(meals) ? meals : []
+
+  // Normalize + compute totals
+  const normalized = mealList.map((m) => {
+    const name = m?.name || m?.description || (m?.foods && m.foods.length > 0 ? m.foods[0] : 'Meal')
+    const calories = Number(m?.calories) || 0
+    const macros = (m && typeof m.macros === 'object' && m.macros && !Array.isArray(m.macros))
+      ? {
+          protein: Number(m.macros.protein) || 0,
+          carbs: Number(m.macros.carbs) || 0,
+          fat: Number(m.macros.fat) || 0
+        }
+      : {
+          protein: Number(m?.protein) || 0,
+          carbs: Number(m?.carbs) || 0,
+          fat: Number(m?.fat) || 0
+        }
+    const micros = (m && typeof m.micros === 'object' && m.micros && !Array.isArray(m.micros)) ? m.micros : {}
+    return {
+      ...m,
+      name,
+      calories,
+      macros,
+      micros
+    }
+  })
+
+  const totalCalories = normalized.reduce((sum, m) => sum + (Number(m?.calories) || 0), 0)
+  const totalMacros = normalized.reduce((acc, m) => ({
+    protein: acc.protein + (Number(m?.macros?.protein) || 0),
+    carbs: acc.carbs + (Number(m?.macros?.carbs) || 0),
+    fat: acc.fat + (Number(m?.macros?.fat) || 0)
+  }), { protein: 0, carbs: 0, fat: 0 })
+
+  const toNum = (v) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : 0
+  }
+  const totalMicros = normalized.reduce((acc, m) => {
+    const micros = (m && typeof m.micros === 'object' && m.micros) ? m.micros : {}
+    for (const [k, v] of Object.entries(micros)) {
+      acc[k] = toNum(acc[k]) + toNum(v)
+    }
+    return acc
+  }, {})
+
+  try {
+    const { data: existing, error: fetchError } = await supabase
+      .from('health_metrics')
+      .select('source_provider')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .maybeSingle()
+
+    if (fetchError && fetchError.code !== 'PGRST116') throw fetchError
+
+    const { data, error } = await supabase
+      .from('health_metrics')
+      .upsert({
+        user_id: userId,
+        date,
+        calories_consumed: totalCalories,
+        meals: normalized,
+        macros: totalMacros,
+        micros: totalMicros,
+        source_provider: existing?.source_provider || 'manual',
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,date' })
+      .select()
+      .single()
+
+    if (error) throw error
+
+    // Non-blocking enrich + goals update
+    try {
+      await saveEnrichedData('nutrition', { ...data, meals: normalized, macros: totalMacros, micros: totalMicros }, userId)
+    } catch (enrichError) {
+      logError('Error enriching nutrition data (batch)', enrichError)
+    }
+    try {
+      const { updateCategoryGoals } = await import('./goalsDb')
+      updateCategoryGoals(userId, 'nutrition').catch(error => {
+        logError('Error updating nutrition goals after batch save', error)
+      })
+    } catch (e) {
+      logError('Error importing goalsDb for batch goal update', e)
+    }
+
+    return data
+  } catch (err) {
+    logWarn('Batch meal save failed; queuing for sync', { message: err?.message, code: err?.code })
+    if (allowOutbox) {
+      for (const m of normalized) {
+        enqueueOutboxItem({ userId, kind: 'meal', payload: { date, meal: m } })
+      }
+      return { queued: true }
+    }
+    throw err
+  }
+}
+
+/**
  * Get meals for a date
  */
 export async function getMealsFromSupabase(userId, date) {

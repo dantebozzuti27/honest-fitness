@@ -21,6 +21,7 @@ import Skeleton from '../components/Skeleton'
 import InputField from '../components/InputField'
 import TextAreaField from '../components/TextAreaField'
 import Button from '../components/Button'
+import { useModalA11y } from '../hooks/useModalA11y'
 import { logError } from '../utils/logger'
 import styles from './Profile.module.css'
 
@@ -47,6 +48,14 @@ export default function Profile() {
   const [loadingSocial, setLoadingSocial] = useState(true)
   const [showInviteFriends, setShowInviteFriends] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const editModalRef = useRef(null)
+  const editModalCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(showEditModal),
+    onClose: () => setShowEditModal(false),
+    containerRef: editModalRef,
+    initialFocusRef: editModalCloseBtnRef
+  })
   const [defaultVisibility, setDefaultVisibility] = useState('public')
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [disconnectConfirm, setDisconnectConfirm] = useState({ open: false, provider: null })
@@ -442,10 +451,10 @@ export default function Profile() {
             {/* Edit Modal */}
             {showEditModal && (
               <div className={styles.editModalOverlay} onClick={() => setShowEditModal(false)}>
-                <div className={styles.editModal} onClick={(e) => e.stopPropagation()}>
+                <div ref={editModalRef} className={styles.editModal} onClick={(e) => e.stopPropagation()}>
                   <div className={styles.editModalHeader}>
                     <h3>Edit Profile</h3>
-                    <button className={styles.closeBtn} onClick={() => setShowEditModal(false)}>×</button>
+                    <button ref={editModalCloseBtnRef} className={styles.closeBtn} onClick={() => setShowEditModal(false)}>×</button>
                   </div>
                   
                   <div className={styles.profileForm}>

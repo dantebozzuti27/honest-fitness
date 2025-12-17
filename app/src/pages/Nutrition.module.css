@@ -387,6 +387,174 @@ h1 {
   gap: 12px;
 }
 
+.remainingCard {
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.remainingTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remainingLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+
+.remainingCalories {
+  margin-top: 6px;
+  font-size: 28px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  line-height: 1;
+}
+
+.remainingOver {
+  color: var(--text-danger, #ff4444);
+}
+
+.repeatBtn {
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.repeatBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.remainingGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.remainingItem {
+  padding: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+}
+
+.remainingItemLabel {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.remainingItemValue {
+  font-size: 18px;
+  font-weight: 850;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.remainingItemSub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.presetsSection {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.presetsHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.presetsHintBtn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.presetsEmpty {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.presetsRow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.presetChip {
+  text-align: left;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.2s, transform 0.05s;
+}
+
+.presetChip:hover {
+  background: var(--bg-tertiary);
+}
+
+.presetChip:active {
+  transform: translateY(1px);
+}
+
+.presetChipName {
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.presetChipMeta {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+@media (min-width: 768px) {
+  .presetsRow {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .calorieRow {
   display: flex;
   align-items: flex-end;

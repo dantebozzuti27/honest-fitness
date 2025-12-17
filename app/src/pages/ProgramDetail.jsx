@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -9,6 +9,7 @@ import InputField from '../components/InputField'
 import Skeleton from '../components/Skeleton'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
+import { useModalA11y } from '../hooks/useModalA11y'
 import { logError } from '../utils/logger'
 import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 import {
@@ -90,6 +91,24 @@ export default function ProgramDetail() {
   const [rescheduleOpen, setRescheduleOpen] = useState(false)
   const [rescheduleStartDate, setRescheduleStartDate] = useState(() => getTodayEST())
   const [rescheduling, setRescheduling] = useState(false)
+
+  const enrollModalRef = useRef(null)
+  const enrollCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(enrollOpen),
+    onClose: () => setEnrollOpen(false),
+    containerRef: enrollModalRef,
+    initialFocusRef: enrollCloseBtnRef
+  })
+
+  const rescheduleModalRef = useRef(null)
+  const rescheduleCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(rescheduleOpen),
+    onClose: () => setRescheduleOpen(false),
+    containerRef: rescheduleModalRef,
+    initialFocusRef: rescheduleCloseBtnRef
+  })
 
   const isOwner = Boolean(user?.id && program?.coachId && user.id === program.coachId)
   const hasAccess = isOwner || purchase?.status === 'paid'
@@ -702,10 +721,10 @@ export default function ProgramDetail() {
 
       {enrollOpen && program ? (
         <div className={styles.modalOverlay} onMouseDown={() => setEnrollOpen(false)} role="dialog" aria-modal="true" aria-label="Enroll program">
-          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+          <div ref={enrollModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>Enroll / Schedule</h2>
-              <Button unstyled onClick={() => setEnrollOpen(false)}>✕</Button>
+              <Button ref={enrollCloseBtnRef} unstyled onClick={() => setEnrollOpen(false)}>✕</Button>
             </div>
             <div className={styles.modalBody}>
               <div className={styles.meta}>
@@ -735,10 +754,10 @@ export default function ProgramDetail() {
 
       {rescheduleOpen && program ? (
         <div className={styles.modalOverlay} onMouseDown={() => setRescheduleOpen(false)} role="dialog" aria-modal="true" aria-label="Reschedule program">
-          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+          <div ref={rescheduleModalRef} className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>Reschedule program</h2>
-              <Button unstyled onClick={() => setRescheduleOpen(false)}>✕</Button>
+              <Button ref={rescheduleCloseBtnRef} unstyled onClick={() => setRescheduleOpen(false)}>✕</Button>
             </div>
             <div className={styles.modalBody}>
               <div className={styles.meta}>

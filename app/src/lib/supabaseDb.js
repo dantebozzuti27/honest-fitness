@@ -464,6 +464,64 @@ export async function getWorkoutsFromSupabase(userId) {
   return (plain.data || []).map(w => ({ ...w, workout_exercises: w.workout_exercises || [] }))
 }
 
+// Lightweight query for "last-time cues" (avoid fetching all history)
+export async function getRecentWorkoutsFromSupabase(userId, limit = 30) {
+  if (!userId) return []
+  const n = Number(limit || 0)
+  const safeLimit = Number.isFinite(n) ? Math.max(1, Math.min(100, Math.floor(n))) : 30
+  const { data, error } = await supabase
+    .from('workouts')
+    .select(`
+      id,
+      date,
+      created_at,
+      workout_exercises (
+        exercise_name,
+        body_part,
+        exercise_type,
+        workout_sets (
+          weight,
+          reps,
+          time,
+          speed,
+          incline
+        )
+      )
+    `)
+    .eq('user_id', userId)
+    .order('date', { ascending: false })
+    .limit(safeLimit)
+
+  if (error) {
+    // Fallback: some deployments may not have reliable date ordering; use created_at.
+    const { data: d2, error: e2 } = await supabase
+      .from('workouts')
+      .select(`
+        id,
+        date,
+        created_at,
+        workout_exercises (
+          exercise_name,
+          body_part,
+          exercise_type,
+          workout_sets (
+            weight,
+            reps,
+            time,
+            speed,
+            incline
+          )
+        )
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(safeLimit)
+    if (e2) throw e2
+    return Array.isArray(d2) ? d2 : []
+  }
+  return Array.isArray(data) ? data : []
+}
+
 export async function getWorkoutDatesFromSupabase(userId) {
   // Use getWorkoutsFromSupabase to get filtered workouts (no dummy data)
   const workouts = await getWorkoutsFromSupabase(userId)

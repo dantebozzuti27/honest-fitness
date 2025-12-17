@@ -38,6 +38,7 @@ import BodyHeatmap from '../components/BodyHeatmap'
 import BarChart from '../components/BarChart'
 import PredictiveInsights from '../components/PredictiveInsights'
 import DataSummaryCard from '../components/DataSummaryCard'
+import { useModalA11y } from '../hooks/useModalA11y'
 import DataFreshnessIndicator from '../components/DataFreshnessIndicator'
 import HelpTooltip from '../components/HelpTooltip'
 import EmptyState from '../components/EmptyState'
@@ -133,6 +134,43 @@ export default function Analytics() {
     dailyHealth: null,
     weeklyHealth: null,
     dailyNutrition: null
+  })
+
+  // Modal a11y refs
+  const selectedWorkoutModalRef = useRef(null)
+  const selectedWorkoutCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(selectedWorkout),
+    onClose: () => setSelectedWorkout(null),
+    containerRef: selectedWorkoutModalRef,
+    initialFocusRef: selectedWorkoutCloseBtnRef
+  })
+
+  const editWorkoutModalRef = useRef(null)
+  const editWorkoutCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(editingWorkout),
+    onClose: () => setEditingWorkout(null),
+    containerRef: editWorkoutModalRef,
+    initialFocusRef: editWorkoutCloseBtnRef
+  })
+
+  const editMetricModalRef = useRef(null)
+  const editMetricCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(editingMetric),
+    onClose: () => setEditingMetric(null),
+    containerRef: editMetricModalRef,
+    initialFocusRef: editMetricCloseBtnRef
+  })
+
+  const bodyPartModalRef = useRef(null)
+  const bodyPartCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(selectedBodyPart),
+    onClose: () => setSelectedBodyPart(null),
+    containerRef: bodyPartModalRef,
+    initialFocusRef: bodyPartCloseBtnRef
   })
 
   useEffect(() => {
@@ -2367,10 +2405,10 @@ export default function Analytics() {
       {/* Workout Detail Modal */}
       {selectedWorkout && (
         <div className={styles.overlay} onClick={() => setSelectedWorkout(null)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div ref={selectedWorkoutModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>{new Date(selectedWorkout.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
-              <button onClick={() => setSelectedWorkout(null)}>✕</button>
+              <button ref={selectedWorkoutCloseBtnRef} onClick={() => setSelectedWorkout(null)}>✕</button>
             </div>
             <div className={styles.workoutDetail}>
               <div className={styles.workoutMeta}>
@@ -2453,10 +2491,10 @@ export default function Analytics() {
       {/* Edit Workout Modal */}
       {editingWorkout && (
         <div className={styles.overlay} onClick={() => setEditingWorkout(null)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div ref={editWorkoutModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>Edit Workout</h2>
-              <button onClick={() => setEditingWorkout(null)}>✕</button>
+              <button ref={editWorkoutCloseBtnRef} onClick={() => setEditingWorkout(null)}>✕</button>
             </div>
             <div className={styles.editForm}>
               <div className={styles.formGroup}>
@@ -2517,10 +2555,10 @@ export default function Analytics() {
       {/* Edit Metric Modal */}
       {editingMetric && (
         <div className={styles.overlay} onClick={() => setEditingMetric(null)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div ref={editMetricModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>Edit Metric</h2>
-              <button onClick={() => setEditingMetric(null)}>✕</button>
+              <button ref={editMetricCloseBtnRef} onClick={() => setEditingMetric(null)}>✕</button>
             </div>
             <div className={styles.editForm}>
               <div className={styles.formGroup}>
@@ -2605,10 +2643,10 @@ export default function Analytics() {
       {/* Body Part Drilldown Modal */}
       {selectedBodyPart && (
         <div className={styles.overlay} onClick={() => setSelectedBodyPart(null)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+          <div ref={bodyPartModalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>{selectedBodyPart} History</h2>
-              <button onClick={() => setSelectedBodyPart(null)}>✕</button>
+              <button ref={bodyPartCloseBtnRef} onClick={() => setSelectedBodyPart(null)}>✕</button>
             </div>
             <div className={styles.bodyPartDetail}>
               {getBodyPartExercises(selectedBodyPart).length === 0 ? (

@@ -13,6 +13,7 @@ import Toast from './Toast'
 import Button from './Button'
 import styles from './ShareModal.module.css'
 import { logError, logWarn } from '../utils/logger'
+import { useModalA11y } from '../hooks/useModalA11y'
 
 export default function ShareModal({ type, data, onClose }) {
   const { user } = useAuth()
@@ -26,6 +27,17 @@ export default function ShareModal({ type, data, onClose }) {
   const [achievements, setAchievements] = useState([])
   const [userStats, setUserStats] = useState({})
   const cardRef = useRef(null)
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
+
+  useModalA11y({
+    open: true,
+    onClose: () => {
+      if (onClose && typeof onClose === 'function') onClose()
+    },
+    containerRef: modalRef,
+    initialFocusRef: closeBtnRef
+  })
 
   // Set default visibility from user preference (public-by-default but user-controllable)
   useEffect(() => {
@@ -346,7 +358,7 @@ export default function ShareModal({ type, data, onClose }) {
         }
       }}
     >
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+      <div ref={modalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <h2>Share Your {type === 'workout' ? 'Workout' : type === 'nutrition' ? 'Nutrition' : 'Health'} Summary</h2>
           <Button
@@ -357,6 +369,7 @@ export default function ShareModal({ type, data, onClose }) {
                 onClose()
               }
             }}
+            ref={closeBtnRef}
           >
             ✕
           </Button>

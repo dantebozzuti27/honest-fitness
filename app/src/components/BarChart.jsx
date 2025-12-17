@@ -1,6 +1,7 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
 import { useToast } from '../hooks/useToast'
 import Toast from './Toast'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './BarChart.module.css'
 
 export default function BarChart({ 
@@ -28,6 +29,14 @@ export default function BarChart({
   const touchStartRef = useRef(null)
   const lastPinchDistanceRef = useRef(null)
   const chartRef = useRef(null)
+  const detailModalRef = useRef(null)
+  const detailCloseBtnRef = useRef(null)
+  useModalA11y({
+    open: Boolean(showDetail && selectedBar),
+    onClose: () => setShowDetail(false),
+    containerRef: detailModalRef,
+    initialFocusRef: detailCloseBtnRef
+  })
   const chartData = useMemo(() => {
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
     
@@ -437,10 +446,10 @@ export default function BarChart({
       {showDetail && selectedBar && (
         <>
           <div className={styles.modalOverlay} onClick={() => setShowDetail(false)} />
-          <div className={styles.detailModal} onClick={e => e.stopPropagation()}>
+          <div ref={detailModalRef} className={styles.detailModal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h3>Chart Details</h3>
-              <button className={styles.closeBtn} onClick={() => setShowDetail(false)}>×</button>
+              <button ref={detailCloseBtnRef} className={styles.closeBtn} onClick={() => setShowDetail(false)}>×</button>
             </div>
             <div className={styles.modalContent}>
               <div className={styles.detailRow}>

@@ -1,12 +1,22 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './SideMenu.module.css'
 
 export default function SideMenu() {
   const navigate = useNavigate()
   const location = useLocation()
   const [isOpen, setIsOpen] = useState(false)
+  const menuRef = useRef(null)
+  const closeBtnRef = useRef(null)
+
+  useModalA11y({
+    open: Boolean(isOpen),
+    onClose: () => setIsOpen(false),
+    containerRef: menuRef,
+    initialFocusRef: closeBtnRef
+  })
 
   const menuItems = [
     { id: 'fitness', label: 'Fitness', path: '/fitness' },
@@ -44,10 +54,10 @@ export default function SideMenu() {
       {isOpen && createPortal(
         <>
           <div className={styles.overlay} onClick={() => setIsOpen(false)} />
-          <div className={styles.menu}>
+          <div ref={menuRef} className={styles.menu}>
             <div className={styles.menuHeader}>
               <h2 className={styles.menuTitle}>Menu</h2>
-              <button className={styles.closeButton} onClick={() => setIsOpen(false)}>
+              <button ref={closeBtnRef} className={styles.closeButton} onClick={() => setIsOpen(false)}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />

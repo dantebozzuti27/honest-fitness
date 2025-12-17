@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { searchUsers, sendFriendRequest, getFriendshipStatus, getUserProfile } from '../lib/friendsDb'
 import { useToast } from '../hooks/useToast'
 import { logError } from '../utils/logger'
 import Button from './Button'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './AddFriend.module.css'
 
 export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = '' }) {
@@ -13,6 +14,9 @@ export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = 
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [friendStatuses, setFriendStatuses] = useState({})
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
+  useModalA11y({ open: true, onClose, containerRef: modalRef, initialFocusRef: closeBtnRef })
 
   useEffect(() => {
     if (typeof initialSearchTerm === 'string' && initialSearchTerm.trim()) {
@@ -114,10 +118,11 @@ export default function AddFriend({ onClose, onFriendAdded, initialSearchTerm = 
         }
       }}
     >
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+      <div ref={modalRef} className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.header}>
           <h2>Add Friend</h2>
           <Button
+            ref={closeBtnRef}
             unstyled
             className={styles.closeBtn}
             onClick={() => {

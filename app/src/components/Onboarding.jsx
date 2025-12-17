@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../context/AuthContext'
 import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferencesDb'
 import { logError } from '../utils/logger'
+import { useModalA11y } from '../hooks/useModalA11y'
 import styles from './Onboarding.module.css'
 
 export default function Onboarding({ onComplete }) {
@@ -11,6 +12,8 @@ export default function Onboarding({ onComplete }) {
   const { user } = useAuth()
   const [step, setStep] = useState(1)
   const [skipping, setSkipping] = useState(false)
+  const modalRef = useRef(null)
+  const skipBtnRef = useRef(null)
 
   const totalSteps = 3
 
@@ -31,6 +34,13 @@ export default function Onboarding({ onComplete }) {
       setSkipping(false)
     }
   }
+
+  useModalA11y({
+    open: true,
+    onClose: handleSkip,
+    containerRef: modalRef,
+    initialFocusRef: skipBtnRef
+  })
 
   const handleNext = () => {
     if (step < totalSteps) {
@@ -59,11 +69,11 @@ export default function Onboarding({ onComplete }) {
   }
 
   return createPortal(
-    <div className={styles.overlay}>
-      <div className={styles.modal}>
+    <div className={styles.overlay} role="dialog" aria-modal="true">
+      <div ref={modalRef} className={styles.modal}>
         <div className={styles.header}>
           <h2>Welcome to HonestFitness!</h2>
-          <button className={styles.skipBtn} onClick={handleSkip} disabled={skipping}>
+          <button ref={skipBtnRef} className={styles.skipBtn} onClick={handleSkip} disabled={skipping}>
             {skipping ? '...' : 'Skip'}
           </button>
         </div>

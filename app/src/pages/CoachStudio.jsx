@@ -20,6 +20,7 @@ import {
   createProgram,
   deleteProgram,
   getCoachProfile,
+  getUserProfiles,
   listMyPrograms,
   listProgramEnrollmentsForCoach,
   publishProgram,
@@ -166,6 +167,7 @@ export default function CoachStudio() {
   const [enrollmentsOpen, setEnrollmentsOpen] = useState(false)
   const [enrollmentsLoading, setEnrollmentsLoading] = useState(false)
   const [enrollments, setEnrollments] = useState([])
+  const [enrollmentProfiles, setEnrollmentProfiles] = useState({})
   const [weeklyScheduleConfirm, setWeeklyScheduleConfirm] = useState({ open: false })
   const editorTabs = ['overview', 'schedule', 'publish']
 
@@ -235,10 +237,14 @@ export default function CoachStudio() {
     try {
       const rows = await listProgramEnrollmentsForCoach(draft.id)
       setEnrollments(Array.isArray(rows) ? rows : [])
+      const userIds = Array.from(new Set((Array.isArray(rows) ? rows : []).map(r => r?.user_id).filter(Boolean)))
+      const profileMap = await getUserProfiles(userIds).catch(() => ({}))
+      setEnrollmentProfiles(profileMap || {})
     } catch (e) {
       logError('Load enrollments failed', e)
       showToast('Failed to load enrollments. Make sure `coach_program_enrollments` exists and RLS is applied.', 'error', 6500)
       setEnrollments([])
+      setEnrollmentProfiles({})
     } finally {
       setEnrollmentsLoading(false)
     }
@@ -2338,7 +2344,19 @@ export default function CoachStudio() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {enrollments.map((r) => (
                         <div key={r.id} className={styles.card} style={{ padding: 12 }}>
-                          <div style={{ fontWeight: 900 }}>{String(r.user_id)}</div>
+                          {(() => {
+                            const p = enrollmentProfiles?.[r.user_id] || null
+                            const name = (p?.display_name || p?.username || 'User').toString()
+                            const shortId = String(r.user_id || '').slice(0, 8)
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                                <div style={{ fontWeight: 900 }}>{name}</div>
+                                <div className={styles.muted} title={String(r.user_id || '')}>
+                                  {shortId ? `${shortId}…` : ''}
+                                </div>
+                              </div>
+                            )
+                          })()}
                           <div className={styles.muted} style={{ marginTop: 4 }}>
                             Start: {String(r.start_date || '')} · Scheduled: {Number(r.scheduled_count || 0)}
                           </div>

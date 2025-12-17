@@ -9,6 +9,7 @@ import { getUserEventStats } from '../lib/db/userEventsDb'
 import { getUserProfile, updateUserProfile, getOrCreateUserProfile, getFriends, getFriendCount, getPendingFriendRequests } from '../lib/friendsDb'
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
+import { getTodayEST } from '../utils/dateUtils'
 import HomeButton from '../components/HomeButton'
 import InviteFriends from '../components/InviteFriends'
 import { useToast } from '../hooks/useToast'
@@ -273,15 +274,15 @@ export default function Profile() {
     try {
       if (format === 'json') {
         const data = await exportUserDataJSON(user.id)
-        downloadData(data, `honest-fitness-data-${new Date().toISOString().split('T')[0]}.json`, 'application/json')
+        downloadData(data, `honest-fitness-data-${getTodayEST()}.json`, 'application/json')
         showToast('All data exported as JSON!', 'success')
       } else if (format === 'workouts-csv') {
         const csv = await exportWorkoutsCSV(user.id)
-        downloadData(csv, `workouts-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
+        downloadData(csv, `workouts-${getTodayEST()}.csv`, 'text/csv')
         showToast('Workouts exported as CSV!', 'success')
       } else if (format === 'metrics-csv') {
         const csv = await exportHealthMetricsCSV(user.id)
-        downloadData(csv, `health-metrics-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
+        downloadData(csv, `health-metrics-${getTodayEST()}.csv`, 'text/csv')
         showToast('Health metrics exported as CSV!', 'success')
       } else if (format === 'excel') {
         // Legacy Excel export

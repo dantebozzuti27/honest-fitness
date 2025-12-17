@@ -31,6 +31,22 @@ function normalizeCoachProfile(row) {
   }
 }
 
+export async function getUserProfiles(userIds) {
+  const supabase = requireSupabase()
+  const ids = (Array.isArray(userIds) ? userIds : []).filter(Boolean)
+  if (ids.length === 0) return {}
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('user_id, username, display_name, profile_picture')
+    .in('user_id', ids)
+  if (error) throw error
+  const map = {}
+  for (const row of Array.isArray(data) ? data : []) {
+    map[row.user_id] = row
+  }
+  return map
+}
+
 export async function getCoachProfile(userId) {
   const supabase = requireSupabase()
   const { data, error } = await supabase
@@ -279,6 +295,19 @@ export async function getMyProgramEnrollment(userId, programId) {
     .maybeSingle()
   if (error) throw error
   return data || null
+}
+
+export async function listMyProgramEnrollments(userId, programIds) {
+  const supabase = requireSupabase()
+  const ids = (Array.isArray(programIds) ? programIds : []).filter(Boolean)
+  if (!userId || ids.length === 0) return []
+  const { data, error } = await supabase
+    .from('coach_program_enrollments')
+    .select('*')
+    .eq('user_id', userId)
+    .in('program_id', ids)
+  if (error) throw error
+  return Array.isArray(data) ? data : []
 }
 
 export async function deleteProgramEnrollment(userId, programId) {

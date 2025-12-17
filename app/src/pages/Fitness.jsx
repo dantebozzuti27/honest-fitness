@@ -11,7 +11,7 @@ import { getPausedWorkoutFromSupabase, deletePausedWorkoutFromSupabase } from '.
 import { generateWorkoutPlan } from '../lib/workoutPlanning'
 // Dynamic import for code-splitting
 import { useAuth } from '../context/AuthContext'
-import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { formatDateMMDDYYYY } from '../utils/dateUtils'
 import { logDebug, logError, logWarn } from '../utils/logger'
@@ -788,7 +788,7 @@ export default function Fitness() {
                         {upcoming.map((scheduled, idx) => {
                           const date = new Date(scheduled.date + 'T12:00:00')
                           const isToday = scheduled.date === today
-                          const isTomorrow = scheduled.date === new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                          const isTomorrow = scheduled.date === getLocalDate(new Date(Date.now() + 24 * 60 * 60 * 1000))
                           let dateLabel = ''
                           if (isToday) {
                             dateLabel = 'Today'

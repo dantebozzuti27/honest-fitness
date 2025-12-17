@@ -51,8 +51,9 @@ export default function DataCatalog() {
           <div className={styles.searchResults}>
             <h3>Search Results</h3>
             {searchResults.map((result, idx) => (
-              <div
+              <button
                 key={idx}
+                type="button"
                 className={styles.searchResultItem}
                 onClick={() => {
                   if (result.type === 'table') {
@@ -67,7 +68,7 @@ export default function DataCatalog() {
                 <span className={styles.resultType}>{result.type}</span>
                 <span className={styles.resultName}>{result.name}</span>
                 <span className={styles.resultDescription}>{result.description}</span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -82,8 +83,9 @@ export default function DataCatalog() {
               </p>
               <div className={styles.tablesList}>
                 {tables.map(([tableName, tableInfo]) => (
-                  <div
+                  <button
                     key={tableName}
+                    type="button"
                     className={`${styles.tableCard} ${selectedTable === tableName ? styles.selected : ''}`}
                     onClick={() => setSelectedTable(selectedTable === tableName ? null : tableName)}
                   >
@@ -126,7 +128,7 @@ export default function DataCatalog() {
                         )}
                       </div>
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -139,8 +141,9 @@ export default function DataCatalog() {
               </p>
               <div className={styles.metricsList}>
                 {metrics.map(([metricName, metricInfo]) => (
-                  <div
+                  <button
                     key={metricName}
+                    type="button"
                     className={`${styles.metricCard} ${selectedMetric === metricName ? styles.selected : ''}`}
                     onClick={() => setSelectedMetric(selectedMetric === metricName ? null : metricName)}
                   >
@@ -170,7 +173,7 @@ export default function DataCatalog() {
                         )}
                       </div>
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

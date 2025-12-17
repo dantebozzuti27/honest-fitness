@@ -78,11 +78,10 @@ export default function ExerciseCard({
     }
 
     // Plain number heuristic:
-    // - <= 60: treat as MINUTES (what users usually mean when typing "20" for cardio)
-    // - > 60: treat as SECONDS (what the system stores)
+    // We store cardio time as SECONDS in the system.
+    // Treat bare numbers as seconds to avoid mis-reading "30" (meaning 0:30) as 30 minutes.
     const n = Number(s)
     if (!Number.isFinite(n)) return 0
-    if (n <= 60) return Math.max(0, Math.floor(n * 60))
     return Math.max(0, Math.floor(n))
   }
 

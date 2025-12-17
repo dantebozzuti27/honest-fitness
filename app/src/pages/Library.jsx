@@ -7,7 +7,7 @@ import Skeleton from '../components/Skeleton'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import { logError } from '../utils/logger'
-import { getProgramsByIds, listMyProgramPurchases } from '../lib/db/marketplaceDb'
+import { getProgramsByIds, listMyProgramEnrollments, listMyProgramPurchases } from '../lib/db/marketplaceDb'
 import styles from './Marketplace.module.css'
 
 export default function Library() {
@@ -18,6 +18,7 @@ export default function Library() {
   const [loading, setLoading] = useState(true)
   const [purchases, setPurchases] = useState([])
   const [programs, setPrograms] = useState([])
+  const [enrollmentsByProgramId, setEnrollmentsByProgramId] = useState({})
 
   useEffect(() => {
     let mounted = true
@@ -28,9 +29,15 @@ export default function Library() {
         const p = await listMyProgramPurchases(user.id)
         const ids = p.map(x => x.program_id).filter(Boolean)
         const progs = await getProgramsByIds(ids)
+        const enrollments = await listMyProgramEnrollments(user.id, ids).catch(() => [])
         if (!mounted) return
         setPurchases(p)
         setPrograms(progs)
+        const map = {}
+        for (const row of Array.isArray(enrollments) ? enrollments : []) {
+          if (row?.program_id) map[row.program_id] = row
+        }
+        setEnrollmentsByProgramId(map)
       } catch (e) {
         logError('Library load failed', e)
         showToast('Failed to load your library.', 'error')
@@ -74,14 +81,17 @@ export default function Library() {
         <div className={styles.grid}>
           {purchases.map((purchase) => {
             const program = programsById[purchase.program_id]
-            let enrollment = null
-            try {
-              if (user?.id && purchase?.program_id) {
-                const raw = localStorage.getItem(`program_enroll_${user.id}_${purchase.program_id}`)
-                if (raw) enrollment = JSON.parse(raw)
+            // Prefer server-backed enrollment (cross-device correct). Fall back to legacy localStorage metadata.
+            let enrollment = enrollmentsByProgramId?.[purchase.program_id] || null
+            if (!enrollment) {
+              try {
+                if (user?.id && purchase?.program_id) {
+                  const raw = localStorage.getItem(`program_enroll_${user.id}_${purchase.program_id}`)
+                  if (raw) enrollment = JSON.parse(raw)
+                }
+              } catch {
+                enrollment = null
               }
-            } catch {
-              enrollment = null
             }
             return (
               <div key={purchase.id} className={styles.card}>
@@ -89,9 +99,9 @@ export default function Library() {
                 <div className={styles.meta}>
                   {purchase.status?.toUpperCase?.() || 'PAID'} · Added {purchase.created_at ? new Date(purchase.created_at).toLocaleDateString() : ''}
                 </div>
-                {enrollment?.startDate ? (
+                {enrollment?.startDate || enrollment?.start_date ? (
                   <div className={styles.meta} style={{ marginTop: 6 }}>
-                    Enrolled · Start: {String(enrollment.startDate)} · Scheduled: {Number(enrollment.scheduledCount || 0)}
+                    Enrolled · Start: {String(enrollment.startDate || enrollment.start_date)} · Scheduled: {Number(enrollment.scheduledCount || enrollment.scheduled_count || 0)}
                   </div>
                 ) : null}
                 <div style={{ marginTop: 10, display: 'flex', gap: 10 }}>

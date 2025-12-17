@@ -9,7 +9,7 @@ import { toInteger, toNumber } from '../utils/numberUtils'
 import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, syncFitbitData, syncOuraData, mergeWearableDataToMetrics } from '../lib/wearables'
 import { supabase } from '../lib/supabase'
-import { getTodayEST, getYesterdayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST, getYesterdayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { logError, logDebug, logWarn } from '../utils/logger'
 
@@ -103,7 +103,7 @@ export default function Health() {
       streak += 1
       const dt = new Date(cursor + 'T12:00:00')
       dt.setDate(dt.getDate() - 1)
-      cursor = dt.toISOString().split('T')[0]
+      cursor = getLocalDate(dt)
     }
     return streak
   }, [workouts])
@@ -467,7 +467,7 @@ export default function Health() {
     for (let i = 6; i >= 0; i--) {
       const date = new Date()
       date.setDate(date.getDate() - i)
-      const dateStr = date.toISOString().split('T')[0]
+      const dateStr = getLocalDate(date)
       dates.push(dateStr)
 
       // Get readiness for this date (would need to fetch from DB)

@@ -63,9 +63,15 @@
 }
 
 .searchResultItem {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  text-align: left;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  background: transparent;
+  color: inherit;
   margin-bottom: 8px;
   cursor: pointer;
   transition: background 0.2s;
@@ -119,10 +125,15 @@
 
 .tableCard,
 .metricCard {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  text-align: left;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 16px;
   background: var(--bg-secondary);
+  color: inherit;
   cursor: pointer;
   transition: all 0.2s;
   touch-action: manipulation;

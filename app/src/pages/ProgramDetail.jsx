@@ -10,10 +10,12 @@ import Skeleton from '../components/Skeleton'
 import Toast from '../components/Toast'
 import { useToast } from '../hooks/useToast'
 import { logError } from '../utils/logger'
+import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 import {
   claimFreeProgram,
   deleteProgramEnrollment,
   getCoachProfile,
+  getMyProgramEnrollment,
   getMyPurchaseForProgram,
   getProgramById,
   upsertProgramEnrollment
@@ -31,7 +33,11 @@ function formatPrice({ priceCents, currency }) {
 }
 
 function dateStringForDayPlan(startDateStr, dayPlan, fallbackIndex = 0) {
-  const start = new Date(`${startDateStr}T00:00:00`)
+  // Parse YYYY-MM-DD safely into a local Date (avoid UTC parsing quirks).
+  const [sy, sm, sd] = String(startDateStr || '').split('-').map(Number)
+  const start = Number.isFinite(sy) && Number.isFinite(sm) && Number.isFinite(sd)
+    ? new Date(sy, sm - 1, sd, 12, 0, 0) // noon avoids DST edge cases
+    : new Date()
   const n = Number(dayPlan?.dayNumber || (fallbackIndex + 1))
   const dayNumber = Number.isFinite(n) && n > 0 ? n : (fallbackIndex + 1)
 
@@ -43,12 +49,25 @@ function dateStringForDayPlan(startDateStr, dayPlan, fallbackIndex = 0) {
     const startDow = start.getDay()
     const offsetInWeek = (weekday - startDow + 7) % 7
     const offsetDays = weekIndex * 7 + offsetInWeek
-    return new Date(start.getTime() + offsetDays * 86400000).toISOString().slice(0, 10)
+    const target = new Date(start)
+    target.setDate(target.getDate() + offsetDays)
+    return getLocalDate(target)
   }
 
   // Default behavior: dayNumber is a linear offset from start.
   const dayOffset = Math.max(0, dayNumber - 1)
-  return new Date(start.getTime() + dayOffset * 86400000).toISOString().slice(0, 10)
+  const target = new Date(start)
+  target.setDate(target.getDate() + dayOffset)
+  return getLocalDate(target)
+}
+
+function normalizeEnrollmentInfo(row) {
+  if (!row) return null
+  return {
+    startDate: row.start_date || row.startDate || null,
+    scheduledCount: Number(row.scheduled_count ?? row.scheduledCount ?? 0),
+    enrolledAt: row.enrolled_at || row.enrolledAt || null
+  }
 }
 
 export default function ProgramDetail() {
@@ -64,12 +83,12 @@ export default function ProgramDetail() {
   const [purchase, setPurchase] = useState(null)
   const [claiming, setClaiming] = useState(false)
   const [enrollOpen, setEnrollOpen] = useState(false)
-  const [enrollStartDate, setEnrollStartDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [enrollStartDate, setEnrollStartDate] = useState(() => getTodayEST())
   const [enrolling, setEnrolling] = useState(false)
   const [enrollmentInfo, setEnrollmentInfo] = useState(null)
   const [unenrollConfirmOpen, setUnenrollConfirmOpen] = useState(false)
   const [rescheduleOpen, setRescheduleOpen] = useState(false)
-  const [rescheduleStartDate, setRescheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [rescheduleStartDate, setRescheduleStartDate] = useState(() => getTodayEST())
   const [rescheduling, setRescheduling] = useState(false)
 
   const isOwner = Boolean(user?.id && program?.coachId && user.id === program.coachId)
@@ -107,14 +126,19 @@ export default function ProgramDetail() {
         if (user?.id && p?.id) {
           getMyPurchaseForProgram(user.id, p.id).then(setPurchase).catch(() => {})
         }
-        // Local enrollment metadata (MVP)
+        // Enrollment metadata (server-backed). Fall back to legacy localStorage if table isn't available.
         if (user?.id && p?.id) {
           try {
-            const raw = localStorage.getItem(`program_enroll_${user.id}_${p.id}`)
-            if (raw) setEnrollmentInfo(JSON.parse(raw))
-            else setEnrollmentInfo(null)
-          } catch {
-            setEnrollmentInfo(null)
+            const row = await getMyProgramEnrollment(user.id, p.id)
+            setEnrollmentInfo(normalizeEnrollmentInfo(row))
+          } catch (e) {
+            try {
+              const raw = localStorage.getItem(`program_enroll_${user.id}_${p.id}`)
+              if (raw) setEnrollmentInfo(JSON.parse(raw))
+              else setEnrollmentInfo(null)
+            } catch {
+              setEnrollmentInfo(null)
+            }
           }
         }
       } catch (e) {
@@ -138,10 +162,10 @@ export default function ProgramDetail() {
     if (shouldOpenEnroll) {
       setEnrollOpen(true)
       // default the date to today; user can change it
-      setEnrollStartDate(new Date().toISOString().slice(0, 10))
+      setEnrollStartDate(getTodayEST())
     }
     if (shouldOpenReschedule) {
-      const current = enrollmentInfo?.startDate || new Date().toISOString().slice(0, 10)
+      const current = enrollmentInfo?.startDate || getTodayEST()
       setRescheduleStartDate(String(current))
       setRescheduleOpen(true)
     }
@@ -292,8 +316,12 @@ export default function ProgramDetail() {
         scheduledCount++
       }
 
-      const nextInfo = { startDate: rescheduleStartDate, scheduledCount, enrolledAt: enrollmentInfo?.enrolledAt || new Date().toISOString() }
-      // Persist enrollment so coach can see it (not just localStorage)
+      const nextInfo = {
+        startDate: rescheduleStartDate,
+        scheduledCount,
+        enrolledAt: enrollmentInfo?.enrolledAt || new Date().toISOString()
+      }
+      // Persist enrollment so coach can see it (server-backed). If the table isn't available, fall back to legacy localStorage.
       try {
         await upsertProgramEnrollment(user.id, program.id, {
           startDate: rescheduleStartDate,
@@ -302,10 +330,10 @@ export default function ProgramDetail() {
         })
       } catch (e) {
         logError('Failed to persist program enrollment (reschedule)', e)
+        try {
+          localStorage.setItem(`program_enroll_${user.id}_${program.id}`, JSON.stringify(nextInfo))
+        } catch {}
       }
-      try {
-        localStorage.setItem(`program_enroll_${user.id}_${program.id}`, JSON.stringify(nextInfo))
-      } catch {}
       setEnrollmentInfo(nextInfo)
       try {
         window.dispatchEvent(new CustomEvent('scheduledWorkoutsUpdated'))
@@ -352,18 +380,10 @@ export default function ProgramDetail() {
         scheduledCount++
       }
 
-      // 3) Store enrollment metadata locally (for future: show enrollment on UI)
-      try {
-        localStorage.setItem(
-          `program_enroll_${user.id}_${program.id}`,
-          JSON.stringify({ startDate: enrollStartDate, scheduledCount, enrolledAt: new Date().toISOString() })
-        )
-      } catch {
-        // ignore
-      }
-      setEnrollmentInfo({ startDate: enrollStartDate, scheduledCount, enrolledAt: new Date().toISOString() })
+      const nextInfo = { startDate: enrollStartDate, scheduledCount, enrolledAt: new Date().toISOString() }
+      setEnrollmentInfo(nextInfo)
 
-      // Persist enrollment so coach can see it (not just localStorage)
+      // Persist enrollment so coach can see it (server-backed). If the table isn't available, fall back to legacy localStorage.
       try {
         await upsertProgramEnrollment(user.id, program.id, {
           startDate: enrollStartDate,
@@ -372,6 +392,9 @@ export default function ProgramDetail() {
         })
       } catch (e) {
         logError('Failed to persist program enrollment', e)
+        try {
+          localStorage.setItem(`program_enroll_${user.id}_${program.id}`, JSON.stringify(nextInfo))
+        } catch {}
       }
 
       showToast(`Enrolled! Scheduled ${scheduledCount} workouts on your calendar.`, 'success', 5500)
@@ -465,7 +488,7 @@ export default function ProgramDetail() {
                   ) : null}
                   {enrollmentInfo ? (
                     <Button className={styles.btn} variant="secondary" onClick={() => {
-                      setRescheduleStartDate(String(enrollmentInfo?.startDate || new Date().toISOString().slice(0, 10)))
+                      setRescheduleStartDate(String(enrollmentInfo?.startDate || getTodayEST()))
                       setRescheduleOpen(true)
                     }}>
                       Reschedule

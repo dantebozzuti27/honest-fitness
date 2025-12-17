@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 // Dynamic import for code-splitting
-import { getTodayEST } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { logError, logDebug, logWarn } from '../utils/logger'
 import { getSystemFoods, getFoodCategories, getFavoriteFoods, getRecentFoods, updateFoodLastUsed, addFavoriteFood, removeFavoriteFood } from '../lib/foodLibrary'
@@ -530,7 +530,7 @@ export default function Nutrition() {
       setCurrentMicros(dayData.micros || {})
       setWaterIntake(dayData.water || 0)
       
-      const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      const startDate = getLocalDate(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
       const endDate = getTodayEST()
       const history = await getNutritionRangeFromSupabase(user.id, startDate, endDate)
       
@@ -903,7 +903,7 @@ export default function Nutrition() {
     const current = new Date(start)
     
     while (current <= end) {
-      const dateStr = current.toISOString().split('T')[0]
+      const dateStr = getLocalDate(current)
       const dayData = historyData[dateStr]
       if (dayData) {
         if (goal.type === 'calories') {
@@ -966,7 +966,7 @@ export default function Nutrition() {
     for (let i = 6; i >= 0; i--) {
       const date = new Date()
       date.setDate(date.getDate() - i)
-      const dateStr = date.toISOString().split('T')[0]
+      const dateStr = getLocalDate(date)
       dates.push(dateStr)
       const dayData = historyData[dateStr] || { calories: 0, macros: { protein: 0, carbs: 0, fat: 0 } }
       calories.push(dayData.calories || 0)

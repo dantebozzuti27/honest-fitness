@@ -213,6 +213,13 @@ export default function Calendar() {
 
   const handleUnschedule = async () => {
     if (!user || !selectedDate) return
+    const count = Array.isArray(scheduledInfoList) ? scheduledInfoList.length : (scheduledInfo ? 1 : 0)
+    const ok = window.confirm(
+      count > 1
+        ? `Remove all ${count} scheduled workouts for ${selectedDate}?`
+        : `Remove the scheduled workout for ${selectedDate}?`
+    )
+    if (!ok) return
     await deleteScheduledWorkoutByDateFromSupabase(user.id, selectedDate)
     await refreshData()
     setScheduledInfo(null)
@@ -242,8 +249,8 @@ export default function Calendar() {
   }
 
   const isFutureDate = (dateStr) => {
-    const today = new Date().toISOString().split('T')[0]
-    return dateStr > today
+    // Use the same local date key as the rest of the app (avoids UTC day-boundary bugs).
+    return String(dateStr) > String(getTodayEST())
   }
 
   const isSelectedDateToday = useMemo(() => {

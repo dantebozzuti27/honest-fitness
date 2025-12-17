@@ -28,6 +28,8 @@ export default function Wearables() {
   const { toast, showToast, hideToast } = useToast()
   const [confirmState, setConfirmState] = useState({ open: false, provider: null })
   const shownLoadErrorRef = useRef(false)
+  const fitbitClientId = import.meta.env.VITE_FITBIT_CLIENT_ID
+  const ouraClientId = import.meta.env.VITE_OURA_CLIENT_ID
 
   useEffect(() => {
     if (user) {
@@ -294,8 +296,6 @@ export default function Wearables() {
 
   const fitbitAccount = connectedAccounts.find(a => a.provider === 'fitbit')
   const ouraAccount = connectedAccounts.find(a => a.provider === 'oura')
-  const fitbitClientId = import.meta.env.VITE_FITBIT_CLIENT_ID
-  const ouraClientId = import.meta.env.VITE_OURA_CLIENT_ID
 
   if (loading) {
     return (

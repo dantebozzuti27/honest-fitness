@@ -28,7 +28,7 @@ import { getReadinessScore } from '../lib/readiness'
 import { getAllConnectedAccounts, getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 // Dynamic import for code-splitting
-import { getTodayEST, getYesterdayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST, getYesterdayEST, formatDateShort, formatDateMMDDYYYY } from '../utils/dateUtils'
 import { supabase } from '../lib/supabase'
 import { formatGoalName } from '../utils/formatUtils'
 import { generateShareImage, shareNative } from '../utils/shareUtils'
@@ -179,7 +179,7 @@ export default function Analytics() {
         let nutritionHistory = []
         try {
           nutrition = await getMealsFromSupabase(user.id, today)
-          const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+          const startDate = getLocalDate(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
           nutritionHistory = await getNutritionRangeFromSupabase(user.id, startDate, today)
         } catch (e) {
           // Nutrition data is optional
@@ -346,7 +346,7 @@ export default function Analytics() {
     if (!user) return
     try {
       const today = getTodayEST()
-      const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      const startDate = getLocalDate(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
       
       const [dailyWorkouts, weeklyWorkouts, monthlyWorkouts, dailyHealth, weeklyHealth, dailyNutrition] = await Promise.all([
         getDailyWorkoutSummaries(user.id, startDate, today),
@@ -473,12 +473,12 @@ export default function Analytics() {
           user.id,
           'workout_count',
           {
-            start: lastWeekStart.toISOString().split('T')[0],
-            end: lastWeekEnd.toISOString().split('T')[0]
+            start: getLocalDate(lastWeekStart),
+            end: getLocalDate(lastWeekEnd)
           },
           {
-            start: thisWeekStart.toISOString().split('T')[0],
-            end: today.toISOString().split('T')[0]
+            start: getLocalDate(thisWeekStart),
+            end: getLocalDate(today)
           }
         ).catch(() => null),
         compareToPeers(user.id, 'workout_count', 30).catch(() => null),
@@ -670,20 +670,20 @@ export default function Analytics() {
       const monday = new Date(today)
       monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
       monday.setHours(0, 0, 0, 0)
-      cutoffDate = monday.toISOString().split('T')[0]
+      cutoffDate = getLocalDate(monday)
     } else if (filter.type === 'month') {
       // This month
       const today = new Date()
       const firstDay = new Date(today.getFullYear(), today.getMonth(), 1)
-      cutoffDate = firstDay.toISOString().split('T')[0]
+      cutoffDate = getLocalDate(firstDay)
     } else if (filter.type === 'year') {
       // This year
       const today = new Date()
       const firstDay = new Date(today.getFullYear(), 0, 1)
-      cutoffDate = firstDay.toISOString().split('T')[0]
+      cutoffDate = getLocalDate(firstDay)
     } else if (filter.type === 'days' && filter.days) {
       // Last N days
-      cutoffDate = new Date(Date.now() - filter.days * 86400000).toISOString().split('T')[0]
+      cutoffDate = getLocalDate(new Date(Date.now() - filter.days * 86400000))
     }
     
     const filteredWorkouts = cutoffDate 
@@ -1313,7 +1313,7 @@ export default function Analytics() {
       const date = new Date(w.date + 'T12:00:00')
       const weekStart = new Date(date)
       weekStart.setDate(date.getDate() - date.getDay())
-      const weekKey = weekStart.toISOString().split('T')[0]
+      const weekKey = getLocalDate(weekStart)
       weeks[weekKey] = (weeks[weekKey] || 0) + 1
     })
     return weeks
@@ -1334,7 +1334,7 @@ export default function Analytics() {
       const date = new Date(w.date + 'T12:00:00')
       const weekStart = new Date(date)
       weekStart.setDate(date.getDate() - date.getDay())
-      const weekKey = weekStart.toISOString().split('T')[0]
+      const weekKey = getLocalDate(weekStart)
       const totalSets = w.workout_exercises?.reduce((sum, ex) => sum + (ex.workout_sets?.length || 0), 0) || 0
       weeks[weekKey] = (weeks[weekKey] || 0) + totalSets
     })
@@ -1593,7 +1593,7 @@ export default function Analytics() {
                     csvRows.push([date, value])
                   })
                   const csv = csvRows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n')
-                  downloadData(csv, `workout-${historyCategory.toLowerCase()}-${new Date().toISOString().split('T')[0]}.csv`, 'text/csv')
+                  downloadData(csv, `workout-${historyCategory.toLowerCase()}-${getTodayEST()}.csv`, 'text/csv')
                 } catch (error) {
                   logError('Error exporting chart', error)
                   showToast('Failed to export chart.', 'error')

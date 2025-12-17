@@ -8,7 +8,7 @@ import { getScheduledWorkoutsFromSupabase } from '../lib/db/scheduledWorkoutsDb'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { getMealsFromSupabase, getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/db/metricsDb'
-import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import SideMenu from '../components/SideMenu'
 import HomeButton from '../components/HomeButton'
@@ -134,8 +134,8 @@ export default function Home() {
             const isOwnPost = authorId === userId
             
             // Use created_at timestamp if available
-            const itemDate = item.created_at 
-              ? new Date(item.created_at).toISOString().split('T')[0] 
+            const itemDate = item.created_at
+              ? getLocalDate(new Date(item.created_at))
               : (item.date || getTodayEST())
             
             // ShareCard expects data in format: { workout: {...} }, { nutrition: {...} }, or { health: {...} }
@@ -837,7 +837,7 @@ export default function Home() {
               {scheduledWorkouts.map((scheduled, idx) => {
                 const date = new Date(scheduled.date + 'T12:00:00')
                 const isToday = scheduled.date === getTodayEST()
-                const isTomorrow = scheduled.date === new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                const isTomorrow = scheduled.date === getLocalDate(new Date(Date.now() + 24 * 60 * 60 * 1000))
                 let dateLabel = ''
                 if (isToday) {
                   dateLabel = 'Today'

@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { getWorkoutsFromSupabase } from '../lib/db/workoutsDb'
 import { getNutritionRangeFromSupabase } from '../lib/nutritionDb'
 import { getMetricsFromSupabase } from '../lib/db/metricsDb'
-import { getTodayEST, getYesterdayEST, formatDateShort } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST, getYesterdayEST, formatDateShort } from '../utils/dateUtils'
 import { formatGoalName } from '../utils/formatUtils'
 import { logDebug, logError } from '../utils/logger'
 import { useToast } from '../hooks/useToast'
@@ -213,7 +213,7 @@ export default function Goals() {
     try {
       // Get last 7 days of data for each category
       const today = getTodayEST()
-      const sevenDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      const sevenDaysAgo = getLocalDate(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000))
       
       // Get fitness data (workouts)
       const allWorkouts = await getWorkoutsFromSupabase(user.id)

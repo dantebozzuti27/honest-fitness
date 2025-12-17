@@ -1248,10 +1248,20 @@ export default function ActiveWorkout() {
   const addSet = (exerciseId) => {
     setExercises(prev => prev.map(ex => {
       if (ex.id !== exerciseId) return ex
-      const lastSet = ex.sets[ex.sets.length - 1] || { weight: '', reps: '' }
+      const lastSet = ex.sets[ex.sets.length - 1] || { weight: '', reps: '', time: '', speed: '', incline: '' }
       return { 
         ...ex, 
-        sets: [...ex.sets, { weight: lastSet.weight, reps: lastSet.reps, duration: 0 }]
+        // Keep a consistent set shape across all exercise types (Supabase persists: weight, reps, time, speed, incline).
+        sets: [
+          ...ex.sets,
+          {
+            weight: lastSet.weight ?? '',
+            reps: lastSet.reps ?? '',
+            time: lastSet.time ?? '',
+            speed: lastSet.speed ?? '',
+            incline: lastSet.incline ?? ''
+          }
+        ]
       }
     }))
   }

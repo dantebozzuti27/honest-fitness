@@ -1942,4 +1942,74 @@ CREATE TRIGGER update_coach_program_enrollments_updated_at
   EXECUTE FUNCTION update_updated_at_column();
 
 
+-- ============================================================================
+-- STORAGE: AVATARS BUCKET (Profile photos)
+-- ============================================================================
+-- This app prefers using Supabase Storage bucket `avatars` for profile photos.
+-- It falls back to base64 if the bucket/policies are not present.
+--
+-- Idempotent: safe to re-run.
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM storage.buckets WHERE id = 'avatars'
+  ) THEN
+    INSERT INTO storage.buckets (id, name, public)
+    VALUES ('avatars', 'avatars', TRUE);
+  ELSE
+    -- Ensure the bucket is public because the frontend uses getPublicUrl().
+    UPDATE storage.buckets SET public = TRUE WHERE id = 'avatars';
+  END IF;
+END $$;
+
+-- Ensure RLS is enabled on storage.objects (usually already enabled in Supabase)
+ALTER TABLE IF EXISTS storage.objects ENABLE ROW LEVEL SECURITY;
+
+-- Public read for avatars (anyone can fetch the image URL)
+DROP POLICY IF EXISTS "Avatars are publicly readable" ON storage.objects;
+CREATE POLICY "Avatars are publicly readable"
+  ON storage.objects
+  FOR SELECT
+  USING (bucket_id = 'avatars');
+
+-- Authenticated users can upload avatars only into their own folder: {user_id}/...
+DROP POLICY IF EXISTS "Users can upload own avatars" ON storage.objects;
+CREATE POLICY "Users can upload own avatars"
+  ON storage.objects
+  FOR INSERT
+  WITH CHECK (
+    bucket_id = 'avatars'
+    AND auth.role() = 'authenticated'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- Allow overwrite/upsert for own avatar objects
+DROP POLICY IF EXISTS "Users can update own avatars" ON storage.objects;
+CREATE POLICY "Users can update own avatars"
+  ON storage.objects
+  FOR UPDATE
+  USING (
+    bucket_id = 'avatars'
+    AND auth.role() = 'authenticated'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'avatars'
+    AND auth.role() = 'authenticated'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- Allow deleting own avatar objects
+DROP POLICY IF EXISTS "Users can delete own avatars" ON storage.objects;
+CREATE POLICY "Users can delete own avatars"
+  ON storage.objects
+  FOR DELETE
+  USING (
+    bucket_id = 'avatars'
+    AND auth.role() = 'authenticated'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+
 

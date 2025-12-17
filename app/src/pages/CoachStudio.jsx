@@ -86,11 +86,22 @@ function normalizeContent(raw) {
   }
 }
 
+const WEEKDAYS = [
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' }
+]
+
 function newDayPlan(nextDayNumber = 1) {
   return {
     id: `day_${Date.now()}_${Math.random().toString(16).slice(2)}`,
     dayNumber: nextDayNumber,
     title: `Day ${nextDayNumber}`,
+    weekday: null, // 0-6 (Sun-Sat) optional; used to schedule by day-of-week at enrollment time
     notes: '',
     workout: {
       templateId: '',
@@ -1487,6 +1498,9 @@ export default function CoachStudio() {
                     const stepsCount = Array.isArray(day?.workout?.steps) ? day.workout.steps.length : 0
                     const mealsCount = Array.isArray(day?.meals) ? day.meals.length : 0
                     const metricsCount = Array.isArray(day?.healthMetrics) ? day.healthMetrics.length : 0
+                    const weekdayLabel = (day?.weekday != null && Number.isFinite(Number(day.weekday)))
+                      ? (WEEKDAYS.find(w => w.value === Number(day.weekday))?.label || null)
+                      : null
                     return (
                       <div key={day.id} className={styles.dayCard}>
                         <div className={styles.dayHeader}>
@@ -1496,6 +1510,7 @@ export default function CoachStudio() {
                             </div>
                             <div className={styles.dayMeta}>
                               {templateName ? <span className={styles.chip}>Workout: {templateName}</span> : <span className={styles.chip}>Workout: (not set)</span>}
+                              {weekdayLabel ? <span className={styles.chip}>Weekday: {weekdayLabel}</span> : null}
                               <span className={styles.chip}>{stepsCount} steps</span>
                               <span className={styles.chip}>{mealsCount} meals</span>
                               <span className={styles.chip}>{metricsCount} metrics</span>
@@ -1565,6 +1580,20 @@ export default function CoachStudio() {
                           onChange={(e) => patchDay(currentDay.id, { title: e.target.value })}
                           placeholder={`Day ${currentDay.dayNumber}: focus / theme`}
                         />
+                        <div style={{ height: 10 }} />
+                        <SelectField
+                          label="Day of week (optional)"
+                          value={currentDay.weekday == null ? '' : String(currentDay.weekday)}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            patchDay(currentDay.id, { weekday: v === '' ? null : Number(v) })
+                          }}
+                        >
+                          <option value="">(Not set)</option>
+                          {WEEKDAYS.map(w => (
+                            <option key={w.value} value={String(w.value)}>{w.label}</option>
+                          ))}
+                        </SelectField>
                         <TextAreaField
                           label="Day notes"
                           value={currentDay.notes || ''}

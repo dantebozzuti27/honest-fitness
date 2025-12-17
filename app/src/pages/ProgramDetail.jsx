@@ -23,6 +23,27 @@ function formatPrice({ priceCents, currency }) {
   return `${curr} $${dollars.toFixed(2)}`
 }
 
+function dateStringForDayPlan(startDateStr, dayPlan, fallbackIndex = 0) {
+  const start = new Date(`${startDateStr}T00:00:00`)
+  const n = Number(dayPlan?.dayNumber || (fallbackIndex + 1))
+  const dayNumber = Number.isFinite(n) && n > 0 ? n : (fallbackIndex + 1)
+
+  // Optional weekday scheduling (0=Sun ... 6=Sat).
+  const weekdayRaw = dayPlan?.weekday
+  const weekday = Number.isFinite(Number(weekdayRaw)) ? Number(weekdayRaw) : null
+  if (weekday != null && weekday >= 0 && weekday <= 6) {
+    const weekIndex = Math.floor((dayNumber - 1) / 7)
+    const startDow = start.getDay()
+    const offsetInWeek = (weekday - startDow + 7) % 7
+    const offsetDays = weekIndex * 7 + offsetInWeek
+    return new Date(start.getTime() + offsetDays * 86400000).toISOString().slice(0, 10)
+  }
+
+  // Default behavior: dayNumber is a linear offset from start.
+  const dayOffset = Math.max(0, dayNumber - 1)
+  return new Date(start.getTime() + dayOffset * 86400000).toISOString().slice(0, 10)
+}
+
 export default function ProgramDetail() {
   const { programId } = useParams()
   const location = useLocation()
@@ -244,14 +265,11 @@ export default function ProgramDetail() {
       await deleteScheduledWorkoutsByTemplatePrefixFromSupabase(user.id, prefix)
 
       // Re-schedule from day plan
-      const start = new Date(`${rescheduleStartDate}T00:00:00`)
       const days = Array.isArray(program.content?.dayPlans) ? program.content.dayPlans : []
       let scheduledCount = 0
       for (let i = 0; i < days.length; i++) {
         const d = days[i]
-        const dayOffset = Math.max(0, Number(d?.dayNumber || (i + 1)) - 1)
-        const date = new Date(start.getTime() + dayOffset * 86400000)
-        const dateStr = date.toISOString().slice(0, 10)
+        const dateStr = dateStringForDayPlan(rescheduleStartDate, d, i)
         const programTemplateId = d?.workout?.templateId
         if (!programTemplateId) continue
         const localTemplateId = localTemplateIdForProgramTemplate(program, programTemplateId)
@@ -297,15 +315,12 @@ export default function ProgramDetail() {
       }
 
       // 2) Schedule workouts per day plan into Supabase scheduled_workouts
-      const start = new Date(`${enrollStartDate}T00:00:00`)
       const days = Array.isArray(program.content?.dayPlans) ? program.content.dayPlans : []
       let scheduledCount = 0
 
       for (let i = 0; i < days.length; i++) {
         const d = days[i]
-        const dayOffset = Math.max(0, Number(d?.dayNumber || (i + 1)) - 1)
-        const date = new Date(start.getTime() + dayOffset * 86400000)
-        const dateStr = date.toISOString().slice(0, 10)
+        const dateStr = dateStringForDayPlan(enrollStartDate, d, i)
         const programTemplateId = d?.workout?.templateId
         if (!programTemplateId) continue
         const localTemplateId = localTemplateIdForProgramTemplate(program, programTemplateId)
@@ -516,6 +531,8 @@ export default function ProgramDetail() {
                   const steps = Array.isArray(d?.workout?.steps) ? d.workout.steps : []
                   const meals = Array.isArray(d?.meals) ? d.meals : []
                   const metrics = Array.isArray(d?.healthMetrics) ? d.healthMetrics : []
+                  const weekday = Number.isFinite(Number(d?.weekday)) ? Number(d.weekday) : null
+                  const weekdayLabel = weekday == null ? null : (['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][weekday] || null)
                   return (
                     <div key={d.id || `${d.dayNumber}-${d.title}`} className={styles.dayCard}>
                       <div className={styles.dayHeader}>
@@ -524,6 +541,7 @@ export default function ProgramDetail() {
                         </div>
                         <div className={styles.chips}>
                           {tpl?.name ? <span className={styles.pill}>Workout: {tpl.name}</span> : null}
+                          {weekdayLabel ? <span className={styles.pill}>Weekday: {weekdayLabel}</span> : null}
                           {meals.length ? <span className={styles.pill}>{meals.length} meals</span> : null}
                           {metrics.length ? <span className={styles.pill}>{metrics.length} metrics</span> : null}
                         </div>

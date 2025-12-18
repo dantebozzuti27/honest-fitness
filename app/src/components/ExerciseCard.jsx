@@ -425,84 +425,100 @@ export default function ExerciseCard({
                       const { mins, secs } = secondsToMMSS(displaySeconds)
 
                       return (
-                        <div className={styles.cardioTimeGroup}>
-                          <div className={styles.cardioTimeInputs}>
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              placeholder="min"
-                              value={Number.isFinite(mins) ? String(mins) : ''}
-                              disabled={Boolean(isTimerRunning)}
-                              onChange={(e) => {
-                                const nextMins = Number(e.target.value || 0)
-                                const safeMins = Number.isFinite(nextMins) ? Math.max(0, Math.floor(nextMins)) : 0
-                                const total = safeMins * 60 + (Number.isFinite(secs) ? secs : 0)
-                                onUpdateSet(idx, 'time_seconds', total)
-                                onUpdateSet(idx, 'time', secondsToMMSSString(total))
-                              }}
-                              className={`${styles.input} ${styles.cardioMinInput}`}
-                            />
-                            <span className={styles.cardioTimeColon}>:</span>
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              placeholder="sec"
-                              value={Number.isFinite(secs) ? String(secs).padStart(2, '0') : ''}
-                              disabled={Boolean(isTimerRunning)}
-                              onChange={(e) => {
-                                const nextSecs = Number(e.target.value || 0)
-                                const safeSecs = Number.isFinite(nextSecs) ? Math.max(0, Math.min(59, Math.floor(nextSecs))) : 0
-                                const total = (Number.isFinite(mins) ? mins : 0) * 60 + safeSecs
-                                onUpdateSet(idx, 'time_seconds', total)
-                                onUpdateSet(idx, 'time', secondsToMMSSString(total))
-                              }}
-                              className={`${styles.input} ${styles.cardioSecInput}`}
-                            />
+                        <div className={styles.cardioMainGroup}>
+                          <div className={styles.cardioTimeRow}>
+                            <div className={styles.cardioTimeInputs}>
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                placeholder="min"
+                                value={Number.isFinite(mins) ? String(mins) : ''}
+                                disabled={Boolean(isTimerRunning)}
+                                onChange={(e) => {
+                                  const nextMins = Number(e.target.value || 0)
+                                  const safeMins = Number.isFinite(nextMins) ? Math.max(0, Math.floor(nextMins)) : 0
+                                  const total = safeMins * 60 + (Number.isFinite(secs) ? secs : 0)
+                                  onUpdateSet(idx, 'time_seconds', total)
+                                  onUpdateSet(idx, 'time', secondsToMMSSString(total))
+                                }}
+                                className={`${styles.input} ${styles.cardioMinInput}`}
+                              />
+                              <span className={styles.cardioTimeColon}>:</span>
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                placeholder="sec"
+                                value={Number.isFinite(secs) ? String(secs).padStart(2, '0') : ''}
+                                disabled={Boolean(isTimerRunning)}
+                                onChange={(e) => {
+                                  const nextSecs = Number(e.target.value || 0)
+                                  const safeSecs = Number.isFinite(nextSecs) ? Math.max(0, Math.min(59, Math.floor(nextSecs))) : 0
+                                  const total = (Number.isFinite(mins) ? mins : 0) * 60 + safeSecs
+                                  onUpdateSet(idx, 'time_seconds', total)
+                                  onUpdateSet(idx, 'time', secondsToMMSSString(total))
+                                }}
+                                className={`${styles.input} ${styles.cardioSecInput}`}
+                              />
+                            </div>
+
+                            {idx === activeSet && (
+                              <button
+                                type="button"
+                                className={styles.cardioTimerIconBtn}
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+
+                                  if (isTimerRunning) {
+                                    // Commit current timer value to this set and stop.
+                                    onUpdateSet(idx, 'time_seconds', cardioTimerSeconds)
+                                    onUpdateSet(idx, 'time', secondsToMMSSString(cardioTimerSeconds))
+                                    stopCardioTimer()
+                                  } else {
+                                    startCardioTimer(idx, storedSeconds)
+                                  }
+                                }}
+                                title={isTimerRunning ? 'Stop cardio timer (save time)' : 'Start cardio timer'}
+                                aria-label={isTimerRunning ? 'Stop cardio timer' : 'Start cardio timer'}
+                              >
+                                {isTimerRunning ? '■' : '⏱'}
+                              </button>
+                            )}
                           </div>
 
-                          {idx === activeSet && (
-                            <button
-                              type="button"
-                              className={styles.cardioTimerBtn}
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
+                          <div className={styles.cardioSubTimer}>
+                            {isTimerRunning ? 'Running' : 'Time'}: {secondsToMMSSString(displaySeconds)}
+                          </div>
 
-                                if (isTimerRunning) {
-                                  // Commit current timer value to this set and stop.
-                                  onUpdateSet(idx, 'time_seconds', cardioTimerSeconds)
-                                  onUpdateSet(idx, 'time', secondsToMMSSString(cardioTimerSeconds))
-                                  stopCardioTimer()
-                                } else {
-                                  startCardioTimer(idx, storedSeconds)
-                                }
-                              }}
-                              title={isTimerRunning ? 'Stop cardio timer (save time)' : 'Start cardio timer'}
-                            >
-                              {isTimerRunning ? 'Stop' : 'Start'}
-                            </button>
-                          )}
+                          <div className={styles.cardioMetaRow}>
+                            <div className={styles.cardioMetaGroup}>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.1"
+                                placeholder="mph"
+                                value={set.speed || ''}
+                                onChange={(e) => onUpdateSet(idx, 'speed', e.target.value)}
+                                className={`${styles.input} ${styles.cardioMetaInput}`}
+                              />
+                              <span className={styles.cardioMetaUnit}>mph</span>
+                            </div>
+                            <div className={styles.cardioMetaGroup}>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.5"
+                                placeholder="%"
+                                value={set.incline || ''}
+                                onChange={(e) => onUpdateSet(idx, 'incline', e.target.value)}
+                                className={`${styles.input} ${styles.cardioMetaInput}`}
+                              />
+                              <span className={styles.cardioMetaUnit}>%</span>
+                            </div>
+                          </div>
                         </div>
                       )
                     })()}
-                    <div className={styles.inputGroup}>
-                      <input
-                        type="number"
-                        placeholder="speed"
-                        value={set.speed || ''}
-                        onChange={(e) => onUpdateSet(idx, 'speed', e.target.value)}
-                        className={styles.input}
-                      />
-                    </div>
-                    <div className={styles.inputGroup}>
-                      <input
-                        type="number"
-                        placeholder="incline"
-                        value={set.incline || ''}
-                        onChange={(e) => onUpdateSet(idx, 'incline', e.target.value)}
-                        className={styles.input}
-                      />
-                    </div>
                   </>
                 ) : exercise.category === 'Recovery' ? (
                   <div className={styles.inputGroup} style={{flex: 2}}>

@@ -475,16 +475,24 @@
   min-width: 78px;
 }
 
-.cardioTimeGroup {
-  flex: 2 1 170px;
-  min-width: 160px;
+.cardioMainGroup {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
 }
 
+.cardioTimeRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .cardioTimeInputs {
-  flex: 1;
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -492,12 +500,12 @@
 }
 
 .cardioMinInput {
-  width: 56px;
+  width: 52px;
   flex: 0 0 auto;
 }
 
 .cardioSecInput {
-  width: 64px;
+  width: 60px;
   flex: 0 0 auto;
 }
 
@@ -509,20 +517,63 @@
   flex-shrink: 0;
 }
 
-.cardioTimerBtn {
-  padding: 10px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  background: var(--bg-primary);
+.cardioTimerIconBtn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 900;
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  white-space: nowrap;
-  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  flex: 0 0 auto;
 }
 
-.cardioTimerBtn:active {
+.cardioTimerIconBtn:active {
   transform: scale(0.97);
+}
+
+.cardioSubTimer {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  padding-left: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardioMetaRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.cardioMetaGroup {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+}
+
+.cardioMetaInput {
+  padding-right: 32px; /* room for unit */
+  text-align: left;
+}
+
+.cardioMetaUnit {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  pointer-events: none;
 }
 
 .input {

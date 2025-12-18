@@ -418,9 +418,10 @@ export default function ExerciseCard({
                   <>
                     {(() => {
                       const isTimerRunning = cardioTimerIntervalRef.current && cardioTimerSetIdxRef.current === idx
+                      // Recorded time is stored in time_seconds/time. Template "targets" live in target_time* fields.
                       const storedSeconds = Number.isFinite(Number(set?.time_seconds))
                         ? Math.max(0, Math.floor(Number(set.time_seconds)))
-                        : parseCardioSeconds(set.time)
+                        : 0
                       const displaySeconds = isTimerRunning ? cardioTimerSeconds : storedSeconds
                       const { mins, secs } = secondsToMMSS(displaySeconds)
 
@@ -475,7 +476,8 @@ export default function ExerciseCard({
                                     onUpdateSet(idx, 'time', secondsToMMSSString(cardioTimerSeconds))
                                     stopCardioTimer()
                                   } else {
-                                    startCardioTimer(idx, storedSeconds)
+                                    // Always start from 0 (fresh timer) on user request.
+                                    startCardioTimer(idx, 0)
                                   }
                                 }}
                                 title={isTimerRunning ? 'Stop cardio timer (save time)' : 'Start cardio timer'}
@@ -488,6 +490,14 @@ export default function ExerciseCard({
 
                           <div className={styles.cardioSubTimer}>
                             {isTimerRunning ? 'Running' : 'Time'}: {secondsToMMSSString(displaySeconds)}
+                            {(() => {
+                              const t = set?.target_time
+                              const ts = Number(set?.target_time_seconds)
+                              const show = (t != null && String(t).trim() !== '') || (Number.isFinite(ts) && ts > 0)
+                              if (!show) return null
+                              const label = Number.isFinite(ts) && ts > 0 ? secondsToMMSSString(ts) : String(t)
+                              return <span className={styles.cardioTarget}> · Target {label}</span>
+                            })()}
                           </div>
 
                           <div className={styles.cardioMetaRow}>

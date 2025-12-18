@@ -547,6 +547,11 @@
   text-overflow: ellipsis;
 }
 
+.cardioTarget {
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 700;
+}
+
 .cardioMetaRow {
   display: flex;
   gap: 10px;

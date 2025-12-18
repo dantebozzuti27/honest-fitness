@@ -642,6 +642,7 @@ export default function ActiveWorkout() {
 
                 const repsValue = (presetReps ?? '').toString()
                 const timeValue = (presetTime ?? '').toString()
+                const targetSeconds = isCardio ? parseTimeToSeconds(timeValue) : null
 
                 return {
                   id: idx,
@@ -654,7 +655,12 @@ export default function ActiveWorkout() {
                   sets: Array(setsCount).fill(null).map(() => ({
                     weight: '',
                     reps: !isCardio ? repsValue : '',
-                    time: isCardio ? timeValue : '',
+                    // Cardio template "time" should be treated as a target, not a recorded time.
+                    // Keep the live time fields empty so the timer starts at 0:00.
+                    time: '',
+                    time_seconds: '',
+                    target_time: isCardio ? timeValue : '',
+                    target_time_seconds: isCardio && targetSeconds != null ? targetSeconds : '',
                     speed: '',
                     incline: ''
                   })),

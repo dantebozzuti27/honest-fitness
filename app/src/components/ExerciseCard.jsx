@@ -350,52 +350,7 @@ export default function ExerciseCard({
                       </span>
                     )}
                   </button>
-                  
-                  {/* Show existing stacks to join */}
-                  {!stacked && existingStacks.length > 0 && (
-                    <div className={styles.joinStackSection}>
-                      <div className={styles.joinStackLabel}>Or join existing:</div>
-                      <div className={styles.joinStackButtons}>
-                        {existingStacks.map((stack) => (
-                          <button
-                            key={stack.group}
-                            className={styles.joinStackBtn}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (onAddToStack) {
-                                onAddToStack(stack.group)
-                              }
-                            }}
-                            title={`Join ${stack.members.length === 1 ? 'this exercise' : stack.members.length === 2 ? 'superset' : 'circuit'}: ${stack.names.join(', ')}`}
-                          >
-                            {stack.members.length === 2 ? 'Superset' : 'Circuit'} ({stack.members.length})
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </>
-              )}
-              {stacked && stackMembers && stackMembers.length > 1 && (
-                <div className={styles.stackInfo}>
-                  <div className={styles.stackInfoLabel}>
-                    {stackMembers.length === 2 ? 'Superset' : 'Circuit'} ({stackIndex + 1}/{stackMembers.length}):
-                  </div>
-                  <div className={styles.stackInfoNext}>
-                    Next: {stackMembers[(stackIndex + 1) % stackMembers.length]?.name || ''}
-                  </div>
-                  <div className={styles.stackMembers}>
-                    {stackMembers.map((member, idx) => (
-                      <span 
-                        key={member.id} 
-                        className={`${styles.stackMember} ${idx === stackIndex ? styles.activeStackMember : ''}`}
-                        title={member.name}
-                      >
-                        {member?.name || ''}
-                      </span>
-                    ))}
-                  </div>
-                </div>
               )}
             </div>
             <div className={styles.moveControls}>
@@ -404,6 +359,51 @@ export default function ExerciseCard({
               <button className={styles.removeBtn} onClick={onRemove}>✕</button>
             </div>
           </div>
+
+          {/* Stack / Superset UI (full-width, never collapses into vertical text) */}
+          {!stacked && Array.isArray(existingStacks) && existingStacks.length > 0 && onAddToStack ? (
+            <div className={styles.stackSection} aria-label="Join an existing superset or circuit">
+              <div className={styles.stackSectionTitle}>Join existing</div>
+              <div className={styles.stackSectionChips}>
+                {existingStacks.map((stack) => (
+                  <button
+                    key={stack.group}
+                    type="button"
+                    className={styles.joinStackBtn}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onAddToStack(stack.group)
+                    }}
+                    title={`Join ${stack.names.join(', ')}`}
+                  >
+                    {stack.members.length === 2 ? 'Superset' : 'Circuit'} ({stack.members.length})
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {stacked && stackMembers && stackMembers.length > 1 ? (
+            <div className={styles.stackSection} aria-label="Superset or circuit details">
+              <div className={styles.stackSectionTitle}>
+                {(stackMembers.length === 2 ? 'Superset' : 'Circuit')} {stackIndex + 1}/{stackMembers.length}
+              </div>
+              <div className={styles.stackSectionSub}>
+                Next: {stackMembers[(stackIndex + 1) % stackMembers.length]?.name || ''}
+              </div>
+              <div className={styles.stackSectionChips}>
+                {stackMembers.map((member, idx) => (
+                  <span
+                    key={member.id}
+                    className={`${styles.stackMember} ${idx === stackIndex ? styles.activeStackMember : ''}`}
+                    title={member?.name || ''}
+                  >
+                    {member?.name || ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className={styles.sets}>
             {exercise.sets.map((set, idx) => (

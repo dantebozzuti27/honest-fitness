@@ -16,6 +16,7 @@ import { formatDateMMDDYYYY } from '../utils/dateUtils'
 import { logDebug, logError, logWarn } from '../utils/logger'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
+import { startWorkout as startWorkoutIntent } from '../utils/navIntents'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ShareModal from '../components/ShareModal'
 import ExercisePicker from '../components/ExercisePicker'
@@ -236,7 +237,7 @@ export default function Fitness() {
       }
 
       showToast('Template created from yesterday. Starting now…', 'success', 1400)
-      navigate('/workout/active', { state: { templateId: template.id } })
+      startWorkoutIntent(navigate, { mode: 'template', sessionType: 'workout', templateId: template.id })
     } catch (e) {
       logError('Repeat yesterday workout failed', e)
       showToast('Failed to repeat yesterday. Try again.', 'error')
@@ -259,7 +260,7 @@ export default function Fitness() {
 
   const handleResumePausedWorkout = () => {
     if (pausedWorkout) {
-      navigate('/workout/active', { state: { resumePaused: true } })
+      startWorkoutIntent(navigate, { mode: 'picker', sessionType: 'workout', resumePaused: true })
     }
   }
 
@@ -473,9 +474,17 @@ export default function Fitness() {
   }, [activeTab, user, loadWorkoutHistory])
 
   const startWorkout = async (templateId, random = false) => {
-    // Navigate to active workout page
-    // templateId can be null for freestyle workouts
-    navigate('/workout/active', { state: { templateId, randomWorkout: random } })
+    // Canonical intent: template vs random vs freestyle (picker)
+    if (random) {
+      startWorkoutIntent(navigate, { mode: 'random', sessionType: 'workout' })
+      return
+    }
+    if (templateId) {
+      startWorkoutIntent(navigate, { mode: 'template', sessionType: 'workout', templateId })
+      return
+    }
+    // Freestyle => open picker (lowest click-debt)
+    startWorkoutIntent(navigate, { mode: 'picker', sessionType: 'workout' })
   }
 
   const handleWorkoutTypeSelect = (type) => {
@@ -505,13 +514,13 @@ export default function Fitness() {
       if (data?.workout) {
         setAiWorkout(data.workout)
         localStorage.setItem('aiWorkout', JSON.stringify(data.workout))
-        navigate('/workout/active', { state: { aiWorkout: data.workout } })
+        startWorkoutIntent(navigate, { mode: 'ai', sessionType: 'workout', aiWorkout: data.workout })
         return
       }
     } catch (e) {
       showToast('Failed to generate workout. Please try again.', 'error')
     }
-    navigate('/workout/active', { state: { randomWorkout: true } })
+    startWorkoutIntent(navigate, { mode: 'random', sessionType: 'workout' })
   }
 
   return (
@@ -724,7 +733,7 @@ export default function Fitness() {
                       </span>
                     ))}
                   </div>
-                  <Button unstyled className={styles.startAiBtn} onClick={() => navigate('/workout/active', { state: { aiWorkout } })}>
+                  <Button unstyled className={styles.startAiBtn} onClick={() => startWorkoutIntent(navigate, { mode: 'ai', sessionType: 'workout', aiWorkout })}>
                     Start AI Workout
                   </Button>
                 </div>

@@ -6,6 +6,7 @@ import { getOutboxPendingCount } from '../lib/syncOutbox'
 import QuickActionsModal from './QuickActionsModal'
 import { useHaptic } from '../hooks/useHaptic'
 import { getLastQuickAction } from '../utils/quickActions'
+import { openMealLog, startWorkout } from '../utils/navIntents'
 import styles from './BottomNav.module.css'
 
 export default function BottomNav() {
@@ -84,20 +85,18 @@ export default function BottomNav() {
     } catch {}
 
     if (action.type === 'meal') {
-      navigate('/nutrition', {
-        state: { openMealModal: true, mealType: action.mealType || undefined }
-      })
+      openMealLog(navigate, { mealType: action.mealType || undefined })
       return
     }
 
     if (action.type === 'continue_workout') {
-      navigate('/workout/active')
+      startWorkout(navigate, { mode: 'resume' })
       return
     }
 
     if (action.type === 'start_workout') {
       const sessionType = action.sessionType === 'recovery' ? 'recovery' : 'workout'
-      navigate('/workout/active', { state: { sessionType, openPicker: true } })
+      startWorkout(navigate, { mode: 'picker', sessionType })
       return
     }
 

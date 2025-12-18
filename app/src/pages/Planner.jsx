@@ -15,6 +15,7 @@ import BackButton from '../components/BackButton'
 import Skeleton from '../components/Skeleton'
 import TextAreaField from '../components/TextAreaField'
 import Button from '../components/Button'
+import { startWorkout } from '../utils/navIntents'
 import styles from './Planner.module.css'
 
 const GOALS = [
@@ -592,7 +593,7 @@ export default function Planner() {
                     {msg?.workout && Array.isArray(msg.workout.exercises) && (
                       <button 
                         className={styles.startWorkoutBtn}
-                        onClick={() => navigate('/workout/active', { state: { aiWorkout: msg.workout } })}
+                        onClick={() => startWorkout(navigate, { mode: 'ai', sessionType: 'workout', aiWorkout: msg.workout })}
                       >
                         Start This Workout
                       </button>

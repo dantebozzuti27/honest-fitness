@@ -7,6 +7,7 @@ import Skeleton from '../components/Skeleton'
 import Button from '../components/Button'
 import { useAuth } from '../context/AuthContext'
 import { getRecentWorkoutsFromSupabase } from '../lib/db/workoutsDb'
+import { startWorkout } from '../utils/navIntents'
 import styles from './PRs.module.css'
 
 const REP_TARGETS = [1, 3, 5, 8, 10, 12]
@@ -163,7 +164,7 @@ export default function PRs() {
               <div className={styles.detailCard}>
                 <div className={styles.detailHeader}>
                   <div className={styles.detailTitle}>{selectedPR.name}</div>
-                  <Button variant="secondary" onClick={() => navigate('/workout/active', { state: { openPicker: true } })}>
+                  <Button variant="secondary" onClick={() => startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })}>
                     Train →
                   </Button>
                 </div>

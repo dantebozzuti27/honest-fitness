@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Modal from './Modal'
+import { openCalendar, openNutrition, openHealth, startWorkout } from '../utils/navIntents'
 import styles from './CommandPalette.module.css'
 
 export default function CommandPalette({ isOpen, onClose }) {
@@ -15,16 +16,16 @@ export default function CommandPalette({ isOpen, onClose }) {
   const actions = useMemo(() => ([
     { id: 'today', label: 'Go to Today', hint: '/', run: () => navigate('/') },
     { id: 'log', label: 'Go to Log', hint: '/log', run: () => navigate('/log') },
-    { id: 'train', label: 'Start Workout', hint: '/workout/active', run: () => navigate('/workout/active', { state: { sessionType: 'workout' } }) },
-    { id: 'recover', label: 'Start Recovery', hint: '/workout/active', run: () => navigate('/workout/active', { state: { sessionType: 'recovery' } }) },
-    { id: 'search_exercises', label: 'Search Exercises', hint: 'opens picker', run: () => navigate('/workout/active', { state: { openPicker: true } }) },
-    { id: 'search_recovery', label: 'Search Recovery', hint: 'opens picker', run: () => navigate('/workout/active', { state: { sessionType: 'recovery', openPicker: true } }) },
+    { id: 'train', label: 'Start Workout', hint: '/workout/active', run: () => startWorkout(navigate, { mode: 'picker', sessionType: 'workout' }) },
+    { id: 'recover', label: 'Start Recovery', hint: '/workout/active', run: () => startWorkout(navigate, { mode: 'picker', sessionType: 'recovery' }) },
+    { id: 'search_exercises', label: 'Search Exercises', hint: 'opens picker', run: () => startWorkout(navigate, { mode: 'picker', sessionType: 'workout' }) },
+    { id: 'search_recovery', label: 'Search Recovery', hint: 'opens picker', run: () => startWorkout(navigate, { mode: 'picker', sessionType: 'recovery' }) },
     { id: 'progress', label: 'Go to Progress', hint: '/progress', run: () => navigate('/progress') },
     { id: 'plan', label: 'Open Plan', hint: '/planner', run: () => navigate('/planner') },
     { id: 'fitness', label: 'Go to Train', hint: '/fitness', run: () => navigate('/fitness') },
-    { id: 'recovery', label: 'Go to Recovery', hint: '/health', run: () => navigate('/health') },
-    { id: 'nutrition', label: 'Go to Nutrition', hint: '/nutrition', run: () => navigate('/nutrition') },
-    { id: 'calendar', label: 'Open Calendar', hint: '/calendar', run: () => navigate('/calendar') },
+    { id: 'recovery', label: 'Go to Recovery', hint: '/health', run: () => openHealth(navigate) },
+    { id: 'nutrition', label: 'Go to Nutrition', hint: '/nutrition', run: () => openNutrition(navigate) },
+    { id: 'calendar', label: 'Open Calendar', hint: '/calendar', run: () => openCalendar(navigate) },
     { id: 'market', label: 'Open Marketplace', hint: '/market', run: () => navigate('/market') },
     { id: 'library', label: 'Open Library', hint: '/library', run: () => navigate('/library') },
     { id: 'coach_studio', label: 'Open Coach Studio', hint: '/coach-studio', run: () => navigate('/coach-studio') },
@@ -65,7 +66,7 @@ export default function CommandPalette({ isOpen, onClose }) {
         kind: 'exercise',
         label: ex.name,
         hint: `${ex.category || 'Strength'} · ${ex.bodyPart || 'Other'}${ex.equipment ? ` · ${ex.equipment}` : ''}`,
-        run: () => navigate('/workout/active', { state: { quickAddExerciseName: ex.name } })
+        run: () => startWorkout(navigate, { mode: 'quick_add_exercise', sessionType: 'workout', quickAddExerciseName: ex.name })
       }))
     return scored
   }, [exerciseIndex, query, navigate])
@@ -88,7 +89,7 @@ export default function CommandPalette({ isOpen, onClose }) {
         kind: 'template',
         label: t.name,
         hint: `${(t.exercises?.length || 0)} exercises`,
-        run: () => navigate('/workout/active', { state: { templateId: t.id } })
+        run: () => startWorkout(navigate, { mode: 'template', sessionType: 'workout', templateId: t.id })
       }))
     return scored
   }, [templateIndex, query, navigate])

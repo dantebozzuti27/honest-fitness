@@ -28,6 +28,7 @@ import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { nonBlocking } from '../utils/nonBlocking'
 import { getOutboxPendingCount, flushOutbox } from '../lib/syncOutbox'
+import { openCalendar, openHealth, openMealLog, openNutrition, openLogHub, startWorkout } from '../utils/navIntents'
 import styles from './Home.module.css'
 
 // Social is intentionally hidden for now (feature to ship later).
@@ -717,7 +718,7 @@ export default function Home() {
               onClick={() => {
                 try {
                   if (resumeSession?.hasExercises) {
-                    navigate('/workout/active', { state: { resumePaused: true, sessionType: resumeSession.sessionType } })
+                    startWorkout(navigate, { mode: 'picker', sessionType: resumeSession.sessionType, resumePaused: true })
                     return
                   }
 
@@ -727,18 +728,18 @@ export default function Home() {
 
                   // Keep this consistent with the working "Train" quick action contract.
                   if (first?.template_id === 'freestyle') {
-                    navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })
+                    startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
                     return
                   }
                   if (first?.template_id) {
-                    navigate('/workout/active', { state: { sessionType: 'workout', templateId: first.template_id, scheduledDate: first.date } })
+                    startWorkout(navigate, { mode: 'template', sessionType: 'workout', templateId: first.template_id, scheduledDate: first.date })
                     return
                   }
 
-                  navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })
+                  startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
                 } catch (e) {
                   // Last-ditch fallback: never let the primary CTA feel dead.
-                  navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })
+                  startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
                 }
               }}
             >
@@ -768,7 +769,7 @@ export default function Home() {
                 type="button"
                 className={styles.quickCard}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
-                onClick={() => navigate('/nutrition', { state: { openMealModal: true } })}
+                onClick={() => openMealLog(navigate)}
               >
                 <div className={styles.quickCardTitle}>Log meal</div>
                 <div className={styles.quickCardSub}>Fast add</div>
@@ -777,7 +778,7 @@ export default function Home() {
                 type="button"
                 className={styles.quickCard}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
-                onClick={() => navigate('/workout/active', { state: { sessionType: 'workout', openPicker: true } })}
+                onClick={() => startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })}
               >
                 <div className={styles.quickCardTitle}>Train</div>
                 <div className={styles.quickCardSub}>Add exercises</div>
@@ -786,7 +787,7 @@ export default function Home() {
                 type="button"
                 className={styles.quickCard}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
-                onClick={() => navigate('/health', { state: { openLogModal: true } })}
+                onClick={() => openHealth(navigate, { openLogModal: true })}
               >
                 <div className={styles.quickCardTitle}>Metrics</div>
                 <div className={styles.quickCardSub}>Log health</div>
@@ -795,7 +796,7 @@ export default function Home() {
                 type="button"
                 className={styles.quickCard}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
-                onClick={() => navigate('/calendar')}
+                onClick={() => openCalendar(navigate)}
               >
                 <div className={styles.quickCardTitle}>Plan</div>
                 <div className={styles.quickCardSub}>Calendar</div>
@@ -810,7 +811,7 @@ export default function Home() {
             <button
               className={styles.summaryCard}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
-              onClick={() => navigate('/health')}
+              onClick={() => openHealth(navigate)}
             >
               <div className={styles.summaryLabel}>Health</div>
               {(() => {
@@ -877,7 +878,7 @@ export default function Home() {
             <button
               className={styles.summaryCard}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
-              onClick={() => navigate('/nutrition')}
+              onClick={() => openNutrition(navigate)}
             >
               <div className={styles.summaryLabel}>Nutrition</div>
               {todayNutrition ? (
@@ -895,7 +896,7 @@ export default function Home() {
             <button
               className={styles.summaryCard}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
-              onClick={() => navigate('/calendar')}
+              onClick={() => openCalendar(navigate)}
             >
               <div className={styles.summaryLabel}>Schedule</div>
               {(() => {
@@ -940,17 +941,17 @@ export default function Home() {
                       onClick={() => {
                         if (isToday) {
                           if (scheduled.template_id === 'freestyle') {
-                            navigate('/workout/active')
+                            startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
                             return
                           }
                           if (!scheduled.template_id) {
-                            navigate('/calendar')
+                            openCalendar(navigate)
                             return
                           }
-                          navigate('/workout/active', { state: { templateId: scheduled.template_id, scheduledDate: scheduled.date } })
+                          startWorkout(navigate, { mode: 'template', sessionType: 'workout', templateId: scheduled.template_id, scheduledDate: scheduled.date })
                           return
                         }
-                        navigate('/calendar')
+                        openCalendar(navigate)
                       }}
                     >
                       {isToday ? 'Start' : 'View Calendar'}
@@ -1033,7 +1034,7 @@ export default function Home() {
                 title="No recent activity"
                 message="Start logging sessions, meals, or metrics — then share to your feed when you want."
                 actionLabel="Log something"
-                onAction={() => navigate('/log')}
+                onAction={() => openLogHub(navigate)}
               />
             </div>
           ) : (

@@ -20,6 +20,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
+import { startWorkout } from '../utils/navIntents'
 import styles from './Calendar.module.css'
 
 export default function Calendar() {
@@ -469,10 +470,10 @@ export default function Calendar() {
                                     }
                                     closeModal()
                                     if (tid === 'freestyle') {
-                                      navigate('/workout/active')
+                                      startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
                                       return
                                     }
-                                    navigate('/workout/active', { state: { templateId: tid, scheduledDate: selectedDate } })
+                                    startWorkout(navigate, { mode: 'template', sessionType: 'workout', templateId: tid, scheduledDate: selectedDate })
                                   }}
                                 >
                                   Start

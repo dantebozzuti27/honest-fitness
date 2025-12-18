@@ -104,8 +104,13 @@
   color: var(--text-primary);
   line-height: 1.2;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.name::-webkit-scrollbar {
+  display: none;
 }
 
 .summary {
@@ -133,8 +138,13 @@
   font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.subline::-webkit-scrollbar {
+  display: none;
 }
 
 .content {
@@ -230,11 +240,11 @@
 
 .stackControls {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  gap: 8px;
   align-items: center;
-  flex: 1;
-  min-width: 0;
+  flex: 0 0 auto;
+  min-width: max-content;
 }
 
 .stackBtn {
@@ -257,39 +267,6 @@
   background: var(--accent);
   color: var(--bg-primary);
   border-color: var(--accent);
-}
-
-.stackInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  font-size: 11px;
-  margin-top: 8px;
-}
-
-.stackInfoLabel {
-  font-weight: 600;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-size: 10px;
-}
-
-.stackInfoNext {
-  font-size: 11px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.stackInfoNext::-webkit-scrollbar {
-  display: none;
 }
 
 .stackMembers {
@@ -362,6 +339,8 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .joinStackBtn:hover {
@@ -378,6 +357,59 @@
   background: var(--accent-dim);
   color: var(--accent);
   font-weight: 600;
+}
+
+.stackSection {
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.stackSectionTitle {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin-bottom: 6px;
+}
+
+.stackSectionTitle::-webkit-scrollbar {
+  display: none;
+}
+
+.stackSectionSub {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin-bottom: 8px;
+}
+
+.stackSectionSub::-webkit-scrollbar {
+  display: none;
+}
+
+.stackSectionChips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.stackSectionChips::-webkit-scrollbar {
+  display: none;
 }
 
 .sets {

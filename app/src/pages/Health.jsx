@@ -36,6 +36,7 @@ import { getWorkoutRecommendation } from '../lib/autoAdjust'
 import styles from './Health.module.css'
 import MetricPills from '../components/MetricPills'
 import { formatSleep, formatSteps, formatWeightLbs } from '../utils/metricFormatters'
+import { startWorkout } from '../utils/navIntents'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
 
@@ -660,13 +661,13 @@ export default function Health() {
               <div className={styles.dashboardGrid}>
                 <div
                   className={styles.dashboardCard}
-                  onClick={() => navigate('/workout/active', { state: { sessionType: 'recovery' } })}
+                  onClick={() => startWorkout(navigate, { mode: 'picker', sessionType: 'recovery' })}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      navigate('/workout/active', { state: { sessionType: 'recovery' } })
+                      startWorkout(navigate, { mode: 'picker', sessionType: 'recovery' })
                     }
                   }}
                 >
@@ -676,19 +677,19 @@ export default function Health() {
                       {recoveryStreak > 0 ? `${recoveryStreak} day streak` : 'Start today'}
                     </div>
                   </div>
-                  <Button unstyled className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); navigate('/workout/active', { state: { sessionType: 'recovery' } }) }}>
+                  <Button unstyled className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); startWorkout(navigate, { mode: 'picker', sessionType: 'recovery' }) }}>
                     Start
                   </Button>
                 </div>
                 <div
                   className={styles.dashboardCard}
-                  onClick={() => navigate('/workout/active', { state: { sessionType: 'workout' } })}
+                  onClick={() => startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      navigate('/workout/active', { state: { sessionType: 'workout' } })
+                      startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
                     }
                   }}
                 >
@@ -696,7 +697,7 @@ export default function Health() {
                     <div className={styles.dashboardStatLabel}>Train</div>
                     <div className={styles.dashboardStatValue}>Log a session</div>
                   </div>
-                  <Button unstyled className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); navigate('/workout/active', { state: { sessionType: 'workout' } }) }}>
+                  <Button unstyled className={styles.dashboardLogBtn} onClick={(e) => { e.stopPropagation(); startWorkout(navigate, { mode: 'picker', sessionType: 'workout' }) }}>
                     Start
                   </Button>
                 </div>
@@ -724,7 +725,7 @@ export default function Health() {
                     <Button
                       variant="secondary"
                       className={styles.trainingRecoBtn}
-                      onClick={() => navigate('/workout/active', { state: { sessionType: trainingRecommendation.title.toLowerCase().includes('deload') ? 'recovery' : 'workout' } })}
+                      onClick={() => startWorkout(navigate, { mode: 'picker', sessionType: trainingRecommendation.title.toLowerCase().includes('deload') ? 'recovery' : 'workout' })}
                     >
                       {trainingRecommendation.title.toLowerCase().includes('deload') ? 'Start recovery' : 'Start workout'}
                     </Button>

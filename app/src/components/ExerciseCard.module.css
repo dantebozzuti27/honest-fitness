@@ -279,6 +279,19 @@
   font-size: 10px;
 }
 
+.stackInfoNext {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.stackInfoNext::-webkit-scrollbar {
+  display: none;
+}
+
 .stackMembers {
   display: flex;
   flex-wrap: wrap;

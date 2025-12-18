@@ -34,6 +34,13 @@ export default function ExerciseCard({
   showDragHandle = true,
   containerClassName = ''
 }) {
+  const autoAdvance = (() => {
+    try { return localStorage.getItem('workout_auto_advance') !== '0' } catch { return true }
+  })()
+  const autoNext = (() => {
+    try { return localStorage.getItem('workout_auto_next') === '1' } catch { return false }
+  })()
+
   const [activeSet, setActiveSet] = useState(0)
 
   const headerHint = (() => {
@@ -230,6 +237,21 @@ export default function ExerciseCard({
     onUpdateSet(setIdx, 'reps', prev.reps ?? '')
   }
 
+  const weightInputRef = useRef(null)
+  const repsInputRef = useRef(null)
+
+  const maybeAutoNext = (setIdx, nextWeight, nextReps) => {
+    if (!autoNext) return
+    if (setIdx !== activeSet) return
+    const w = String(nextWeight ?? '').trim()
+    const r = String(nextReps ?? '').trim()
+    if (!w || !r) return
+    // Let the state update land before advancing.
+    setTimeout(() => {
+      try { handleNextSet() } catch {}
+    }, 0)
+  }
+
   return (
     <div 
       className={`${styles.card} ${exercise.expanded ? styles.expanded : ''} ${exercise.completed ? styles.completed : ''} ${isDragging ? styles.dragging : ''} ${stacked ? styles.stacked : ''} ${containerClassName || ''}`}
@@ -358,6 +380,9 @@ export default function ExerciseCard({
                 <div className={styles.stackInfo}>
                   <div className={styles.stackInfoLabel}>
                     {stackMembers.length === 2 ? 'Superset' : 'Circuit'} ({stackIndex + 1}/{stackMembers.length}):
+                  </div>
+                  <div className={styles.stackInfoNext}>
+                    Next: {stackMembers[(stackIndex + 1) % stackMembers.length]?.name || ''}
                   </div>
                   <div className={styles.stackMembers}>
                     {stackMembers.map((member, idx) => (
@@ -498,7 +523,18 @@ export default function ExerciseCard({
                         step="0.5"
                         placeholder="lbs"
                         value={set.weight}
-                        onChange={(e) => onUpdateSet(idx, 'weight', e.target.value)}
+                        ref={idx === activeSet ? weightInputRef : null}
+                        onChange={(e) => {
+                          const next = e.target.value
+                          onUpdateSet(idx, 'weight', next)
+                          if (autoAdvance && idx === activeSet) {
+                            // Advance to reps on first meaningful entry.
+                            if (String(next || '').trim() !== '') {
+                              setTimeout(() => repsInputRef.current?.focus?.(), 0)
+                            }
+                          }
+                          maybeAutoNext(idx, next, set.reps)
+                        }}
                         className={`${styles.input} ${styles.bigNumberInput}`}
                       />
                     </div>
@@ -509,7 +545,12 @@ export default function ExerciseCard({
                         step="1"
                         placeholder="reps"
                         value={set.reps}
-                        onChange={(e) => onUpdateSet(idx, 'reps', e.target.value)}
+                        ref={idx === activeSet ? repsInputRef : null}
+                        onChange={(e) => {
+                          const next = e.target.value
+                          onUpdateSet(idx, 'reps', next)
+                          maybeAutoNext(idx, set.weight, next)
+                        }}
                         className={`${styles.input} ${styles.bigNumberInput}`}
                       />
                     </div>

@@ -87,6 +87,14 @@ export default function ActiveWorkout() {
   const [showShareModal, setShowShareModal] = useState(false)
   const [savedWorkout, setSavedWorkout] = useState(null)
   const [lastByExerciseName, setLastByExerciseName] = useState({})
+  const [showControlsSheet, setShowControlsSheet] = useState(false)
+  const [prefAutoAdvance, setPrefAutoAdvance] = useState(() => {
+    try { return localStorage.getItem('workout_auto_advance') !== '0' } catch { return true }
+  })
+  const [prefAutoNext, setPrefAutoNext] = useState(() => {
+    try { return localStorage.getItem('workout_auto_next') === '1' } catch { return false }
+  })
+  const [syncPill, setSyncPill] = useState({ label: 'Ready', tone: 'neutral' }) // neutral | good | warn
   const confirmResolverRef = useRef(null)
   const trackedStartRef = useRef(false)
   const trackedFirstSetRef = useRef(false)
@@ -1406,6 +1414,36 @@ export default function ActiveWorkout() {
     }
   }
 
+  // Persist prefs (used by ExerciseCard for auto-advance/auto-next)
+  useEffect(() => {
+    try { localStorage.setItem('workout_auto_advance', prefAutoAdvance ? '1' : '0') } catch {}
+  }, [prefAutoAdvance])
+
+  useEffect(() => {
+    try { localStorage.setItem('workout_auto_next', prefAutoNext ? '1' : '0') } catch {}
+  }, [prefAutoNext])
+
+  // Lightweight sync pill (trust-grade)
+  useEffect(() => {
+    const update = () => {
+      try {
+        if (isSaving) return setSyncPill({ label: 'Saving…', tone: 'warn' })
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return setSyncPill({ label: 'Offline', tone: 'warn' })
+        if (user) return setSyncPill({ label: 'Synced', tone: 'good' })
+        return setSyncPill({ label: 'Local', tone: 'neutral' })
+      } catch {
+        return setSyncPill({ label: 'Ready', tone: 'neutral' })
+      }
+    }
+    update()
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [isSaving, user])
+
   const toggleExpanded = (id) => {
     setExercises(prev => prev.map(ex => 
       ex.id === id ? { ...ex, expanded: !ex.expanded } : { ...ex, expanded: false }
@@ -1656,7 +1694,7 @@ export default function ActiveWorkout() {
 
   // IMPORTANT: Workouts are ONLY created when the user explicitly finishes a workout.
   // This is the ONLY place where workout logs are created - never automatically.
-  const finishWorkout = async () => {
+  const finishWorkout = async ({ openShare = true, navigateTo = null } = {}) => {
     // Clean up timers and auto-save
     clearInterval(workoutTimerRef.current)
     clearInterval(restTimerRef.current)
@@ -1883,8 +1921,15 @@ export default function ActiveWorkout() {
       }
       
       // Store workout for sharing (manual share/download)
-      setSavedWorkout(workout)
-      setShowShareModal(true)
+      if (openShare) {
+        setSavedWorkout(workout)
+        setShowShareModal(true)
+      } else {
+        setSavedWorkout(null)
+        setShowShareModal(false)
+        setShowSummary(false)
+        if (navigateTo) navigate(navigateTo)
+      }
     } catch (err) {
       logError('Error saving workout', err)
       showToast('Failed to save workout. Please try again.', 'error')
@@ -2295,6 +2340,15 @@ export default function ActiveWorkout() {
           </button>
           <div className={styles.workoutTimer}>{formatTime(workoutTime)}</div>
           <div className={styles.headerRight}>
+            <button
+              type="button"
+              className={styles.kebabBtn}
+              onClick={() => setShowControlsSheet(true)}
+              aria-label="Workout controls and preferences"
+              title="Controls"
+            >
+              ⋯
+            </button>
             <Button
               unstyled
               className={`${styles.pauseBtn} ${isPaused ? styles.paused : ''}`}
@@ -2310,6 +2364,7 @@ export default function ActiveWorkout() {
                 }
               }}
               title={isPaused ? 'Resume Workout' : 'Pause Workout'}
+              aria-pressed={isPaused ? 'true' : 'false'}
             >
               {isPaused ? '▶ Resume' : '⏸ Pause'}
             </Button>
@@ -2545,6 +2600,32 @@ export default function ActiveWorkout() {
         </button>
       </div>
 
+      {/* Bottom sticky one-hand bar */}
+      <div className={styles.bottomBar} role="region" aria-label="Workout controls">
+        <div className={styles.bottomBarLeft}>
+          <div className={`${styles.syncPill} ${syncPill.tone === 'good' ? styles.syncGood : syncPill.tone === 'warn' ? styles.syncWarn : ''}`}>
+            {syncPill.label}
+          </div>
+        </div>
+        <div className={styles.bottomBarMain}>
+          {!isResting ? (
+            <div className={styles.restPresets} aria-label="Rest presets">
+              <button type="button" className={styles.restChip} onClick={() => startRest(60)} aria-label="Start 60 second rest">60s</button>
+              <button type="button" className={styles.restChip} onClick={() => startRest(90)} aria-label="Start 90 second rest">90s</button>
+              <button type="button" className={styles.restChip} onClick={() => startRest(120)} aria-label="Start 120 second rest">120s</button>
+            </div>
+          ) : (
+            <button type="button" className={styles.restChipActive} onClick={skipRest} aria-label="Skip rest">
+              Rest {formatTime(restTime)} · Skip
+            </button>
+          )}
+        </div>
+        <div className={styles.bottomBarRight}>
+          <button type="button" className={styles.bottomBtn} onClick={() => setShowPicker(true)} aria-label="Add exercise">+ Add</button>
+          <button type="button" className={styles.bottomBtnPrimary} onClick={() => handleFinishClick()} aria-label="Finish workout">Finish</button>
+        </div>
+      </div>
+
       {showPicker && (
         <ExercisePicker
           exercises={allExercises}
@@ -2626,9 +2707,53 @@ export default function ActiveWorkout() {
               />
             </div>
 
-            <Button unstyled className={styles.saveBtn} onClick={finishWorkout}>
-              Save Workout
-            </Button>
+            <div className={styles.finishActions}>
+              <Button unstyled className={styles.saveBtn} onClick={() => finishWorkout({ openShare: false })}>
+                Save
+              </Button>
+              <Button unstyled className={styles.saveBtn} onClick={() => finishWorkout({ openShare: true })}>
+                Save & Share
+              </Button>
+              <Button unstyled className={styles.saveBtnSecondary} onClick={() => finishWorkout({ openShare: false, navigateTo: '/calendar' })}>
+                Save & Plan Next
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showControlsSheet && (
+        <div className={styles.controlsOverlay} role="dialog" aria-modal="true" aria-label="Workout controls">
+          <div className={styles.controlsSheet}>
+            <div className={styles.controlsHeader}>
+              <div className={styles.controlsTitle}>Controls</div>
+              <button type="button" className={styles.controlsClose} onClick={() => setShowControlsSheet(false)} aria-label="Close controls">Close</button>
+            </div>
+            <div className={styles.controlsRow}>
+              <span className={styles.controlsLabel}>Auto-advance (weight → reps)</span>
+              <button
+                type="button"
+                className={`${styles.toggleBtn} ${prefAutoAdvance ? styles.toggleOn : ''}`}
+                onClick={() => setPrefAutoAdvance(v => !v)}
+                aria-pressed={prefAutoAdvance ? 'true' : 'false'}
+              >
+                {prefAutoAdvance ? 'On' : 'Off'}
+              </button>
+            </div>
+            <div className={styles.controlsRow}>
+              <span className={styles.controlsLabel}>Auto-next when filled</span>
+              <button
+                type="button"
+                className={`${styles.toggleBtn} ${prefAutoNext ? styles.toggleOn : ''}`}
+                onClick={() => setPrefAutoNext(v => !v)}
+                aria-pressed={prefAutoNext ? 'true' : 'false'}
+              >
+                {prefAutoNext ? 'On' : 'Off'}
+              </button>
+            </div>
+            <div className={styles.controlsHint}>
+              These apply to set entry on this device.
+            </div>
           </div>
         </div>
       )}

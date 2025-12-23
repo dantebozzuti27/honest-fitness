@@ -17,6 +17,7 @@ import { normalizeTemplateExercises } from '../utils/templateUtils'
 import SearchField from '../components/SearchField'
 import { getSystemFoods } from '../lib/foodLibrary'
 import { supabase } from '../lib/supabase'
+import { apiUrl } from '../lib/urlConfig'
 import {
   archiveProgram,
   createProgram,
@@ -300,7 +301,7 @@ export default function CoachStudio() {
         showToast('Not authenticated.', 'error')
         return
       }
-      const resp = await fetch(`/api/coach/enrollment-stats?programId=${encodeURIComponent(draft.id)}`, {
+      const resp = await fetch(apiUrl(`/api/coach/enrollment-stats?programId=${encodeURIComponent(draft.id)}`), {
         method: 'GET',
         headers: { Authorization: `Bearer ${token}` }
       })

@@ -5,11 +5,12 @@
 import { getConnectedAccount } from './wearables'
 import { requireSupabase } from './supabase'
 import { logDebug } from '../utils/logger'
+import { apiUrl, getPublicSiteUrl } from './urlConfig'
 
 // Get Oura config from environment
 const OURA_CLIENT_ID = import.meta.env.VITE_OURA_CLIENT_ID || ''
 const OURA_REDIRECT_URI = import.meta.env.VITE_OURA_REDIRECT_URI || 
-  (typeof window !== 'undefined' ? `${window.location.origin}/api/oura/callback` : '')
+  (typeof window !== 'undefined' ? `${getPublicSiteUrl()}/api/oura/callback` : '')
 
 // Debug logging (only in development)
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
@@ -58,7 +59,7 @@ export function connectOura(userId) {
     const accessToken = session?.access_token
     if (!accessToken) throw new Error('Authentication required')
 
-    const resp = await fetch('/api/oura/start', {
+    const resp = await fetch(apiUrl('/api/oura/start'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

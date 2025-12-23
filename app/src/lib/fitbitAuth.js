@@ -5,11 +5,12 @@
 import { getConnectedAccount } from './wearables'
 import { requireSupabase } from './supabase'
 import { logDebug } from '../utils/logger'
+import { apiUrl, getPublicSiteUrl } from './urlConfig'
 
 // Get Fitbit config from environment
 const FITBIT_CLIENT_ID = import.meta.env.VITE_FITBIT_CLIENT_ID || ''
 const FITBIT_REDIRECT_URI = import.meta.env.VITE_FITBIT_REDIRECT_URI || 
-  (typeof window !== 'undefined' ? `${window.location.origin}/api/fitbit/callback` : '')
+  (typeof window !== 'undefined' ? `${getPublicSiteUrl()}/api/fitbit/callback` : '')
 
 // Debug logging (only in development)
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
@@ -59,7 +60,7 @@ export function connectFitbit(userId) {
     const accessToken = session?.access_token
     if (!accessToken) throw new Error('Authentication required')
 
-    const resp = await fetch('/api/fitbit/start', {
+    const resp = await fetch(apiUrl('/api/fitbit/start'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -1,4 +1,5 @@
 import { requireSupabase } from './supabase'
+import { apiUrl } from './urlConfig'
 
 /**
  * Authenticated chat proxy to `/api/chat`
@@ -11,7 +12,7 @@ export async function chatWithAI({ messages, context }) {
   if (error) throw error
   if (!session?.access_token) throw new Error('Authentication required')
 
-  const response = await fetch('/api/chat', {
+  const response = await fetch(apiUrl('/api/chat'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

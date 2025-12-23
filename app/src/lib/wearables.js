@@ -3,6 +3,7 @@ import { getTodayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug } from '../utils/logger'
 import { checkRateLimit, getRemainingRequests } from './rateLimiter'
+import { apiUrl } from './urlConfig'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -252,7 +253,7 @@ export async function syncOuraData(userId, date = null) {
     const authToken = session?.access_token || ''
 
     // Use serverless function to proxy Oura API calls (avoids CORS)
-    const response = await fetch('/api/oura/sync', {
+    const response = await fetch(apiUrl('/api/oura/sync'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -433,7 +434,7 @@ async function refreshFitbitToken(userId, account) {
   // Refresh if expired or expires within 5 minutes
   if (!expiresAt || expiresAt <= new Date(now.getTime() + 5 * 60 * 1000)) {
     try {
-      const response = await fetch('/api/fitbit/refresh', {
+      const response = await fetch(apiUrl('/api/fitbit/refresh'), {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -486,7 +487,7 @@ export async function syncFitbitData(userId, date = null) {
     const authToken = session?.access_token || ''
     
     // Use serverless function to sync Fitbit data
-    const response = await fetch('/api/fitbit/sync', {
+    const response = await fetch(apiUrl('/api/fitbit/sync'), {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',

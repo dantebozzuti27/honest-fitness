@@ -8,10 +8,10 @@
  */
 
 import { requireSupabase } from './supabase'
+import { getApiBaseUrl } from './urlConfig'
 
-// Use relative path in production, absolute in development
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 
-  (import.meta.env.PROD ? '' : 'http://localhost:3001')
+// Web prod defaults to same-origin; native builds should set VITE_BACKEND_URL or VITE_PUBLIC_SITE_URL.
+const API_BASE = getApiBaseUrl()
 
 /**
  * Check if backend is available

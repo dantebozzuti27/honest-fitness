@@ -6,6 +6,7 @@
 import { getConnectedAccount, saveConnectedAccount } from './wearables'
 import { requireSupabase } from './supabase'
 import { logError } from '../utils/logger'
+import { apiUrl } from './urlConfig'
 
 /**
  * Check and refresh Fitbit token if needed
@@ -26,7 +27,7 @@ export async function checkAndRefreshFitbitToken(userId) {
     // Refresh if expired or expires within 15 minutes
     if (!expiresAt || expiresAt <= new Date(now.getTime() + 15 * 60 * 1000)) {
       try {
-        const response = await fetch('/api/fitbit/refresh', {
+        const response = await fetch(apiUrl('/api/fitbit/refresh'), {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
@@ -94,7 +95,7 @@ export async function refreshTokenIfNeeded(userId, provider, account) {
   // Token needs refresh
   if (provider === 'fitbit') {
     try {
-      const response = await fetch('/api/fitbit/refresh', {
+      const response = await fetch(apiUrl('/api/fitbit/refresh'), {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -119,7 +120,7 @@ export async function refreshTokenIfNeeded(userId, provider, account) {
     }
   } else if (provider === 'oura') {
     try {
-      const response = await fetch('/api/oura/refresh', {
+      const response = await fetch(apiUrl('/api/oura/refresh'), {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

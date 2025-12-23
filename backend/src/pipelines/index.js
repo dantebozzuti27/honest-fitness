@@ -56,6 +56,7 @@ export async function processBatchPipeline(type, rawDataArray, source = 'manual'
   }
   
   return {
+    success: true,
     processed: results.length,
     successful: results.filter(r => r.success).length,
     failed: results.filter(r => !r.success).length,

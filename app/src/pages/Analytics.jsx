@@ -61,6 +61,7 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import TextAreaField from '../components/TextAreaField'
 import Button from '../components/Button'
+import { openGoals, openHealthLog } from '../utils/navIntents'
 import styles from './Analytics.module.css'
 
 const TABS = ['Overview', 'Scan', 'History', 'Metrics', 'Trends']
@@ -1121,7 +1122,7 @@ export default function Analytics() {
               <h3>Goals Progress</h3>
               <button
                 className={styles.linkBtn}
-                onClick={() => navigate('/goals')}
+                onClick={() => openGoals(navigate)}
               >
                 View All →
               </button>
@@ -1764,7 +1765,7 @@ export default function Analytics() {
             title="No Metrics Yet"
             message="Log your health metrics like weight, sleep, and steps to see trends and insights."
             actionLabel="Log Metrics"
-            onAction={() => navigate('/health')}
+            onAction={() => openHealthLog(navigate)}
           />
         ) : (
           <>
@@ -1948,7 +1949,7 @@ export default function Analytics() {
                   insights={generateMetricInsights()}
                   primaryAction={{
                     label: 'Log Metrics',
-                    onClick: () => navigate('/health')
+                    onClick: () => openHealthLog(navigate)
                   }}
                   secondaryActions={[
                     {

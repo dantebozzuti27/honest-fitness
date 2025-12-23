@@ -27,6 +27,8 @@ import Modal from '../components/Modal'
 // All charts are now BarChart only
 import SearchField from '../components/SearchField'
 import { setLastQuickAction } from '../utils/quickActions'
+import { openGoals } from '../utils/navIntents'
+import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
 import styles from './Nutrition.module.css'
 
 const TABS = ['Today', 'History', 'Plan', 'Goals', 'Settings']
@@ -1221,7 +1223,8 @@ export default function Nutrition() {
   }, [meals])
 
   return (
-    <div className={styles.container}>
+    <SafeAreaScaffold>
+      <div className={styles.container}>
       <div className={styles.header}>
         <SideMenu />
         <h1>Nutrition</h1>
@@ -1819,7 +1822,7 @@ export default function Nutrition() {
                 <h3>Goals</h3>
                 <button
                   className={styles.goalsBtn}
-                  onClick={() => navigate('/goals')}
+                  onClick={() => openGoals(navigate)}
                 >
                   View All
                 </button>
@@ -2828,7 +2831,8 @@ export default function Nutrition() {
         )
       })()}
 
-    </div>
+      </div>
+    </SafeAreaScaffold>
   )
 }
 

@@ -2,6 +2,10 @@
   "name": "honest-fitness-api",
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "check:env": "node scripts/check-env.mjs",
+    "check:rls": "node scripts/check-rls-sql.mjs"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
     "cors": "^2.8.5",

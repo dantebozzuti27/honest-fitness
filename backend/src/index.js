@@ -9,6 +9,7 @@ import dotenv from 'dotenv'
 import { apiRouter } from './routes/api.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { apiLimiter } from './middleware/rateLimiter.js'
+import { requestId } from './middleware/requestId.js'
 import { logError, logInfo } from './utils/logger.js'
 
 dotenv.config()
@@ -25,6 +26,9 @@ if (process.env.NODE_ENV !== 'test') {
 
 const app = express()
 const PORT = process.env.PORT || 3001
+
+// Request ID (observability)
+app.use(requestId)
 
 // CORS configuration - only allow frontend origin
 const allowedOrigins = process.env.ALLOWED_ORIGINS 

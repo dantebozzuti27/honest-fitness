@@ -8,35 +8,35 @@ import { createSignedOAuthState } from '../_utils/oauthState.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed', success: false })
+    return res.status(405).json({ success: false, error: { message: 'Method not allowed', status: 405 } })
   }
 
   try {
     const authHeader = req.headers?.authorization || req.headers?.Authorization
     if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Missing authorization', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
     }
     const token = authHeader.slice('Bearer '.length).trim()
     if (!token) {
-      return res.status(401).json({ message: 'Missing authorization token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
     }
 
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ message: 'Server configuration error', success: false })
+      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey)
     const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
     if (userErr || !user?.id) {
-      return res.status(401).json({ message: 'Invalid or expired token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
 
     const clientId = process.env.FITBIT_CLIENT_ID || process.env.VITE_FITBIT_CLIENT_ID
     const redirectUri = process.env.FITBIT_REDIRECT_URI || process.env.VITE_FITBIT_REDIRECT_URI
     if (!clientId || !redirectUri) {
-      return res.status(500).json({ message: 'Fitbit OAuth not configured', success: false })
+      return res.status(500).json({ success: false, error: { message: 'Fitbit OAuth not configured', status: 500 } })
     }
 
     const secret = process.env.OAUTH_STATE_SECRET
@@ -55,7 +55,7 @@ export default async function handler(req, res) {
     const url = `https://www.fitbit.com/oauth2/authorize?${params.toString()}`
     return res.status(200).json({ success: true, url })
   } catch (error) {
-    return res.status(500).json({ message: error.message || 'Internal server error', success: false })
+    return res.status(500).json({ success: false, error: { message: error?.message || 'Internal server error', status: 500 } })
   }
 }
 

@@ -11,6 +11,7 @@
 import express from 'express'
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import OpenAI from 'openai'
+import { sendError, sendSuccess, wrapAsync } from '../utils/http.js'
 
 export const chatRouter = express.Router()
 
@@ -41,24 +42,24 @@ const chatLimiter = rateLimit({
   }
 })
 
-chatRouter.post('/', chatLimiter, async (req, res) => {
+chatRouter.post('/', chatLimiter, wrapAsync(async (req, res) => {
   const { messages, context } = req.body || {}
 
   if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ message: 'Invalid request', success: false })
+    return sendError(res, { status: 400, message: 'Invalid request' })
   }
   if (messages.length > 30) {
-    return res.status(400).json({ message: 'Too many messages', success: false })
+    return sendError(res, { status: 400, message: 'Too many messages' })
   }
 
   const last = messages[messages.length - 1]
   if (!last || typeof last.content !== 'string' || last.content.length > 8000) {
-    return res.status(400).json({ message: 'Invalid message content', success: false })
+    return sendError(res, { status: 400, message: 'Invalid message content' })
   }
 
   const openai = getOpenAIClient()
   if (!openai) {
-    return res.status(500).json({ message: 'AI service is not configured (missing OPENAI_API_KEY)', success: false })
+    return sendError(res, { status: 500, message: 'AI service is not configured (missing OPENAI_API_KEY)' })
   }
 
   const lastMessage = (last?.content || '').toString().toLowerCase()
@@ -114,16 +115,16 @@ ${context ? `\nUser context: ${context}` : ''}`
       temperature: 0.7
     })
   } catch (err) {
-    return res.status(502).json({
+    return sendError(res, {
+      status: 502,
       message: 'AI service temporarily unavailable. Please try again.',
-      success: false,
-      error: { message: err?.message }
+      details: process.env.NODE_ENV === 'development' ? { upstream: err?.message } : undefined
     })
   }
 
   const content = completion?.choices?.[0]?.message?.content?.trim?.()
   if (!content) {
-    return res.status(502).json({ message: 'Received invalid response from AI. Please try again.', success: false })
+    return sendError(res, { status: 502, message: 'Received invalid response from AI. Please try again.' })
   }
 
   // Try to parse workout JSON response when requested.
@@ -136,14 +137,14 @@ ${context ? `\nUser context: ${context}` : ''}`
       }
       const workout = JSON.parse(jsonStr)
       if (workout?.type === 'workout' && Array.isArray(workout.exercises) && workout.exercises.length > 0) {
-        return res.status(200).json({ message: content, workout })
+        return sendSuccess(res, { message: content, workout })
       }
     } catch {
       // Fall through to plain message.
     }
   }
 
-  return res.status(200).json({ message: content })
-})
+  return sendSuccess(res, { message: content })
+}))
 
 

@@ -20,7 +20,9 @@ function getSupabaseClient() {
   didInit = true
 
   const url = process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+  // SECURITY: use service role only for server-side DB operations.
+  // Do not fall back to anon keys in backend runtime.
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) return null
 
   supabase = createClient(url, key)

@@ -1,6 +1,6 @@
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
-    return res.status(405).json({ message: 'Method not allowed' })
+    return res.status(405).json({ success: false, error: { message: 'Method not allowed', status: 405 } })
   }
 
   try {
@@ -9,29 +9,29 @@ export default async function handler(req, res) {
     // -----------------------------
     const authHeader = req.headers?.authorization || req.headers?.Authorization
     if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Missing authorization', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
     }
     const token = authHeader.slice('Bearer '.length).trim()
     if (!token) {
-      return res.status(401).json({ message: 'Missing authorization token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
     }
 
     const programId = (req.query?.programId || '').toString().trim()
     if (!programId) {
-      return res.status(400).json({ message: 'Missing programId', success: false })
+      return res.status(400).json({ success: false, error: { message: 'Missing programId', status: 400 } })
     }
 
     const { createClient } = await import('@supabase/supabase-js')
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ message: 'Server configuration error', success: false })
+      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
     }
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
     if (userErr || !user) {
-      return res.status(401).json({ message: 'Invalid or expired token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
 
     // Verify caller owns the program.
@@ -42,7 +42,7 @@ export default async function handler(req, res) {
       .maybeSingle()
     if (programErr) throw programErr
     if (!program || program.coach_id !== user.id) {
-      return res.status(403).json({ message: 'Not allowed', success: false })
+      return res.status(403).json({ success: false, error: { message: 'Not allowed', status: 403 } })
     }
 
     const isoDay = (d) => {
@@ -180,7 +180,7 @@ export default async function handler(req, res) {
     })
   } catch (e) {
     console.error('coach/enrollment-stats error', e)
-    return res.status(500).json({ success: false, message: 'Server error' })
+    return res.status(500).json({ success: false, error: { message: 'Server error', status: 500 } })
   }
 }
 

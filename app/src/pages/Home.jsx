@@ -29,6 +29,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { nonBlocking } from '../utils/nonBlocking'
 import { getOutboxPendingCount, flushOutbox } from '../lib/syncOutbox'
 import { openCalendar, openHealth, openMealLog, openNutrition, openLogHub, startWorkout } from '../utils/navIntents'
+import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
 import styles from './Home.module.css'
 
 // Social is intentionally hidden for now (feature to ship later).
@@ -663,7 +664,8 @@ export default function Home() {
   }
 
   return (
-    <div className={styles.container}>
+    <SafeAreaScaffold>
+      <div className={styles.container}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={hideToast} />}
       <ConfirmDialog
         isOpen={confirmDialog.open}
@@ -1158,6 +1160,7 @@ export default function Home() {
           }}
         />
       )}
-    </div>
+      </div>
+    </SafeAreaScaffold>
   )
 }

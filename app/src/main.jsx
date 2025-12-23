@@ -7,6 +7,13 @@ import App from './App'
 import { supabaseConfigOk, supabaseConfigErrorMessage } from './lib/supabase'
 import './styles/global.css'
 
+// Perf mark: time from JS entry → first React mount (best-effort)
+try {
+  if (typeof window !== 'undefined' && typeof performance !== 'undefined') {
+    window.__HF_BOOT_START__ = performance.now()
+  }
+} catch {}
+
 /**
  * Service Worker strategy
  * - Register the (safe-mode) SW for faster repeat loads/offline resilience.

@@ -36,7 +36,8 @@ import { getWorkoutRecommendation } from '../lib/autoAdjust'
 import styles from './Health.module.css'
 import MetricPills from '../components/MetricPills'
 import { formatSleep, formatSteps, formatWeightLbs } from '../utils/metricFormatters'
-import { startWorkout } from '../utils/navIntents'
+import { openGoals, startWorkout } from '../utils/navIntents'
+import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
 
 const TABS = ['Today', 'History', 'Log', 'Goals']
 
@@ -537,21 +538,24 @@ export default function Health() {
 
   if (loading) {
     return (
-      <div className={styles.container}>
-        <div className={styles.loading} style={{ width: '100%' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <Skeleton style={{ width: '45%', height: 16 }} />
-            <Skeleton style={{ width: '100%', height: 120 }} />
-            <Skeleton style={{ width: '100%', height: 120 }} />
-            <Skeleton style={{ width: '70%', height: 16 }} />
+      <SafeAreaScaffold>
+        <div className={styles.container}>
+          <div className={styles.loading} style={{ width: '100%' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <Skeleton style={{ width: '45%', height: 16 }} />
+              <Skeleton style={{ width: '100%', height: 120 }} />
+              <Skeleton style={{ width: '100%', height: 120 }} />
+              <Skeleton style={{ width: '70%', height: 16 }} />
+            </div>
           </div>
         </div>
-      </div>
+      </SafeAreaScaffold>
     )
   }
 
   return (
-    <div className={styles.container}>
+    <SafeAreaScaffold>
+      <div className={styles.container}>
       <div className={styles.header}>
         <SideMenu />
         <h1>Health</h1>
@@ -1585,7 +1589,7 @@ export default function Health() {
                     <Button
                       unstyled
                       className={styles.linkBtn}
-                      onClick={() => navigate('/goals')}
+                      onClick={() => openGoals(navigate)}
                     >
                       View All →
                     </Button>
@@ -1623,7 +1627,7 @@ export default function Health() {
                   title="No health goals yet"
                   message="Create your first goal to start tracking progress over time."
                   actionLabel="Create goal"
-                  onAction={() => navigate('/goals')}
+                  onAction={() => openGoals(navigate)}
                 />
               </div>
             )}
@@ -2006,7 +2010,8 @@ export default function Health() {
         )
       })()}
 
-    </div>
+      </div>
+    </SafeAreaScaffold>
   )
 }
 

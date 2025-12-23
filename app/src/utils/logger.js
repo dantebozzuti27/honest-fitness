@@ -3,7 +3,8 @@
  * Centralized logging with environment-aware levels
  */
 
-const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development'
+const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {}
+const isDevelopment = Boolean(env.DEV || env.MODE === 'development')
 
 /**
  * Log levels

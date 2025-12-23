@@ -19,6 +19,18 @@ export function openLogHub(navigate) {
   navigate('/log')
 }
 
+export function openGoals(navigate, { state } = {}) {
+  navigate('/goals', state ? { state } : undefined)
+}
+
+export function openWearables(navigate) {
+  navigate('/wearables')
+}
+
+export function openFitness(navigate) {
+  navigate('/fitness')
+}
+
 export function openCalendar(navigate) {
   navigate('/calendar')
 }

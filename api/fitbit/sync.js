@@ -5,28 +5,28 @@
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed', success: false })
+    return res.status(405).json({ success: false, error: { message: 'Method not allowed', status: 405 } })
   }
 
   const { date } = req.body || {}
   if (!date) {
-    return res.status(400).json({ message: 'Missing date', success: false })
+    return res.status(400).json({ success: false, error: { message: 'Missing date', status: 400 } })
   }
 
   try {
     // Auth required; derive userId from JWT (never trust body userId)
     const authHeader = req.headers?.authorization || req.headers?.Authorization
     if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Missing authorization', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
     }
     const token = authHeader.slice('Bearer '.length).trim()
     if (!token) {
-      return res.status(401).json({ message: 'Missing authorization token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
     }
     
     // Validate date format
     if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ message: 'Invalid date format (expected YYYY-MM-DD)', success: false })
+      return res.status(400).json({ success: false, error: { message: 'Invalid date format (expected YYYY-MM-DD)', status: 400 } })
     }
     
     // Get Fitbit account from Supabase
@@ -40,18 +40,14 @@ export default async function handler(req, res) {
         hasUrl: !!supabaseUrl,
         hasKey: !!supabaseKey
       })
-      return res.status(500).json({ 
-        message: 'Server configuration error',
-        error: 'Missing Supabase credentials',
-        success: false
-      })
+      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
     }
     
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
     if (userErr || !user?.id) {
-      return res.status(401).json({ message: 'Invalid or expired token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
     const userId = user.id
 
@@ -65,19 +61,11 @@ export default async function handler(req, res) {
 
     if (accountError) {
       console.error('Error fetching Fitbit account:', accountError)
-      return res.status(500).json({ 
-        message: 'Database error',
-        error: accountError.message,
-        success: false
-      })
+      return res.status(500).json({ success: false, error: { message: 'Database error', status: 500 }, details: accountError.message })
     }
 
     if (!account) {
-      return res.status(404).json({ 
-        message: 'Fitbit account not connected',
-        error: 'Fitbit account not connected',
-        success: false
-      })
+      return res.status(404).json({ success: false, error: { message: 'Fitbit account not connected', status: 404 } })
     }
 
     // Check if token needs refresh (refresh if expires within 10 minutes)
@@ -347,9 +335,10 @@ export default async function handler(req, res) {
 
     if (healthMetricsError) {
       console.error('Error saving Fitbit data to health_metrics:', healthMetricsError)
-      return res.status(500).json({ 
-        message: 'Failed to save data',
-        error: healthMetricsError 
+      return res.status(500).json({
+        success: false,
+        error: { message: 'Failed to save data', status: 500 },
+        details: process.env.NODE_ENV === 'development' ? healthMetricsError : undefined
       })
     }
 
@@ -399,11 +388,10 @@ export default async function handler(req, res) {
       errorMessage = errorMsg
     }
     
-    return res.status(statusCode).json({ 
-      error: errorMessage,
+    return res.status(statusCode).json({
       success: false,
-      message: errorMessage,
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: { message: errorMessage, status: statusCode },
+      details: process.env.NODE_ENV === 'development' ? errorMsg : undefined
     })
   }
 }

@@ -1,4 +1,5 @@
-import { logDebug, logError, logWarn } from '../utils/logger'
+import { logDebug, logError, logWarn } from '../utils/logger.js'
+import { isUuidV4, uuidv4 } from '../utils/uuid.js'
 
 const OUTBOX_KEY = 'honest_outbox_v1'
 const MAX_ITEMS = 200
@@ -48,11 +49,43 @@ function nextAttemptAtMs(tries) {
 export function enqueueOutboxItem({ userId, kind, payload }) {
   if (!userId || !kind) return
   const now = Date.now()
+
+  // Normalize payloads for idempotency so retries don't create duplicates.
+  // This is especially important for:
+  // - workouts: inserts must be keyed by a stable UUID
+  // - feed items: inserts must be keyed by a stable UUID
+  // - meals: JSON array updates must use a stable meal.id to avoid duplicated meals
+  const normalizedPayload = (() => {
+    try {
+      if (kind === 'workout') {
+        const w = payload?.workout && typeof payload.workout === 'object' ? payload.workout : null
+        if (!w) return payload
+        const id = isUuidV4(w.id) ? w.id : uuidv4()
+        return { ...payload, workout: { ...w, id } }
+      }
+      if (kind === 'feed_item') {
+        const fi = payload?.feedItem && typeof payload.feedItem === 'object' ? payload.feedItem : null
+        if (!fi) return payload
+        const id = isUuidV4(fi.id) ? fi.id : uuidv4()
+        return { ...payload, feedItem: { ...fi, id } }
+      }
+      if (kind === 'meal') {
+        const m = payload?.meal && typeof payload.meal === 'object' ? payload.meal : null
+        if (!m) return payload
+        const id = typeof m.id === 'string' && m.id.trim() ? m.id : `meal_${now}_${Math.random().toString(16).slice(2)}`
+        return { ...payload, meal: { ...m, id } }
+      }
+      return payload
+    } catch {
+      return payload
+    }
+  })()
+
   const item = {
     id: `${kind}_${userId}_${now}_${Math.random().toString(16).slice(2)}`,
     userId,
     kind,
-    payload: payload ?? null,
+    payload: normalizedPayload ?? null,
     createdAt: now,
     tries: 0,
     nextAttemptAt: now // try asap

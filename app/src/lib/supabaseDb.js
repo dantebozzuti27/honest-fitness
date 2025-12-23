@@ -2,6 +2,7 @@ import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supaba
 import { getLocalDate, getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug, logWarn } from '../utils/logger'
+import { isUuidV4, uuidv4 } from '../utils/uuid'
 import { saveEnrichedData } from './dataEnrichment'
 import { trackEvent } from './eventTracking'
 import { enqueueOutboxItem } from './syncOutbox'
@@ -140,126 +141,83 @@ export async function saveWorkoutToSupabase(workout, userId) {
     ? 'recovery'
     : 'workout'
   
-  let workoutData
+  // Idempotency: always persist workouts with a stable UUID so retries don't create duplicates.
+  // - If caller provided a valid UUID, keep it.
+  // - Otherwise generate one (and use it for this write).
+  const workoutId = isUuidV4(workoutToSave?.id) ? workoutToSave.id : uuidv4()
 
-  // SAFETY: Never delete or overwrite workouts "by date".
-  // We only update a workout if the caller provides an explicit id; otherwise we insert a new row.
-  const explicitWorkoutId = workoutToSave?.id || workoutToSave?.workoutId || null
+  const upsertPayload = {
+    id: workoutId,
+    user_id: userId,
+    date: workoutToSave.date,
+    duration: workoutToSave.duration,
+    template_name: workoutToSave.templateName || null,
+    perceived_effort: workoutToSave.perceivedEffort || null,
+    mood_after: workoutToSave.moodAfter || null,
+    notes: workoutToSave.notes || null,
+    day_of_week: workoutToSave.dayOfWeek ?? null,
+    workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
+    workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null,
+    updated_at: new Date().toISOString()
+  }
 
-  if (explicitWorkoutId) {
-    // Replace exercises/sets for this workout id, then update the workout row.
-    const { data: oldExercises, error: exercisesError } = await supabase
-      .from('workout_exercises')
-      .select('id')
-      .eq('workout_id', explicitWorkoutId)
-
-    if (exercisesError) {
-      logError('Error fetching old exercises for workout update', exercisesError)
-      throw exercisesError
-    }
-
-    if (oldExercises && Array.isArray(oldExercises) && oldExercises.length > 0) {
-      const exerciseIds = oldExercises.map(ex => ex?.id).filter(id => id != null)
-      if (exerciseIds.length > 0) {
-        const { error: setsDeleteError } = await supabase
-          .from('workout_sets')
-          .delete()
-          .in('workout_exercise_id', exerciseIds)
-        if (setsDeleteError) {
-          logError('Error deleting workout sets', setsDeleteError)
-          throw setsDeleteError
-        }
-
-        const { error: exercisesDeleteError } = await supabase
-          .from('workout_exercises')
-          .delete()
-          .in('id', exerciseIds)
-        if (exercisesDeleteError) {
-          logError('Error deleting workout exercises', exercisesDeleteError)
-          throw exercisesDeleteError
-        }
-      }
-    }
-
-    const updatePayload = {
-      date: workoutToSave.date,
-      duration: workoutToSave.duration,
-      template_name: workoutToSave.templateName || null,
-      perceived_effort: workoutToSave.perceivedEffort || null,
-      mood_after: workoutToSave.moodAfter || null,
-      notes: workoutToSave.notes || null,
-      day_of_week: workoutToSave.dayOfWeek ?? null,
-      workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
-      workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null,
-      updated_at: new Date().toISOString()
-    }
-
-    let updatedWorkout = null
-    let updateError = null
-    try {
-      const { data, error } = await supabase
+  let workoutData = null
+  let workoutError = null
+  try {
+    const { data, error } = await supabase
+      .from('workouts')
+      .upsert({ ...upsertPayload, session_type: sessionType }, { onConflict: 'id' })
+      .select()
+      .single()
+    workoutData = data
+    workoutError = error
+    if (workoutError && (workoutError.code === '42703' || `${workoutError.message || ''}`.toLowerCase().includes('session_type'))) {
+      const retry = await supabase
         .from('workouts')
-        .update({ ...updatePayload, session_type: sessionType })
-        .eq('id', explicitWorkoutId)
+        .upsert(upsertPayload, { onConflict: 'id' })
         .select()
         .single()
-      updatedWorkout = data
-      updateError = error
-      if (updateError && (updateError.code === '42703' || `${updateError.message || ''}`.toLowerCase().includes('session_type'))) {
-        const retry = await supabase
-          .from('workouts')
-          .update(updatePayload)
-          .eq('id', explicitWorkoutId)
-          .select()
-          .single()
-        updatedWorkout = retry.data
-        updateError = retry.error
+      workoutData = retry.data
+      workoutError = retry.error
+    }
+  } catch (e) {
+    workoutError = e
+  }
+
+  if (workoutError) throw workoutError
+
+  // Replace exercises/sets for this workout id (safe for both new inserts and retries).
+  const { data: oldExercises, error: exercisesError } = await supabase
+    .from('workout_exercises')
+    .select('id')
+    .eq('workout_id', workoutData.id)
+
+  if (exercisesError) {
+    logError('Error fetching old exercises for workout upsert', exercisesError)
+    throw exercisesError
+  }
+
+  if (oldExercises && Array.isArray(oldExercises) && oldExercises.length > 0) {
+    const exerciseIds = oldExercises.map(ex => ex?.id).filter(id => id != null)
+    if (exerciseIds.length > 0) {
+      const { error: setsDeleteError } = await supabase
+        .from('workout_sets')
+        .delete()
+        .in('workout_exercise_id', exerciseIds)
+      if (setsDeleteError) {
+        logError('Error deleting workout sets', setsDeleteError)
+        throw setsDeleteError
       }
-    } catch (e) {
-      updateError = e
-    }
 
-    if (updateError) throw updateError
-    workoutData = updatedWorkout
-  } else {
-    const insertPayload = {
-      user_id: userId,
-      date: workoutToSave.date,
-      duration: workoutToSave.duration,
-      template_name: workoutToSave.templateName || null,
-      perceived_effort: workoutToSave.perceivedEffort || null,
-      mood_after: workoutToSave.moodAfter || null,
-      notes: workoutToSave.notes || null,
-      day_of_week: workoutToSave.dayOfWeek ?? null,
-      workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
-      workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null
-    }
-
-    let newWorkout = null
-    let workoutError = null
-    try {
-      const { data, error } = await supabase
-        .from('workouts')
-        .insert({ ...insertPayload, session_type: sessionType })
-        .select()
-        .single()
-      newWorkout = data
-      workoutError = error
-      if (workoutError && (workoutError.code === '42703' || `${workoutError.message || ''}`.toLowerCase().includes('session_type'))) {
-        const retry = await supabase
-          .from('workouts')
-          .insert(insertPayload)
-          .select()
-          .single()
-        newWorkout = retry.data
-        workoutError = retry.error
+      const { error: exercisesDeleteError } = await supabase
+        .from('workout_exercises')
+        .delete()
+        .in('id', exerciseIds)
+      if (exercisesDeleteError) {
+        logError('Error deleting workout exercises', exercisesDeleteError)
+        throw exercisesDeleteError
       }
-    } catch (e) {
-      workoutError = e
     }
-
-    if (workoutError) throw workoutError
-    workoutData = newWorkout
   }
   
   // Step 3: Enrich data (after saving to get workout ID)
@@ -1682,9 +1640,11 @@ export async function getDetailedBodyPartStats(userId) {
 export async function saveFeedItemToSupabase(feedItem, userId, options = {}) {
   const allowOutbox = options?.allowOutbox !== false
   try {
+    const feedItemId = isUuidV4(feedItem?.id) ? feedItem.id : uuidv4()
     const { data, error } = await supabase
       .from('feed_items')
-      .insert({
+      .upsert({
+        id: feedItemId,
         user_id: userId,
         type: feedItem.type,
         date: feedItem.date,
@@ -1693,7 +1653,7 @@ export async function saveFeedItemToSupabase(feedItem, userId, options = {}) {
         data: feedItem.data,
         shared: feedItem.shared !== false, // Default to true
         visibility: feedItem.visibility || 'public' // Default to public
-      })
+      }, { onConflict: 'id' })
       .select()
       .single()
 

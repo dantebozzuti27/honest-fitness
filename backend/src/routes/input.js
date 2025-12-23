@@ -10,11 +10,13 @@ import { fetchFitbitData } from '../integrations/fitbit.js'
 import { getFromDatabase } from '../database/index.js'
 import { createClient } from '@supabase/supabase-js'
 import { syncLimiter } from '../middleware/rateLimiter.js'
+import { sendError } from '../utils/http.js'
 
 export const inputRouter = express.Router()
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+// SECURITY: Server-side DB operations require the service role key.
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!supabaseUrl || !supabaseKey) {
   console.error('Missing Supabase credentials:', {
@@ -95,15 +97,15 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     const { date } = req.body || {}
     
     if (!date) {
-      return res.status(400).json({ error: 'Missing date' })
+      return sendError(res, { status: 400, message: 'Missing date' })
     }
     if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ error: 'Invalid date format (expected YYYY-MM-DD)' })
+      return sendError(res, { status: 400, message: 'Invalid date format (expected YYYY-MM-DD)' })
     }
     
     // Validate Supabase connection
     if (!supabase) {
-      return res.status(500).json({ error: 'Database connection error' })
+      return sendError(res, { status: 500, message: 'Database connection error' })
     }
     
     // Get Fitbit access token
@@ -116,13 +118,13 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     
     if (accountError) {
       if (accountError.code === 'PGRST116') {
-        return res.status(404).json({ error: 'Fitbit account not connected' })
+        return sendError(res, { status: 404, message: 'Fitbit account not connected' })
       }
       throw new Error(`Database error: ${accountError.message}`)
     }
     
     if (!account) {
-      return res.status(404).json({ error: 'Fitbit account not connected' })
+      return sendError(res, { status: 404, message: 'Fitbit account not connected' })
     }
     
     // Check if Fitbit credentials are configured
@@ -387,9 +389,9 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     }
     
     res.status(statusCode).json({ 
-      error: errorMessage,
       success: false,
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: { message: errorMessage, status: statusCode },
+      ...(process.env.NODE_ENV === 'development' ? { details: error.message } : {})
     })
   }
 })

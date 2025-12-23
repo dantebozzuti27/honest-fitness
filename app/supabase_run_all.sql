@@ -627,6 +627,12 @@ INSERT INTO food_categories (name) VALUES
 ('snacks'), ('desserts'), ('condiments'), ('other')
 ON CONFLICT (name) DO NOTHING;
 
+-- Enable RLS (reference table; read-only for clients)
+ALTER TABLE food_categories ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Anyone can view food categories" ON food_categories;
+CREATE POLICY "Anyone can view food categories" ON food_categories
+  FOR SELECT USING (true);
+
 -- Create Food Library Table
 CREATE TABLE IF NOT EXISTS food_library (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,

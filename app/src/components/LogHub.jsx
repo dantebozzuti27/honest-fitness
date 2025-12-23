@@ -8,31 +8,19 @@ import SideMenu from './SideMenu'
 import BackButton from './BackButton'
 import { flushOutbox, getOutboxPendingCount } from '../lib/syncOutbox'
 import { setLastQuickAction } from '../utils/quickActions'
-import { getDefaultMealType, openHealthLog, openMealLog, openLogHub, startWorkout } from '../utils/navIntents'
+import { getDefaultMealType, openHealthLog, openMealLog, startWorkout } from '../utils/navIntents'
+import SafeAreaScaffold from './ui/SafeAreaScaffold'
 import styles from './LogHub.module.css'
 
-/**
- * LogHub
- * One shared “log hub” used both as:
- * - Page: `/log`
- * - Bottom sheet: BottomNav Log button (QuickActionsModal wrapper)
- *
- * This removes duplicate “start workout / meal / metrics” wiring across surfaces.
- */
-export default function LogHub({ variant = 'page', onClose, pendingSyncCount: pendingSyncCountProp } = {}) {
+export default function LogHub() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
   const [pendingSyncCount, setPendingSyncCount] = useState(0)
   const [hasActiveWorkout, setHasActiveWorkout] = useState(false)
   const [checkingActive, setCheckingActive] = useState(false)
-  const closeBtnRef = useRef(null)
 
   useEffect(() => {
-    if (typeof pendingSyncCountProp === 'number') {
-      setPendingSyncCount(pendingSyncCountProp)
-      return
-    }
     const refresh = () => setPendingSyncCount(getOutboxPendingCount(user?.id))
     refresh()
     window.addEventListener('outboxUpdated', refresh)
@@ -41,11 +29,9 @@ export default function LogHub({ variant = 'page', onClose, pendingSyncCount: pe
       window.removeEventListener('outboxUpdated', refresh)
       window.removeEventListener('online', refresh)
     }
-  }, [pendingSyncCountProp, user?.id])
+  }, [user?.id])
 
-  // Only the sheet variant needs the “continue workout” affordance (click reduction).
   useEffect(() => {
-    if (variant !== 'sheet') return
     if (!user?.id) return
     let cancelled = false
     setCheckingActive(true)
@@ -64,7 +50,7 @@ export default function LogHub({ variant = 'page', onClose, pendingSyncCount: pe
       })
 
     return () => { cancelled = true }
-  }, [variant, user?.id])
+  }, [user?.id])
 
   const mealType = useMemo(() => getDefaultMealType(), [])
 
@@ -75,25 +61,19 @@ export default function LogHub({ variant = 'page', onClose, pendingSyncCount: pe
       subtitle: `Quick add (${mealType})`,
       onClick: () => {
         setLastQuickAction({ type: 'meal', mealType })
-        onClose?.()
         openMealLog(navigate, { mealType })
       }
     },
-    ...(variant === 'sheet'
-      ? [
-          hasActiveWorkout
-            ? {
-                id: 'continue',
-                title: 'Continue workout',
-                subtitle: 'Resume where you left off',
-                onClick: () => {
-                  setLastQuickAction({ type: 'continue_workout' })
-                  onClose?.()
-                  startWorkout(navigate, { mode: 'resume' })
-                }
-              }
-            : null
-        ].filter(Boolean)
+    ...(hasActiveWorkout
+      ? [{
+          id: 'continue',
+          title: 'Continue workout',
+          subtitle: 'Resume where you left off',
+          onClick: () => {
+            setLastQuickAction({ type: 'continue_workout' })
+            startWorkout(navigate, { mode: 'resume' })
+          }
+        }]
       : []),
     {
       id: 'workout',
@@ -101,7 +81,6 @@ export default function LogHub({ variant = 'page', onClose, pendingSyncCount: pe
       subtitle: 'Open the exercise picker',
       onClick: () => {
         setLastQuickAction({ type: 'start_workout', sessionType: 'workout' })
-        onClose?.()
         startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
       }
     },
@@ -111,7 +90,6 @@ export default function LogHub({ variant = 'page', onClose, pendingSyncCount: pe
       subtitle: 'Sauna, cold plunge, mobility, breathwork',
       onClick: () => {
         setLastQuickAction({ type: 'start_workout', sessionType: 'recovery' })
-        onClose?.()
         startWorkout(navigate, { mode: 'picker', sessionType: 'recovery' })
       }
     },
@@ -120,11 +98,10 @@ export default function LogHub({ variant = 'page', onClose, pendingSyncCount: pe
       title: 'Log metrics',
       subtitle: 'Weight, sleep, readiness, etc.',
       onClick: () => {
-        onClose?.()
         openHealthLog(navigate)
       }
     }
-  ]), [hasActiveWorkout, mealType, navigate, onClose, variant])
+  ]), [hasActiveWorkout, mealType, navigate])
 
   const handleSyncNow = async () => {
     if (!user?.id) return
@@ -147,73 +124,46 @@ export default function LogHub({ variant = 'page', onClose, pendingSyncCount: pe
     }
   }
 
-  const Header = () => {
-    if (variant === 'sheet') {
-      return (
-        <div className={styles.sheetHeader}>
-          <div className={styles.sheetTitle}>Log</div>
-          <button
-            ref={closeBtnRef}
-            className={styles.closeBtn}
-            onClick={() => onClose?.()}
-            aria-label="Close"
-            type="button"
-          >
-            ✕
-          </button>
-        </div>
-      )
-    }
-
-    return (
-      <header className={styles.pageHeader}>
-        <SideMenu />
-        <h1 className={styles.pageTitle}>Log</h1>
-        <BackButton />
-      </header>
-    )
-  }
+  const Header = () => (
+    <header className={styles.pageHeader}>
+      <SideMenu />
+      <h1 className={styles.pageTitle}>Log</h1>
+      <BackButton />
+    </header>
+  )
 
   return (
-    <div className={variant === 'sheet' ? styles.sheetContainer : styles.pageContainer}>
-      <Header />
+    <SafeAreaScaffold>
+      <div className={styles.pageContainer}>
+        <Header />
 
-      {pendingSyncCount > 0 && (
-        <div className={styles.syncRow} aria-label={`${pendingSyncCount} items pending sync`}>
-          <div className={styles.syncText}>Pending sync: {pendingSyncCount}</div>
-          <Button variant="secondary" size="sm" onClick={handleSyncNow}>
-            Sync now
-          </Button>
+        {pendingSyncCount > 0 && (
+          <div className={styles.syncRow} aria-label={`${pendingSyncCount} items pending sync`}>
+            <div className={styles.syncText}>Pending sync: {pendingSyncCount}</div>
+            <Button variant="secondary" size="sm" onClick={handleSyncNow}>
+              Sync now
+            </Button>
+          </div>
+        )}
+
+        <div className={styles.grid}>
+          {actions.map((c) => (
+            <button key={c.id} className={styles.card} onClick={c.onClick} type="button">
+              <div className={styles.cardTitle}>{c.title}</div>
+              <div className={styles.cardSubtitle}>{c.subtitle}</div>
+            </button>
+          ))}
         </div>
-      )}
 
-      <div className={variant === 'sheet' ? styles.sheetList : styles.grid}>
-        {actions.map((c) => (
-          <button key={c.id} className={variant === 'sheet' ? styles.actionCard : styles.card} onClick={c.onClick} type="button">
-            <div className={variant === 'sheet' ? styles.actionTitle : styles.cardTitle}>{c.title}</div>
-            <div className={variant === 'sheet' ? styles.actionSubtitle : styles.cardSubtitle}>{c.subtitle}</div>
-          </button>
-        ))}
+        {checkingActive ? <div className={styles.sheetHint}>Checking for an active workout…</div> : null}
+
+        {toast && (
+          <div className={styles.toastWrap}>
+            <Toast message={toast.message} type={toast.type} onClose={hideToast} />
+          </div>
+        )}
       </div>
-
-      {variant === 'sheet' && checkingActive ? (
-        <div className={styles.sheetHint}>Checking for an active workout…</div>
-      ) : null}
-
-      {variant === 'sheet' ? (
-        <div className={styles.sheetFooter}>
-          <button type="button" className={styles.moreBtn} onClick={() => { onClose?.(); openLogHub(navigate) }}>
-            More tools
-          </button>
-        </div>
-      ) : null}
-
-      {toast && (
-        <div className={styles.toastWrap}>
-          <Toast message={toast.message} type={toast.type} onClose={hideToast} />
-        </div>
-      )}
-    </div>
+    </SafeAreaScaffold>
   )
 }
 

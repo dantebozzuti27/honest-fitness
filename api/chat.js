@@ -1,6 +1,6 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' })
+    return res.status(405).json({ success: false, error: { message: 'Method not allowed', status: 405 } })
   }
 
   try {
@@ -9,23 +9,23 @@ export default async function handler(req, res) {
     // -----------------------------
     const authHeader = req.headers?.authorization || req.headers?.Authorization
     if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Missing authorization', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
     }
     const token = authHeader.slice('Bearer '.length).trim()
     if (!token) {
-      return res.status(401).json({ message: 'Missing authorization token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
     }
 
     const { createClient } = await import('@supabase/supabase-js')
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ message: 'Server configuration error', success: false })
+      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
     }
     const supabase = createClient(supabaseUrl, supabaseKey)
     const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
     if (userErr || !user) {
-      return res.status(401).json({ message: 'Invalid or expired token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
 
     // -----------------------------
@@ -36,21 +36,21 @@ export default async function handler(req, res) {
     const used = globalThis.__HF_CHAT_RL__.get(rlKey) || 0
     const MAX_PER_MIN = 20
     if (used >= MAX_PER_MIN) {
-      return res.status(429).json({ message: 'Rate limit exceeded. Please wait a minute and try again.', success: false })
+      return res.status(429).json({ success: false, error: { message: 'Rate limit exceeded. Please wait a minute and try again.', status: 429 } })
     }
     globalThis.__HF_CHAT_RL__.set(rlKey, used + 1)
 
     const { messages, context } = req.body
     
     if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ message: 'Invalid request' })
+      return res.status(400).json({ success: false, error: { message: 'Invalid request', status: 400 } })
     }
     if (messages.length > 30) {
-      return res.status(400).json({ message: 'Too many messages', success: false })
+      return res.status(400).json({ success: false, error: { message: 'Too many messages', status: 400 } })
     }
     const last = messages[messages.length - 1]
     if (!last || typeof last.content !== 'string' || last.content.length > 8000) {
-      return res.status(400).json({ message: 'Invalid message content', success: false })
+      return res.status(400).json({ success: false, error: { message: 'Invalid message content', status: 400 } })
     }
 
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || ''
@@ -99,7 +99,7 @@ ${context ? `\nUser context: ${context}` : ''}`
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
       console.error('OPENAI_API_KEY not set')
-      return res.status(500).json({ message: 'API configuration error. Please try again later.' })
+      return res.status(500).json({ success: false, error: { message: 'API configuration error. Please try again later.', status: 500 } })
     }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -122,14 +122,14 @@ ${context ? `\nUser context: ${context}` : ''}`
     if (!response.ok) {
       const errorText = await response.text()
       console.error('OpenAI API error:', response.status, errorText)
-      return res.status(500).json({ message: 'AI service temporarily unavailable. Please try again.' })
+      return res.status(502).json({ success: false, error: { message: 'AI service temporarily unavailable. Please try again.', status: 502 } })
     }
 
     const data = await response.json()
     
     if (!data.choices?.[0]?.message?.content) {
       console.error('Invalid OpenAI response:', data)
-      return res.status(500).json({ message: 'Received invalid response from AI. Please try again.' })
+      return res.status(502).json({ success: false, error: { message: 'Received invalid response from AI. Please try again.', status: 502 } })
     }
 
     const content = data.choices[0].message.content.trim()
@@ -146,7 +146,7 @@ ${context ? `\nUser context: ${context}` : ''}`
         
         const workout = JSON.parse(jsonStr)
         if (workout.type === 'workout' && Array.isArray(workout.exercises) && workout.exercises.length > 0) {
-          return res.status(200).json({ message: content, workout })
+          return res.status(200).json({ success: true, message: content, workout })
         }
       } catch (e) {
         console.error('Failed to parse workout JSON:', e.message)
@@ -154,10 +154,10 @@ ${context ? `\nUser context: ${context}` : ''}`
       }
     }
 
-    return res.status(200).json({ message: content })
+    return res.status(200).json({ success: true, message: content })
     
   } catch (error) {
     console.error('Chat handler error:', error)
-    return res.status(500).json({ message: 'Something went wrong. Please try again.' })
+    return res.status(500).json({ success: false, error: { message: 'Something went wrong. Please try again.', status: 500 } })
   }
 }

@@ -5,18 +5,18 @@
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' })
+    return res.status(405).json({ success: false, error: { message: 'Method not allowed', status: 405 } })
   }
 
   try {
     // Auth required; derive userId from JWT (never trust body userId)
     const authHeader = req.headers?.authorization || req.headers?.Authorization
     if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Missing authorization' })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
     }
     const token = authHeader.slice('Bearer '.length).trim()
     if (!token) {
-      return res.status(401).json({ message: 'Missing authorization token' })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
     }
 
     // SECURITY: Only use service role key (no fallback to anon key)
@@ -25,16 +25,13 @@ export default async function handler(req, res) {
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     
     if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ 
-        message: 'Server configuration error',
-        error: 'Missing Supabase credentials' 
-      })
+      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
     }
     
     const supabase = createClient(supabaseUrl, supabaseKey)
     const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
     if (userErr || !user?.id) {
-      return res.status(401).json({ message: 'Invalid or expired token' })
+      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
     const userId = user.id
 
@@ -47,10 +44,10 @@ export default async function handler(req, res) {
       .maybeSingle()
 
     if (acctErr) {
-      return res.status(500).json({ message: 'Database error', error: acctErr.message })
+      return res.status(500).json({ success: false, error: { message: 'Database error', status: 500 }, details: acctErr.message })
     }
     if (!account?.refresh_token) {
-      return res.status(400).json({ message: 'No refresh token available. Please reconnect your Fitbit account.' })
+      return res.status(400).json({ success: false, error: { message: 'No refresh token available. Please reconnect your Fitbit account.', status: 400 } })
     }
 
     // Refresh the token
@@ -70,9 +67,10 @@ export default async function handler(req, res) {
 
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.json().catch(() => ({}))
-      return res.status(401).json({ 
-        message: 'Failed to refresh token',
-        error: errorData 
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Failed to refresh token', status: 401 },
+        details: process.env.NODE_ENV === 'development' ? errorData : undefined
       })
     }
 
@@ -93,13 +91,15 @@ export default async function handler(req, res) {
       .eq('provider', 'fitbit')
 
     if (dbError) {
-      return res.status(500).json({ 
-        message: 'Failed to update tokens',
-        error: dbError 
+      return res.status(500).json({
+        success: false,
+        error: { message: 'Failed to update tokens', status: 500 },
+        details: process.env.NODE_ENV === 'development' ? dbError : undefined
       })
     }
 
     return res.status(200).json({
+      success: true,
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token,
       expires_at: expiresAt.toISOString()
@@ -107,9 +107,10 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Token refresh error:', error)
-    return res.status(500).json({ 
-      message: 'Internal server error',
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      error: { message: 'Internal server error', status: 500 },
+      details: process.env.NODE_ENV === 'development' ? error?.message : undefined
     })
   }
 }

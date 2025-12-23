@@ -5,28 +5,28 @@
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed', success: false })
+    return res.status(405).json({ success: false, error: { message: 'Method not allowed', status: 405 } })
   }
 
   const { date } = req.body || {}
   if (!date) {
-    return res.status(400).json({ message: 'Missing date', success: false })
+    return res.status(400).json({ success: false, error: { message: 'Missing date', status: 400 } })
   }
 
   try {
     // Auth required; derive userId from JWT (never trust body userId)
     const authHeader = req.headers?.authorization || req.headers?.Authorization
     if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Missing authorization', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
     }
     const token = authHeader.slice('Bearer '.length).trim()
     if (!token) {
-      return res.status(401).json({ message: 'Missing authorization token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
     }
     
     // Validate date format
     if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ message: 'Invalid date format (expected YYYY-MM-DD)', success: false })
+      return res.status(400).json({ success: false, error: { message: 'Invalid date format (expected YYYY-MM-DD)', status: 400 } })
     }
     
     // Get Oura account from Supabase
@@ -37,17 +37,13 @@ export default async function handler(req, res) {
     
     if (!supabaseUrl || !supabaseKey) {
       console.error('Missing Supabase credentials')
-      return res.status(500).json({ 
-        message: 'Server configuration error',
-        error: 'Missing Supabase credentials',
-        success: false
-      })
+      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
     }
     
     const supabase = createClient(supabaseUrl, supabaseKey)
     const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
     if (userErr || !user?.id) {
-      return res.status(401).json({ message: 'Invalid or expired token', success: false })
+      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
     const userId = user.id
 
@@ -60,10 +56,10 @@ export default async function handler(req, res) {
       .single()
     
     if (accountError || !account) {
-      return res.status(404).json({ 
-        message: 'Oura account not connected',
-        error: accountError?.message || 'Account not found',
-        success: false
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Oura account not connected', status: 404 },
+        details: process.env.NODE_ENV === 'development' ? (accountError?.message || 'Account not found') : undefined
       })
     }
 
@@ -131,17 +127,16 @@ export default async function handler(req, res) {
 
     if (!readinessResponse.ok) {
       if (readinessResponse.status === 401) {
-        return res.status(401).json({ 
-          message: 'Oura token expired. Please reconnect your account.',
-          error: 'Token expired',
-          success: false
+        return res.status(401).json({
+          success: false,
+          error: { message: 'Oura token expired. Please reconnect your account.', status: 401 }
         })
       }
       const errorText = await readinessResponse.text()
-      return res.status(readinessResponse.status).json({ 
-        message: `Oura API error: ${readinessResponse.statusText}`,
-        error: errorText,
-        success: false
+      return res.status(readinessResponse.status).json({
+        success: false,
+        error: { message: `Oura API error: ${readinessResponse.statusText}`, status: readinessResponse.status },
+        details: process.env.NODE_ENV === 'development' ? errorText : undefined
       })
     }
 
@@ -541,10 +536,10 @@ export default async function handler(req, res) {
 
     if (saveError) {
       console.error('Error saving Oura data:', saveError)
-      return res.status(500).json({ 
-        message: 'Failed to save data',
-        error: saveError.message,
-        success: false
+      return res.status(500).json({
+        success: false,
+        error: { message: 'Failed to save data', status: 500 },
+        details: process.env.NODE_ENV === 'development' ? saveError.message : undefined
       })
     }
 
@@ -558,10 +553,10 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Oura sync error:', error)
-    return res.status(500).json({ 
-      message: 'Internal server error',
-      error: error.message,
-      success: false
+    return res.status(500).json({
+      success: false,
+      error: { message: 'Internal server error', status: 500 },
+      details: process.env.NODE_ENV === 'development' ? error?.message : undefined
     })
   }
 }

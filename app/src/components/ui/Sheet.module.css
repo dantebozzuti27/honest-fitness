@@ -1,0 +1,25 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px 12px max(env(safe-area-inset-bottom, 0px), 12px);
+  z-index: var(--z-modal);
+}
+
+.sheet {
+  width: min(720px, 100%);
+  max-height: min(92dvh, 820px);
+  overflow: auto;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 10, 10, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.7);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+

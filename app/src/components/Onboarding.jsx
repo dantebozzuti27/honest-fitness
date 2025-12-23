@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferencesDb'
 import { logError } from '../utils/logger'
 import Modal from './Modal'
+import { openWearables, openFitness, openGoals } from '../utils/navIntents'
 import styles from './Onboarding.module.css'
 
 export default function Onboarding({ onComplete }) {
@@ -45,11 +46,11 @@ export default function Onboarding({ onComplete }) {
   const handleAction = (action) => {
     handleSkip()
     if (action === 'wearable') {
-      navigate('/wearables')
+      openWearables(navigate)
     } else if (action === 'workout') {
-      navigate('/fitness')
+      openFitness(navigate)
     } else if (action === 'goal') {
-      navigate('/goals')
+      openGoals(navigate)
     }
   }
 

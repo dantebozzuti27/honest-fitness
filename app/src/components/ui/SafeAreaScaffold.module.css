@@ -1,0 +1,14 @@
+.scaffold {
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/*
+  Reserve space for BottomNav + iOS safe area so page content doesn't end up
+  underneath fixed-position controls.
+*/
+.bottomSpacer {
+  height: calc(70px + env(safe-area-inset-bottom, 0px));
+}
+
+

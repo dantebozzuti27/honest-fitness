@@ -29,6 +29,7 @@ import { FitnessIcon } from '../components/Icons'
 import EmptyState from '../components/EmptyState'
 import Button from '../components/Button'
 import SearchField from '../components/SearchField'
+import { openGoals, openLogHub, openCalendar } from '../utils/navIntents'
 import styles from './Fitness.module.css'
 
 const TABS = ['Workout', 'Templates', 'History', 'Scheduled', 'Goals']
@@ -867,7 +868,7 @@ export default function Fitness() {
                 title="No sessions yet"
                 message="Log a workout or a recovery session to see your progress here."
                 actionLabel="Start session"
-                onAction={() => navigate('/log')}
+                onAction={() => openLogHub(navigate)}
               />
             ) : (
               <div className={styles.historyCards}>
@@ -918,7 +919,7 @@ export default function Fitness() {
           <div className={styles.scheduledContent}>
             <h2 className={styles.sectionTitle}>Scheduled Workouts</h2>
             <div style={{ marginBottom: '16px' }}>
-              <Button unstyled className={styles.goalsBtn} onClick={() => navigate('/calendar')}>
+              <Button unstyled className={styles.goalsBtn} onClick={() => openCalendar(navigate)}>
                 Schedule Workout
               </Button>
             </div>
@@ -933,7 +934,7 @@ export default function Fitness() {
                     title="No scheduled workouts"
                     message="Schedule workouts in Calendar to keep your week on track."
                     actionLabel="Open calendar"
-                    onAction={() => navigate('/calendar')}
+                    onAction={() => openCalendar(navigate)}
                   />
                 )
               }
@@ -1027,7 +1028,7 @@ export default function Fitness() {
                 >
                   Refresh
                 </Button>
-                <Button unstyled className={styles.goalsBtn} onClick={() => navigate('/goals')}>
+                <Button unstyled className={styles.goalsBtn} onClick={() => openGoals(navigate)}>
                   View All Goals
                 </Button>
               </div>

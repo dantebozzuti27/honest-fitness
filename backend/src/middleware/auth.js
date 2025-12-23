@@ -5,6 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { logError } from '../utils/logger.js'
+import { sendError } from '../utils/http.js'
 
 /**
  * IMPORTANT:
@@ -20,7 +21,9 @@ function getSupabaseAuthClient() {
   didInit = true
 
   const url = process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+  // SECURITY: for token verification, require explicit server-side key.
+  // Prefer SUPABASE_SERVICE_ROLE_KEY (available on the server) and do not fall back.
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) return null
 
   supabase = createClient(url, key)
@@ -35,12 +38,7 @@ export async function authenticate(req, res, next) {
     // Get token from Authorization header
     const authHeader = req.headers.authorization
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ 
-        error: { 
-          message: 'Missing or invalid authorization header',
-          status: 401 
-        } 
-      })
+      return sendError(res, { status: 401, message: 'Missing or invalid authorization header' })
     }
 
     const token = authHeader.substring(7) // Remove 'Bearer ' prefix
@@ -49,23 +47,13 @@ export async function authenticate(req, res, next) {
     const client = getSupabaseAuthClient()
     if (!client) {
       logError('Auth not configured: missing SUPABASE_URL / SUPABASE_*_KEY')
-      return res.status(500).json({
-        error: {
-          message: 'Server authentication is not configured',
-          status: 500
-        }
-      })
+      return sendError(res, { status: 500, message: 'Server authentication is not configured' })
     }
 
     const { data: { user }, error } = await client.auth.getUser(token)
 
     if (error || !user) {
-      return res.status(401).json({ 
-        error: { 
-          message: 'Invalid or expired token',
-          status: 401 
-        } 
-      })
+      return sendError(res, { status: 401, message: 'Invalid or expired token' })
     }
 
     // Attach user to request object
@@ -75,12 +63,7 @@ export async function authenticate(req, res, next) {
     next()
   } catch (error) {
     logError('Authentication error', error)
-    return res.status(500).json({ 
-      error: { 
-        message: 'Authentication failed',
-        status: 500 
-      } 
-    })
+    return sendError(res, { status: 500, message: 'Authentication failed' })
   }
 }
 

@@ -9,6 +9,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import CommandPalette from './components/CommandPalette'
 import DebugOverlay from './components/DebugOverlay'
 import { logWarn, logError } from './utils/logger'
+import { budgetForRouteKey, reportPerfBudget, routeKeyFromPath } from './utils/perfBudget'
 
 // Lazy load heavy components for code splitting
 const Home = lazy(() => import('./pages/Home'))
@@ -69,6 +70,23 @@ export default function App() {
   const [checkingOnboarding, setCheckingOnboarding] = useState(false)
   const lastRouteMarkRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now())
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const bootReportedRef = useRef(false)
+
+  // Startup perf (best-effort). Logs always; telemetry only when enabled.
+  useEffect(() => {
+    if (bootReportedRef.current) return
+    bootReportedRef.current = true
+    try {
+      const start = typeof window !== 'undefined' ? window.__HF_BOOT_START__ : null
+      if (typeof start !== 'number') return
+      const end = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      const bootMs = Math.max(0, end - start)
+      const budgetMs = 2500
+      reportPerfBudget({ kind: 'startup', ms: bootMs, budgetMs })
+    } catch {
+      // ignore
+    }
+  }, [])
   
   // Track page views on route change
   useEffect(() => {
@@ -82,6 +100,16 @@ export default function App() {
           const routeRenderMs = Math.max(0, end - start)
           const deltaSinceLastRouteMs = Math.max(0, start - (lastRouteMarkRef.current || start))
           lastRouteMarkRef.current = start
+          const routeKey = routeKeyFromPath(location.pathname)
+          const budgetMs = budgetForRouteKey(routeKey)
+          if (budgetMs != null) {
+            reportPerfBudget({
+              kind: `route:${routeKey}`,
+              ms: routeRenderMs,
+              budgetMs,
+              meta: { path: location.pathname }
+            })
+          }
           // Lazy-load analytics to keep initial bundle small.
           import('./lib/eventTracking')
             .then(({ trackPageView }) => {
@@ -89,7 +117,9 @@ export default function App() {
                 path: location.pathname,
                 search: location.search,
                 route_render_ms: Math.round(routeRenderMs),
-                route_delta_ms: Math.round(deltaSinceLastRouteMs)
+                route_delta_ms: Math.round(deltaSinceLastRouteMs),
+                route_budget_ms: budgetMs != null ? Math.round(budgetMs) : null,
+                route_budget_exceeded: budgetMs != null ? (routeRenderMs > budgetMs) : null
               })
             })
             .catch(() => {})

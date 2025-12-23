@@ -20,7 +20,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Modal from '../components/Modal'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
-import { startWorkout } from '../utils/navIntents'
+import { openGoals, openNutrition, startWorkout } from '../utils/navIntents'
 import styles from './Calendar.module.css'
 
 export default function Calendar() {
@@ -197,11 +197,11 @@ export default function Calendar() {
   }
 
   const handleScheduleGoal = () => {
-    navigate('/goals')
+    openGoals(navigate)
   }
 
   const handleScheduleMeal = () => {
-    navigate('/nutrition')
+    openNutrition(navigate)
   }
 
   const handleSchedule = async (templateId) => {
@@ -422,14 +422,14 @@ export default function Calendar() {
                 {showScheduler === 'meal' && (
                   <div className={styles.scheduleOptions}>
                     <button className={styles.scheduleBtn} onClick={() => {
-                      navigate('/nutrition')
+                      openNutrition(navigate)
                       closeModal()
                     }}>
                       Log Meal
                     </button>
                     <button className={styles.scheduleBtn} onClick={() => {
                       // Create a meal plan goal
-                      navigate('/goals', { state: { createMealPlan: true, date: selectedDate } })
+                      openGoals(navigate, { state: { createMealPlan: true, date: selectedDate } })
                       closeModal()
                     }}>
                       Create Meal Plan
@@ -439,7 +439,7 @@ export default function Calendar() {
                 )}
                 {showScheduler === 'goal' && (
                   <div className={styles.scheduleOptions}>
-                    <button className={styles.scheduleBtn} onClick={() => navigate('/goals')}>
+                    <button className={styles.scheduleBtn} onClick={() => openGoals(navigate)}>
                       Create Goal
                     </button>
                     <p className={styles.scheduleNote}>Goals sync to Fitness, Health, Nutrition, and Analytics pages</p>

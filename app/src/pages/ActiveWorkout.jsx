@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getTemplate, getAllExercises, saveWorkout } from '../db/lazyDb'
 import { 
@@ -29,7 +29,74 @@ import ShareModal from '../components/ShareModal'
 import { shareWorkoutToFeed } from '../utils/shareUtils'
 import { setLastQuickAction } from '../utils/quickActions'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
+import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
+import Sheet from '../components/ui/Sheet'
+import { uuidv4 } from '../utils/uuid'
 import styles from './ActiveWorkout.module.css'
+
+function normalizeActiveWorkoutEntry(location) {
+  const rawState = location?.state
+  const state = rawState && typeof rawState === 'object' ? rawState : {}
+
+  const qs = (() => {
+    try {
+      return new URLSearchParams(location?.search || '')
+    } catch {
+      return new URLSearchParams('')
+    }
+  })()
+
+  const sessionTypeRaw = (state.sessionType || '').toString().toLowerCase()
+  const sessionTypeProvided = sessionTypeRaw === 'workout' || sessionTypeRaw === 'recovery'
+  const sessionType = sessionTypeRaw === 'recovery' ? 'recovery' : 'workout'
+
+  const templateId = typeof state.templateId === 'string' && state.templateId.trim() ? state.templateId.trim() : null
+  const aiWorkout = state.aiWorkout && typeof state.aiWorkout === 'object' ? state.aiWorkout : null
+
+  const randomWorkout = (() => {
+    if (state.randomWorkout === true) return true
+    if (state.randomWorkout && typeof state.randomWorkout === 'object') return state.randomWorkout
+    return null
+  })()
+
+  const quickAddExerciseName = (() => {
+    if (typeof state.quickAddExerciseName === 'string' && state.quickAddExerciseName.trim()) {
+      return state.quickAddExerciseName.trim()
+    }
+    const fromQuery = (qs.get('exercise') || '').toString().trim()
+    return fromQuery ? fromQuery : null
+  })()
+
+  const openPickerOnLoad =
+    state.openPicker === true ||
+    qs.get('quick') === '1' ||
+    qs.get('picker') === '1'
+
+  const resumePaused = state.resumePaused === true
+
+  // Derive a single “entry mode” even if multiple fields are present.
+  // Priority is deterministic so behavior stays stable across refactors.
+  const mode = (() => {
+    if (templateId) return 'template'
+    if (aiWorkout) return 'ai'
+    if (randomWorkout) return 'random'
+    if (quickAddExerciseName) return 'quick_add_exercise'
+    if (openPickerOnLoad) return 'picker'
+    return 'resume'
+  })()
+
+  return {
+    sessionType,
+    sessionTypeProvided,
+    templateId,
+    aiWorkout,
+    randomWorkout,
+    quickAddExerciseName,
+    openPickerOnLoad,
+    resumePaused,
+    mode
+  }
+}
 
 export default function ActiveWorkout() {
   const navigate = useNavigate()
@@ -37,26 +104,13 @@ export default function ActiveWorkout() {
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
   const userId = user?.id || null
-  const templateId = location.state?.templateId
-  const randomWorkout = location.state?.randomWorkout
-  const aiWorkout = location.state?.aiWorkout
-  const initialSessionType = location.state?.sessionType
-  const openPickerOnLoad = location.state?.openPicker === true || (() => {
-    try {
-      const p = new URLSearchParams(location.search || '')
-      return p.get('quick') === '1' || p.get('picker') === '1'
-    } catch {
-      return false
-    }
-  })()
-  const quickAddExerciseName = location.state?.quickAddExerciseName || (() => {
-    try {
-      const p = new URLSearchParams(location.search || '')
-      return p.get('exercise') || null
-    } catch {
-      return null
-    }
-  })()
+  const entry = useMemo(() => normalizeActiveWorkoutEntry(location), [location.key])
+  const templateId = entry.templateId
+  const randomWorkout = entry.randomWorkout
+  const aiWorkout = entry.aiWorkout
+  const initialSessionType = entry.sessionTypeProvided ? entry.sessionType : null
+  const openPickerOnLoad = entry.openPickerOnLoad
+  const quickAddExerciseName = entry.quickAddExerciseName
 
   // Learn "repeat last action" from all workout entry paths (not just Quick Actions).
   useEffect(() => {
@@ -111,13 +165,23 @@ export default function ActiveWorkout() {
 
   // Session type must be declared before any effects that reference it (dependency arrays are evaluated during render).
   const [sessionType, setSessionType] = useState(
-    (initialSessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout'
+    entry.sessionType
   ) // 'workout' | 'recovery'
   const [sessionTypeMode, setSessionTypeMode] = useState(
-    initialSessionType ? 'manual' : 'auto'
+    entry.sessionTypeProvided ? 'manual' : 'auto'
   ) // 'auto' | 'manual'
   const [isPaused, setIsPaused] = useState(false)
   const [pausedTime, setPausedTime] = useState(0) // Accumulated paused time
+
+  // If the user navigates to this route again with a different explicit session type,
+  // update our state deterministically. (Otherwise keep existing session state.)
+  useEffect(() => {
+    if (!entry.sessionTypeProvided) return
+    setSessionType(entry.sessionType)
+    setSessionTypeMode('manual')
+    // Only react to explicit navigation changes, not local state updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key])
   const [isSaving, setIsSaving] = useState(false)
   const [calculatedWorkoutMetrics, setCalculatedWorkoutMetrics] = useState({ calories: null, steps: null }) // Calculated workout metrics for display
   const pauseStartTime = useRef(null)
@@ -1926,6 +1990,7 @@ export default function ActiveWorkout() {
     }
     
     const workout = {
+      id: uuidv4(),
       date: getTodayEST(),
       duration: workoutTime,
       templateName: sessionType === 'recovery' ? 'Recovery Session' : (templateId || 'Freestyle'),
@@ -2344,7 +2409,8 @@ export default function ActiveWorkout() {
     : renderItems
 
   return (
-    <div className={styles.container}>
+    <SafeAreaScaffold>
+      <div className={styles.container}>
       {showTimesUp && (
         <div className={styles.timesUpOverlay}>
           <span className={styles.timesUpText}>Times up, back to work</span>
@@ -2825,39 +2891,42 @@ export default function ActiveWorkout() {
       )}
 
       {showControlsSheet && (
-        <div className={styles.controlsOverlay} role="dialog" aria-modal="true" aria-label="Workout controls">
-          <div className={styles.controlsSheet}>
-            <div className={styles.controlsHeader}>
-              <div className={styles.controlsTitle}>Controls</div>
-              <button type="button" className={styles.controlsClose} onClick={() => setShowControlsSheet(false)} aria-label="Close controls">Close</button>
-            </div>
-            <div className={styles.controlsRow}>
-              <span className={styles.controlsLabel}>Auto-advance (weight → reps)</span>
-              <button
-                type="button"
-                className={`${styles.toggleBtn} ${prefAutoAdvance ? styles.toggleOn : ''}`}
-                onClick={() => setPrefAutoAdvance(v => !v)}
-                aria-pressed={prefAutoAdvance ? 'true' : 'false'}
-              >
-                {prefAutoAdvance ? 'On' : 'Off'}
-              </button>
-            </div>
-            <div className={styles.controlsRow}>
-              <span className={styles.controlsLabel}>Auto-next when filled</span>
-              <button
-                type="button"
-                className={`${styles.toggleBtn} ${prefAutoNext ? styles.toggleOn : ''}`}
-                onClick={() => setPrefAutoNext(v => !v)}
-                aria-pressed={prefAutoNext ? 'true' : 'false'}
-              >
-                {prefAutoNext ? 'On' : 'Off'}
-              </button>
-            </div>
-            <div className={styles.controlsHint}>
-              These apply to set entry on this device.
-            </div>
+        <Sheet
+          isOpen={showControlsSheet}
+          onClose={() => setShowControlsSheet(false)}
+          ariaLabel="Workout controls"
+          contentClassName={styles.controlsSheet}
+        >
+          <div className={styles.controlsHeader}>
+            <div className={styles.controlsTitle}>Controls</div>
+            <button type="button" className={styles.controlsClose} onClick={() => setShowControlsSheet(false)} aria-label="Close controls">Close</button>
           </div>
-        </div>
+          <div className={styles.controlsRow}>
+            <span className={styles.controlsLabel}>Auto-advance (weight → reps)</span>
+            <button
+              type="button"
+              className={`${styles.toggleBtn} ${prefAutoAdvance ? styles.toggleOn : ''}`}
+              onClick={() => setPrefAutoAdvance(v => !v)}
+              aria-pressed={prefAutoAdvance ? 'true' : 'false'}
+            >
+              {prefAutoAdvance ? 'On' : 'Off'}
+            </button>
+          </div>
+          <div className={styles.controlsRow}>
+            <span className={styles.controlsLabel}>Auto-next when filled</span>
+            <button
+              type="button"
+              className={`${styles.toggleBtn} ${prefAutoNext ? styles.toggleOn : ''}`}
+              onClick={() => setPrefAutoNext(v => !v)}
+              aria-pressed={prefAutoNext ? 'true' : 'false'}
+            >
+              {prefAutoNext ? 'On' : 'Off'}
+            </button>
+          </div>
+          <div className={styles.controlsHint}>
+            These apply to set entry on this device.
+          </div>
+        </Sheet>
       )}
 
       {/* Share Modal */}
@@ -2901,7 +2970,8 @@ export default function ActiveWorkout() {
         onClose={() => resolveConfirm(false)}
         onConfirm={() => resolveConfirm(true)}
       />
-    </div>
+      </div>
+    </SafeAreaScaffold>
   )
 }
 

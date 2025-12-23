@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { HomeIcon, AnalyticsIcon, ProfileIcon } from './Icons'
 import { useAuth } from '../context/AuthContext'
 import { getOutboxPendingCount } from '../lib/syncOutbox'
-import QuickActionsModal from './QuickActionsModal'
 import { useHaptic } from '../hooks/useHaptic'
 import { getLastQuickAction } from '../utils/quickActions'
 import { openMealLog, startWorkout } from '../utils/navIntents'
@@ -14,7 +13,6 @@ export default function BottomNav() {
   const location = useLocation()
   const { user } = useAuth()
   const [pendingSyncCount, setPendingSyncCount] = useState(0)
-  const [quickOpen, setQuickOpen] = useState(false)
   const haptics = useHaptic()
   const longPressTimerRef = useRef(null)
   const longPressTriggeredRef = useRef(false)
@@ -65,7 +63,7 @@ export default function BottomNav() {
           longPressTriggeredRef.current = false
           return
         }
-        setQuickOpen(true)
+        navigate('/log')
         return
       }
       navigate(item.path)
@@ -76,7 +74,7 @@ export default function BottomNav() {
     const action = getLastQuickAction()
 
     if (!action?.type) {
-      setQuickOpen(true)
+      navigate('/log')
       return
     }
 
@@ -101,7 +99,7 @@ export default function BottomNav() {
     }
 
     // Unknown type -> fall back to the sheet
-    setQuickOpen(true)
+    navigate('/log')
   }
 
   const startLongPress = () => {
@@ -158,11 +156,6 @@ export default function BottomNav() {
           </button>
         ))}
       </nav>
-      <QuickActionsModal
-        isOpen={quickOpen}
-        onClose={() => setQuickOpen(false)}
-        pendingSyncCount={pendingSyncCount}
-      />
     </>
   )
 }

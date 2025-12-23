@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Modal from './Modal'
-import { openCalendar, openNutrition, openHealth, startWorkout } from '../utils/navIntents'
+import { openCalendar, openNutrition, openHealth, openLogHub, startWorkout } from '../utils/navIntents'
 import styles from './CommandPalette.module.css'
 
 export default function CommandPalette({ isOpen, onClose }) {
@@ -15,7 +15,7 @@ export default function CommandPalette({ isOpen, onClose }) {
 
   const actions = useMemo(() => ([
     { id: 'today', label: 'Go to Today', hint: '/', run: () => navigate('/') },
-    { id: 'log', label: 'Go to Log', hint: '/log', run: () => navigate('/log') },
+    { id: 'log', label: 'Go to Log', hint: '/log', run: () => openLogHub(navigate) },
     { id: 'train', label: 'Start Workout', hint: '/workout/active', run: () => startWorkout(navigate, { mode: 'picker', sessionType: 'workout' }) },
     { id: 'recover', label: 'Start Recovery', hint: '/workout/active', run: () => startWorkout(navigate, { mode: 'picker', sessionType: 'recovery' }) },
     { id: 'search_exercises', label: 'Search Exercises', hint: 'opens picker', run: () => startWorkout(navigate, { mode: 'picker', sessionType: 'workout' }) },

@@ -4,6 +4,7 @@
 
 import express from 'express'
 import { processDataPipeline, processBatchPipeline } from '../pipelines/index.js'
+import { sendSuccess } from '../utils/http.js'
 
 export const pipelineRouter = express.Router()
 
@@ -12,7 +13,8 @@ pipelineRouter.post('/process', async (req, res, next) => {
   try {
     const { type, data, source } = req.body
     const result = await processDataPipeline(type, data, source)
-    res.json(result)
+    // result already includes success:true
+    return sendSuccess(res, result)
   } catch (error) {
     next(error)
   }
@@ -23,7 +25,8 @@ pipelineRouter.post('/process-batch', async (req, res, next) => {
   try {
     const { type, data, source } = req.body
     const result = await processBatchPipeline(type, data, source)
-    res.json(result)
+    // result includes success:true
+    return sendSuccess(res, result)
   } catch (error) {
     next(error)
   }

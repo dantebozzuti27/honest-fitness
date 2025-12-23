@@ -10,6 +10,9 @@
   background: var(--bg-secondary);
   box-sizing: border-box;
   overflow: hidden; /* guarantees no text/icon overlap in tight containers */
+  /* Crucial for flex parents: allow the search to actually take available width */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .leftIcon {
@@ -34,9 +37,8 @@
   font-size: 16px;
   box-sizing: border-box;
   line-height: 1.2;
+  /* Let the native input handle horizontal scrolling; don't clip after 1 char on narrow layouts */
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .input::placeholder {

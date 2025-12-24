@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -38,13 +38,38 @@ export function useModalA11y({
   closeOnEscape = true,
   trapFocus = true
 }) {
+  // Keep latest callbacks/options without re-running the "open" effect on each render.
+  const onCloseRef = useRef(onClose)
+  const closeOnEscapeRef = useRef(closeOnEscape)
+  const trapFocusRef = useRef(trapFocus)
+  const restoreFocusRef = useRef(restoreFocus)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+  useEffect(() => {
+    closeOnEscapeRef.current = closeOnEscape
+  }, [closeOnEscape])
+  useEffect(() => {
+    trapFocusRef.current = trapFocus
+  }, [trapFocus])
+  useEffect(() => {
+    restoreFocusRef.current = restoreFocus
+  }, [restoreFocus])
+
   useEffect(() => {
     if (!open) return
+
     const container = containerRef?.current
     const previouslyFocused = document.activeElement
 
-    // Focus something inside the modal ASAP.
+    // Focus something inside the modal ASAP (only when the modal opens).
+    // Crucially: do NOT re-run this on each render while open, or typing in a controlled
+    // input can cause focus to "jump" (especially on iOS) when parent callbacks change.
     queueMicrotask(() => {
+      const active = document.activeElement
+      if (container && active && container.contains(active)) return
+
       const initial = initialFocusRef?.current
       if (initial && typeof initial.focus === 'function') {
         initial.focus()
@@ -55,18 +80,18 @@ export function useModalA11y({
     })
 
     const onKeyDown = (e) => {
-      if (!open) return
+      const currentContainer = containerRef?.current
 
-      if (closeOnEscape && e.key === 'Escape') {
+      if (closeOnEscapeRef.current && e.key === 'Escape') {
         e.preventDefault()
-        onClose?.()
+        onCloseRef.current?.()
         return
       }
 
-      if (!trapFocus || e.key !== 'Tab') return
-      if (!container) return
+      if (!trapFocusRef.current || e.key !== 'Tab') return
+      if (!currentContainer) return
 
-      const focusable = getFocusable(container)
+      const focusable = getFocusable(currentContainer)
       if (focusable.length === 0) {
         e.preventDefault()
         return
@@ -77,7 +102,7 @@ export function useModalA11y({
       const active = document.activeElement
 
       // If focus somehow escapes, bring it back in.
-      if (!container.contains(active)) {
+      if (!currentContainer.contains(active)) {
         e.preventDefault()
         first.focus()
         return
@@ -99,7 +124,7 @@ export function useModalA11y({
     document.addEventListener('keydown', onKeyDown, true)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
-      if (restoreFocus && previouslyFocused && typeof previouslyFocused.focus === 'function') {
+      if (restoreFocusRef.current && previouslyFocused && typeof previouslyFocused.focus === 'function') {
         try {
           previouslyFocused.focus()
         } catch {
@@ -107,7 +132,7 @@ export function useModalA11y({
         }
       }
     }
-  }, [open, onClose, containerRef, initialFocusRef, restoreFocus, closeOnEscape, trapFocus])
+  }, [open, containerRef, initialFocusRef])
 }
 
 

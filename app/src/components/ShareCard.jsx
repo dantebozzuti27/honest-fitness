@@ -339,6 +339,7 @@ export default function ShareCard({ type, data, theme = 'default', showAchieveme
                   firstRoundSets.forEach((set, idx) => {
                     const member = ex.stackMembers[idx]
                     if (!member) return
+                    const isBW = String(set?.weight || '').trim().toUpperCase() === 'BW'
                     
                     if (set.reps != null && set.reps !== '') {
                       const weight = set.weight ? `×${set.weight}` : ''
@@ -348,7 +349,7 @@ export default function ShareCard({ type, data, theme = 'default', showAchieveme
                       const minutes = (timeSeconds / 60).toFixed(1)
                       parts.push(`${minutes}m`)
                     } else if (set.weight != null && set.weight !== '') {
-                      parts.push(`${set.weight}lbs`)
+                      parts.push(isBW ? 'BW' : `${set.weight}lbs`)
                     }
                   })
                   
@@ -399,8 +400,13 @@ export default function ShareCard({ type, data, theme = 'default', showAchieveme
                     }
                   } else if (firstSet.weight != null && firstSet.weight !== '') {
                     const displayValue = firstSet.weight
-                    const displayLabel = 'lbs'
-                    displayText = `${setCount} × ${displayValue} ${displayLabel}`
+                    const isBW = String(displayValue || '').trim().toUpperCase() === 'BW'
+                    if (isBW) {
+                      displayText = `${setCount} × BW`
+                    } else {
+                      const displayLabel = 'lbs'
+                      displayText = `${setCount} × ${displayValue} ${displayLabel}`
+                    }
                   } else {
                     displayText = `${setCount} sets`
                   }

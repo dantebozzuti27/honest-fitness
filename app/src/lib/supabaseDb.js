@@ -318,17 +318,24 @@ export async function saveWorkoutToSupabase(workout, userId) {
       const setsToInsert = validSets.map((set, idx) => ({
         workout_exercise_id: exerciseData.id,
         set_number: idx + 1,
-        weight: set.weight ? Number(set.weight) : null,
+        weight: (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null),
+        // Best-effort persistence for BW. If the column doesn't exist, we'll retry without it.
+        is_bodyweight: String(set?.weight || '').trim().toUpperCase() === 'BW',
+        weight_label: String(set?.weight || '').trim().toUpperCase() === 'BW' ? 'BW' : null,
         reps: set.reps ? Number(set.reps) : null,
         time: set.time || null,
         speed: set.speed ? Number(set.speed) : null,
         incline: set.incline ? Number(set.incline) : null
       }))
 
-      const { error: setsError } = await supabase
-        .from('workout_sets')
-        .insert(setsToInsert)
-
+      const tryInsert = async (rows) => supabase.from('workout_sets').insert(rows)
+      let { error: setsError } = await tryInsert(setsToInsert)
+      if (setsError && (setsError.code === '42703' || `${setsError.message || ''}`.toLowerCase().includes('column'))) {
+        // Retry without optional BW columns for older schemas.
+        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, ...rest }) => rest)
+        const retry = await tryInsert(stripped)
+        setsError = retry.error
+      }
       if (setsError) throw setsError
     }
   }
@@ -776,17 +783,24 @@ export async function updateWorkoutInSupabase(workoutId, workout, userId) {
       const setsToInsert = validSets.map((set, idx) => ({
         workout_exercise_id: exerciseData.id,
         set_number: idx + 1,
-        weight: set.weight ? Number(set.weight) : null,
+        weight: (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null),
+        // Best-effort persistence for BW. If the column doesn't exist, we'll retry without it.
+        is_bodyweight: String(set?.weight || '').trim().toUpperCase() === 'BW',
+        weight_label: String(set?.weight || '').trim().toUpperCase() === 'BW' ? 'BW' : null,
         reps: set.reps ? Number(set.reps) : null,
         time: set.time || null,
         speed: set.speed ? Number(set.speed) : null,
         incline: set.incline ? Number(set.incline) : null
       }))
 
-      const { error: setsError } = await supabase
-        .from('workout_sets')
-        .insert(setsToInsert)
-
+      const tryInsert = async (rows) => supabase.from('workout_sets').insert(rows)
+      let { error: setsError } = await tryInsert(setsToInsert)
+      if (setsError && (setsError.code === '42703' || `${setsError.message || ''}`.toLowerCase().includes('column'))) {
+        // Retry without optional BW columns for older schemas.
+        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, ...rest }) => rest)
+        const retry = await tryInsert(stripped)
+        setsError = retry.error
+      }
       if (setsError) throw setsError
     }
   }

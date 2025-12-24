@@ -206,6 +206,8 @@ export default function ExerciseCard({
     return Number.isFinite(n) ? n : null
   }
 
+  const isBodyweightValue = (v) => String(v ?? '').trim().toUpperCase() === 'BW'
+
   const adjustFieldNumber = (setIdx, field, delta, { min = 0, max = null, step = 1 } = {}) => {
     const current = exercise?.sets?.[setIdx]?.[field]
     const n = toNum(current)
@@ -239,6 +241,27 @@ export default function ExerciseCard({
 
   const weightInputRef = useRef(null)
   const repsInputRef = useRef(null)
+  const lastNumericWeightBySetRef = useRef(new Map())
+
+  const toggleBodyweight = (setIdx) => {
+    const currentRaw = exercise?.sets?.[setIdx]?.weight
+    const current = String(currentRaw ?? '')
+
+    if (isBodyweightValue(currentRaw)) {
+      const prev = lastNumericWeightBySetRef.current.get(setIdx)
+      onUpdateSet(setIdx, 'weight', prev != null ? String(prev) : '')
+      // Prefer returning focus to weight input when switching back.
+      if (setIdx === activeSet) setTimeout(() => weightInputRef.current?.focus?.(), 0)
+      return
+    }
+
+    // Stash current numeric entry so the user can toggle back without losing it.
+    const trimmed = current.trim()
+    if (trimmed) lastNumericWeightBySetRef.current.set(setIdx, trimmed)
+    onUpdateSet(setIdx, 'weight', 'BW')
+    // BW implies weight is "filled" → move to reps for fast entry.
+    if (setIdx === activeSet) setTimeout(() => repsInputRef.current?.focus?.(), 0)
+  }
 
   const maybeAutoNext = (setIdx, nextWeight, nextReps) => {
     if (!autoNext) return
@@ -543,26 +566,48 @@ export default function ExerciseCard({
                 ) : (
                   <>
                     <div className={styles.inputGroup}>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.5"
-                        placeholder="lbs"
-                        value={set.weight}
-                        ref={idx === activeSet ? weightInputRef : null}
-                        onChange={(e) => {
-                          const next = e.target.value
-                          onUpdateSet(idx, 'weight', next)
-                          if (autoAdvance && idx === activeSet) {
-                            // Advance to reps on first meaningful entry.
-                            if (String(next || '').trim() !== '') {
-                              setTimeout(() => repsInputRef.current?.focus?.(), 0)
-                            }
-                          }
-                          maybeAutoNext(idx, next, set.reps)
-                        }}
-                        className={`${styles.input} ${styles.bigNumberInput}`}
-                      />
+                      {(() => {
+                        const isBW = isBodyweightValue(set?.weight)
+                        return (
+                          <div className={styles.weightInputWrap}>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              step="0.5"
+                              placeholder={isBW ? 'BW' : 'lbs'}
+                              value={isBW ? '' : (set.weight || '')}
+                              disabled={Boolean(isBW)}
+                              aria-label="Weight"
+                              ref={idx === activeSet ? weightInputRef : null}
+                              onChange={(e) => {
+                                const next = e.target.value
+                                onUpdateSet(idx, 'weight', next)
+                                if (autoAdvance && idx === activeSet) {
+                                  // Advance to reps on first meaningful entry.
+                                  if (String(next || '').trim() !== '') {
+                                    setTimeout(() => repsInputRef.current?.focus?.(), 0)
+                                  }
+                                }
+                                maybeAutoNext(idx, next, set.reps)
+                              }}
+                              className={`${styles.input} ${styles.bigNumberInput}`}
+                            />
+                            <button
+                              type="button"
+                              className={`${styles.bwBtn} ${isBW ? styles.bwBtnOn : ''}`}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                toggleBodyweight(idx)
+                              }}
+                              aria-pressed={isBW ? 'true' : 'false'}
+                              title={isBW ? 'Use external weight' : 'Use bodyweight'}
+                            >
+                              BW
+                            </button>
+                          </div>
+                        )
+                      })()}
                     </div>
                     <div className={styles.inputGroup}>
                       <input
@@ -570,7 +615,7 @@ export default function ExerciseCard({
                         inputMode="numeric"
                         step="1"
                         placeholder="reps"
-                        value={set.reps}
+                        value={set.reps || ''}
                         ref={idx === activeSet ? repsInputRef : null}
                         onChange={(e) => {
                           const next = e.target.value

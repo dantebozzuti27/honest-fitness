@@ -368,7 +368,16 @@ export default function Calendar() {
                       <div className={styles.exerciseSets}>
                         {(ex.workout_sets || []).map((s, i) => (
                           <span key={i} className={styles.setChip}>
-                            {s.weight ? `${s.reps}×${s.weight} lbs` : (s.time ? `${s.time}` : '-')}
+                            {(() => {
+                              const isBW = s?.is_bodyweight === true || String(s?.weight_label || '').trim().toUpperCase() === 'BW'
+                              if (isBW) {
+                                if (s?.reps != null && String(s.reps).trim() !== '') return `${s.reps}×BW`
+                                return 'BW'
+                              }
+                              if (s?.weight != null && String(s.weight).trim() !== '') return `${s.reps}×${s.weight} lbs`
+                              if (s?.time) return `${s.time}`
+                              return '-'
+                            })()}
                           </span>
                         ))}
                       </div>

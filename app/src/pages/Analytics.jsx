@@ -599,7 +599,7 @@ export default function Analytics() {
           bodyPart: ex.body_part,
           equipment: ex.equipment || '',
           sets: (ex.workout_sets || []).map(s => ({
-            weight: s.weight,
+            weight: (s?.is_bodyweight === true || String(s?.weight_label || '').trim().toUpperCase() === 'BW') ? 'BW' : s.weight,
             reps: s.reps,
             time: s.time,
             speed: s.speed,

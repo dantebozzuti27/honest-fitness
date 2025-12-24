@@ -27,6 +27,8 @@ export function formatSleep(raw) {
 }
 
 export function formatWeightLbs(weight) {
+  const raw = weight != null ? String(weight).trim() : ''
+  if (raw.toUpperCase() === 'BW') return 'BW'
   const n = Number(weight)
   if (!Number.isFinite(n) || n <= 0) return null
   const rounded = Math.round(n * 10) / 10

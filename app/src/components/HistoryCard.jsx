@@ -77,7 +77,11 @@ export default function HistoryCard({
     const totalVolume = data.workout_exercises?.reduce((sum, ex) => {
       const sets = ex.workout_sets || ex.sets || []
       return sum + (sets.reduce((setSum, set) => {
-        return setSum + ((set.weight || 0) * (set.reps || 0))
+        const w = Number(set?.weight)
+        const r = Number(set?.reps)
+        const weight = Number.isFinite(w) && w > 0 ? w : 0
+        const reps = Number.isFinite(r) && r > 0 ? r : 0
+        return setSum + (weight * reps)
       }, 0) || 0)
     }, 0) || 0
     

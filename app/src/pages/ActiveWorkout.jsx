@@ -267,9 +267,21 @@ export default function ActiveWorkout() {
     const strength = sets.filter(s => s?.weight || s?.reps)
     if (strength.length > 0) {
       // choose top set by weight (fallback to last)
-      const top = strength.slice().sort((a, b) => (Number(b.weight || 0) - Number(a.weight || 0)))[0] || strength[strength.length - 1]
-      const w = top?.weight ? Number(top.weight) : null
+      const toDisplayWeight = (s) => {
+        if (s?.is_bodyweight === true) return 'BW'
+        if (String(s?.weight_label || '').trim().toUpperCase() === 'BW') return 'BW'
+        if (String(s?.weight || '').trim().toUpperCase() === 'BW') return 'BW'
+        return s?.weight != null && String(s.weight).trim() !== '' ? Number(s.weight) : null
+      }
+      const sortWeight = (s) => {
+        const w = toDisplayWeight(s)
+        return typeof w === 'number' && Number.isFinite(w) ? w : 0
+      }
+      const top = strength.slice().sort((a, b) => (sortWeight(b) - sortWeight(a)))[0] || strength[strength.length - 1]
+      const w = toDisplayWeight(top)
       const r = top?.reps ? Number(top.reps) : null
+      if (w === 'BW' && r != null) return `${r}×BW`
+      if (w === 'BW') return 'BW'
       if (w != null && r != null) return `${r}×${w} lbs`
       if (w != null) return `${w} lbs`
       if (r != null) return `${r} reps`
@@ -309,6 +321,7 @@ export default function ActiveWorkout() {
             // Best e1RM (over recent window) for strength sets.
             const sets = Array.isArray(exRow?.workout_sets) ? exRow.workout_sets : []
             for (const s of sets) {
+              if (s?.is_bodyweight === true || String(s?.weight_label || '').trim().toUpperCase() === 'BW') continue
               const weight = Number(s?.weight)
               const reps = Number(s?.reps)
               if (!Number.isFinite(weight) || !Number.isFinite(reps) || weight <= 0 || reps <= 0) continue

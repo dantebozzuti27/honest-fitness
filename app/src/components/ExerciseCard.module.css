@@ -475,6 +475,37 @@
   min-width: 78px;
 }
 
+.weightInputWrap {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bwBtn {
+  flex: 0 0 auto;
+  min-height: 52px;
+  min-width: 52px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.80);
+}
+
+.bwBtnOn {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: rgba(191, 219, 254, 0.95);
+}
+
+.bwBtn:active {
+  transform: scale(0.98);
+}
+
 .cardioMainGroup {
   flex: 1 1 auto;
   min-width: 0;

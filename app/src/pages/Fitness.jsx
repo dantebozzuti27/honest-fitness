@@ -1149,7 +1149,7 @@ export default function Fitness() {
           stacked: ex.stacked || false,
           stackGroup: ex.stack_group || null,
           sets: (ex.workout_sets || []).map(set => ({
-            weight: set.weight,
+            weight: (set?.is_bodyweight === true || String(set?.weight_label || '').trim().toUpperCase() === 'BW') ? 'BW' : set.weight,
             reps: set.reps,
             time: set.time,
             speed: set.speed,

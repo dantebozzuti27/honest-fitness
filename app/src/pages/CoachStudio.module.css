@@ -1,6 +1,6 @@
 .container {
   min-height: 100vh;
-  background: var(--bg-primary);
+  background: var(--gradient-bg);
   color: var(--text-primary);
   padding: 16px;
   padding-bottom: 92px; /* BottomNav */

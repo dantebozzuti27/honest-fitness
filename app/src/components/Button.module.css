@@ -49,8 +49,8 @@
 .tertiary:active { transform: translateY(1px); }
 
 .destructive {
-  background: rgba(239, 68, 68, 0.85);
-  border-color: rgba(239, 68, 68, 0.85);
+  background: rgba(239, 68, 68, 0.92);
+  border-color: rgba(239, 68, 68, 0.92);
   color: #fff;
 }
 .destructive:hover { background: rgba(239, 68, 68, 0.95); }
@@ -79,8 +79,8 @@
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: rgba(255, 255, 255, 0.9);
+  border: 2px solid rgba(255, 255, 255, 0.32);
+  border-top-color: rgba(255, 255, 255, 0.92);
   animation: spin 0.9s linear infinite;
 }
 

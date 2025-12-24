@@ -1,7 +1,7 @@
 .container {
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--bg-primary);
+  background: var(--gradient-bg);
   color: var(--text-primary);
   padding-bottom: 80px;
   padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
@@ -13,7 +13,7 @@
   justify-content: space-between;
   padding: 16px;
   padding-top: calc(16px + env(safe-area-inset-top, 0px));
-  background: var(--bg-secondary);
+  background: var(--gradient-header);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;

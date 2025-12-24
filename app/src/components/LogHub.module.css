@@ -1,6 +1,7 @@
 .pageContainer {
   min-height: 100dvh;
   padding: var(--space-md);
+  background: var(--gradient-bg);
 }
 
 .pageHeader {

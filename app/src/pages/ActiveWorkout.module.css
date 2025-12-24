@@ -3,7 +3,7 @@
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--gradient-bg);
   position: relative;
 }
 
@@ -12,9 +12,9 @@
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: rgba(0, 0, 0, 0.78);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: var(--glass-overlay-bg);
+  backdrop-filter: var(--glass-overlay-blur);
+  -webkit-backdrop-filter: var(--glass-overlay-blur);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -45,10 +45,10 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.35);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  background: var(--gradient-header);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
   padding-top: env(safe-area-inset-top, 0);
 }
 
@@ -84,15 +84,15 @@
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--glass-card-bg);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border);
   color: var(--text-muted);
 }
 
 .sessionTypeToggle {
   display: flex;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -105,8 +105,8 @@
 }
 
 .sessionTypeActive {
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  background: var(--accent-dim);
+  color: var(--text-primary);
 }
 
 .headerRight {
@@ -132,7 +132,7 @@
   color: var(--text-secondary);
   padding: 8px 12px;
   background: var(--glass-card-bg);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--border);
   border-radius: 999px;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -142,8 +142,8 @@
 
 .clearBtn:hover {
   background: var(--glass-card-bg-hover);
-  border-color: rgba(255, 255, 255, 0.22);
-  color: #fff;
+  border-color: var(--border-light);
+  color: var(--text-primary);
 }
 
 .workoutTimer {
@@ -178,9 +178,9 @@
   font-weight: 900;
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--border);
   background: var(--glass-card-bg);
-  color: #fff;
+  color: var(--text-primary);
   cursor: pointer;
   transition: all var(--transition-fast);
   white-space: nowrap;
@@ -189,13 +189,13 @@
 
 .pauseBtn:hover {
   background: var(--glass-card-bg-hover);
-  border-color: rgba(255, 255, 255, 0.22);
+  border-color: var(--border-light);
 }
 
 .pauseBtn.paused {
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.26);
+  background: var(--accent-dim);
+  color: var(--text-primary);
+  border-color: rgba(var(--accent-rgb), 0.28);
 }
 
 .pauseBtn.paused:hover {

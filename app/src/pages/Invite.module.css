@@ -1,6 +1,6 @@
 .container {
   min-height: 100vh;
-  background: var(--bg-primary);
+  background: var(--gradient-bg);
   color: var(--text-primary);
   padding-bottom: 80px;
 }
@@ -13,7 +13,7 @@
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
-  background: var(--bg-primary);
+  background: var(--gradient-header);
   z-index: 100;
 }
 

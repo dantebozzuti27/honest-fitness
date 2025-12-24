@@ -3,7 +3,7 @@
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--gradient-bg);
   padding: 0;
 }
 
@@ -14,7 +14,7 @@
   padding: 8px var(--space-md);
   padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
   padding-bottom: 8px;
-  background: var(--bg-secondary);
+  background: var(--gradient-header);
   border-bottom: 1px solid var(--border);
   min-height: 48px;
   flex-shrink: 0;
@@ -44,7 +44,7 @@ h1 {
 
 .tabs {
   display: flex;
-  background: var(--bg-secondary);
+  background: rgba(255, 255, 255, 0.02);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -1113,7 +1113,7 @@ h1 {
   }
   
   .deleteBtn {
-    background: #ff3b30;
+    background: rgba(239, 68, 68, 0.92);
     color: white;
     border: none;
   }

@@ -577,6 +577,38 @@ BEGIN
   END IF;
 END $$;
 
+-- Enhance workout_sets Table (Bodyweight support)
+-- Stores BW explicitly so history/share/analytics can render accurately without overloading numeric `weight`.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'workout_sets') THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'workout_sets' AND column_name = 'is_bodyweight'
+    ) THEN
+      ALTER TABLE workout_sets ADD COLUMN is_bodyweight BOOLEAN DEFAULT FALSE;
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'workout_sets' AND column_name = 'weight_label'
+    ) THEN
+      ALTER TABLE workout_sets ADD COLUMN weight_label TEXT;
+    END IF;
+
+    -- Data integrity: if set is marked bodyweight, numeric weight must be NULL.
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.table_constraints
+      WHERE table_name = 'workout_sets'
+        AND constraint_name = 'workout_sets_bodyweight_weight_null'
+    ) THEN
+      ALTER TABLE workout_sets
+        ADD CONSTRAINT workout_sets_bodyweight_weight_null
+        CHECK (NOT is_bodyweight OR weight IS NULL);
+    END IF;
+  END IF;
+END $$;
+
 -- Populate Exercise Library with Common Exercises
 INSERT INTO exercise_library (name, category, body_part, sub_body_parts, equipment, is_custom) VALUES
 -- Legs

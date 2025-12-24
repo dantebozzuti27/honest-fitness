@@ -636,30 +636,6 @@ export default function ExerciseCard({
                           onClick={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
-                            adjustFieldNumber(idx, 'weight', 2.5, { min: 0, step: 0.5 })
-                          }}
-                          title="Increase weight by 2.5"
-                        >
-                          +2.5
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.nextBtn}
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            adjustFieldNumber(idx, 'weight', 5, { min: 0, step: 0.5 })
-                          }}
-                          title="Increase weight by 5"
-                        >
-                          +5
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.nextBtn}
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
                             adjustFieldNumber(idx, 'reps', 1, { min: 0, step: 1 })
                           }}
                           title="Increase reps by 1"

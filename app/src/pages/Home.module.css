@@ -23,6 +23,13 @@
   z-index: 10;
 }
 
+.headerRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .header > *:first-child,
 .header > *:last-child {
   flex-shrink: 0;
@@ -108,14 +115,7 @@
 }
 
 .heroCard {
-  /* Liquid Glass */
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
   padding: var(--space-md);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
 }
 
 .heroTop {
@@ -183,8 +183,8 @@
   border-radius: 16px;
   padding: 22px 20px;
   min-height: 160px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.07));
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--gradient-primary);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
@@ -193,8 +193,7 @@
 }
 
 .heroPrimary:hover {
-  border-color: rgba(255, 255, 255, 0.24);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.09));
+  border-color: rgba(var(--accent-rgb), 0.32);
 }
 
 .heroPrimaryLabel {
@@ -227,20 +226,16 @@
 
 .quickCard {
   text-align: left;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
 .quickCard:hover {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-light);
 }
 
 .quickCardTitle {
@@ -253,6 +248,98 @@
 .quickCardSub {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.previewCard {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+}
+
+.previewTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.previewTitle {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.previewLink {
+  min-width: auto;
+  min-height: auto;
+  padding: 6px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.previewLink:hover {
+  border-color: var(--border-light);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.previewBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.previewLine {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.previewLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.previewValue {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.previewEmpty {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.previewActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.previewAction {
+  border-radius: var(--radius-lg);
+  padding: 12px 12px;
+  font-weight: 700;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+}
+
+.previewAction:hover {
+  border-color: var(--border-light);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .summaryGrid {

@@ -1,0 +1,35 @@
+.card {
+  width: 100%;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  position: relative;
+}
+
+.surface {
+  background: var(--glass-card-bg);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
+}
+
+.subtle {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.interactive {
+  cursor: pointer;
+  transition: transform var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.interactive:hover {
+  border-color: var(--border-light);
+  background: var(--glass-card-bg-hover);
+  transform: translateY(-1px);
+}
+
+.interactive:active {
+  transform: translateY(0);
+}
+
+

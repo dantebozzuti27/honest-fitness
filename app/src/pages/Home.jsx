@@ -30,6 +30,8 @@ import { nonBlocking } from '../utils/nonBlocking'
 import { getOutboxPendingCount, flushOutbox } from '../lib/syncOutbox'
 import { openCalendar, openHealth, openMealLog, openNutrition, openLogHub, startWorkout } from '../utils/navIntents'
 import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
+import Card from '../components/ui/Card'
+import IconButton from '../components/ui/IconButton'
 import styles from './Home.module.css'
 
 // Social is intentionally hidden for now (feature to ship later).
@@ -554,7 +556,28 @@ export default function Home() {
       const ageMs = parsed?.timestamp ? (Date.now() - Number(parsed.timestamp)) : Infinity
       // Treat as resumable if within 24h and has exercises
       const hasExercises = Array.isArray(parsed?.exercises) && parsed.exercises.length > 0
+      const hasProgress = (() => {
+        try {
+          const exs = Array.isArray(parsed?.exercises) ? parsed.exercises : []
+          const anySetData = exs.some(ex =>
+            Array.isArray(ex?.sets) && ex.sets.some(s =>
+              (s?.weight != null && s.weight !== '') ||
+              (s?.reps != null && s.reps !== '') ||
+              (s?.time != null && s.time !== '')
+            )
+          )
+          const t = Number(parsed?.workoutTime)
+          const hasTime = Number.isFinite(t) && t > 0
+          return anySetData || hasTime
+        } catch {
+          return false
+        }
+      })()
       if (!hasExercises || ageMs > 24 * 60 * 60 * 1000) {
+        setResumeSession(null)
+        return
+      }
+      if (!hasProgress) {
         setResumeSession(null)
         return
       }
@@ -682,22 +705,39 @@ export default function Home() {
         <div className={styles.logoContainer}>
           <h1 className={styles.logo}>Today</h1>
         </div>
-        <HomeButton />
+        <div className={styles.headerRight}>
+          {user?.id && pendingSyncCount > 0 ? (
+            <IconButton
+              variant="surface"
+              aria-label={syncBusy ? 'Syncing…' : `Sync ${pendingSyncCount} pending`}
+              title={syncBusy ? 'Syncing…' : `Sync ${pendingSyncCount} pending`}
+              disabled={syncBusy}
+              onClick={async () => {
+                if (!user?.id) return
+                try {
+                  setSyncBusy(true)
+                  await flushOutbox(user.id)
+                  setPendingSyncCount(getOutboxPendingCount(user.id))
+                  showToast('Sync complete.', 'success')
+                } catch {
+                  showToast('Sync failed. Will retry when online.', 'warning')
+                } finally {
+                  setSyncBusy(false)
+                }
+              }}
+            >
+              {syncBusy ? '…' : pendingSyncCount}
+            </IconButton>
+          ) : null}
+          <HomeButton />
+        </div>
       </div>
 
       <div className={styles.content} ref={feedContainerRef}>
         {/* Redesigned Today Dashboard */}
         <div className={styles.dashboard}>
-          <div
-            className={styles.heroCard}
-            style={{
-              // Layout-critical fallback (prevents “jumbled” UI if styles ever fail to load)
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12
-            }}
-          >
-            <div className={styles.heroTop} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <Card className={styles.heroCard}>
+            <div className={styles.heroTop}>
               <div className={styles.heroTitle}>Your day</div>
               <div className={styles.heroKicker}>
                 {streak > 0 ? `${streak} day streak` : 'Start your streak'}
@@ -708,15 +748,6 @@ export default function Home() {
             <button
               type="button"
               className={styles.heroPrimary}
-              style={{
-                // Layout-critical fallback
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                gap: 6,
-                width: '100%',
-                textAlign: 'left'
-              }}
               onClick={() => {
                 try {
                   if (resumeSession?.hasExercises) {
@@ -740,7 +771,6 @@ export default function Home() {
 
                   startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
                 } catch (e) {
-                  // Last-ditch fallback: never let the primary CTA feel dead.
                   startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
                 }
               }}
@@ -752,7 +782,7 @@ export default function Home() {
                   : (() => {
                       const today = getTodayEST()
                       const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
-                      const first = todaysList.find(s => s?.template_id && s.template_id !== 'freestyle') || todaysList[0] || null
+                      const first = todaysList.find(s => s?.template_id && s?.template_id !== 'freestyle') || todaysList[0] || null
                       return first ? getTemplateLabel(first.template_id) : 'Start workout'
                     })()}
               </div>
@@ -763,208 +793,71 @@ export default function Home() {
               </div>
             </button>
 
-            <div
-              className={styles.quickGrid}
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}
-            >
-              <button
-                type="button"
+            <div className={styles.quickGrid}>
+              <Card
+                as="button"
+                interactive
                 className={styles.quickCard}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
                 onClick={() => openMealLog(navigate)}
               >
                 <div className={styles.quickCardTitle}>Log meal</div>
                 <div className={styles.quickCardSub}>Fast add</div>
-              </button>
-              <button
-                type="button"
+              </Card>
+              <Card
+                as="button"
+                interactive
                 className={styles.quickCard}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
-                onClick={() => startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })}
-              >
-                <div className={styles.quickCardTitle}>Train</div>
-                <div className={styles.quickCardSub}>Add exercises</div>
-              </button>
-              <button
-                type="button"
-                className={styles.quickCard}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
                 onClick={() => openHealth(navigate, { openLogModal: true })}
               >
                 <div className={styles.quickCardTitle}>Metrics</div>
                 <div className={styles.quickCardSub}>Log health</div>
-              </button>
-              <button
-                type="button"
-                className={styles.quickCard}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, textAlign: 'left' }}
-                onClick={() => openCalendar(navigate)}
-              >
-                <div className={styles.quickCardTitle}>Plan</div>
-                <div className={styles.quickCardSub}>Calendar</div>
-              </button>
+              </Card>
             </div>
-          </div>
 
-          <div
-            className={styles.summaryGrid}
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}
-          >
-            <button
-              className={styles.summaryCard}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
-              onClick={() => openHealth(navigate)}
-            >
-              <div className={styles.summaryLabel}>Health</div>
-              {(() => {
-                const steps = fitbitSteps?.steps != null ? Number(fitbitSteps.steps) : Number(todayHealthMetrics?.steps)
-                const sleepRaw = todayHealthMetrics?.sleep_duration
-                const weight = todayHealthMetrics?.weight != null ? Number(todayHealthMetrics.weight) : null
-                const calories = Number(todayHealthMetrics?.calories_burned ?? todayHealthMetrics?.calories)
-
-                const stepsText = formatSteps(steps)
-                const sleepText = formatSleep(sleepRaw)
-                const weightText = weight != null ? formatWeightLbs(weight) : null
-                const caloriesText = (Number.isFinite(calories) && calories > 0) ? String(Math.round(calories)) : null
-
-                const any = Boolean(caloriesText) || Boolean(stepsText) || Boolean(sleepText) || Boolean(weightText)
-                if (!any) return <div className={styles.summaryEmpty}>No metrics yet</div>
-
-                // Mirror Nutrition: big primary number + compact secondary line
-                if (caloriesText) {
-                  return (
-                    <>
-                      <div className={styles.summaryValue}>{caloriesText}<span className={styles.summaryUnit}> cal</span></div>
-                      <div className={styles.summarySub}>
-                        {stepsText ? `Steps ${stepsText}` : ''}
-                        {sleepText ? `${stepsText ? ' · ' : ''}Sleep ${sleepText}` : ''}
-                        {weightText ? `${(stepsText || sleepText) ? ' · ' : ''}Wt ${weightText}` : ''}
-                      </div>
-                    </>
-                  )
-                }
-
-                // Fallback primary value if calories are unavailable
-                if (stepsText) {
-                  return (
-                    <>
-                      <div className={styles.summaryValue}>{stepsText}<span className={styles.summaryUnit}> steps</span></div>
-                      <div className={styles.summarySub}>
-                        {sleepText ? `Sleep ${sleepText}` : ''}
-                        {weightText ? `${sleepText ? ' · ' : ''}Wt ${weightText}` : ''}
-                      </div>
-                    </>
-                  )
-                }
-
-                if (sleepText) {
-                  return (
-                    <>
-                      <div className={styles.summaryValue}>{sleepText}</div>
-                      <div className={styles.summarySub}>
-                        {weightText ? `Wt ${weightText}` : ''}
-                      </div>
-                    </>
-                  )
-                }
-
-                return (
-                  <>
-                    <div className={styles.summaryValue}>{weightText}</div>
-                    <div className={styles.summarySub}>Weight</div>
-                  </>
-                )
-              })()}
-            </button>
-
-            <button
-              className={styles.summaryCard}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
-              onClick={() => openNutrition(navigate)}
-            >
-              <div className={styles.summaryLabel}>Nutrition</div>
-              {todayNutrition ? (
-                <>
-                  <div className={styles.summaryValue}>{Math.round(Number(todayNutrition.calories || 0))}<span className={styles.summaryUnit}> cal</span></div>
-                  <div className={styles.summarySub}>
-                    P {Math.round(Number(todayNutrition.macros?.protein || 0))} · C {Math.round(Number(todayNutrition.macros?.carbs || 0))} · F {Math.round(Number(todayNutrition.macros?.fat || 0))}
+            <Card className={styles.previewCard} variant="subtle">
+              <div className={styles.previewTop}>
+                <div className={styles.previewTitle}>Recent</div>
+                <button type="button" className={styles.previewLink} onClick={() => navigate('/fitness')}>
+                  View history
+                </button>
+              </div>
+              <div className={styles.previewBody}>
+                {lastWorkoutSummary?.date ? (
+                  <div className={styles.previewLine}>
+                    <span className={styles.previewLabel}>Last workout</span>
+                    <span className={styles.previewValue}>{formatDate(lastWorkoutSummary.date)} · {lastWorkoutSummary.label}</span>
                   </div>
-                </>
-              ) : (
-                <div className={styles.summaryEmpty}>No food logged</div>
-              )}
-            </button>
-
-            <button
-              className={styles.summaryCard}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, textAlign: 'left' }}
-              onClick={() => openCalendar(navigate)}
-            >
-              <div className={styles.summaryLabel}>Schedule</div>
-              {(() => {
-                const today = getTodayEST()
-                const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
-                const todays = todaysList[0] || null
-                const next = (scheduledWorkouts || [])[0] || null
-                if (todays) return <div className={styles.summarySub}>{todaysList.length > 1 ? `${todaysList.length} workouts today` : `Today: ${getTemplateLabel(todays?.template_id)}`}</div>
-                if (next) return <div className={styles.summarySub}>Next: {getTemplateLabel(next?.template_id)} · {formatDate(next?.date)}</div>
-                return <div className={styles.summaryEmpty}>Nothing scheduled</div>
-              })()}
-            </button>
-          </div>
-        </div>
-        
-        {/* Upcoming Scheduled Workouts */}
-        {scheduledWorkouts.length > 0 && (
-          <div className={styles.scheduledWorkoutsSection}>
-            <h2 className={styles.sectionTitle}>Upcoming Workouts</h2>
-            <div className={styles.scheduledWorkoutsList}>
-              {scheduledWorkouts.map((scheduled, idx) => {
-                const date = new Date(scheduled.date + 'T12:00:00')
-                const isToday = scheduled.date === getTodayEST()
-                const isTomorrow = scheduled.date === getLocalDate(new Date(Date.now() + 24 * 60 * 60 * 1000))
-                let dateLabel = ''
-                if (isToday) {
-                  dateLabel = 'Today'
-                } else if (isTomorrow) {
-                  dateLabel = 'Tomorrow'
-                } else {
-                  dateLabel = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-                }
-                return (
-                  <div key={idx} className={styles.scheduledWorkoutCard}>
-                    <div className={styles.scheduledWorkoutDate}>{dateLabel}</div>
-                    <div className={styles.scheduledWorkoutName}>
-                      {getTemplateLabel(scheduled.template_id)}
+                ) : (
+                  <div className={styles.previewEmpty}>No workouts yet</div>
+                )}
+                {(() => {
+                  const today = getTodayEST()
+                  const todaysList = (scheduledWorkouts || []).filter(s => s?.date === today)
+                  const next = (scheduledWorkouts || [])[0] || null
+                  const upcoming = todaysList[0] || next || null
+                  if (!upcoming) return null
+                  return (
+                    <div className={styles.previewLine}>
+                      <span className={styles.previewLabel}>Next</span>
+                      <span className={styles.previewValue}>
+                        {getTemplateLabel(upcoming.template_id)} · {upcoming.date === today ? 'Today' : formatDate(upcoming.date)}
+                      </span>
                     </div>
-                    <Button
-                      unstyled
-                      className={styles.scheduledWorkoutAction}
-                      onClick={() => {
-                        if (isToday) {
-                          if (scheduled.template_id === 'freestyle') {
-                            startWorkout(navigate, { mode: 'picker', sessionType: 'workout' })
-                            return
-                          }
-                          if (!scheduled.template_id) {
-                            openCalendar(navigate)
-                            return
-                          }
-                          startWorkout(navigate, { mode: 'template', sessionType: 'workout', templateId: scheduled.template_id, scheduledDate: scheduled.date })
-                          return
-                        }
-                        openCalendar(navigate)
-                      }}
-                    >
-                      {isToday ? 'Start' : 'View Calendar'}
-                    </Button>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-        
+                  )
+                })()}
+                <div className={styles.previewActions}>
+                  <button type="button" className={styles.previewAction} onClick={() => openCalendar(navigate)}>
+                    Calendar
+                  </button>
+                  <button type="button" className={styles.previewAction} onClick={() => openNutrition(navigate)}>
+                    Nutrition
+                  </button>
+                </div>
+              </div>
+            </Card>
+          </Card>
+        </div>
+
         {/* Social is intentionally hidden for now (ship later). */}
         {SOCIAL_ENABLED ? (
         <div className={styles.feed}>

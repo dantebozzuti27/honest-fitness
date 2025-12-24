@@ -1990,64 +1990,84 @@ CREATE TRIGGER update_coach_program_enrollments_updated_at
 
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM storage.buckets WHERE id = 'avatars'
-  ) THEN
-    INSERT INTO storage.buckets (id, name, public)
-    VALUES ('avatars', 'avatars', TRUE);
-  ELSE
-    -- Ensure the bucket is public because the frontend uses getPublicUrl().
-    UPDATE storage.buckets SET public = TRUE WHERE id = 'avatars';
-  END IF;
+  -- NOTE: `storage.*` tables are owned by Supabase system roles.
+  -- If you run this script as a non-owner role, DDL like ALTER TABLE / CREATE POLICY will fail with:
+  --   ERROR: 42501: must be owner of table objects
+  -- In that case, run the Storage section from the Supabase Dashboard SQL Editor as `postgres`.
+
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM storage.buckets WHERE id = 'avatars'
+    ) THEN
+      INSERT INTO storage.buckets (id, name, public)
+      VALUES ('avatars', 'avatars', TRUE);
+    ELSE
+      -- Ensure the bucket is public because the frontend uses getPublicUrl().
+      UPDATE storage.buckets SET public = TRUE WHERE id = 'avatars';
+    END IF;
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'Skipping storage.buckets avatars setup (insufficient privileges). Run this section as postgres in Supabase SQL Editor.';
+  END;
+
+  BEGIN
+    EXECUTE 'ALTER TABLE IF EXISTS storage.objects ENABLE ROW LEVEL SECURITY';
+
+    -- Public read for avatars (anyone can fetch the image URL)
+    EXECUTE 'DROP POLICY IF EXISTS "Avatars are publicly readable" ON storage.objects';
+    EXECUTE $pol$
+      CREATE POLICY "Avatars are publicly readable"
+        ON storage.objects
+        FOR SELECT
+        USING (bucket_id = 'avatars');
+    $pol$;
+
+    -- Authenticated users can upload avatars only into their own folder: {user_id}/...
+    EXECUTE 'DROP POLICY IF EXISTS "Users can upload own avatars" ON storage.objects';
+    EXECUTE $pol$
+      CREATE POLICY "Users can upload own avatars"
+        ON storage.objects
+        FOR INSERT
+        WITH CHECK (
+          bucket_id = 'avatars'
+          AND auth.role() = 'authenticated'
+          AND (storage.foldername(name))[1] = auth.uid()::text
+        );
+    $pol$;
+
+    -- Allow overwrite/upsert for own avatar objects
+    EXECUTE 'DROP POLICY IF EXISTS "Users can update own avatars" ON storage.objects';
+    EXECUTE $pol$
+      CREATE POLICY "Users can update own avatars"
+        ON storage.objects
+        FOR UPDATE
+        USING (
+          bucket_id = 'avatars'
+          AND auth.role() = 'authenticated'
+          AND (storage.foldername(name))[1] = auth.uid()::text
+        )
+        WITH CHECK (
+          bucket_id = 'avatars'
+          AND auth.role() = 'authenticated'
+          AND (storage.foldername(name))[1] = auth.uid()::text
+        );
+    $pol$;
+
+    -- Allow deleting own avatar objects
+    EXECUTE 'DROP POLICY IF EXISTS "Users can delete own avatars" ON storage.objects';
+    EXECUTE $pol$
+      CREATE POLICY "Users can delete own avatars"
+        ON storage.objects
+        FOR DELETE
+        USING (
+          bucket_id = 'avatars'
+          AND auth.role() = 'authenticated'
+          AND (storage.foldername(name))[1] = auth.uid()::text
+        );
+    $pol$;
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'Skipping storage.objects RLS/policies (insufficient privileges). Run this section as postgres in Supabase SQL Editor.';
+  END;
 END $$;
-
--- Ensure RLS is enabled on storage.objects (usually already enabled in Supabase)
-ALTER TABLE IF EXISTS storage.objects ENABLE ROW LEVEL SECURITY;
-
--- Public read for avatars (anyone can fetch the image URL)
-DROP POLICY IF EXISTS "Avatars are publicly readable" ON storage.objects;
-CREATE POLICY "Avatars are publicly readable"
-  ON storage.objects
-  FOR SELECT
-  USING (bucket_id = 'avatars');
-
--- Authenticated users can upload avatars only into their own folder: {user_id}/...
-DROP POLICY IF EXISTS "Users can upload own avatars" ON storage.objects;
-CREATE POLICY "Users can upload own avatars"
-  ON storage.objects
-  FOR INSERT
-  WITH CHECK (
-    bucket_id = 'avatars'
-    AND auth.role() = 'authenticated'
-    AND (storage.foldername(name))[1] = auth.uid()::text
-  );
-
--- Allow overwrite/upsert for own avatar objects
-DROP POLICY IF EXISTS "Users can update own avatars" ON storage.objects;
-CREATE POLICY "Users can update own avatars"
-  ON storage.objects
-  FOR UPDATE
-  USING (
-    bucket_id = 'avatars'
-    AND auth.role() = 'authenticated'
-    AND (storage.foldername(name))[1] = auth.uid()::text
-  )
-  WITH CHECK (
-    bucket_id = 'avatars'
-    AND auth.role() = 'authenticated'
-    AND (storage.foldername(name))[1] = auth.uid()::text
-  );
-
--- Allow deleting own avatar objects
-DROP POLICY IF EXISTS "Users can delete own avatars" ON storage.objects;
-CREATE POLICY "Users can delete own avatars"
-  ON storage.objects
-  FOR DELETE
-  USING (
-    bucket_id = 'avatars'
-    AND auth.role() = 'authenticated'
-    AND (storage.foldername(name))[1] = auth.uid()::text
-  );
 
 
 

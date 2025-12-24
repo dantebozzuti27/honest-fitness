@@ -53,6 +53,7 @@ export default function Fitness() {
   const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', action: null, payload: null })
   const [showShareModal, setShowShareModal] = useState(false)
   const [selectedWorkoutForShare, setSelectedWorkoutForShare] = useState(null)
+  const [shareWorkoutFromRoute, setShareWorkoutFromRoute] = useState(null)
   const [showWorkoutStartModal, setShowWorkoutStartModal] = useState(false)
   const [showTemplateSelection, setShowTemplateSelection] = useState(false)
   const [todaysScheduledWorkout, setTodaysScheduledWorkout] = useState(null)
@@ -137,6 +138,17 @@ export default function Fitness() {
       }
     }
   }, [user, showToast])
+
+  // If we navigated here from ActiveWorkout "Save & Share", open the share modal immediately.
+  useEffect(() => {
+    const w = location?.state?.shareWorkout
+    if (!w) return
+    setShareWorkoutFromRoute(w)
+    setShowShareModal(true)
+    // Clear route state so refresh/back doesn't re-open share.
+    navigate(location.pathname, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location?.state?.shareWorkout])
 
   const sortedWorkoutHistory = useMemo(() => {
     const list = Array.isArray(workoutHistory) ? workoutHistory.slice() : []
@@ -1141,7 +1153,18 @@ export default function Fitness() {
       />
 
       {/* Share Modal */}
-      {showShareModal && selectedWorkoutForShare && (() => {
+      {showShareModal && shareWorkoutFromRoute && (
+        <ShareModal
+          type="workout"
+          data={{ workout: shareWorkoutFromRoute }}
+          onClose={() => {
+            setShowShareModal(false)
+            setShareWorkoutFromRoute(null)
+          }}
+        />
+      )}
+
+      {showShareModal && !shareWorkoutFromRoute && selectedWorkoutForShare && (() => {
         // Transform workout data from database format to ShareCard format
         const exercises = (selectedWorkoutForShare.workout_exercises || []).map(ex => ({
           name: ex.exercise_name,

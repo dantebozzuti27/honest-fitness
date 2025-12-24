@@ -154,6 +154,8 @@ export default function ActiveWorkout() {
   const trackedStartRef = useRef(false)
   const trackedFirstSetRef = useRef(false)
   const trackedCompleteRef = useRef(false)
+  // Once finished, stop all auto-persistence immediately (prevents re-writing `activeWorkout_${userId}`).
+  const hasFinishedRef = useRef(false)
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: 'Confirm',
@@ -454,6 +456,7 @@ export default function ActiveWorkout() {
 
   // Auto-save exercises periodically during workout
   useEffect(() => {
+    if (hasFinishedRef.current) return
     if (!userId || exercises.length === 0) return
 
     // Auto-save every 30 seconds
@@ -536,6 +539,7 @@ export default function ActiveWorkout() {
 
   // Save exercises immediately when they change (debounced)
   useEffect(() => {
+    if (hasFinishedRef.current) return
     if (!userId || exercises.length === 0 || !workoutStartTimeRef.current) return
 
     const saveTimeout = setTimeout(async () => {
@@ -1874,6 +1878,9 @@ export default function ActiveWorkout() {
   // IMPORTANT: Workouts are ONLY created when the user explicitly finishes a workout.
   // This is the ONLY place where workout logs are created - never automatically.
   const finishWorkout = async ({ openShare = true, navigateTo = null } = {}) => {
+    // Prevent any debounced/interval auto-saves from persisting this session after we clear it.
+    hasFinishedRef.current = true
+
     // Clean up timers and auto-save
     clearInterval(workoutTimerRef.current)
     clearInterval(restTimerRef.current)
@@ -2100,15 +2107,32 @@ export default function ActiveWorkout() {
         // Don't show error to user - feed sharing is non-critical
       }
       
-      // Store workout for sharing (manual share/download)
-      if (openShare) {
-        setSavedWorkout(workout)
-        setShowShareModal(true)
+      // Always exit ActiveWorkout after a successful finish.
+      // If the user chose "Save & Share", we pass the workout to Fitness so the ShareModal opens there.
+      setShowShareModal(false)
+      setSavedWorkout(null)
+      setShowSummary(false)
+      setShowControlsSheet(false)
+
+      // Clear in-memory session so nothing can re-save it to localStorage.
+      setExercises([])
+      setWorkoutTime(0)
+      setRestTime(0)
+      setIsResting(false)
+      setIsPaused(false)
+      setPausedTime(0)
+      pausedTimeRef.current = 0
+      pauseStartTime.current = null
+      workoutStartTimeRef.current = null
+      restStartTimeRef.current = null
+      restDurationRef.current = 0
+      lastSavedExercisesRef.current = null
+
+      const dest = navigateTo || '/fitness'
+      if (openShare && dest === '/fitness') {
+        navigate(dest, { state: { shareWorkout: workout } })
       } else {
-        setSavedWorkout(null)
-        setShowShareModal(false)
-        setShowSummary(false)
-        if (navigateTo) navigate(navigateTo)
+        navigate(dest)
       }
     } catch (err) {
       logError('Error saving workout', err)

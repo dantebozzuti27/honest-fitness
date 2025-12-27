@@ -31,6 +31,7 @@ import { setLastQuickAction } from '../utils/quickActions'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
 import Sheet from '../components/ui/Sheet'
+import IconButton from '../components/ui/IconButton'
 import { uuidv4 } from '../utils/uuid'
 import styles from './ActiveWorkout.module.css'
 
@@ -2800,14 +2801,29 @@ export default function ActiveWorkout() {
           </div>
         )}
 
-        <button className={styles.addExerciseBtn} onClick={() => setShowPicker(true)}>
+        <Button
+          variant="primary"
+          size="lg"
+          fullWidth
+          className={styles.addExerciseBtn}
+          onClick={() => setShowPicker(true)}
+        >
           {sessionType === 'recovery' ? '+ Add Recovery' : '+ Add Exercise'}
-        </button>
+        </Button>
       </div>
 
       {/* Bottom sticky one-hand bar */}
       <div className={styles.bottomBar} role="region" aria-label="Workout controls">
         <div className={styles.bottomBarLeft}>
+          <IconButton
+            variant="surface"
+            size="sm"
+            onClick={() => setShowControlsSheet(true)}
+            aria-label="Controls"
+            title="Controls"
+          >
+            ⚙︎
+          </IconButton>
           <div className={`${styles.syncPill} ${syncPill.tone === 'good' ? styles.syncGood : syncPill.tone === 'warn' ? styles.syncWarn : ''}`}>
             {syncPill.label}
           </div>

@@ -337,14 +337,17 @@
   display: flex;
   gap: 10px;
   align-items: center;
-  background: rgba(0, 0, 0, 0.55);
-  border-top: 1px solid rgba(255, 255, 255, 0.10);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  background: var(--glass-bg);
+  border-top: 1px solid var(--glass-card-border);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
 }
 
 .bottomBarLeft {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .bottomBarMain {
@@ -367,9 +370,9 @@
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.9);
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
+  color: var(--text-secondary);
 }
 
 .syncGood {
@@ -396,9 +399,9 @@
   border-radius: 999px;
   font-weight: 900;
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #fff;
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
@@ -408,9 +411,9 @@
   border-radius: 999px;
   font-weight: 900;
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.20);
-  color: #fff;
+  background: var(--glass-card-bg-hover);
+  border: 1px solid var(--glass-card-border);
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
@@ -608,16 +611,7 @@
 }
 
 .addExerciseBtn {
-  width: 100%;
-  padding: 16px;
-  font-size: 16px;
-  font-weight: 900;
-  color: var(--bg-primary);
-  background: var(--accent);
-  border: 1px solid var(--glass-card-border);
-  border-radius: var(--radius-md);
   margin-top: 8px;
-  box-shadow: var(--glass-card-shadow);
 }
 
 .addExerciseBtn:active {

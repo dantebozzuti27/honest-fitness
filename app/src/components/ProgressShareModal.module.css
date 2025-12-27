@@ -1,5 +1,7 @@
 .overlay {
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--glass-overlay-bg);
+  backdrop-filter: var(--glass-overlay-blur);
+  -webkit-backdrop-filter: var(--glass-overlay-blur);
 }
 
 .modal {
@@ -29,7 +31,7 @@
 .closeBtn {
   padding: 8px 10px;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border);
 }
 
 .previewWrap {
@@ -37,11 +39,11 @@
 }
 
 .card {
-  background: #0b0f17;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
   border-radius: 16px;
   padding: 16px;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .cardTop {
@@ -65,7 +67,7 @@
 
 .cardSub {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--text-secondary);
 }
 
 .cardList {
@@ -95,7 +97,7 @@
 
 .cardRowSub {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-secondary);
   margin-top: 2px;
 }
 
@@ -108,7 +110,7 @@
 .cardFooter {
   margin-top: 14px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-muted);
   letter-spacing: 0.06em;
 }
 
@@ -122,8 +124,8 @@
 .actionBtn {
   height: 44px;
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
   color: var(--text-primary);
   font-weight: 800;
 }

@@ -94,7 +94,7 @@
   min-height: 56px;
   border-radius: 50%;
   background: var(--accent);
-  color: #000;
+  color: var(--bg-primary);
   box-shadow: var(--shadow-lg);
   margin: 0;
   padding: 0;

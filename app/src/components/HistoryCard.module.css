@@ -224,7 +224,7 @@
 .deleteBtn {
   background: rgba(239, 68, 68, 0.2);
   border-color: rgba(239, 68, 68, 0.3);
-  color: var(--color-red, #ef4444);
+  color: var(--danger);
 }
 
 .deleteBtn:hover {

@@ -43,6 +43,48 @@ export default function ExerciseCard({
   })()
 
   const [activeSet, setActiveSet] = useState(0)
+  const setRowRefs = useRef([])
+
+  useEffect(() => {
+    // Keep refs array aligned with current set count.
+    setRowRefs.current = Array.isArray(exercise?.sets) ? setRowRefs.current.slice(0, exercise.sets.length) : []
+  }, [exercise?.sets?.length])
+
+  useEffect(() => {
+    if (!exercise?.expanded) return
+    const el = setRowRefs.current?.[activeSet]
+    if (!el || typeof el.scrollIntoView !== 'function') return
+
+    // Respect reduced motion where possible.
+    const prefersReduced =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    // Defer to let layout settle (especially when expanding/collapsing cards).
+    const id = window.requestAnimationFrame
+      ? window.requestAnimationFrame(() => {
+          try {
+            el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: prefersReduced ? 'auto' : 'smooth' })
+          } catch {
+            try { el.scrollIntoView() } catch {}
+          }
+        })
+      : setTimeout(() => {
+          try {
+            el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: prefersReduced ? 'auto' : 'smooth' })
+          } catch {
+            try { el.scrollIntoView() } catch {}
+          }
+        }, 0)
+
+    return () => {
+      try {
+        if (window.cancelAnimationFrame && typeof id === 'number') window.cancelAnimationFrame(id)
+        else clearTimeout(id)
+      } catch {}
+    }
+  }, [activeSet, exercise?.expanded])
 
   const headerHint = (() => {
     const parts = []
@@ -435,6 +477,7 @@ export default function ExerciseCard({
             {exercise.sets.map((set, idx) => (
               <div 
                 key={idx} 
+                ref={(node) => { setRowRefs.current[idx] = node }}
                 className={`${styles.setRow} ${idx === activeSet ? styles.activeSet : ''} ${idx < activeSet ? styles.completedSet : ''}`}
               >
                 <div className={styles.setMainRow}>

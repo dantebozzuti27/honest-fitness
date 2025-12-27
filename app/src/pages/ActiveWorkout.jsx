@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext'
 import { logError } from '../utils/logger'
 import { getAutoAdjustmentFactor, applyAutoAdjustment, getWorkoutRecommendation } from '../lib/autoAdjust'
 import { useToast } from '../hooks/useToast'
+import { useHaptic } from '../hooks/useHaptic'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Button from '../components/Button'
@@ -104,6 +105,7 @@ export default function ActiveWorkout() {
   const location = useLocation()
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
+  const haptic = useHaptic()
   const userId = user?.id || null
   const entry = useMemo(() => normalizeActiveWorkoutEntry(location), [location.key])
   const templateId = entry.templateId
@@ -1536,6 +1538,10 @@ export default function ActiveWorkout() {
     restStartTimeRef.current = Date.now()
     setRestTime(duration)
     setIsResting(true)
+
+    // Tiny “rest started” feedback loop: one light tap + subtle toast.
+    try { haptic.selection() } catch {}
+    try { showToast(`Rest started · ${duration}s`, 'info', 1400) } catch {}
     
     // Save to database
     try {
@@ -1560,6 +1566,9 @@ export default function ActiveWorkout() {
           clearInterval(restTimerRef.current)
           setIsResting(false)
           setShowTimesUp(true)
+          // Stronger “rest finished” cue.
+          try { haptic.success() } catch {}
+          try { showToast('Rest finished', 'success', 1400) } catch {}
           const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
           timeoutRefs.current.push(timeoutId)
           // Clear rest timer from database
@@ -1583,6 +1592,9 @@ export default function ActiveWorkout() {
     clearInterval(restTimerRef.current)
     setIsResting(false)
     setRestTime(0)
+
+    try { haptic.selection() } catch {}
+    try { showToast('Rest skipped', 'info', 1200) } catch {}
     
     // Clear rest timer from database
     try {

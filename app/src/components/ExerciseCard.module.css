@@ -427,6 +427,8 @@
   border-radius: 14px;
   /* On mobile, dimming the entire row makes inputs unreadable */
   opacity: 1;
+  /* When we scroll the active set into view, keep it above the sticky bottom bar */
+  scroll-margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 120px);
 }
 
 .setMainRow {
@@ -450,6 +452,7 @@
   background: var(--glass-card-bg-hover);
   border-color: var(--border-light);
   box-shadow: var(--shadow-md);
+  scroll-margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 160px);
 }
 
 .setRow.completedSet {

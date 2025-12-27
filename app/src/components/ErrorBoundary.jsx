@@ -29,8 +29,8 @@ class ErrorBoundary extends React.Component {
           alignItems: 'center',
           justifyContent: 'center',
           padding: '20px',
-          background: 'var(--bg-primary, #000000)',
-          color: 'var(--text-primary, #ffffff)',
+          background: 'var(--bg-primary)',
+          color: 'var(--text-primary)',
           textAlign: 'center',
           fontFamily: 'var(--font-sans, -apple-system, sans-serif)'
         }}>
@@ -42,7 +42,7 @@ class ErrorBoundary extends React.Component {
           }}>Error</h1>
           <p style={{ 
             marginBottom: '24px', 
-            color: 'var(--text-secondary, #a1a1a6)',
+            color: 'var(--text-secondary)',
             fontSize: '16px'
           }}>
             Something went wrong. Please try refreshing the page.
@@ -54,10 +54,10 @@ class ErrorBoundary extends React.Component {
             }}
             style={{
               padding: '16px 32px',
-              background: 'var(--accent, #ffffff)',
-              color: 'var(--bg-primary, #000000)',
+              background: 'var(--accent)',
+              color: 'var(--bg-primary)',
               border: 'none',
-              borderRadius: 'var(--radius-md, 8px)',
+              borderRadius: 'var(--radius-md)',
               cursor: 'pointer',
               fontSize: '16px',
               fontWeight: '600',

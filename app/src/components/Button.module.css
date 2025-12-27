@@ -24,7 +24,7 @@
 
 .primary {
   background: var(--accent);
-  color: #000;
+  color: var(--bg-primary);
   box-shadow: var(--shadow-md);
 }
 .primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-lg); }
@@ -51,7 +51,7 @@
 .destructive {
   background: rgba(239, 68, 68, 0.92);
   border-color: rgba(239, 68, 68, 0.92);
-  color: #fff;
+  color: var(--text-primary);
 }
 .destructive:hover { background: rgba(239, 68, 68, 0.95); }
 .destructive:active { transform: translateY(1px); }

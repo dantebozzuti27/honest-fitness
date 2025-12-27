@@ -1,8 +1,4 @@
 .card {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  overflow: hidden;
   transition: opacity 0.15s, transform 0.15s;
   position: relative;
   display: flex;
@@ -51,7 +47,7 @@
 
 .card.stacked {
   border-left: 3px solid var(--accent);
-  background: var(--bg-tertiary);
+  background: var(--glass-card-bg-hover);
 }
 
 .stackBadge {
@@ -123,9 +119,9 @@
 .suggestBtn {
   padding: 10px 12px;
   border-radius: var(--radius-md);
-  background: rgba(59, 130, 246, 0.18);
-  border: 1px solid rgba(59, 130, 246, 0.28);
-  color: rgba(191, 219, 254, 0.95);
+  background: rgba(var(--accent-rgb), 0.10);
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  color: var(--text-primary);
   font-weight: 800;
   font-size: 12px;
 }

@@ -6,6 +6,7 @@
 
 import { useState } from 'react'
 import { formatDateShort, getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import Card from './ui/Card'
 import styles from './HistoryCard.module.css'
 
 export default function HistoryCard({
@@ -45,7 +46,7 @@ export default function HistoryCard({
     return {
       direction: isPositive ? '↑' : '↓',
       value: `${isPositive ? '+' : ''}${format(Math.abs(diff))}`,
-      color: isPositive ? 'var(--color-green, #10b981)' : 'var(--color-red, #ef4444)'
+      color: isPositive ? 'var(--success)' : 'var(--danger)'
     }
   }
 
@@ -304,7 +305,7 @@ export default function HistoryCard({
   }
 
   return (
-    <div 
+    <Card
       className={styles.historyCard}
       style={{ 
         animationDelay: `${index * 0.05}s`,
@@ -365,7 +366,7 @@ export default function HistoryCard({
           </button>
         )}
       </div>
-    </div>
+    </Card>
   )
 }
 

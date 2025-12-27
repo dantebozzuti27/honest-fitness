@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import Card from './ui/Card'
 import styles from './ExerciseCard.module.css'
 
 export default function ExerciseCard({
@@ -276,7 +277,7 @@ export default function ExerciseCard({
   }
 
   return (
-    <div 
+    <Card
       className={`${styles.card} ${exercise.expanded ? styles.expanded : ''} ${exercise.completed ? styles.completed : ''} ${isDragging ? styles.dragging : ''} ${stacked ? styles.stacked : ''} ${containerClassName || ''}`}
       draggable={Boolean(draggable)}
       onDragStart={(e) => {
@@ -696,7 +697,7 @@ export default function ExerciseCard({
           </div>
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 

@@ -1,7 +1,9 @@
 .backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--glass-overlay-bg);
+  backdrop-filter: var(--glass-overlay-blur);
+  -webkit-backdrop-filter: var(--glass-overlay-blur);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11,11 +13,13 @@
 
 .dialog {
   width: min(420px, 100%);
-  background: var(--card-bg, #111);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--glass-modal-bg);
+  border: 1px solid var(--glass-modal-border);
   border-radius: 14px;
   padding: 16px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--glass-modal-shadow);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
 }
 
 .header {
@@ -28,14 +32,14 @@
 .title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
 }
 
 .message {
   margin-top: 10px;
   font-size: 14px;
   line-height: 1.4;
-  color: var(--text-secondary, rgba(255, 255, 255, 0.75));
+  color: var(--text-secondary);
   white-space: pre-wrap;
 }
 

@@ -166,8 +166,8 @@
   gap: 12px;
   padding: 10px 12px;
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
 }
 
 .visibilityLabel {
@@ -182,8 +182,8 @@
   display: flex;
   border-radius: 999px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-form-border);
+  background: var(--glass-form-bg);
 }
 
 .visibilityBtn {
@@ -195,7 +195,7 @@
 }
 
 .visibilityActive {
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--glass-form-bg-focus);
   color: var(--text-primary);
 }
 

@@ -418,9 +418,9 @@
   padding: 10px 12px;
   min-height: 44px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #fff;
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
+  color: var(--text-primary);
   font-weight: 900;
   white-space: nowrap;
 }
@@ -430,8 +430,8 @@
   min-height: 44px;
   border-radius: 999px;
   background: var(--accent);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  color: #000;
+  border: 1px solid var(--glass-card-border);
+  color: var(--bg-primary);
   font-weight: 900;
   white-space: nowrap;
 }
@@ -443,24 +443,12 @@
   margin-top: 10px;
 }
 
-.saveBtnSecondary {
-  width: 100%;
-  padding: 14px;
-  font-size: 14px;
-  font-weight: 900;
-  background: rgba(255, 255, 255, 0.10);
-  color: #fff;
-  border-radius: var(--radius-md);
-  margin-top: 0;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-}
-
 .controlsOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.78);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: var(--glass-overlay-bg);
+  backdrop-filter: var(--glass-overlay-blur);
+  -webkit-backdrop-filter: var(--glass-overlay-blur);
   z-index: 220;
   display: flex;
   align-items: flex-end;
@@ -472,7 +460,7 @@
   width: 100%;
   max-width: 520px;
   background: var(--glass-card-bg);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--glass-card-border);
   box-shadow: var(--glass-card-shadow);
   border-radius: 18px;
   padding: 14px 14px;
@@ -624,9 +612,9 @@
   padding: 16px;
   font-size: 16px;
   font-weight: 900;
-  color: #000;
+  color: var(--bg-primary);
   background: var(--accent);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid var(--glass-card-border);
   border-radius: var(--radius-md);
   margin-top: 8px;
   box-shadow: var(--glass-card-shadow);
@@ -640,9 +628,9 @@
 .summaryOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.82);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: var(--glass-overlay-bg);
+  backdrop-filter: var(--glass-overlay-blur);
+  -webkit-backdrop-filter: var(--glass-overlay-blur);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -654,11 +642,11 @@
 .summaryModal {
   width: 100%;
   max-width: 360px;
-  background: var(--glass-card-bg);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: var(--glass-card-shadow);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  background: var(--glass-modal-bg);
+  border: 1px solid var(--glass-modal-border);
+  box-shadow: var(--glass-modal-shadow);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
   border-radius: var(--radius-lg);
   padding: 20px 16px;
   text-align: center;
@@ -666,10 +654,28 @@
   overflow-y: auto;
 }
 
-.summaryModal h2 {
-  font-size: 20px;
+.summaryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 6px;
-  color: #fff;
+}
+
+.summaryClose {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 22px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .summaryDuration {
@@ -686,8 +692,8 @@
   justify-content: center;
   margin-bottom: 20px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
   border-radius: var(--radius-md);
 }
 
@@ -764,10 +770,10 @@
   padding: 12px 0;
   font-size: 14px;
   font-weight: 600;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
   border-radius: var(--radius-md);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   transition: all 0.15s;
 }
 
@@ -783,8 +789,8 @@
   padding: 12px;
   font-size: 14px;
   font-family: inherit;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--glass-form-bg);
+  border: 1px solid var(--glass-form-border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   resize: none;
@@ -795,15 +801,11 @@
   border-color: var(--accent);
 }
 
-.saveBtn {
-  width: 100%;
-  padding: 14px;
-  font-size: 16px;
-  font-weight: 600;
-  background: var(--accent);
-  color: var(--bg-primary);
-  border-radius: var(--radius-md);
-  margin-top: 8px;
-  box-shadow: 0 0 30px rgba(255, 255, 255, 0.2);
+/* Summary CTA layout now uses shared <Button> variants */
+.summaryTitle {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  letter-spacing: var(--letter-tight);
+  margin: 0;
 }
 

@@ -2840,9 +2840,28 @@ export default function ActiveWorkout() {
       )}
 
       {showSummary && (
-        <div className={styles.summaryOverlay}>
-          <div className={styles.summaryModal}>
-            <h2>Workout Complete!</h2>
+        <div
+          className={styles.summaryOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Workout complete"
+          onMouseDown={() => setShowSummary(false)}
+        >
+          <div
+            className={styles.summaryModal}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className={styles.summaryHeader}>
+              <h2 className={styles.summaryTitle}>Workout complete</h2>
+              <button
+                type="button"
+                className={styles.summaryClose}
+                onClick={() => setShowSummary(false)}
+                aria-label="Close workout summary"
+              >
+                ×
+              </button>
+            </div>
             <p className={styles.summaryDuration}>{formatTime(workoutTime)}</p>
             
             {/* Display calculated workout metrics if available */}
@@ -2913,14 +2932,14 @@ export default function ActiveWorkout() {
             </div>
 
             <div className={styles.finishActions}>
-              <Button unstyled className={styles.saveBtn} onClick={() => finishWorkout({ openShare: false })}>
-                Save
-              </Button>
-              <Button unstyled className={styles.saveBtn} onClick={() => finishWorkout({ openShare: true })}>
+              <Button variant="primary" fullWidth onClick={() => finishWorkout({ openShare: true })}>
                 Save & Share
               </Button>
-              <Button unstyled className={styles.saveBtnSecondary} onClick={() => finishWorkout({ openShare: false, navigateTo: '/calendar' })}>
-                Save & Plan Next
+              <Button variant="secondary" fullWidth onClick={() => finishWorkout({ openShare: false })}>
+                Save
+              </Button>
+              <Button variant="tertiary" fullWidth onClick={() => finishWorkout({ openShare: false, navigateTo: '/calendar' })}>
+                Plan next
               </Button>
             </div>
           </div>

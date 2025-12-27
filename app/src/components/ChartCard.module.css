@@ -220,13 +220,13 @@
 
 /* Controls */
 .controls {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--glass-card-bg);
   border-radius: var(--radius-md);
   padding: var(--space-sm);
   margin-bottom: var(--space-sm);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-card-border);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
 }
 
 .controlGroup {
@@ -255,41 +255,39 @@
 .controlBtn {
   padding: 8px 16px;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-base);
   white-space: nowrap;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
 }
 
 .controlBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-light);
   color: var(--text-primary);
 }
 
 .controlBtn.active {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.18) 100%);
-  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(var(--accent-rgb), 0.10);
+  border-color: rgba(var(--accent-rgb), 0.28);
   color: var(--text-primary);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4),
-              inset 0 1px 0 rgba(255, 255, 255, 0.4),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(30px) saturate(250%);
-  -webkit-backdrop-filter: blur(30px) saturate(250%);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
 }
 
 .comparisonToggle {
   width: 100%;
   padding: 10px 16px;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: var(--text-sm);
   font-weight: 500;
@@ -299,14 +297,14 @@
 }
 
 .comparisonToggle:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-light);
   color: var(--text-primary);
 }
 
 .comparisonToggle.active {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.15) 100%);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(var(--accent-rgb), 0.10);
+  border-color: rgba(var(--accent-rgb), 0.22);
   color: var(--text-primary);
 }
 
@@ -315,26 +313,24 @@
   position: relative;
   min-height: 200px;
   margin-bottom: var(--space-sm);
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.02);
   border-radius: var(--radius-md);
   padding: var(--space-sm);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(20px) saturate(200%);
-  -webkit-backdrop-filter: blur(20px) saturate(200%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1),
-              inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
 }
 
 /* Insights */
 .insights {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--glass-card-bg);
   border-radius: var(--radius-md);
   padding: var(--space-sm);
   margin-bottom: var(--space-sm);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-card-border);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
 }
 
 .insightItem {

@@ -41,7 +41,7 @@
 .emptyChart {
   padding: var(--space-xl);
   text-align: center;
-  color: #ffffff;
+  color: var(--text-secondary);
   font-size: var(--text-sm);
 }
 

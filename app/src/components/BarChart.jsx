@@ -17,6 +17,9 @@ export default function BarChart({
   dateData = null, // Full date data object for detail view
   chartTitle = '' // Title for sharing
 }) {
+  const axisStroke = 'rgba(255, 255, 255, 0.38)'
+  const axisTickStroke = 'rgba(255, 255, 255, 0.28)'
+  const axisTextFill = 'rgba(255, 255, 255, 0.72)'
   const { toast, showToast, hideToast } = useToast()
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState(0)
@@ -323,7 +326,7 @@ export default function BarChart({
           y1={padding.top}
           x2={padding.left}
           y2={100 - padding.bottom}
-          stroke="#ffffff"
+          stroke={axisStroke}
           strokeWidth="0.5"
         />
         
@@ -333,7 +336,7 @@ export default function BarChart({
           y1={100 - padding.bottom}
           x2={100 - padding.right}
           y2={100 - padding.bottom}
-          stroke="#ffffff"
+          stroke={axisStroke}
           strokeWidth="0.5"
         />
         
@@ -347,7 +350,7 @@ export default function BarChart({
                 y1={y}
                 x2={padding.left}
                 y2={y}
-                stroke="#ffffff"
+                stroke={axisTickStroke}
                 strokeWidth="0.3"
               />
               <text
@@ -355,7 +358,7 @@ export default function BarChart({
                 y={y + 1}
                 textAnchor="end"
                 fontSize="1.5"
-                fill="#ffffff"
+                fill={axisTextFill}
                 className={styles.axisLabel}
               >
                 {tickValue > 1000 ? `${(tickValue / 1000).toFixed(1)}k` : Math.round(tickValue)}
@@ -409,7 +412,7 @@ export default function BarChart({
                   y={y - 1}
                   textAnchor="middle"
                   fontSize="1"
-                  fill="#ffffff"
+                  fill={axisTextFill}
                   className={styles.value}
                   pointerEvents="none"
                 >
@@ -528,7 +531,7 @@ export default function BarChart({
                           y1="10"
                           x2="10"
                           y2="90"
-                          stroke="#ffffff"
+                          stroke={axisStroke}
                           strokeWidth="0.5"
                         />
                         {/* X-axis line */}
@@ -537,7 +540,7 @@ export default function BarChart({
                           y1="90"
                           x2="90"
                           y2="90"
-                          stroke="#ffffff"
+                          stroke={axisStroke}
                           strokeWidth="0.5"
                         />
                         {/* Render bars - use visibleData for time scale zoom */}

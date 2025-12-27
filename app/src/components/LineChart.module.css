@@ -23,7 +23,7 @@
 .emptyChart {
   padding: var(--space-xl);
   text-align: center;
-  color: #ffffff;
+  color: var(--text-secondary);
   font-size: var(--text-sm);
 }
 
@@ -85,7 +85,7 @@
   margin-top: 8px;
   padding: 0 12px;
   font-size: 10px;
-  color: #ffffff;
+  color: var(--text-secondary);
   flex-wrap: wrap;
   gap: 2px;
   min-height: 24px;
@@ -99,7 +99,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #ffffff;
+  color: var(--text-secondary);
   opacity: 0.7;
 }
 
@@ -108,7 +108,7 @@
   margin-top: 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-secondary);
   letter-spacing: -0.01em;
   opacity: 0.8;
 }
@@ -120,7 +120,7 @@
   transform: translateY(-50%) rotate(-90deg);
   font-size: 10px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-secondary);
   white-space: nowrap;
   z-index: 2;
   letter-spacing: -0.01em;
@@ -130,7 +130,7 @@
 
 .axisLabel {
   font-family: inherit;
-  fill: #ffffff;
+  fill: var(--text-secondary);
   font-weight: 500;
   letter-spacing: -0.01em;
 }

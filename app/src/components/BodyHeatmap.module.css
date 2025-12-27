@@ -5,9 +5,9 @@
   gap: 16px;
   padding: 16px;
   position: relative;
-  background: linear-gradient(180deg, #0a0a0a 0%, #050505 100%);
+  background: var(--gradient-secondary);
   border-radius: 10px;
-  border: 1px solid #1a1a1a;
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -188,14 +188,16 @@
 .statItem:active,
 .statItemHovered {
   border-color: rgba(255,45,45,0.5);
-  background: #0f0f0f;
+  background: var(--bg-tertiary);
 }
 
 /* Tooltip overlay and modal */
 .tooltipOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--glass-overlay-bg);
+  backdrop-filter: var(--glass-overlay-blur);
+  -webkit-backdrop-filter: var(--glass-overlay-blur);
   z-index: 300;
   display: flex;
   align-items: flex-end;
@@ -203,12 +205,14 @@
 
 .tooltip {
   width: 100%;
-  background: #0a0a0a;
+  background: var(--glass-modal-bg);
   border-top: 2px solid rgba(255,45,45,0.5);
   border-radius: 16px 16px 0 0;
   padding: 20px;
   padding-bottom: calc(env(safe-area-inset-bottom, 20px) + 20px);
-  box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+  box-shadow: var(--glass-modal-shadow);
+  backdrop-filter: var(--glass-blur-medium);
+  -webkit-backdrop-filter: var(--glass-blur-medium);
 }
 
 .tooltipContent {

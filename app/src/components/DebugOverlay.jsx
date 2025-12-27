@@ -59,11 +59,13 @@ export default function DebugOverlay({ enabled = false }) {
       maxWidth: 'calc(100vw - 20px)',
       maxHeight: 'calc(100vh - 20px)',
       overflow: 'auto',
-      background: 'rgba(0,0,0,0.92)',
-      border: '1px solid rgba(255,255,255,0.18)',
+      background: 'var(--glass-modal-bg)',
+      border: '1px solid var(--glass-modal-border)',
+      backdropFilter: 'var(--glass-blur-medium)',
+      WebkitBackdropFilter: 'var(--glass-blur-medium)',
       borderRadius: 12,
       padding: 12,
-      color: '#fff',
+      color: 'var(--text-primary)',
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
       fontSize: 12
     }}>
@@ -74,8 +76,8 @@ export default function DebugOverlay({ enabled = false }) {
           onClick={() => setErrors([])}
           style={{
             background: 'transparent',
-            border: '1px solid rgba(255,255,255,0.25)',
-            color: '#fff',
+            border: '1px solid var(--border)',
+            color: 'var(--text-primary)',
             borderRadius: 10,
             padding: '6px 10px',
             cursor: 'pointer'
@@ -86,16 +88,16 @@ export default function DebugOverlay({ enabled = false }) {
       </div>
 
       {content.length === 0 ? (
-        <div style={{ color: 'rgba(255,255,255,0.7)' }}>No captured errors yet.</div>
+        <div style={{ color: 'var(--text-secondary)' }}>No captured errors yet.</div>
       ) : (
         content.map((e, idx) => (
-          <div key={`${e.at}-${idx}`} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ color: '#ff453a', fontWeight: 700, marginBottom: 4 }}>
+          <div key={`${e.at}-${idx}`} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
+            <div style={{ color: 'var(--danger)', fontWeight: 700, marginBottom: 4 }}>
               {e.type} @ {e.at}
             </div>
             <div style={{ whiteSpace: 'pre-wrap', marginBottom: 6 }}>{e.message}</div>
             {e.stack ? (
-              <div style={{ whiteSpace: 'pre-wrap', color: 'rgba(255,255,255,0.7)' }}>{e.stack}</div>
+              <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{e.stack}</div>
             ) : null}
           </div>
         ))

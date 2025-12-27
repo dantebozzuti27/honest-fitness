@@ -72,7 +72,7 @@ export default function BodyHeatmap({ data, metric = 'count', detailedStats = {}
                   </feMerge>
                 </filter>
                 <linearGradient id="bodyBase" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#1a1a1a" />
+                  <stop offset="0%" stopColor="#141414" />
                   <stop offset="100%" stopColor="#0a0a0a" />
                 </linearGradient>
               </defs>

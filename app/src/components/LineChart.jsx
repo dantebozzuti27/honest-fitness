@@ -17,6 +17,9 @@ export default function LineChart({
   dates = null,
   dateData = null
 }) {
+  const axisStroke = 'rgba(255, 255, 255, 0.38)'
+  const axisTickStroke = 'rgba(255, 255, 255, 0.28)'
+  const axisTextFill = 'rgba(255, 255, 255, 0.72)'
   const chartData = useMemo(() => {
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
     
@@ -67,7 +70,7 @@ export default function LineChart({
           y1={padding.top}
           x2={padding.left}
           y2={100 - padding.bottom}
-          stroke="#ffffff"
+          stroke={axisStroke}
           strokeWidth="0.5"
           opacity="0.3"
         />
@@ -78,7 +81,7 @@ export default function LineChart({
           y1={100 - padding.bottom}
           x2={100 - padding.right}
           y2={100 - padding.bottom}
-          stroke="#ffffff"
+          stroke={axisStroke}
           strokeWidth="0.5"
           opacity="0.3"
         />
@@ -93,7 +96,7 @@ export default function LineChart({
                 y1={y}
                 x2={padding.left}
                 y2={y}
-                stroke="#ffffff"
+                stroke={axisTickStroke}
                 strokeWidth="0.3"
                 opacity="0.3"
               />
@@ -102,7 +105,7 @@ export default function LineChart({
                 y={y + 1}
                 textAnchor="end"
                 fontSize="1.5"
-                fill="#ffffff"
+                fill={axisTextFill}
                 className={styles.axisLabel}
                 opacity="0.7"
               >

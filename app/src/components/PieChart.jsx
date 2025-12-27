@@ -15,6 +15,7 @@ export default function PieChart({
   colors = ['#ff2d2d', '#4ade80', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899'],
   onSegmentClick
 }) {
+  const labelFill = 'rgba(255, 255, 255, 0.92)'
   const chartData = useMemo(() => {
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) return null
     
@@ -137,7 +138,7 @@ export default function PieChart({
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fontSize="3"
-                  fill="#ffffff"
+                  fill={labelFill}
                   className={styles.label}
                   fontWeight="600"
                 >

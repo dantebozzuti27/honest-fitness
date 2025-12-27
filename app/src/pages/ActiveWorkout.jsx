@@ -2813,7 +2813,7 @@ export default function ActiveWorkout() {
       </div>
 
       {/* Bottom sticky one-hand bar */}
-      <div className={styles.bottomBar} role="region" aria-label="Workout controls">
+      <div className={`${styles.bottomBar} ${isResting ? styles.bottomBarResting : ''}`} role="region" aria-label="Workout controls">
         <div className={styles.bottomBarLeft}>
           <IconButton
             variant="surface"

@@ -343,6 +343,12 @@
   -webkit-backdrop-filter: var(--glass-blur-medium);
 }
 
+.bottomBarResting {
+  border-top-color: var(--border-light);
+  background: rgba(10, 10, 10, 0.78);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.35);
+}
+
 .bottomBarLeft {
   flex: 0 0 auto;
   display: flex;
@@ -411,10 +417,17 @@
   border-radius: 999px;
   font-weight: 900;
   font-size: 12px;
-  background: var(--glass-card-bg-hover);
-  border: 1px solid var(--glass-card-border);
+  background: var(--accent-dim);
+  border: 1px solid var(--border-light);
   color: var(--text-primary);
   white-space: nowrap;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 10px 30px rgba(0, 0, 0, 0.25);
+  animation: restPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes restPulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 10px 30px rgba(0, 0, 0, 0.25); }
+  50% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 14px 42px rgba(0, 0, 0, 0.32); }
 }
 
 .bottomBtn {

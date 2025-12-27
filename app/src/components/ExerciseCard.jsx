@@ -264,6 +264,8 @@ export default function ExerciseCard({
     if (setIdx === activeSet) setTimeout(() => repsInputRef.current?.focus?.(), 0)
   }
 
+  // Auto-next should never fire while the user is mid-typing (mobile keyboards in particular).
+  // We call this only on "commit" events (blur / Enter), not onChange.
   const maybeAutoNext = (setIdx, nextWeight, nextReps) => {
     if (!autoNext) return
     if (setIdx !== activeSet) return
@@ -583,13 +585,23 @@ export default function ExerciseCard({
                               onChange={(e) => {
                                 const next = e.target.value
                                 onUpdateSet(idx, 'weight', next)
-                                if (autoAdvance && idx === activeSet) {
-                                  // Advance to reps on first meaningful entry.
-                                  if (String(next || '').trim() !== '') {
-                                    setTimeout(() => repsInputRef.current?.focus?.(), 0)
-                                  }
-                                }
-                                maybeAutoNext(idx, next, set.reps)
+                              }}
+                              onBlur={() => {
+                                if (!autoAdvance) return
+                                if (idx !== activeSet) return
+                                const next = String(exercise?.sets?.[idx]?.weight ?? '').trim()
+                                if (!next) return
+                                // Move to reps only after the user is done editing weight.
+                                setTimeout(() => repsInputRef.current?.focus?.(), 0)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key !== 'Enter') return
+                                if (!autoAdvance) return
+                                if (idx !== activeSet) return
+                                const next = String(exercise?.sets?.[idx]?.weight ?? '').trim()
+                                if (!next) return
+                                e.preventDefault()
+                                setTimeout(() => repsInputRef.current?.focus?.(), 0)
                               }}
                               className={`${styles.input} ${styles.bigNumberInput}`}
                             />
@@ -621,7 +633,15 @@ export default function ExerciseCard({
                         onChange={(e) => {
                           const next = e.target.value
                           onUpdateSet(idx, 'reps', next)
-                          maybeAutoNext(idx, set.weight, next)
+                        }}
+                        onBlur={() => {
+                          // "Done" on mobile typically blurs the input.
+                          maybeAutoNext(idx, exercise?.sets?.[idx]?.weight, exercise?.sets?.[idx]?.reps)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter') return
+                          e.preventDefault()
+                          maybeAutoNext(idx, exercise?.sets?.[idx]?.weight, exercise?.sets?.[idx]?.reps)
                         }}
                         className={`${styles.input} ${styles.bigNumberInput}`}
                       />

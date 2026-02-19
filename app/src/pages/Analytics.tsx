@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -10,13 +10,8 @@ import {
   getDetailedBodyPartStats,
 } from '../lib/db/workoutsDb'
 import { getAllMetricsFromSupabase } from '../lib/db/metricsDb'
-import { getAllTemplates } from '../db/lazyDb'
-import { getTodayEST, getYesterdayEST, getLocalDate } from '../utils/dateUtils'
+import { getTodayEST, getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
-import BarChart from '../components/BarChart'
-import LineChart from '../components/LineChart'
-import ChartCard from '../components/ChartCard'
-import UnifiedChart from '../components/UnifiedChart'
 import EmptyState from '../components/EmptyState'
 import Skeleton from '../components/Skeleton'
 import { useToast } from '../hooks/useToast'
@@ -25,7 +20,7 @@ import Button from '../components/Button'
 import BackButton from '../components/BackButton'
 import styles from './Analytics.module.css'
 
-const TABS = ['Overview', 'History', 'Metrics', 'Trends']
+const TABS = ['Overview', 'Workouts', 'Metrics', 'Body Parts']
 
 type AnalyticsData = {
   bodyParts: Record<string, number>
@@ -40,46 +35,68 @@ type AnalyticsData = {
   workouts: any[]
 }
 
+const DATE_RANGES = ['Last 7 Days', 'Last 30 Days', 'Last 90 Days', 'This Year', 'All Time']
+
+function getDateCutoff(range: string): string {
+  const today = new Date(`${getTodayEST()}T12:00:00`)
+  if (range === 'Last 7 Days') { const d = new Date(today); d.setDate(d.getDate() - 7); return getLocalDate(d) }
+  if (range === 'Last 30 Days') { const d = new Date(today); d.setDate(d.getDate() - 30); return getLocalDate(d) }
+  if (range === 'Last 90 Days') { const d = new Date(today); d.setDate(d.getDate() - 90); return getLocalDate(d) }
+  if (range === 'This Year') return `${today.getFullYear()}-01-01`
+  return ''
+}
+
+function fmt(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+
+function fmtDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+const tableStyle: React.CSSProperties = {
+  width: '100%', borderCollapse: 'collapse', fontSize: 13,
+}
+const thStyle: React.CSSProperties = {
+  textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid var(--border-primary)',
+  color: 'var(--text-secondary)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px',
+}
+const tdStyle: React.CSSProperties = {
+  padding: '8px 10px', borderBottom: '1px solid var(--border-primary, rgba(255,255,255,0.06))',
+  color: 'var(--text-primary)',
+}
+const tdRight: React.CSSProperties = { ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }
+const thRight: React.CSSProperties = { ...thStyle, textAlign: 'right' }
+const cardStyle: React.CSSProperties = {
+  background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16, overflow: 'auto',
+}
+
 export default function Analytics() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
   const [activeTab, setActiveTab] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [historyCategory, setHistoryCategory] = useState('Frequency')
-  const [historyDateRange, setHistoryDateRange] = useState('This Month')
-  const [metricsCategory, setMetricsCategory] = useState('Weight')
-  const [metricsDateRange, setMetricsDateRange] = useState('Last 30 Days')
-  const [trendsCategory, setTrendsCategory] = useState('Frequency')
-  const [trendsDateRange, setTrendsDateRange] = useState('Last 30 Days')
+  const [dateRange, setDateRange] = useState('Last 30 Days')
   const [data, setData] = useState<AnalyticsData>({
-    bodyParts: {},
-    bodyPartReps: {},
-    bodyPartSets: {},
-    detailedStats: {},
-    streak: 0,
-    metrics: [],
-    frequency: {},
-    topExercises: [],
-    totalWorkouts: 0,
-    workouts: [],
+    bodyParts: {}, bodyPartReps: {}, bodyPartSets: {}, detailedStats: {},
+    streak: 0, metrics: [], frequency: {}, topExercises: [], totalWorkouts: 0, workouts: [],
   })
-  const [templates, setTemplates] = useState<any[]>([])
 
   useEffect(() => {
     async function loadData() {
       if (!user) return
       setLoading(true)
-
       try {
-        const [bodyParts, streak, metrics, frequency, topExercises, workouts, tmpl, detailedStats] = await Promise.all([
+        const [bodyParts, streak, metrics, frequency, topExercises, workouts, detailedStats] = await Promise.all([
           getBodyPartStats(user.id),
           calculateStreakFromSupabase(user.id),
           getAllMetricsFromSupabase(user.id),
-          getWorkoutFrequency(user.id, 30),
+          getWorkoutFrequency(user.id, 365),
           getExerciseStats(user.id),
           getWorkoutsFromSupabase(user.id),
-          getAllTemplates(),
           getDetailedBodyPartStats(user.id),
         ])
 
@@ -99,8 +116,7 @@ export default function Analytics() {
 
         setData({
           bodyParts: bodyParts as Record<string, number>,
-          bodyPartReps,
-          bodyPartSets,
+          bodyPartReps, bodyPartSets,
           detailedStats: detailedStats as Record<string, any>,
           streak: streak as number,
           metrics: (metrics || []) as any[],
@@ -109,7 +125,6 @@ export default function Analytics() {
           totalWorkouts: (workouts as any[]).length,
           workouts: workouts as any[],
         })
-        setTemplates(tmpl as any[])
       } catch (e) {
         logError('Analytics load failed', e)
         showToast('Failed to load analytics data.', 'error')
@@ -120,106 +135,66 @@ export default function Analytics() {
     loadData()
   }, [user])
 
-  // ============ DERIVED DATA ============
+  const cutoff = getDateCutoff(dateRange)
+  const rangedWorkouts = useMemo(() =>
+    data.workouts.filter((w: any) => !cutoff || (w.date || '') >= cutoff).sort((a: any, b: any) => (b.date || '').localeCompare(a.date || '')),
+    [data.workouts, cutoff]
+  )
+  const rangedMetrics = useMemo(() =>
+    data.metrics.filter((m: any) => !cutoff || (m.date || '') >= cutoff).sort((a: any, b: any) => (b.date || '').localeCompare(a.date || '')),
+    [data.metrics, cutoff]
+  )
 
-  const filteredWorkouts = useMemo(() => {
-    const getDateRange = (range: string) => {
-      const today = new Date(`${getTodayEST()}T12:00:00`)
-      if (range === 'This Week') {
-        const d = new Date(today); d.setDate(d.getDate() - d.getDay())
-        return getLocalDate(d)
-      }
-      if (range === 'This Month') {
-        return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
-      }
-      if (range === 'Last 30 Days') {
-        const d = new Date(today); d.setDate(d.getDate() - 30)
-        return getLocalDate(d)
-      }
-      if (range === 'Last 90 Days') {
-        const d = new Date(today); d.setDate(d.getDate() - 90)
-        return getLocalDate(d)
-      }
-      if (range === 'This Year') {
-        return `${today.getFullYear()}-01-01`
-      }
-      return ''
-    }
-    return (range: string) => {
-      const cutoff = getDateRange(range)
-      return data.workouts.filter((w: any) => !cutoff || (w.date || '') >= cutoff)
-    }
-  }, [data.workouts])
-
-  const bodyPartChartData = useMemo(() => {
-    return Object.entries(data.bodyParts)
-      .filter(([, v]) => (v as number) > 0)
-      .sort((a, b) => (b[1] as number) - (a[1] as number))
-      .map(([name, count]) => ({ label: name, value: count as number }))
-  }, [data.bodyParts])
-
-  const frequencyChartData = useMemo(() => {
-    const workouts = filteredWorkouts(historyDateRange)
-    const byDate = new Map<string, number>()
-    workouts.forEach((w: any) => {
-      const d = w.date || ''
-      byDate.set(d, (byDate.get(d) || 0) + 1)
+  function workoutVolume(w: any): number {
+    let vol = 0
+    ;(w.workout_exercises || []).forEach((ex: any) => {
+      ;(ex.workout_sets || []).forEach((s: any) => {
+        const weight = Number(s?.weight || 0)
+        const reps = Number(s?.reps || 0)
+        if (weight > 0 && reps > 0) vol += weight * reps
+      })
     })
-    return Array.from(byDate.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, count]) => ({ label: date, value: count }))
-  }, [filteredWorkouts, historyDateRange])
+    return vol
+  }
 
-  const durationChartData = useMemo(() => {
-    const workouts = filteredWorkouts(historyDateRange)
-    return workouts
-      .filter((w: any) => w.duration)
-      .sort((a: any, b: any) => (a.date || '').localeCompare(b.date || ''))
-      .map((w: any) => ({ label: w.date, value: Math.round((w.duration || 0) / 60) }))
-  }, [filteredWorkouts, historyDateRange])
+  const totalVolume = useMemo(() => rangedWorkouts.reduce((sum, w) => sum + workoutVolume(w), 0), [rangedWorkouts])
+  const avgDuration = useMemo(() => {
+    const withDur = rangedWorkouts.filter((w: any) => w.duration > 0)
+    return withDur.length ? Math.round(withDur.reduce((s: number, w: any) => s + w.duration, 0) / withDur.length) : 0
+  }, [rangedWorkouts])
 
-  const volumeChartData = useMemo(() => {
-    const workouts = filteredWorkouts(trendsDateRange)
-    const byDate = new Map<string, number>()
-    workouts.forEach((w: any) => {
-      const d = w.date || ''
-      let vol = 0
+  const rangedBodyParts = useMemo(() => {
+    const parts: Record<string, { sets: number; reps: number; volume: number }> = {}
+    rangedWorkouts.forEach((w: any) => {
       ;(w.workout_exercises || []).forEach((ex: any) => {
+        const bp = ex.body_part || 'Other'
+        if (!parts[bp]) parts[bp] = { sets: 0, reps: 0, volume: 0 }
         ;(ex.workout_sets || []).forEach((s: any) => {
           const weight = Number(s?.weight || 0)
           const reps = Number(s?.reps || 0)
-          if (weight > 0 && reps > 0) vol += weight * reps
+          if (weight || reps || s?.time) parts[bp].sets++
+          if (reps) parts[bp].reps += reps
+          if (weight > 0 && reps > 0) parts[bp].volume += weight * reps
         })
       })
-      if (vol > 0) byDate.set(d, (byDate.get(d) || 0) + vol)
     })
-    return Array.from(byDate.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, vol]) => ({ label: date, value: Math.round(vol) }))
-  }, [filteredWorkouts, trendsDateRange])
+    return Object.entries(parts).sort((a, b) => b[1].sets - a[1].sets)
+  }, [rangedWorkouts])
 
-  const weightChartData = useMemo(() => {
-    return data.metrics
-      .filter((m: any) => m?.weight != null && Number(m.weight) > 0)
-      .sort((a: any, b: any) => (a.date || '').localeCompare(b.date || ''))
-      .map((m: any) => ({ label: m.date, value: Number(m.weight) }))
-  }, [data.metrics])
-
-  const stepsChartData = useMemo(() => {
-    return data.metrics
-      .filter((m: any) => m?.steps != null && Number(m.steps) > 0)
-      .sort((a: any, b: any) => (a.date || '').localeCompare(b.date || ''))
-      .map((m: any) => ({ label: m.date, value: Number(m.steps) }))
-  }, [data.metrics])
-
-  const sleepChartData = useMemo(() => {
-    return data.metrics
-      .filter((m: any) => m?.sleep_duration != null && Number(m.sleep_duration) > 0)
-      .sort((a: any, b: any) => (a.date || '').localeCompare(b.date || ''))
-      .map((m: any) => ({ label: m.date, value: Number((Number(m.sleep_duration) / 60).toFixed(1)) }))
-  }, [data.metrics])
-
-  // ============ RENDER ============
+  const DateRangePicker = () => (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+      {DATE_RANGES.map(r => (
+        <button key={r} onClick={() => setDateRange(r)}
+          style={{
+            padding: '5px 10px', borderRadius: 6, border: 'none', fontSize: 12, cursor: 'pointer',
+            background: dateRange === r ? 'var(--accent)' : 'var(--bg-tertiary, rgba(255,255,255,0.06))',
+            color: dateRange === r ? '#fff' : 'var(--text-secondary)',
+          }}>
+          {r}
+        </button>
+      ))}
+    </div>
+  )
 
   return (
     <div className={styles.container}>
@@ -240,8 +215,7 @@ export default function Analytics() {
       <div className={styles.content} style={{ paddingBottom: '100px' }}>
         {loading ? (
           <div style={{ padding: 'var(--space-md)', display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <Skeleton style={{ height: 100 }} />
-            <Skeleton style={{ height: 200 }} />
+            <Skeleton style={{ height: 80 }} />
             <Skeleton style={{ height: 200 }} />
           </div>
         ) : (
@@ -249,41 +223,33 @@ export default function Analytics() {
             {/* ============ OVERVIEW ============ */}
             {activeTab === 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 'var(--space-md)' }}>
-                {/* Stats Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                  <div className={styles.statCard || ''} style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16, textAlign: 'center' }}>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>{data.totalWorkouts}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Total Workouts</div>
-                  </div>
-                  <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16, textAlign: 'center' }}>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--accent)' }}>{data.streak}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Day Streak</div>
-                  </div>
-                  <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16, textAlign: 'center' }}>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>{data.topExercises.length}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Exercises</div>
-                  </div>
+                <DateRangePicker />
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {[
+                    { label: 'Workouts', value: rangedWorkouts.length },
+                    { label: 'Streak', value: `${data.streak}d` },
+                    { label: 'Avg Duration', value: avgDuration ? fmtDuration(avgDuration) : '—' },
+                    { label: 'Total Volume', value: totalVolume ? `${fmt(totalVolume)} lbs` : '—' },
+                  ].map(s => (
+                    <div key={s.label} style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16, textAlign: 'center' }}>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)' }}>{s.value}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.label}</div>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Body Part Distribution */}
-                {bodyPartChartData.length > 0 && (
-                  <ChartCard title="Body Part Distribution" categories={[]} onCategoryChange={() => {}}>
-                    <BarChart data={bodyPartChartData} height={220} />
-                  </ChartCard>
-                )}
-
-                {/* Top Exercises */}
                 {data.topExercises.length > 0 && (
-                  <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
-                    <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Top Exercises</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {data.topExercises.slice(0, 10).map(([name, count]: [string, number]) => (
-                        <div key={name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ color: 'var(--text-primary)', fontSize: 14 }}>{name}</span>
-                          <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{count} sessions</span>
-                        </div>
-                      ))}
-                    </div>
+                  <div style={cardStyle}>
+                    <h3 style={{ margin: '0 0 12px', fontSize: 15, color: 'var(--text-primary)' }}>Top Exercises (All Time)</h3>
+                    <table style={tableStyle}>
+                      <thead><tr><th style={thStyle}>Exercise</th><th style={thRight}>Sessions</th></tr></thead>
+                      <tbody>
+                        {data.topExercises.slice(0, 15).map(([name, count]) => (
+                          <tr key={name}><td style={tdStyle}>{name}</td><td style={tdRight}>{count}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
 
@@ -293,112 +259,125 @@ export default function Analytics() {
               </div>
             )}
 
-            {/* ============ HISTORY CHARTS ============ */}
+            {/* ============ WORKOUTS TABLE ============ */}
             {activeTab === 1 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 'var(--space-md)' }}>
-                <ChartCard
-                  title="Workout History"
-                  categories={['Frequency', 'Duration']}
-                  selectedCategory={historyCategory}
-                  onCategoryChange={setHistoryCategory}
-                  dateRanges={['This Week', 'This Month', 'Last 90 Days', 'This Year']}
-                  selectedDateRange={historyDateRange}
-                  onDateRangeChange={setHistoryDateRange}
-                >
-                  {historyCategory === 'Frequency' ? (
-                    frequencyChartData.length > 0 ? (
-                      <BarChart data={frequencyChartData} height={260} />
-                    ) : (
-                      <EmptyState title="No data" message="Log workouts to see frequency." />
-                    )
-                  ) : (
-                    durationChartData.length > 0 ? (
-                      <BarChart data={durationChartData} height={260} />
-                    ) : (
-                      <EmptyState title="No data" message="Log workouts to see duration." />
-                    )
-                  )}
-                </ChartCard>
+                <DateRangePicker />
+
+                {rangedWorkouts.length > 0 ? (
+                  <div style={cardStyle}>
+                    <table style={tableStyle}>
+                      <thead>
+                        <tr>
+                          <th style={thStyle}>Date</th>
+                          <th style={thStyle}>Template</th>
+                          <th style={thRight}>Duration</th>
+                          <th style={thRight}>Exercises</th>
+                          <th style={thRight}>Volume</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rangedWorkouts.map((w: any, i: number) => {
+                          const vol = workoutVolume(w)
+                          return (
+                            <tr key={w.id || i}>
+                              <td style={tdStyle}>{w.date || '—'}</td>
+                              <td style={{ ...tdStyle, color: 'var(--text-secondary)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {w.template_name || 'Freestyle'}
+                              </td>
+                              <td style={tdRight}>{w.duration ? fmtDuration(w.duration) : '—'}</td>
+                              <td style={tdRight}>{w.workout_exercises?.length || 0}</td>
+                              <td style={tdRight}>{vol > 0 ? fmt(vol) : '—'}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <EmptyState title="No workouts" message="Log workouts to see your history." actionLabel="Start Workout" onAction={() => navigate('/workout')} />
+                )}
               </div>
             )}
 
-            {/* ============ METRICS (Weight, Steps, Sleep from Fitbit) ============ */}
+            {/* ============ METRICS TABLE ============ */}
             {activeTab === 2 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 'var(--space-md)' }}>
-                <ChartCard
-                  title="Health Metrics"
-                  categories={['Weight', 'Steps', 'Sleep']}
-                  selectedCategory={metricsCategory}
-                  onCategoryChange={setMetricsCategory}
-                  dateRanges={['Last 30 Days', 'Last 90 Days', 'This Year', 'All Time']}
-                  selectedDateRange={metricsDateRange}
-                  onDateRangeChange={setMetricsDateRange}
-                >
-                  {metricsCategory === 'Weight' ? (
-                    weightChartData.length > 0 ? (
-                      <LineChart data={weightChartData} height={260} />
-                    ) : (
-                      <EmptyState title="No weight data" message="Log your weight on the home page to see trends." />
-                    )
-                  ) : metricsCategory === 'Steps' ? (
-                    stepsChartData.length > 0 ? (
-                      <BarChart data={stepsChartData} height={260} />
-                    ) : (
-                      <EmptyState title="No steps data" message="Connect Fitbit to see step data." />
-                    )
-                  ) : (
-                    sleepChartData.length > 0 ? (
-                      <BarChart data={sleepChartData} height={260} />
-                    ) : (
-                      <EmptyState title="No sleep data" message="Connect Fitbit to see sleep data." />
-                    )
-                  )}
-                </ChartCard>
+                <DateRangePicker />
+
+                {rangedMetrics.length > 0 ? (
+                  <div style={cardStyle}>
+                    <table style={tableStyle}>
+                      <thead>
+                        <tr>
+                          <th style={thStyle}>Date</th>
+                          <th style={thRight}>Weight</th>
+                          <th style={thRight}>Steps</th>
+                          <th style={thRight}>Calories</th>
+                          <th style={thRight}>Sleep</th>
+                          <th style={thRight}>HR</th>
+                          <th style={thRight}>HRV</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rangedMetrics.map((m: any, i: number) => (
+                          <tr key={m.id || i}>
+                            <td style={tdStyle}>{m.date || '—'}</td>
+                            <td style={tdRight}>{m.weight ? `${m.weight}` : '—'}</td>
+                            <td style={tdRight}>{m.steps ? fmt(Number(m.steps)) : '—'}</td>
+                            <td style={tdRight}>{m.calories_burned ? fmt(Number(m.calories_burned)) : '—'}</td>
+                            <td style={tdRight}>{m.sleep_duration ? `${(Number(m.sleep_duration) / 60).toFixed(1)}h` : '—'}</td>
+                            <td style={tdRight}>{m.resting_heart_rate ? Math.round(Number(m.resting_heart_rate)) : '—'}</td>
+                            <td style={tdRight}>{m.hrv ? Math.round(Number(m.hrv)) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <EmptyState title="No metrics" message="Log weight or connect Fitbit to see health data." />
+                )}
               </div>
             )}
 
-            {/* ============ TRENDS ============ */}
+            {/* ============ BODY PARTS TABLE ============ */}
             {activeTab === 3 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 'var(--space-md)' }}>
-                <ChartCard
-                  title="Training Trends"
-                  categories={['Volume', 'Frequency']}
-                  selectedCategory={trendsCategory}
-                  onCategoryChange={setTrendsCategory}
-                  dateRanges={['Last 30 Days', 'Last 90 Days', 'This Year', 'All Time']}
-                  selectedDateRange={trendsDateRange}
-                  onDateRangeChange={setTrendsDateRange}
-                >
-                  {trendsCategory === 'Volume' ? (
-                    volumeChartData.length > 0 ? (
-                      <BarChart data={volumeChartData} height={260} />
-                    ) : (
-                      <EmptyState title="No volume data" message="Log strength workouts to see volume trends." />
-                    )
-                  ) : (
-                    frequencyChartData.length > 0 ? (
-                      <LineChart data={frequencyChartData} height={260} />
-                    ) : (
-                      <EmptyState title="No frequency data" message="Log workouts to see trends." />
-                    )
-                  )}
-                </ChartCard>
+                <DateRangePicker />
 
-                {/* Body Part Breakdown */}
-                {Object.keys(data.bodyPartSets).length > 0 && (
-                  <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
-                    <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Sets by Body Part (All Time)</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {Object.entries(data.bodyPartSets)
-                        .sort((a, b) => b[1] - a[1])
-                        .map(([part, sets]) => (
-                          <div key={part} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ color: 'var(--text-primary)', fontSize: 14 }}>{part}</span>
-                            <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{sets} sets &middot; {data.bodyPartReps[part] || 0} reps</span>
-                          </div>
+                {rangedBodyParts.length > 0 ? (
+                  <div style={cardStyle}>
+                    <table style={tableStyle}>
+                      <thead>
+                        <tr>
+                          <th style={thStyle}>Body Part</th>
+                          <th style={thRight}>Sets</th>
+                          <th style={thRight}>Reps</th>
+                          <th style={thRight}>Volume (lbs)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rangedBodyParts.map(([part, stats]) => (
+                          <tr key={part}>
+                            <td style={tdStyle}>{part}</td>
+                            <td style={tdRight}>{stats.sets}</td>
+                            <td style={tdRight}>{fmt(stats.reps)}</td>
+                            <td style={tdRight}>{stats.volume > 0 ? fmt(stats.volume) : '—'}</td>
+                          </tr>
                         ))}
-                    </div>
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ fontWeight: 600 }}>
+                          <td style={tdStyle}>Total</td>
+                          <td style={tdRight}>{rangedBodyParts.reduce((s, [, v]) => s + v.sets, 0)}</td>
+                          <td style={tdRight}>{fmt(rangedBodyParts.reduce((s, [, v]) => s + v.reps, 0))}</td>
+                          <td style={tdRight}>{fmt(rangedBodyParts.reduce((s, [, v]) => s + v.volume, 0))}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
+                ) : (
+                  <EmptyState title="No data" message="Log workouts to see body part breakdown." actionLabel="Start Workout" onAction={() => navigate('/workout')} />
                 )}
               </div>
             )}

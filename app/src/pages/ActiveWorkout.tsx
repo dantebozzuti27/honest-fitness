@@ -398,8 +398,8 @@ export default function ActiveWorkout() {
     if (hasFinishedRef.current) return
     if (!userId || exercises.length === 0) return
 
-    // Auto-save every 30 seconds
     autoSaveIntervalRef.current = setInterval(async () => {
+      if (hasFinishedRef.current) return
       if (workoutStartTimeRef.current && exercises.length > 0) {
         const exercisesStr = JSON.stringify(exercises)
         try {
@@ -806,12 +806,18 @@ export default function ActiveWorkout() {
         const session = await getActiveWorkoutSession(userId)
         
         if (session) {
-          // Check if session is recent (within last 2 hours) - if older, ask user
           const sessionAge = Date.now() - new Date(session.workout_start_time).getTime()
           const isRecent = sessionAge < 7200000 // 2 hours
+          const hasExercises = session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0
           
-          // If session has exercises and is not recent, ask user if they want to resume
-          if (session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0 && !isRecent) {
+          // Stale sessions without exercises are garbage — nuke them
+          if (!hasExercises && !isRecent) {
+            try {
+              await deleteActiveWorkoutSession(userId)
+              localStorage.removeItem(`activeWorkout_${userId}`)
+            } catch (_) {}
+            // Fall through to create a fresh workout
+          } else if (hasExercises && !isRecent) {
             const startTimeLabel = new Date(session.workout_start_time).toLocaleString()
             const shouldResume = await confirmAsync({
               title: 'Resume workout?',
@@ -822,16 +828,11 @@ export default function ActiveWorkout() {
             })
             
             if (!shouldResume) {
-              // User wants to start fresh - delete the old session
               try {
                 await deleteActiveWorkoutSession(userId)
                 localStorage.removeItem(`activeWorkout_${userId}`)
-              } catch (error) {
-                // Silently fail
-              }
-              // Continue to initialize new workout below
+              } catch (_) {}
             } else {
-              // User wants to resume - restore the session
               workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
               const pausedMs = session.paused_time_ms || 0
               setPausedTime(pausedMs)
@@ -846,8 +847,7 @@ export default function ActiveWorkout() {
               }
               restoredExercises = true
             }
-          } else if (session.exercises && Array.isArray(session.exercises) && session.exercises.length > 0 && isRecent) {
-            // Recent session - restore automatically
+          } else if (hasExercises && isRecent) {
             workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
             const pausedMs = session.paused_time_ms || 0
             setPausedTime(pausedMs)
@@ -862,7 +862,7 @@ export default function ActiveWorkout() {
             }
             restoredExercises = true
           } else {
-            // Session exists but no exercises - restore timer only
+            // Empty but recent — just restore timer, don't persist empty sessions
             workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
             const pausedMs = session.paused_time_ms || 0
             setPausedTime(pausedMs)
@@ -1053,31 +1053,17 @@ export default function ActiveWorkout() {
           setPausedTime(0)
           pausedTimeRef.current = 0
           
-          // Sync Fitbit before capturing start metrics
           if (userId) triggerFitbitSync(userId)
 
           const startMetrics = await getCurrentWearableMetrics()
           workoutStartMetricsRef.current = startMetrics
           
-          // Save start metrics to localStorage for persistence
           try {
             localStorage.setItem(`workoutStartMetrics_${userId}`, JSON.stringify(startMetrics))
-          } catch (e) {
-            // Silently fail
-          }
+          } catch (_) {}
           
-          // Save to database
-          try {
-            await saveActiveWorkoutSession(userId, {
-              workoutStartTime: new Date(workoutStartTimeRef.current).toISOString(),
-              pausedTimeMs: 0,
-              restStartTime: null,
-              restDurationSeconds: null,
-              isResting: false
-            })
-          } catch (error) {
-            // Silently fail - localStorage will be used
-          }
+          // Don't persist an empty session to the DB — the auto-save will
+          // create the DB record once the first exercise is added.
         }
       } catch (error) {
         logError('Error loading workout session', error)
@@ -1380,11 +1366,16 @@ export default function ActiveWorkout() {
       mounted = false
       if (workoutTimerRef.current) clearInterval(workoutTimerRef.current)
       if (restTimerRef.current) clearInterval(restTimerRef.current)
-      // Clear all timeouts
       timeoutRefs.current.forEach(timeoutId => clearTimeout(timeoutId))
       timeoutRefs.current = []
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('focus', handleFocus)
+
+      // If workout was never finished and has no exercises, clean up the empty session
+      if (!hasFinishedRef.current && userId && exercisesRef.current.length === 0) {
+        deleteActiveWorkoutSession(userId).catch(() => {})
+        try { localStorage.removeItem(`activeWorkout_${userId}`) } catch (_) {}
+      }
     }
   }, [templateId, randomWorkout, aiWorkout, userId])
   

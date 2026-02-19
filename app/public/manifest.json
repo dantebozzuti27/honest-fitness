@@ -1,7 +1,7 @@
 {
   "name": "HonestFitness",
   "short_name": "HonestFitness",
-  "description": "Track your workouts, nutrition, and health metrics honestly",
+  "description": "Track your workouts, weight, and Fitbit stats",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
@@ -21,30 +21,21 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["health", "fitness", "lifestyle"],
-  "screenshots": [],
+  "categories": ["health", "fitness"],
   "shortcuts": [
     {
-      "name": "Log Workout",
+      "name": "Start Workout",
       "short_name": "Workout",
       "description": "Start a new workout",
-      "url": "/fitness",
+      "url": "/workout",
       "icons": [{ "src": "/logo.jpg", "sizes": "96x96" }]
     },
     {
-      "name": "Log Meal",
-      "short_name": "Meal",
-      "description": "Log a meal",
-      "url": "/nutrition",
-      "icons": [{ "src": "/logo.jpg", "sizes": "96x96" }]
-    },
-    {
-      "name": "Health Metrics",
-      "short_name": "Health",
-      "description": "View health metrics",
-      "url": "/health",
+      "name": "Analytics",
+      "short_name": "Analytics",
+      "description": "View workout analytics",
+      "url": "/analytics",
       "icons": [{ "src": "/logo.jpg", "sizes": "96x96" }]
     }
   ]
 }
-

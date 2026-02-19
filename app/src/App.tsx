@@ -1,11 +1,10 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
-import { getTodayEST } from './utils/dateUtils'
 import { lazy, Suspense } from 'react'
 import BottomNav from './components/BottomNav'
 import ErrorBoundary from './components/ErrorBoundary'
-import { logWarn, logError } from './utils/logger'
+import { logError } from './utils/logger'
 import { setTemplateSyncUserId } from './db/lazyDb'
 
 const Home = lazy(() => import('./pages/Home'))
@@ -77,45 +76,21 @@ export default function App() {
       .catch(() => {})
   }, [user])
 
-  // Start Fitbit token refresh interval
+  // Fitbit token refresh + scheduled sync (midnight ET + app load)
   useEffect(() => {
     if (!user) return
-    let cleanup: (() => void) | null = null
+    const cleanups: (() => void)[] = []
     let cancelled = false
     import('./lib/tokenManager')
-      .then(({ startTokenRefreshInterval }) => {
+      .then(({ startTokenRefreshInterval, startFitbitSyncScheduler }) => {
         if (cancelled) return
-        cleanup = startTokenRefreshInterval(user.id)
+        cleanups.push(startTokenRefreshInterval(user.id))
+        cleanups.push(startFitbitSyncScheduler(user.id))
       })
       .catch(() => {})
     return () => {
       cancelled = true
-      if (typeof cleanup === 'function') cleanup()
-    }
-  }, [user])
-  
-  // Auto-sync Fitbit data on app load (once per session, every 5 min)
-  useEffect(() => {
-    if (!user) return
-    const syncKey = `wearable_sync_${user.id}_${getTodayEST()}`
-    const lastSync = sessionStorage.getItem(syncKey)
-    const now = Date.now()
-    
-    if (!lastSync || (now - parseInt(lastSync)) > 5 * 60 * 1000) {
-      sessionStorage.setItem(syncKey, now.toString())
-      import('./lib/wearables')
-        .then(({ getAllConnectedAccounts, syncFitbitData }) => {
-          return getAllConnectedAccounts(user.id).then((connected: any[]) => {
-            if (!connected || connected.length === 0) return
-            const fitbitAccount = connected.find((a: any) => a.provider === 'fitbit')
-            if (fitbitAccount) {
-              syncFitbitData(user.id, getTodayEST()).catch((err: any) => {
-                logWarn('Auto-sync Fitbit failed', { message: err?.message })
-              })
-            }
-          })
-        })
-        .catch((err) => logError('Error syncing Fitbit on load', err))
+      cleanups.forEach(fn => fn())
     }
   }, [user])
   

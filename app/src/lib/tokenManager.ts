@@ -1,11 +1,11 @@
 /**
- * Token Manager
- * Handles automatic token refresh for connected accounts
+ * Token Manager + Fitbit Sync Scheduler
+ * Handles token refresh and scheduled data syncs
  */
 
-import { getConnectedAccount, saveConnectedAccount } from './wearables'
+import { getConnectedAccount, saveConnectedAccount, getAllConnectedAccounts, syncFitbitData } from './wearables'
 import { requireSupabase } from './supabase'
-import { logError } from '../utils/logger'
+import { logError, logDebug } from '../utils/logger'
 import { apiUrl } from './urlConfig'
 
 /**
@@ -128,14 +128,86 @@ export async function refreshTokenIfNeeded(userId: string, provider: string, acc
  * Checks every 30 minutes
  */
 export function startTokenRefreshInterval(userId: string) {
-  // Check immediately
   checkAndRefreshFitbitToken(userId)
   
-  // Then check every 30 minutes
   const interval = setInterval(() => {
     checkAndRefreshFitbitToken(userId)
-  }, 30 * 60 * 1000) // 30 minutes
+  }, 30 * 60 * 1000)
   
   return () => clearInterval(interval)
+}
+
+// ============ FITBIT SYNC SCHEDULER ============
+
+function getETDate(offset = 0): string {
+  const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
+  const d = new Date(etStr)
+  d.setDate(d.getDate() + offset)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function getMsUntilMidnightET(): number {
+  const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
+  const etNow = new Date(etStr)
+  const midnight = new Date(etStr)
+  midnight.setDate(midnight.getDate() + 1)
+  midnight.setHours(0, 0, 0, 0)
+  return Math.max(midnight.getTime() - etNow.getTime(), 60_000)
+}
+
+async function isFitbitConnected(userId: string): Promise<boolean> {
+  try {
+    const accounts = await getAllConnectedAccounts(userId)
+    return accounts.some((a: any) => a.provider === 'fitbit')
+  } catch { return false }
+}
+
+/**
+ * Safe Fitbit sync — checks connection first, never throws.
+ * Call this from workout start/end or anywhere you want a fire-and-forget sync.
+ */
+export async function triggerFitbitSync(userId: string, date?: string): Promise<void> {
+  try {
+    if (!(await isFitbitConnected(userId))) return
+    await syncFitbitData(userId, date ?? getETDate(0))
+    logDebug('Fitbit sync triggered', { date: date ?? getETDate(0) })
+  } catch (err: any) {
+    logError('triggerFitbitSync failed (non-fatal)', { message: err?.message })
+  }
+}
+
+/**
+ * Schedule Fitbit syncs:
+ *   1. Immediately on app load (today)
+ *   2. At midnight ET every night (syncs completed day + new day)
+ * Returns cleanup function.
+ */
+export function startFitbitSyncScheduler(userId: string): () => void {
+  let midnightTimeout: ReturnType<typeof setTimeout> | null = null
+  let cancelled = false
+
+  triggerFitbitSync(userId, getETDate(0))
+
+  function scheduleMidnight() {
+    if (cancelled) return
+    const ms = getMsUntilMidnightET()
+    logDebug('Fitbit midnight sync scheduled', { ms, minutesUntil: Math.round(ms / 60_000) })
+
+    midnightTimeout = setTimeout(async () => {
+      if (cancelled) return
+      const yesterday = getETDate(-1)
+      const today = getETDate(0)
+      await triggerFitbitSync(userId, yesterday)
+      await triggerFitbitSync(userId, today)
+      scheduleMidnight()
+    }, ms)
+  }
+
+  scheduleMidnight()
+
+  return () => {
+    cancelled = true
+    if (midnightTimeout != null) clearTimeout(midnightTimeout)
+  }
 }
 

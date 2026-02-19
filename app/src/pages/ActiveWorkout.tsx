@@ -24,6 +24,7 @@ import { enqueueOutboxItem } from '../lib/syncOutbox'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
+import { triggerFitbitSync } from '../lib/tokenManager'
 import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
 import Sheet from '../components/ui/Sheet'
 import IconButton from '../components/ui/IconButton'
@@ -1052,7 +1053,9 @@ export default function ActiveWorkout() {
           setPausedTime(0)
           pausedTimeRef.current = 0
           
-          // Capture wearable metrics at workout start
+          // Sync Fitbit before capturing start metrics
+          if (userId) triggerFitbitSync(userId)
+
           const startMetrics = await getCurrentWearableMetrics()
           workoutStartMetricsRef.current = startMetrics
           
@@ -2017,11 +2020,12 @@ export default function ActiveWorkout() {
         showToast(sessionType === 'recovery' ? 'Recovery session saved locally!' : 'Workout saved locally!', 'success')
       }
       
-      // Always exit ActiveWorkout after a successful finish.
+      // Sync Fitbit after workout completes to capture activity data
+      if (userId) triggerFitbitSync(userId)
+
       setShowSummary(false)
       setShowControlsSheet(false)
 
-      // Clear in-memory session so nothing can re-save it to localStorage.
       setExercises([])
       setWorkoutTime(0)
       setRestTime(0)

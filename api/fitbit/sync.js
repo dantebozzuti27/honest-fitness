@@ -277,8 +277,28 @@ export default async function handler(req, res) {
       }
     }
     
-    // Save to health_metrics table (primary) and fitbit_daily (backward compatibility)
-    // Ensure steps is an integer (not a decimal string)
+    // Fetch body weight data
+    try {
+      const weightResponse = await fetch(
+        `https://api.fitbit.com/1/user/-/body/log/weight/date/${date}.json`,
+        { headers: { 'Authorization': `Bearer ${accessToken}` } }
+      )
+      if (weightResponse.ok) {
+        const weightJson = await weightResponse.json()
+        if (weightJson.weight && weightJson.weight.length > 0) {
+          const latest = weightJson.weight[weightJson.weight.length - 1]
+          if (latest.weight != null) {
+            // Fitbit returns kg by default; convert to lbs (Fitbit API uses unit system from profile)
+            fitbitData.weight = Number(latest.weight)
+            fitbitData.bmi = latest.bmi != null ? Number(latest.bmi) : null
+            fitbitData.fat = latest.fat != null ? Number(latest.fat) : null
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching body weight:', e)
+    }
+
     // Helper to ensure integer conversion
     const toInteger = (val) => {
       if (val === null || val === undefined || val === '') return null
@@ -300,7 +320,20 @@ export default async function handler(req, res) {
       updated_at: new Date().toISOString()
     }
     
-    // Save to health_metrics table (primary)
+    // Check if there's an existing manual weight entry for this date
+    let existingManualWeight = null
+    try {
+      const { data: existingRow } = await supabase
+        .from('health_metrics')
+        .select('weight, source_provider')
+        .eq('user_id', userId)
+        .eq('date', date)
+        .maybeSingle()
+      if (existingRow?.weight != null && existingRow.source_provider === 'manual') {
+        existingManualWeight = existingRow.weight
+      }
+    } catch (_) {}
+
     const healthMetricsData = {
       user_id: userId,
       date: date,
@@ -309,7 +342,7 @@ export default async function handler(req, res) {
       body_temp: fitbitData.body_temp != null ? Number(fitbitData.body_temp) : null,
       sleep_duration: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
       calories_burned: fitbitData.calories != null ? Number(fitbitData.calories) : null,
-      steps: toInteger(fitbitData.steps), // INTEGER - must be whole number
+      steps: toInteger(fitbitData.steps),
       source_provider: 'fitbit',
       source_data: {
         sleep_efficiency: fitbitData.sleep_efficiency != null ? Number(fitbitData.sleep_efficiency) : null,
@@ -327,6 +360,13 @@ export default async function handler(req, res) {
         fat: fitbitData.fat || null
       },
       updated_at: new Date().toISOString()
+    }
+
+    // Write Fitbit weight to the primary weight column — manual entries take precedence
+    if (existingManualWeight != null) {
+      healthMetricsData.weight = existingManualWeight
+    } else if (fitbitData.weight != null) {
+      healthMetricsData.weight = Number(fitbitData.weight)
     }
 
     const { error: healthMetricsError } = await supabase

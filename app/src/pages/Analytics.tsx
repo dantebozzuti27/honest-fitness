@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -80,6 +80,7 @@ export default function Analytics() {
   const [activeTab, setActiveTab] = useState(0)
   const [loading, setLoading] = useState(true)
   const [dateRange, setDateRange] = useState('Last 30 Days')
+  const [expandedWorkout, setExpandedWorkout] = useState<string | null>(null)
   const [data, setData] = useState<AnalyticsData>({
     bodyParts: {}, bodyPartReps: {}, bodyPartSets: {}, detailedStats: {},
     streak: 0, metrics: [], frequency: {}, topExercises: [], totalWorkouts: 0, workouts: [],
@@ -279,16 +280,74 @@ export default function Analytics() {
                       <tbody>
                         {rangedWorkouts.map((w: any, i: number) => {
                           const vol = workoutVolume(w)
+                          const wKey = w.id || `w-${i}`
+                          const isExpanded = expandedWorkout === wKey
+                          const exercises: any[] = w.workout_exercises || []
                           return (
-                            <tr key={w.id || i}>
-                              <td style={tdStyle}>{w.date || '—'}</td>
-                              <td style={{ ...tdStyle, color: 'var(--text-secondary)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {w.template_name || 'Freestyle'}
-                              </td>
-                              <td style={tdRight}>{w.duration ? fmtDuration(w.duration) : '—'}</td>
-                              <td style={tdRight}>{w.workout_exercises?.length || 0}</td>
-                              <td style={tdRight}>{vol > 0 ? fmt(vol) : '—'}</td>
-                            </tr>
+                            <React.Fragment key={wKey}>
+                              <tr
+                                onClick={() => setExpandedWorkout(isExpanded ? null : wKey)}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <td style={tdStyle}>
+                                  <span style={{ marginRight: 6, fontSize: 10, color: 'var(--text-secondary)' }}>{isExpanded ? '▼' : '▶'}</span>
+                                  {w.date || '—'}
+                                </td>
+                                <td style={{ ...tdStyle, color: 'var(--text-secondary)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {w.template_name || 'Freestyle'}
+                                </td>
+                                <td style={tdRight}>{w.duration ? fmtDuration(w.duration) : '—'}</td>
+                                <td style={tdRight}>{exercises.length}</td>
+                                <td style={tdRight}>{vol > 0 ? fmt(vol) : '—'}</td>
+                              </tr>
+                              {isExpanded && exercises.length > 0 && (
+                                <tr>
+                                  <td colSpan={5} style={{ padding: 0, borderBottom: '1px solid var(--border-primary, rgba(255,255,255,0.06))' }}>
+                                    <div style={{ padding: '8px 10px 12px', background: 'var(--bg-tertiary, rgba(255,255,255,0.03))' }}>
+                                      <table style={{ ...tableStyle, fontSize: 12 }}>
+                                        <thead>
+                                          <tr>
+                                            <th style={{ ...thStyle, fontSize: 10 }}>Exercise</th>
+                                            <th style={{ ...thStyle, fontSize: 10 }}>Body Part</th>
+                                            <th style={{ ...thRight, fontSize: 10 }}>Sets</th>
+                                            <th style={{ ...thStyle, fontSize: 10 }}>Detail</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {exercises.map((ex: any, j: number) => {
+                                            const sets: any[] = ex.workout_sets || []
+                                            const setsStr = sets
+                                              .filter((s: any) => s.weight || s.reps || s.time)
+                                              .map((s: any) => {
+                                                if (s.time) return `${s.time}s`
+                                                if (s.weight && s.reps) return `${s.weight}×${s.reps}`
+                                                if (s.reps) return `BW×${s.reps}`
+                                                return `${s.weight}lb`
+                                              })
+                                              .join(', ')
+                                            return (
+                                              <tr key={j}>
+                                                <td style={{ ...tdStyle, fontWeight: 500 }}>{ex.exercise_name || ex.name || '—'}</td>
+                                                <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{ex.body_part || '—'}</td>
+                                                <td style={tdRight}>{sets.filter((s: any) => s.weight || s.reps || s.time).length}</td>
+                                                <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11, fontFamily: 'var(--font-mono, monospace)' }}>
+                                                  {setsStr || '—'}
+                                                </td>
+                                              </tr>
+                                            )
+                                          })}
+                                        </tbody>
+                                      </table>
+                                      {w.notes && (
+                                        <div style={{ marginTop: 8, padding: '6px 10px', fontSize: 12, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                                          {w.notes}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           )
                         })}
                       </tbody>

@@ -824,43 +824,45 @@ function computeDeloadRecommendation(
 ): DeloadRecommendation {
   const signals: string[] = [];
 
+  // Only count strength exercises regressing — cardio fluctuations are normal
   const regressing = exerciseProgressions.filter(e => e.status === 'regressing');
-  if (regressing.length >= 3) {
+  if (regressing.length >= 5) {
     signals.push(`${regressing.length} exercises regressing simultaneously`);
   }
 
-  const recent14 = health.slice(-14);
-  if (recent14.length >= 10) {
-    const hrvs = recent14.filter(h => h.hrv != null).map(h => h.hrv!);
-    if (hrvs.length >= 7) {
+  // Use 21-day window and require steeper trends to avoid false positives
+  const recent21 = health.slice(-21);
+  if (recent21.length >= 14) {
+    const hrvs = recent21.filter(h => h.hrv != null).map(h => h.hrv!);
+    if (hrvs.length >= 10) {
       const hrvSlope = linearRegressionSlope(hrvs);
       const hrvMean = mean(hrvs);
-      if (hrvSlope < 0 && Math.abs(hrvSlope * 7 / hrvMean) > 0.05) {
-        signals.push('HRV trending down over 2+ weeks');
+      if (hrvSlope < 0 && Math.abs(hrvSlope * 7 / hrvMean) > 0.10) {
+        signals.push('HRV trending significantly down over 3+ weeks');
       }
     }
 
-    const rhrs = recent14.filter(h => h.resting_heart_rate != null).map(h => h.resting_heart_rate!);
-    if (rhrs.length >= 7) {
+    const rhrs = recent21.filter(h => h.resting_heart_rate != null).map(h => h.resting_heart_rate!);
+    if (rhrs.length >= 10) {
       const rhrSlope = linearRegressionSlope(rhrs);
       const rhrMean = mean(rhrs);
-      if (rhrSlope > 0 && Math.abs(rhrSlope * 7 / rhrMean) > 0.05) {
-        signals.push('Resting HR trending up over 2+ weeks');
+      if (rhrSlope > 0 && Math.abs(rhrSlope * 7 / rhrMean) > 0.10) {
+        signals.push('Resting HR trending significantly up over 3+ weeks');
       }
     }
 
-    const sleeps = recent14.filter(h => h.sleep_duration != null).map(h => h.sleep_duration!);
-    if (sleeps.length >= 7) {
+    const sleeps = recent21.filter(h => h.sleep_duration != null).map(h => h.sleep_duration!);
+    if (sleeps.length >= 10) {
       const sleepSlope = linearRegressionSlope(sleeps);
       const sleepMean = mean(sleeps);
-      if (sleepSlope < 0 && Math.abs(sleepSlope * 7 / sleepMean) > 0.05) {
-        signals.push('Sleep quality trending down over 2+ weeks');
+      if (sleepSlope < 0 && Math.abs(sleepSlope * 7 / sleepMean) > 0.10) {
+        signals.push('Sleep declining significantly over 3+ weeks');
       }
     }
   }
 
   return {
-    needed: signals.length >= 2,
+    needed: signals.length >= 3,
     signals,
     suggestedDurationDays: 7,
     suggestedVolumeMultiplier: 0.5,
@@ -2030,6 +2032,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
       return {
         primary_muscles: enriched?.primary_muscles ?? mapping?.primary_muscles ?? undefined,
         secondary_muscles: enriched?.secondary_muscles ?? mapping?.secondary_muscles ?? undefined,
+        category: isCardio ? 'Cardio' : undefined,
         sets: effectiveSets,
       };
     });

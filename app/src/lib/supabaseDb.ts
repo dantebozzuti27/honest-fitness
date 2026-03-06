@@ -1252,6 +1252,7 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     'body_weight_lbs', 'experience_level',
     'cardio_preference', 'cardio_frequency_per_week', 'cardio_duration_minutes',
     'preferred_exercises',
+    'recovery_speed', 'weight_goal_lbs', 'weight_goal_date',
   ]
   for (const key of directFields) {
     if (prefs[key] !== undefined) {

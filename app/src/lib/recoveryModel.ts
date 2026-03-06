@@ -126,14 +126,23 @@ export function computeSynergistPenalty(
  *   individualMods -- learned individual recovery rate modifiers per muscle group
  *                     (1.0 = average, <1.0 = slower recovery, >1.0 = faster recovery)
  */
+/**
+ * recoverySpeedMultiplier scales all baseline recovery windows.
+ * 1.0 = population default, 2.0 = recovers 2x faster (halves recovery hours),
+ * 0.5 = recovers 2x slower.
+ * An elite D1 athlete who recovers upper body in ~20h and legs in ~40h
+ * would use ~2.0 (48h→24h upper, 72h→36h legs).
+ */
 export function computeAllRecoveryStatuses(
   recentTraining: MuscleGroupTrainingRecord[],
   recoveryCtx: RecoveryContext,
   individualMods: Record<string, number> = {},
-  now: Date = new Date()
+  now: Date = new Date(),
+  recoverySpeedMultiplier: number = 1.0
 ): MuscleRecoveryStatus[] {
   const nowMs = now.getTime();
   const globalModifier = computeRecoveryModifier(recoveryCtx);
+  const speedMult = Math.max(0.25, Math.min(4.0, recoverySpeedMultiplier));
 
   return VOLUME_GUIDELINES.map(guideline => {
     const record = recentTraining.find(r => r.muscleGroup === guideline.muscleGroup);
@@ -166,8 +175,8 @@ export function computeAllRecoveryStatuses(
     );
 
     const effectiveRecoveryHours =
-      (guideline.recoveryHours * volumeScaling) / (globalModifier * individualMod)
-      + synergistPenalty;
+      (guideline.recoveryHours * volumeScaling) / (globalModifier * individualMod * speedMult)
+      + (synergistPenalty / speedMult);
 
     const recoveryPercent = Math.min(100, (hoursSince / effectiveRecoveryHours) * 100);
 
@@ -188,10 +197,16 @@ export function computeAllRecoveryStatuses(
  * Converts a list of exercises (with their primary_muscles arrays) into
  * MuscleGroupTrainingRecords for recovery tracking.
  */
+/**
+ * Converts exercises to muscle group records for recovery tracking.
+ * Cardio exercises are excluded — they don't impose meaningful
+ * muscle-specific recovery demands.
+ */
 export function exercisesToMuscleGroupRecords(
   exercises: Array<{
     primary_muscles?: string[];
     secondary_muscles?: string[];
+    category?: string;
     sets: number;
   }>,
   trainedAt: Date
@@ -199,6 +214,8 @@ export function exercisesToMuscleGroupRecords(
   const groupSets: Record<string, number> = {};
 
   for (const ex of exercises) {
+    if (ex.category?.toLowerCase() === 'cardio') continue;
+
     const primary = Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [];
     const secondary = Array.isArray(ex.secondary_muscles) ? ex.secondary_muscles : [];
     for (const muscle of primary) {

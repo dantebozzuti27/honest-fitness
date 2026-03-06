@@ -48,6 +48,9 @@ export interface UserPreferences {
   cardio_frequency_per_week: number | null;
   cardio_duration_minutes: number | null;
   preferred_exercises: string[] | null;
+  recovery_speed: number | null;
+  weight_goal_lbs: number | null;
+  weight_goal_date: string | null;
 }
 
 export interface GeneratedExercise {
@@ -150,6 +153,9 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     cardio_frequency_per_week: data?.cardio_frequency_per_week != null ? Number(data.cardio_frequency_per_week) : null,
     cardio_duration_minutes: data?.cardio_duration_minutes != null ? Number(data.cardio_duration_minutes) : null,
     preferred_exercises: Array.isArray(rawPrefExercises) ? rawPrefExercises : null,
+    recovery_speed: data?.recovery_speed != null ? Number(data.recovery_speed) : null,
+    weight_goal_lbs: data?.weight_goal_lbs != null ? Number(data.weight_goal_lbs) : null,
+    weight_goal_date: data?.weight_goal_date ?? null,
   };
 }
 

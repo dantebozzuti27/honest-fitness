@@ -44,6 +44,9 @@ interface TrainingProfileData {
   cardio_preference: string;
   cardio_frequency_per_week: string;
   cardio_duration_minutes: string;
+  recovery_speed: string;
+  weight_goal_lbs: string;
+  weight_goal_date: string;
 }
 
 const GOAL_OPTIONS = [
@@ -182,6 +185,15 @@ const SEVERITY_OPTIONS = [
   { value: 'severe', label: 'Severe' },
 ]
 
+const RECOVERY_SPEED_OPTIONS = [
+  { value: '', label: 'Select...' },
+  { value: '0.75', label: 'Slow (longer recovery needed)' },
+  { value: '1.0', label: 'Normal (population average)' },
+  { value: '1.5', label: 'Fast (well-conditioned)' },
+  { value: '2.0', label: 'Very Fast (elite athlete)' },
+  { value: '2.5', label: 'Extreme (daily training tolerance)' },
+]
+
 export default function Profile() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
@@ -217,6 +229,9 @@ export default function Profile() {
     cardio_preference: '',
     cardio_frequency_per_week: '',
     cardio_duration_minutes: '',
+    recovery_speed: '',
+    weight_goal_lbs: '',
+    weight_goal_date: '',
   })
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
@@ -299,6 +314,9 @@ export default function Profile() {
           cardio_preference: prefs.cardio_preference || '',
           cardio_frequency_per_week: prefs.cardio_frequency_per_week != null ? String(prefs.cardio_frequency_per_week) : '',
           cardio_duration_minutes: prefs.cardio_duration_minutes != null ? String(prefs.cardio_duration_minutes) : '',
+          recovery_speed: prefs.recovery_speed != null ? String(prefs.recovery_speed) : '',
+          weight_goal_lbs: prefs.weight_goal_lbs != null ? String(prefs.weight_goal_lbs) : '',
+          weight_goal_date: prefs.weight_goal_date || '',
         })
       }
       setProfileLoaded(true)
@@ -330,6 +348,9 @@ export default function Profile() {
         cardio_preference: trainingProfile.cardio_preference || null,
         cardio_frequency_per_week: trainingProfile.cardio_frequency_per_week ? Number(trainingProfile.cardio_frequency_per_week) : null,
         cardio_duration_minutes: trainingProfile.cardio_duration_minutes ? Number(trainingProfile.cardio_duration_minutes) : null,
+        recovery_speed: trainingProfile.recovery_speed ? Number(trainingProfile.recovery_speed) : null,
+        weight_goal_lbs: trainingProfile.weight_goal_lbs ? Number(trainingProfile.weight_goal_lbs) : null,
+        weight_goal_date: trainingProfile.weight_goal_date || null,
       }
       await saveUserPreferences(user.id, payload)
       showToast('Training profile saved', 'success')
@@ -554,6 +575,12 @@ export default function Profile() {
                   options={SPLIT_OPTIONS}
                 />
                 <SelectField
+                  label="Recovery Speed"
+                  value={trainingProfile.recovery_speed}
+                  onChange={e => setTrainingProfile(p => ({ ...p, recovery_speed: e.target.value }))}
+                  options={RECOVERY_SPEED_OPTIONS}
+                />
+                <SelectField
                   label="Job Activity Level"
                   value={trainingProfile.job_activity_level}
                   onChange={e => setTrainingProfile(p => ({ ...p, job_activity_level: e.target.value }))}
@@ -601,6 +628,30 @@ export default function Profile() {
                   value={trainingProfile.date_of_birth}
                   onChange={(e: any) => setTrainingProfile(p => ({ ...p, date_of_birth: e.target.value }))}
                 />
+
+                <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '-4px', marginTop: '4px' }}>
+                  Weight Goal
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ flex: 1 }}>
+                    <InputField
+                      label="Target Weight (lbs)"
+                      type="number"
+                      value={trainingProfile.weight_goal_lbs}
+                      onChange={(e: any) => setTrainingProfile(p => ({ ...p, weight_goal_lbs: e.target.value }))}
+                      placeholder="e.g. 195"
+                      inputMode="decimal"
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <InputField
+                      label="Target Date"
+                      type="date"
+                      value={trainingProfile.weight_goal_date}
+                      onChange={(e: any) => setTrainingProfile(p => ({ ...p, weight_goal_date: e.target.value }))}
+                    />
+                  </div>
+                </div>
 
                 <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '-4px', marginTop: '4px' }}>
                   Cardio

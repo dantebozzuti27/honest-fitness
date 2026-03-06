@@ -371,3 +371,17 @@ UPDATE public.workout_exercises
 UPDATE public.workout_exercises
   SET exercise_name = 'StairMaster Intervals'
   WHERE exercise_name = 'Stair Climber Intervals';
+
+-- Recovery speed & weight goal columns
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'recovery_speed') THEN
+    ALTER TABLE user_preferences ADD COLUMN recovery_speed NUMERIC;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'weight_goal_lbs') THEN
+    ALTER TABLE user_preferences ADD COLUMN weight_goal_lbs NUMERIC;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'weight_goal_date') THEN
+    ALTER TABLE user_preferences ADD COLUMN weight_goal_date DATE;
+  END IF;
+END $$;

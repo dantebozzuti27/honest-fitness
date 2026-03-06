@@ -1,49 +1,97 @@
 /**
- * Data Export System
- * Export user data in CSV, JSON, PDF formats for backup and GDPR compliance
+ * Data Export — JSON (full) and CSV (flat, ML-ready)
  */
 
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
 
-// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
-const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
+const supabase = supabaseClient ?? new Proxy({} as any, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
+
+// ─── helpers ───────────────────────────────────────────────────────────────
+
+async function safeQuery(fn: () => Promise<any>): Promise<any> {
+  try {
+    return await fn()
+  } catch (e: any) {
+    const ignorable = e?.code === 'PGRST116' || e?.code === '42P01' ||
+      e?.message?.includes('does not exist') || e?.message?.includes('relation')
+    if (ignorable) return null
+    throw e
+  }
+}
+
+function csvEscape(v: any): string {
+  if (v == null || v === '') return ''
+  const s = String(v)
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`
+  return s
+}
+
+function csvRow(fields: any[]): string {
+  return fields.map(csvEscape).join(',')
+}
+
+// ─── raw fetchers ──────────────────────────────────────────────────────────
+
+async function fetchWorkouts(userId: string) {
+  const { data, error } = await supabase
+    .from('workouts')
+    .select(`
+      id, date, duration, template_name, perceived_effort, notes, created_at,
+      workout_exercises (
+        exercise_name, body_part,
+        workout_sets ( set_number, weight, reps, time )
+      )
+    `)
+    .eq('user_id', userId)
+    .order('date', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+async function fetchHealthMetrics(userId: string) {
+  const { data, error } = await supabase
+    .from('health_metrics')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+async function fetchPreferences(userId: string) {
+  return safeQuery(async () => {
+    const { data, error } = await supabase
+      .from('user_preferences')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (error) throw error
+    return data
+  })
+}
+
+// ─── public exports ────────────────────────────────────────────────────────
 
 /**
- * Export all user data as JSON
+ * Full JSON export — everything we have for this user.
  */
-export async function exportUserDataJSON(userId) {
+export async function exportUserDataJSON(userId: string) {
   try {
-    const [
-      workouts,
-      healthMetrics,
-      nutrition,
-      goals,
-      preferences,
-      events,
-      sessions
-    ] = await Promise.all([
-      exportWorkouts(userId),
-      exportHealthMetrics(userId),
-      exportNutrition(userId),
-      exportGoals(userId),
-      exportPreferences(userId),
-      exportEvents(userId),
-      exportSessions(userId)
+    const [workouts, healthMetrics, preferences] = await Promise.all([
+      fetchWorkouts(userId),
+      fetchHealthMetrics(userId),
+      fetchPreferences(userId),
     ])
-    
+
     return {
       export_date: new Date().toISOString(),
       user_id: userId,
       data: {
         workouts,
         health_metrics: healthMetrics,
-        nutrition,
-        goals,
         preferences,
-        events,
-        sessions
-      }
+      },
     }
   } catch (error) {
     logError('Error exporting user data as JSON', error)
@@ -52,34 +100,49 @@ export async function exportUserDataJSON(userId) {
 }
 
 /**
- * Export workouts as CSV
+ * Flat CSV with one row per SET — this is what you want for ML.
+ *
+ * Columns: date, workout_id, template, duration_sec, perceived_effort,
+ *          exercise, body_part, set_number, weight_lbs, reps, time_sec
  */
-export async function exportWorkoutsCSV(userId) {
+export async function exportWorkoutsCSV(userId: string) {
   try {
-    const workouts = await exportWorkouts(userId)
-    
-    if (!workouts || workouts.length === 0) {
-      return 'No workout data available'
+    const workouts = await fetchWorkouts(userId)
+    if (!workouts.length) return 'No workout data available'
+
+    const header = [
+      'date', 'workout_id', 'template', 'duration_sec', 'perceived_effort',
+      'exercise', 'body_part', 'set_number', 'weight_lbs', 'reps', 'time_sec', 'notes',
+    ]
+    const lines: string[] = [csvRow(header)]
+
+    for (const w of workouts) {
+      const exercises = w.workout_exercises || []
+      if (exercises.length === 0) {
+        lines.push(csvRow([
+          w.date, w.id, w.template_name, w.duration, w.perceived_effort,
+          '', '', '', '', '', '', w.notes,
+        ]))
+        continue
+      }
+      for (const ex of exercises) {
+        const sets = (ex.workout_sets || []).sort((a: any, b: any) => (a.set_number || 0) - (b.set_number || 0))
+        if (sets.length === 0) {
+          lines.push(csvRow([
+            w.date, w.id, w.template_name, w.duration, w.perceived_effort,
+            ex.exercise_name, ex.body_part, '', '', '', '', w.notes,
+          ]))
+          continue
+        }
+        for (const s of sets) {
+          lines.push(csvRow([
+            w.date, w.id, w.template_name, w.duration, w.perceived_effort,
+            ex.exercise_name, ex.body_part, s.set_number, s.weight, s.reps, s.time, w.notes,
+          ]))
+        }
+      }
     }
-    
-    // CSV header
-    const headers = ['Date', 'Duration (min)', 'Template', 'Perceived Effort', 'Notes', 'Exercise Count']
-    let csv = headers.join(',') + '\n'
-    
-    // CSV rows
-    workouts.forEach(workout => {
-      const row = [
-        workout.date,
-        workout.duration || '',
-        workout.template_name || '',
-        workout.perceived_effort || '',
-        (workout.notes || '').replace(/,/g, ';'), // Replace commas in notes
-        workout.exercise_count || 0
-      ]
-      csv += row.map(field => `"${field}"`).join(',') + '\n'
-    })
-    
-    return csv
+    return lines.join('\n')
   } catch (error) {
     logError('Error exporting workouts as CSV', error)
     throw error
@@ -87,34 +150,28 @@ export async function exportWorkoutsCSV(userId) {
 }
 
 /**
- * Export health metrics as CSV
+ * Health metrics CSV — one row per day.
  */
-export async function exportHealthMetricsCSV(userId) {
+export async function exportHealthMetricsCSV(userId: string) {
   try {
-    const metrics = await exportHealthMetrics(userId)
-    
-    if (!metrics || metrics.length === 0) {
-      return 'No health metrics data available'
+    const metrics = await fetchHealthMetrics(userId)
+    if (!metrics.length) return 'No health metrics data available'
+
+    const header = [
+      'date', 'weight_lbs', 'body_fat_pct', 'steps', 'calories_burned',
+      'resting_hr', 'hrv', 'sleep_duration_min', 'sleep_score',
+      'source_provider',
+    ]
+    const lines: string[] = [csvRow(header)]
+
+    for (const m of metrics) {
+      lines.push(csvRow([
+        m.date, m.weight, m.body_fat_percentage, m.steps, m.calories_burned,
+        m.resting_heart_rate, m.hrv, m.sleep_duration, m.sleep_score,
+        m.source_provider,
+      ]))
     }
-    
-    const headers = ['Date', 'Sleep Score', 'Sleep Duration (min)', 'HRV (ms)', 'Steps', 'Weight (lbs)', 'Resting HR (bpm)', 'Calories Burned']
-    let csv = headers.join(',') + '\n'
-    
-    metrics.forEach(metric => {
-      const row = [
-        metric.date,
-        metric.sleep_score || '',
-        metric.sleep_duration || '',
-        metric.hrv || '',
-        metric.steps || '',
-        metric.weight || '',
-        metric.resting_heart_rate || '',
-        metric.calories_burned || ''
-      ]
-      csv += row.map(field => `"${field}"`).join(',') + '\n'
-    })
-    
-    return csv
+    return lines.join('\n')
   } catch (error) {
     logError('Error exporting health metrics as CSV', error)
     throw error
@@ -122,10 +179,11 @@ export async function exportHealthMetricsCSV(userId) {
 }
 
 /**
- * Download exported data as file
+ * Trigger a browser download of arbitrary data.
  */
-export function downloadData(data, filename, mimeType = 'application/json') {
-  const blob = new Blob([typeof data === 'string' ? data : JSON.stringify(data, null, 2)], { type: mimeType })
+export function downloadData(data: any, filename: string, mimeType = 'application/json') {
+  const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
+  const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -135,107 +193,3 @@ export function downloadData(data, filename, mimeType = 'application/json') {
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
 }
-
-// Helper functions
-
-async function exportWorkouts(userId) {
-  const { data, error } = await supabase
-    .from('workouts')
-    .select(`
-      id,
-      date,
-      duration,
-      template_name,
-      perceived_effort,
-      notes,
-      created_at,
-      workout_exercises (
-        name,
-        body_part,
-        workout_sets (
-          set_number,
-          weight,
-          reps,
-          time
-        )
-      )
-    `)
-    .eq('user_id', userId)
-    .order('date', { ascending: false })
-  
-  if (error) throw error
-  
-  return data?.map(w => ({
-    ...w,
-    exercise_count: w.workout_exercises?.length || 0
-  })) || []
-}
-
-async function exportHealthMetrics(userId) {
-  const { data, error } = await supabase
-    .from('health_metrics')
-    .select('*')
-    .eq('user_id', userId)
-    .order('date', { ascending: false })
-  
-  if (error) throw error
-  return data || []
-}
-
-async function exportNutrition(userId) {
-  const { data, error } = await supabase
-    .from('health_metrics')
-    .select('date, calories_consumed, macros, water, meals')
-    .eq('user_id', userId)
-    .not('calories_consumed', 'is', null)
-    .order('date', { ascending: false })
-  
-  if (error) throw error
-  return data || []
-}
-
-async function exportGoals(userId) {
-  const { data, error } = await supabase
-    .from('goals')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-  
-  if (error) throw error
-  return data || []
-}
-
-async function exportPreferences(userId) {
-  const { data, error } = await supabase
-    .from('user_preferences')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-  
-  if (error && error.code !== 'PGRST116') throw error // PGRST116 = no rows
-  return data || null
-}
-
-async function exportEvents(userId) {
-  const { data, error } = await supabase
-    .from('user_events')
-    .select('*')
-    .eq('user_id', userId)
-    .order('timestamp', { ascending: false })
-    .limit(10000) // Limit to prevent huge exports
-  
-  if (error) throw error
-  return data || []
-}
-
-async function exportSessions(userId) {
-  const { data, error } = await supabase
-    .from('user_sessions')
-    .select('*')
-    .eq('user_id', userId)
-    .order('start_time', { ascending: false })
-  
-  if (error) throw error
-  return data || []
-}
-

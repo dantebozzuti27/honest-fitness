@@ -203,8 +203,8 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   for (let i = 0; i < workoutToSave.exercises.length; i++) {
     const ex = workoutToSave.exercises[i]
     
-    // Skip exercises without valid sets data (prevent dummy data)
-    if (!ex.sets || ex.sets.length === 0 || !ex.sets.some((s: any) => s.weight || s.reps || s.time)) {
+    const exSets = Array.isArray(ex.sets) ? ex.sets : []
+    if (exSets.length === 0 || !exSets.some((s: any) => s.weight || s.reps || s.time)) {
       continue
     }
     
@@ -620,8 +620,8 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
   for (let i = 0; i < workout.exercises.length; i++) {
     const ex = workout.exercises[i]
     
-    // Skip exercises without valid sets data (prevent dummy data)
-    if (!ex.sets || ex.sets.length === 0 || !ex.sets.some((s: any) => s.weight || s.reps || s.time)) {
+    const exSets2 = Array.isArray(ex.sets) ? ex.sets : []
+    if (exSets2.length === 0 || !exSets2.some((s: any) => s.weight || s.reps || s.time)) {
       continue
     }
     
@@ -638,7 +638,6 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
       if (libraryExercise) {
         exerciseLibraryId = libraryExercise.id
       } else if (ex.isCustom) {
-        // Create custom exercise in library
         const { data: customExercise, error: customError } = await supabase
           .from('exercise_library')
           .insert({
@@ -659,7 +658,6 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
       }
     }
     
-    // Determine exercise type (weightlifting vs cardio)
     const exerciseType = ex.exerciseType || (ex.distance || ex.time ? 'cardio' : 'weightlifting')
     
     const { data: exerciseData, error: exerciseError } = await supabase
@@ -683,14 +681,12 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
 
     if (exerciseError) throw exerciseError
 
-    // Insert sets (only sets with actual data)
-    const validSets = ex.sets.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds)
-    if (validSets.length > 0) {
-      const setsToInsert = validSets.map((set: any, idx: number) => ({
+    const validSets2 = exSets2.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds)
+    if (validSets2.length > 0) {
+      const setsToInsert = validSets2.map((set: any, idx: number) => ({
         workout_exercise_id: exerciseData.id,
         set_number: idx + 1,
         weight: (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null),
-        // Best-effort persistence for BW. If the column doesn't exist, we'll retry without it.
         is_bodyweight: String(set?.weight || '').trim().toUpperCase() === 'BW',
         weight_label: String(set?.weight || '').trim().toUpperCase() === 'BW' ? 'BW' : null,
         reps: set.reps ? Number(set.reps) : null,
@@ -702,7 +698,6 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
       const tryInsert = async (rows: any[]) => supabase.from('workout_sets').insert(rows)
       let { error: setsError } = await tryInsert(setsToInsert)
       if (setsError && (setsError.code === '42703' || `${setsError.message || ''}`.toLowerCase().includes('column'))) {
-        // Retry without optional BW columns for older schemas.
         const stripped = setsToInsert.map(({ is_bodyweight, weight_label, ...rest }: any) => rest)
         const retry = await tryInsert(stripped)
         setsError = retry.error
@@ -820,8 +815,8 @@ export async function cleanupDuplicateWorkouts(userId: string) {
   // First, identify and delete invalid workouts (dummy data - no valid exercises/sets)
   for (const workout of allWorkouts) {
     const hasValidExercise = workout.workout_exercises?.some((ex: any) => {
-      if (!ex.workout_sets || ex.workout_sets.length === 0) return false
-      return ex.workout_sets.some((s: any) => s.weight || s.reps || s.time)
+      const ws = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+      return ws.length > 0 && ws.some((s: any) => s.weight || s.reps || s.time)
     })
     
     if (!hasValidExercise) {
@@ -838,8 +833,8 @@ export async function cleanupDuplicateWorkouts(userId: string) {
   // Now handle duplicates - group remaining valid workouts by date
   const validWorkouts = allWorkouts.filter((w: any) => {
     const hasValidExercise = w.workout_exercises?.some((ex: any) => {
-      if (!ex.workout_sets || ex.workout_sets.length === 0) return false
-      return ex.workout_sets.some((s: any) => s.weight || s.reps || s.time)
+      const ws2 = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+      return ws2.length > 0 && ws2.some((s: any) => s.weight || s.reps || s.time)
     })
     return hasValidExercise
   })
@@ -1134,8 +1129,9 @@ export async function getBodyPartStats(userId: string) {
   workouts.forEach((w: any) => {
     w.workout_exercises?.forEach((ex: any) => {
       // ONLY count exercises with valid sets data (double-check)
-      const hasValidSets = ex.workout_sets && ex.workout_sets.length > 0 && 
-        ex.workout_sets.some((s: any) => s.weight || s.reps || s.time)
+      const setsArr = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+      const hasValidSets = setsArr.length > 0 && 
+        setsArr.some((s: any) => s.weight || s.reps || s.time)
       
       if (!hasValidSets) return
       
@@ -1200,8 +1196,9 @@ export async function getExerciseStats(userId: string) {
   workouts.forEach((w: any) => {
     w.workout_exercises?.forEach((ex: any) => {
       // ONLY count exercises that have actual sets with data (no dummy data)
-      const hasValidSets = ex.workout_sets && ex.workout_sets.length > 0 && 
-        ex.workout_sets.some((s: any) => s.weight || s.reps || s.time)
+      const setsArr = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+      const hasValidSets = setsArr.length > 0 && 
+        setsArr.some((s: any) => s.weight || s.reps || s.time)
       
       if (hasValidSets && ex.exercise_name) {
         exerciseCounts[ex.exercise_name] = (exerciseCounts[ex.exercise_name] || 0) + 1
@@ -1396,8 +1393,9 @@ export async function getDetailedBodyPartStats(userId: string) {
   workouts.forEach((w: any) => {
     w.workout_exercises?.forEach((ex: any) => {
       // ONLY count exercises with valid sets data (double-check)
-      const hasValidSets = ex.workout_sets && ex.workout_sets.length > 0 && 
-        ex.workout_sets.some((s: any) => s.weight || s.reps || s.time)
+      const setsArr = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+      const hasValidSets = setsArr.length > 0 && 
+        setsArr.some((s: any) => s.weight || s.reps || s.time)
       
       if (!hasValidSets) return
       

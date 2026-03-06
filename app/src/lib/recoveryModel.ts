@@ -199,13 +199,15 @@ export function exercisesToMuscleGroupRecords(
   const groupSets: Record<string, number> = {};
 
   for (const ex of exercises) {
-    for (const muscle of ex.primary_muscles ?? []) {
+    const primary = Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [];
+    const secondary = Array.isArray(ex.secondary_muscles) ? ex.secondary_muscles : [];
+    for (const muscle of primary) {
       const group = MUSCLE_HEAD_TO_GROUP[muscle];
       if (group) {
         groupSets[group] = (groupSets[group] ?? 0) + ex.sets;
       }
     }
-    for (const muscle of ex.secondary_muscles ?? []) {
+    for (const muscle of secondary) {
       const group = MUSCLE_HEAD_TO_GROUP[muscle];
       if (group) {
         groupSets[group] = (groupSets[group] ?? 0) + ex.sets * 0.5;

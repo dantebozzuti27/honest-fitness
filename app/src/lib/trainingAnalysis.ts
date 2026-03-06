@@ -356,7 +356,16 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
     .order('date', { ascending: true });
 
   if (error) throw error;
-  return (data as WorkoutRecord[]) || [];
+  const raw = (data ?? []) as WorkoutRecord[];
+  return raw.map(w => ({
+    ...w,
+    workout_exercises: Array.isArray(w.workout_exercises)
+      ? w.workout_exercises.map(ex => ({
+          ...ex,
+          workout_sets: Array.isArray(ex.workout_sets) ? ex.workout_sets : [],
+        }))
+      : [],
+  }));
 }
 
 async function fetchHealthHistory(userId: string, days: number = 120): Promise<HealthRecord[]> {

@@ -111,9 +111,10 @@ export default function TodayWorkout() {
     navigate('/workout/active')
   }
 
-  const parseTempo = (tempo: string) => {
+  const parseTempo = (tempo: string | null | undefined) => {
+    if (!tempo) return null
     const parts = tempo.split('-').map(Number)
-    if (parts.length !== 3) return null
+    if (parts.length !== 3 || parts.some(isNaN)) return null
     return { eccentric: parts[0], pause: parts[1], concentric: parts[2] }
   }
 
@@ -403,7 +404,7 @@ export default function TodayWorkout() {
               {profile.recoveryContext.stepsYesterday != null && (
                 <div className={styles.contextItem}>
                   <span className="label">Steps Yesterday</span>
-                  <span className="value">{profile.recoveryContext.stepsYesterday.toLocaleString()}</span>
+                  <span className="value">{Number(profile.recoveryContext.stepsYesterday).toLocaleString()}</span>
                 </div>
               )}
             </div>
@@ -465,7 +466,7 @@ export default function TodayWorkout() {
                     <td>{g.weeklyVolume ?? '—'}</td>
                     <td>{g.volumeTarget ?? '—'}</td>
                     <td>{g.recoveryPercent != null ? `${g.recoveryPercent}%` : '—'}</td>
-                    <td>{g.priority.toFixed(2)}</td>
+                    <td>{(g.priority ?? 0).toFixed(2)}</td>
                     <td>{g.targetSets}</td>
                   </tr>
                 ))}

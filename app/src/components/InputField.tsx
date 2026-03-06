@@ -37,7 +37,7 @@ export default function InputField({
   ...props
 }: InputFieldProps) {
   const [focused, setFocused] = useState(false)
-  const inputId = id || name || `input-${label?.toLowerCase().replace(/\s+/g, '-')}`
+  const inputId = id || name || `input-${(label ?? '').toLowerCase().replace(/\s+/g, '-')}`
 
   return (
     <div className={`${styles.inputField} ${containerClassName}`}>

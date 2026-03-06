@@ -85,16 +85,17 @@ export default function HistoryCard({
     const templateName = isRecovery ? 'Recovery Session' : (data.template_name || 'Freestyle')
     
     // Calculate total volume (handle both workout_sets and sets)
-    const totalVolume = data.workout_exercises?.reduce((sum: number, ex: any) => {
-      const sets = ex.workout_sets || ex.sets || []
-      return sum + (sets.reduce((setSum: number, set: any) => {
+    const totalVolume = Array.isArray(data.workout_exercises) ? data.workout_exercises.reduce((sum: number, ex: any) => {
+      const rawSets = ex.workout_sets || ex.sets
+      const sets = Array.isArray(rawSets) ? rawSets : []
+      return sum + sets.reduce((setSum: number, set: any) => {
         const w = Number(set?.weight)
         const r = Number(set?.reps)
         const weight = Number.isFinite(w) && w > 0 ? w : 0
         const reps = Number.isFinite(r) && r > 0 ? r : 0
         return setSum + (weight * reps)
-      }, 0) || 0)
-    }, 0) || 0
+      }, 0)
+    }, 0) : 0
     
     // Get body parts worked
     const bodyParts: string[] = [...new Set<string>(

@@ -93,8 +93,8 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }: Ex
         ex.equipment,
         ex.movement_pattern,
         ex.ml_exercise_type,
-        ...(ex.primary_muscles || []),
-        ...(ex.secondary_muscles || []),
+        ...(Array.isArray(ex.primary_muscles) ? ex.primary_muscles : []),
+        ...(Array.isArray(ex.secondary_muscles) ? ex.secondary_muscles : []),
       ].map(normalize).join(' ')
       return tokens.every((t: string) => haystack.includes(t))
     }
@@ -145,9 +145,10 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }: Ex
               ) : (
                 filtered.map(ex => {
                   const metaParts = [ex.bodyPart, ex.category, ex.equipment].filter(Boolean)
-                  const hasMuscleData = ex.primary_muscles?.length > 0
+                  const muscles = Array.isArray(ex.primary_muscles) ? ex.primary_muscles : []
+                  const hasMuscleData = muscles.length > 0
                   const muscleLabel = hasMuscleData
-                    ? (ex.primary_muscles as string[]).slice(0, 3).map((m: string) => m.replace(/_/g, ' ')).join(', ')
+                    ? muscles.slice(0, 3).map((m: string) => m.replace(/_/g, ' ')).join(', ')
                     : null
                   const badges = [
                     ex.ml_exercise_type && ex.ml_exercise_type !== 'compound' ? ex.ml_exercise_type : null,

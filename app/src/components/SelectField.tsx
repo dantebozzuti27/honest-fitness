@@ -38,7 +38,7 @@ export default function SelectField({
   className = '',
   ...props
 }: SelectFieldProps) {
-  const inputId = id || name || `select-${label?.toLowerCase().replace(/\s+/g, '-')}`
+  const inputId = id || name || `select-${(label ?? '').toLowerCase().replace(/\s+/g, '-')}`
 
   return (
     <div className={`${styles.inputField} ${containerClassName}`}>

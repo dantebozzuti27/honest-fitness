@@ -21,6 +21,12 @@ import { uuidv4 } from '../utils/uuid';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+export interface PerformanceGoal {
+  exercise: string;
+  targetWeight: string;
+  targetReps: string;
+}
+
 export interface UserPreferences {
   training_goal: 'strength' | 'hypertrophy' | 'general_fitness' | 'fat_loss';
   session_duration_minutes: number;
@@ -28,6 +34,8 @@ export interface UserPreferences {
   available_days_per_week: number;
   injuries: Array<{ body_part: string; description: string; severity: string }>;
   exercises_to_avoid: string[];
+  performance_goals: PerformanceGoal[];
+  preferred_split: string | null;
   date_of_birth: string | null;
   gender: string | null;
   height_feet: number | null;
@@ -103,19 +111,25 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
   const supabase = requireSupabase();
   const { data, error } = await supabase
     .from('user_preferences')
-    .select('training_goal, session_duration_minutes, equipment_access, available_days_per_week, injuries, exercises_to_avoid, date_of_birth, gender, height_feet, height_inches')
+    .select('training_goal, session_duration_minutes, equipment_access, available_days_per_week, injuries, exercises_to_avoid, performance_goals, preferred_split, date_of_birth, gender, height_feet, height_inches')
     .eq('user_id', userId)
     .single();
 
-  if (error) throw error;
+  if (error && error.code !== 'PGRST116') throw error;
+
+  const rawInjuries = data?.injuries;
+  const rawAvoid = data?.exercises_to_avoid;
+  const rawGoals = data?.performance_goals;
 
   return {
     training_goal: data?.training_goal ?? 'hypertrophy',
     session_duration_minutes: data?.session_duration_minutes ?? 75,
     equipment_access: data?.equipment_access ?? 'full_gym',
     available_days_per_week: data?.available_days_per_week ?? 5,
-    injuries: data?.injuries ?? [],
-    exercises_to_avoid: data?.exercises_to_avoid ?? [],
+    injuries: Array.isArray(rawInjuries) ? rawInjuries : [],
+    exercises_to_avoid: Array.isArray(rawAvoid) ? rawAvoid : [],
+    performance_goals: Array.isArray(rawGoals) ? rawGoals : [],
+    preferred_split: data?.preferred_split ?? null,
     date_of_birth: data?.date_of_birth ?? null,
     gender: data?.gender ?? null,
     height_feet: data?.height_feet ?? null,
@@ -164,11 +178,14 @@ function getTempo(defaultTempo: string | null, goal: string, exerciseType: strin
 }
 
 function isInjuryConflict(exercise: EnrichedExercise, injuries: UserPreferences['injuries']): boolean {
+  if (!Array.isArray(injuries)) return false;
   for (const injury of injuries) {
-    const injuryPart = injury.body_part.toLowerCase();
-    if (exercise.body_part.toLowerCase().includes(injuryPart)) return true;
-    for (const m of exercise.primary_muscles ?? []) {
-      if (m.toLowerCase().includes(injuryPart)) return true;
+    const injuryPart = injury?.body_part?.toLowerCase?.();
+    if (!injuryPart) continue;
+    if (exercise.body_part?.toLowerCase().includes(injuryPart)) return true;
+    const muscles = Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles : [];
+    for (const m of muscles) {
+      if (m?.toLowerCase().includes(injuryPart)) return true;
     }
   }
   return false;
@@ -282,15 +299,24 @@ function stepSelectMuscleGroups(
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
 
-  // Determine today's target groups from detected split
+  // Determine today's target groups from detected split or user preference
   const { detectedSplit, dayOfWeekPatterns } = profile;
   const todayDow = new Date().getDay();
   const todayPattern = dayOfWeekPatterns[todayDow];
 
   let splitTargetGroups: Set<string> | null = null;
 
-  if (detectedSplit.confidence >= 0.6 && detectedSplit.nextRecommended.length > 0) {
-    // Use split-based recommendation
+  // User's preferred split overrides auto-detection
+  if (prefs.preferred_split && SPLIT_MUSCLE_MAPPING[prefs.preferred_split]) {
+    // Use preferred split pattern with the detected rotation to pick today's focus
+    if (detectedSplit.nextRecommended.length > 0) {
+      splitTargetGroups = new Set<string>();
+      for (const rec of detectedSplit.nextRecommended) {
+        const groups = SPLIT_MUSCLE_MAPPING[rec];
+        if (groups) groups.forEach(g => splitTargetGroups!.add(g));
+      }
+    }
+  } else if (detectedSplit.confidence >= 0.6 && detectedSplit.nextRecommended.length > 0) {
     splitTargetGroups = new Set<string>();
     for (const rec of detectedSplit.nextRecommended) {
       const groups = SPLIT_MUSCLE_MAPPING[rec];
@@ -395,6 +421,12 @@ function stepSelectExercises(
   const decisions: ExerciseDecision[] = [];
   const avoidSet = new Set(prefs.exercises_to_avoid.map(e => e.toLowerCase()));
 
+  // Build performance goal lookup — exercises with goals get priority
+  const goalMap = new Map<string, PerformanceGoal>();
+  for (const g of prefs.performance_goals) {
+    if (g.exercise) goalMap.set(g.exercise.toLowerCase(), g);
+  }
+
   // Build preference lookup for fast access
   const prefMap = new Map<string, ExercisePreference>();
   for (const p of profile.exercisePreferences) {
@@ -413,7 +445,7 @@ function stepSelectExercises(
       if (usedExercises.has(ex.name.toLowerCase())) return false;
       if (isInjuryConflict(ex, prefs.injuries)) return false;
 
-      const primaryGroups = (ex.primary_muscles ?? [])
+      const primaryGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
         .map(m => MUSCLE_HEAD_TO_GROUP[m])
         .filter(Boolean);
       return primaryGroups.includes(group.muscleGroup);
@@ -426,24 +458,36 @@ function stepSelectExercises(
       const factors: string[] = [];
 
       if (ex.ml_exercise_type === 'compound') {
-        score += 3;
-        factors.push('Compound exercise (+3)');
+        score += 2;
+        factors.push('Compound (+2)');
       }
 
-      // User preference: exercises they actually do score much higher
+      // Performance goal boost — if user has a specific target for this exercise
+      const goal = goalMap.get(ex.name.toLowerCase());
+      if (goal) {
+        score += 6;
+        factors.push(`Performance goal: ${goal.targetWeight} lbs × ${goal.targetReps} reps (+6)`);
+      }
+
+      // User preference is the DOMINANT signal — exercises they actually do
       const pref = prefMap.get(ex.name.toLowerCase());
       if (pref) {
-        // Recency-weighted preference: half-life 14 days
-        const prefBonus = Math.min(pref.recencyScore * 1.5, 4);
+        // No cap — higher recency = higher score, proportional to usage
+        const prefBonus = pref.recencyScore * 2.5;
         score += prefBonus;
-        factors.push(`User preference (+${prefBonus.toFixed(1)}, ${pref.recentSessions} recent sessions, recency: ${pref.recencyScore})`);
+        factors.push(`Your exercise (+${prefBonus.toFixed(1)}, ${pref.recentSessions} recent/${pref.totalSessions} total, recency: ${pref.recencyScore})`);
         if (pref.isStaple) {
-          score += 1;
-          factors.push('Staple exercise (+1)');
+          score += 4;
+          factors.push('Staple — you do this consistently (+4)');
+        }
+        if (pref.lastUsedDaysAgo <= 14) {
+          score += 2;
+          factors.push(`Used ${pref.lastUsedDaysAgo}d ago (+2)`);
         }
       } else {
-        score -= 1;
-        factors.push('Never used by user (-1)');
+        // Strong penalty — exercises you've never done should almost never be recommended
+        score -= 8;
+        factors.push('Never used in your training history (-8)');
       }
 
       const prog = profile.exerciseProgressions.find(
@@ -451,14 +495,14 @@ function stepSelectExercises(
       );
       if (prog) {
         if (prog.status === 'progressing') {
-          score += 2.5;
-          factors.push(`Progressing (+2.5, ${prog.sessionsTracked} sessions, slope: ${(prog.progressionSlope * 100).toFixed(1)}%)`);
+          score += 3;
+          factors.push(`Progressing (+3, ${prog.sessionsTracked} sessions, slope: ${(prog.progressionSlope * 100).toFixed(1)}%)`);
         } else if (prog.status === 'stalled') {
-          score += 0.5;
-          factors.push(`Stalled (+0.5, ${prog.sessionsTracked} sessions)`);
+          score += 1;
+          factors.push(`Stalled (+1, ${prog.sessionsTracked} sessions — try higher reps or variation)`);
         } else if (prog.status === 'regressing') {
           score -= 1;
-          factors.push(`Regressing (-1, consider variation)`);
+          factors.push(`Regressing (-1, consider swapping or reducing volume)`);
         }
       }
 
@@ -475,12 +519,12 @@ function stepSelectExercises(
       }
 
       if (prefs.equipment_access === 'limited') {
-        const needsHeavyEquip = (ex.equipment ?? []).some(e =>
+        const needsHeavyEquip = (Array.isArray(ex.equipment) ? ex.equipment : []).some(e =>
           ['barbell', 'cable_machine', 'smith_machine'].includes(e)
         );
         if (needsHeavyEquip) {
-          score -= 3;
-          factors.push('Requires unavailable equipment (-3)');
+          score -= 5;
+          factors.push('Requires unavailable equipment (-5)');
         }
       }
 
@@ -499,12 +543,19 @@ function stepSelectExercises(
     }
 
     let remainingSets = group.targetSets;
-    const maxExercises = remainingSets <= 4 ? 1 : remainingSets <= 8 ? 2 : 3;
 
-    // Prefer compounds first, then isolations (but sorted by overall score within each)
-    const compounds = scored.filter(s => s.exercise.ml_exercise_type === 'compound');
-    const isolations = scored.filter(s => s.exercise.ml_exercise_type !== 'compound');
-    const ordered = [...compounds, ...isolations];
+    // Determine max exercises from user's actual patterns for this group
+    const userExercisesForGroup = scored.filter(s => {
+      const p = prefMap.get(s.exercise.name.toLowerCase());
+      return p && p.recentSessions >= 1;
+    }).length;
+    const defaultMax = remainingSets <= 4 ? 1 : remainingSets <= 8 ? 2 : 3;
+    const maxExercises = userExercisesForGroup > 0
+      ? Math.min(userExercisesForGroup, 4)
+      : defaultMax;
+
+    // Sort by overall score — user preferences already dominate
+    const ordered = [...scored].sort((a, b) => b.score - a.score);
 
     let exerciseCount = 0;
     for (const item of ordered) {
@@ -619,8 +670,8 @@ function stepPrescribe(
         exerciseName: sel.exercise.name,
         exerciseLibraryId: sel.exercise.id,
         bodyPart: sel.exercise.body_part,
-        primaryMuscles: sel.exercise.primary_muscles ?? [],
-        secondaryMuscles: sel.exercise.secondary_muscles ?? [],
+        primaryMuscles: Array.isArray(sel.exercise.primary_muscles) ? sel.exercise.primary_muscles : [],
+        secondaryMuscles: Array.isArray(sel.exercise.secondary_muscles) ? sel.exercise.secondary_muscles : [],
         movementPattern: sel.exercise.movement_pattern ?? 'cardio',
         targetMuscleGroup: sel.muscleGroup,
         sets: 1,
@@ -698,15 +749,15 @@ function stepPrescribe(
     const restSeconds = getRestSeconds(sel.exercise.ml_exercise_type, prefs.training_goal);
     const sets = recoveryAdj.isDeload ? Math.max(2, Math.ceil(sel.sets * 0.5)) : sel.sets;
 
-    const equipment = sel.exercise.equipment ?? [];
+    const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
     const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
 
     return {
       exerciseName: sel.exercise.name,
       exerciseLibraryId: sel.exercise.id,
       bodyPart: sel.exercise.body_part,
-      primaryMuscles: sel.exercise.primary_muscles ?? [],
-      secondaryMuscles: sel.exercise.secondary_muscles ?? [],
+      primaryMuscles: Array.isArray(sel.exercise.primary_muscles) ? sel.exercise.primary_muscles : [],
+      secondaryMuscles: Array.isArray(sel.exercise.secondary_muscles) ? sel.exercise.secondary_muscles : [],
       movementPattern: sel.exercise.movement_pattern ?? 'unknown',
       targetMuscleGroup: sel.muscleGroup,
       sets,
@@ -884,8 +935,13 @@ function stepGenerateRationale(
     ? `Typical ${todayPattern.dayName}: ${todayPattern.muscleGroupsTypical.slice(0, 4).join(', ')} (${Math.round(todayPattern.frequency * 100)}% of weeks)`
     : null;
 
+  const goalInfo = prefs.performance_goals.length > 0
+    ? `Performance goals: ${prefs.performance_goals.map(g => `${g.exercise} ${g.targetWeight}×${g.targetReps}`).join(', ')}`
+    : null;
+
   const sessionRationale = [
     splitInfo,
+    prefs.preferred_split ? `Preferred split: ${prefs.preferred_split.replace(/_/g, ' ')}` : null,
     profile.detectedSplit.nextRecommended.length > 0
       ? `Split recommends: ${profile.detectedSplit.nextRecommended.join(', ')} day`
       : null,
@@ -893,6 +949,7 @@ function stepGenerateRationale(
     `Targeting: ${muscleGroupsFocused.join(', ')}`,
     ...muscleReasons,
     `Goal: ${prefs.training_goal}`,
+    goalInfo,
     `Recovery status: ${recoveryStatus}`,
     profile.bodyWeightTrend.phase !== 'maintaining'
       ? `Weight trend: ${profile.bodyWeightTrend.phase} (${profile.bodyWeightTrend.slope > 0 ? '+' : ''}${profile.bodyWeightTrend.slope} lbs/week)`
@@ -968,6 +1025,36 @@ function stepGenerateRationale(
     step: '5',
     label: 'Exercise Ordering',
     details: orderingDetails,
+  });
+
+  // Step 6: Evidence basis — surface the science driving decisions
+  const scienceDetails: string[] = [];
+  for (const g of muscleGroups) {
+    const guideline = getGuidelineForGroup(g.muscleGroup);
+    if (guideline) {
+      scienceDetails.push(
+        `${g.muscleGroup}: MEV=${guideline.mev}, MAV=${guideline.mavLow}-${guideline.mavHigh}, MRV=${guideline.mrv} sets/wk, recovery=${guideline.recoveryHours}h`
+      );
+      const indMrv = profile.individualMrvEstimates[g.muscleGroup];
+      if (indMrv) {
+        scienceDetails.push(`  → Your individual MRV estimate: ${indMrv} sets/wk (learned from your data, overrides population defaults)`);
+      }
+    }
+  }
+  scienceDetails.push('');
+  scienceDetails.push('Research basis:');
+  scienceDetails.push('Volume targets: Schoenfeld et al. (2017) J Sports Sci, Krieger (2010) J Strength Cond Res');
+  scienceDetails.push('Recovery windows: Damas et al. (2019), Schoenfeld, Ogborn & Krieger (2016)');
+  scienceDetails.push('Progressive overload: Helms, Morgan & Valdez — Muscle & Strength Pyramids (2nd ed.)');
+  scienceDetails.push('Volume landmarks: Nuckols (2017) Stronger By Science, Ralston et al. (2017) Sports Med');
+  if (profile.sleepCoefficients.confidence !== 'low') {
+    scienceDetails.push(`Sleep-performance coefficient: upper body ${profile.sleepCoefficients.upperBody.toFixed(3)}, lower body ${profile.sleepCoefficients.lowerBody.toFixed(3)} (learned from ${profile.sleepCoefficients.dataPoints} data points)`);
+  }
+
+  decisionLog.push({
+    step: '6',
+    label: 'Evidence Basis',
+    details: scienceDetails,
   });
 
   const muscleGroupDecisions: MuscleGroupDecision[] = muscleGroups.map(g => ({

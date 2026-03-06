@@ -18,6 +18,12 @@ import Button from '../components/Button'
 import { logError } from '../utils/logger'
 import styles from './Profile.module.css'
 
+interface PerformanceGoal {
+  exercise: string;
+  targetWeight: string;
+  targetReps: string;
+}
+
 interface TrainingProfileData {
   training_goal: string;
   session_duration_minutes: string;
@@ -26,6 +32,8 @@ interface TrainingProfileData {
   job_activity_level: string;
   injuries: Array<{ body_part: string; description: string; severity: string }>;
   exercises_to_avoid: string;
+  performance_goals: PerformanceGoal[];
+  preferred_split: string;
 }
 
 const GOAL_OPTIONS = [
@@ -61,6 +69,15 @@ const DAYS_OPTIONS = [
   { value: '7', label: '7 days' },
 ]
 
+const SPLIT_OPTIONS = [
+  { value: '', label: 'Auto-detect from history' },
+  { value: 'push_pull_legs', label: 'Push / Pull / Legs' },
+  { value: 'upper_lower', label: 'Upper / Lower' },
+  { value: 'full_body', label: 'Full Body' },
+  { value: 'bro_split', label: 'Bro Split (1 muscle/day)' },
+  { value: 'custom', label: 'Custom' },
+]
+
 export default function Profile() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
@@ -85,10 +102,13 @@ export default function Profile() {
     job_activity_level: '',
     injuries: [],
     exercises_to_avoid: '',
+    performance_goals: [],
+    preferred_split: '',
   })
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [newInjury, setNewInjury] = useState({ body_part: '', description: '', severity: 'moderate' })
+  const [newGoal, setNewGoal] = useState<PerformanceGoal>({ exercise: '', targetWeight: '', targetReps: '1' })
 
   useEffect(() => {
     if (user) {
@@ -102,14 +122,19 @@ export default function Profile() {
     try {
       const prefs = await getUserPreferences(user.id)
       if (prefs) {
+        const rawInjuries = prefs.injuries;
+        const rawAvoid = prefs.exercises_to_avoid;
+        const rawGoals = prefs.performance_goals;
         setTrainingProfile({
           training_goal: prefs.training_goal || '',
           session_duration_minutes: String(prefs.session_duration_minutes || 75),
           equipment_access: prefs.equipment_access || '',
           available_days_per_week: String(prefs.available_days_per_week || ''),
           job_activity_level: prefs.job_activity_level || '',
-          injuries: prefs.injuries || [],
-          exercises_to_avoid: (prefs.exercises_to_avoid || []).join(', '),
+          injuries: Array.isArray(rawInjuries) ? rawInjuries : [],
+          exercises_to_avoid: Array.isArray(rawAvoid) ? rawAvoid.join(', ') : (typeof rawAvoid === 'string' ? rawAvoid : ''),
+          performance_goals: Array.isArray(rawGoals) ? rawGoals : [],
+          preferred_split: prefs.preferred_split || '',
         })
       }
       setProfileLoaded(true)
@@ -132,6 +157,8 @@ export default function Profile() {
         exercises_to_avoid: trainingProfile.exercises_to_avoid
           ? trainingProfile.exercises_to_avoid.split(',').map(s => s.trim()).filter(Boolean)
           : [],
+        performance_goals: trainingProfile.performance_goals,
+        preferred_split: trainingProfile.preferred_split || null,
       }
       await saveUserPreferences(user.id, payload)
       showToast('Training profile saved', 'success')
@@ -355,6 +382,66 @@ export default function Profile() {
                   onChange={(e: any) => setTrainingProfile(p => ({ ...p, exercises_to_avoid: e.target.value }))}
                   placeholder="e.g. Behind Neck Press, Good Morning"
                 />
+                <SelectField
+                  label="Preferred Split"
+                  value={trainingProfile.preferred_split}
+                  onChange={e => setTrainingProfile(p => ({ ...p, preferred_split: e.target.value }))}
+                  options={SPLIT_OPTIONS}
+                />
+
+                {/* Performance Goals */}
+                <div>
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                    Performance Goals
+                  </label>
+                  <p style={{ margin: '0 0 8px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    Set specific lift targets. The engine will prioritize these exercises and track your progress toward them.
+                  </p>
+                  {trainingProfile.performance_goals.length > 0 && (
+                    <div style={{ marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {trainingProfile.performance_goals.map((goal, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: '8px', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-primary)' }}>
+                            <strong>{goal.exercise}</strong> — {goal.targetWeight} lbs × {goal.targetReps} rep{Number(goal.targetReps) !== 1 ? 's' : ''}
+                          </span>
+                          <button onClick={() => setTrainingProfile(p => ({ ...p, performance_goals: p.performance_goals.filter((_, idx) => idx !== i) }))} style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '16px', padding: '0 4px' }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <input
+                      placeholder="Exercise (e.g. Bench Press)"
+                      value={newGoal.exercise}
+                      onChange={e => setNewGoal(p => ({ ...p, exercise: e.target.value }))}
+                      style={{ flex: '2 1 140px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                    />
+                    <input
+                      placeholder="Weight (lbs)"
+                      type="number"
+                      value={newGoal.targetWeight}
+                      onChange={e => setNewGoal(p => ({ ...p, targetWeight: e.target.value }))}
+                      style={{ flex: '1 1 80px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                    />
+                    <input
+                      placeholder="Reps"
+                      type="number"
+                      value={newGoal.targetReps}
+                      onChange={e => setNewGoal(p => ({ ...p, targetReps: e.target.value }))}
+                      style={{ flex: '0 0 60px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                    />
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        if (!newGoal.exercise || !newGoal.targetWeight) return
+                        setTrainingProfile(p => ({ ...p, performance_goals: [...p.performance_goals, { ...newGoal }] }))
+                        setNewGoal({ exercise: '', targetWeight: '', targetReps: '1' })
+                      }}
+                      disabled={!newGoal.exercise || !newGoal.targetWeight}
+                      style={{ padding: '8px 12px', fontSize: '13px' }}
+                    >Add</Button>
+                  </div>
+                </div>
 
                 {/* Injuries */}
                 <div>

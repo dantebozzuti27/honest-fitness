@@ -214,6 +214,22 @@ BEGIN
   ) THEN
     ALTER TABLE user_preferences ADD COLUMN exercises_to_avoid TEXT[];
   END IF;
+
+  -- Performance goals: [{exercise, targetWeight, targetReps}]
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'performance_goals'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN performance_goals JSONB DEFAULT '[]'::jsonb;
+  END IF;
+
+  -- Preferred training split (overrides auto-detection)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'preferred_split'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN preferred_split TEXT;
+  END IF;
 END $$;
 
 -- ============================================================================

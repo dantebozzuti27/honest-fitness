@@ -33,7 +33,7 @@ export default function TextAreaField({
   className = '',
   ...props
 }: TextAreaFieldProps) {
-  const inputId = id || name || `textarea-${label?.toLowerCase().replace(/\s+/g, '-')}`
+  const inputId = id || name || `textarea-${(label ?? '').toLowerCase().replace(/\s+/g, '-')}`
 
   return (
     <div className={`${styles.inputField} ${containerClassName}`}>

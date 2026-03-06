@@ -266,6 +266,23 @@ export interface TrainingProfile {
   cardioHistory: CardioHistory[];
   exerciseOrderProfiles: ExerciseOrderProfile[];
 
+  // Cumulative sleep debt (rolling averages)
+  cumulativeSleepDebt: {
+    rolling3dAvgHours: number | null;
+    rolling7dAvgHours: number | null;
+    sleepDebt3d: number | null; // difference from baseline
+    sleepDebt7d: number | null;
+    recoveryModifier: number; // 0.8 to 1.0 multiplier on training capacity
+  };
+
+  // Exercise rotation status
+  exerciseRotation: Array<{
+    exerciseName: string;
+    consecutiveWeeksUsed: number;
+    shouldRotate: boolean; // true if isolation used > 4 weeks, compound > 8 weeks
+    suggestedAction: string;
+  }>;
+
   // Global
   trainingFrequency: number;
   avgSessionDuration: number;
@@ -1879,6 +1896,102 @@ function computeExerciseOrderProfiles(
 /**
  * Compute structural imbalances.
  */
+// ─── Cumulative Sleep Debt ─────────────────────────────────────────────────
+
+function computeCumulativeSleepDebt(health: HealthRecord[]): TrainingProfile['cumulativeSleepDebt'] {
+  const sorted = [...health].filter(h => h.sleep_duration != null).sort(
+    (a, b) => b.date.localeCompare(a.date)
+  );
+
+  if (sorted.length < 7) {
+    return { rolling3dAvgHours: null, rolling7dAvgHours: null, sleepDebt3d: null, sleepDebt7d: null, recoveryModifier: 1.0 };
+  }
+
+  const recent3 = sorted.slice(0, 3).map(h => h.sleep_duration!);
+  const recent7 = sorted.slice(0, 7).map(h => h.sleep_duration!);
+  const baseline30 = sorted.slice(0, 30).map(h => h.sleep_duration!);
+
+  const avg3 = recent3.reduce((a, b) => a + b, 0) / recent3.length;
+  const avg7 = recent7.reduce((a, b) => a + b, 0) / recent7.length;
+  const baselineAvg = baseline30.reduce((a, b) => a + b, 0) / baseline30.length;
+
+  const debt3 = avg3 - baselineAvg;
+  const debt7 = avg7 - baselineAvg;
+
+  // Recovery modifier: each hour of cumulative sleep debt below baseline reduces capacity
+  const debtHours = Math.min(0, debt7);
+  const recoveryModifier = Math.max(0.75, 1.0 + debtHours * 0.05);
+
+  return {
+    rolling3dAvgHours: Math.round(avg3 * 10) / 10,
+    rolling7dAvgHours: Math.round(avg7 * 10) / 10,
+    sleepDebt3d: Math.round(debt3 * 10) / 10,
+    sleepDebt7d: Math.round(debt7 * 10) / 10,
+    recoveryModifier: Math.round(recoveryModifier * 100) / 100,
+  };
+}
+
+// ─── Exercise Rotation Status ─────────────────────────────────────────────
+
+function computeExerciseRotation(
+  workouts: WorkoutRecord[],
+  exercises: EnrichedExercise[]
+): TrainingProfile['exerciseRotation'] {
+  const sorted = [...workouts].sort((a, b) => b.date.localeCompare(a.date));
+  const now = new Date();
+
+  const exerciseMap = new Map<string, { weeks: Set<number>; lastSeen: string; type: string }>();
+
+  for (const w of sorted) {
+    const weekNum = Math.floor(daysBetween(w.date, now.toISOString().split('T')[0]) / 7);
+    if (weekNum > 12) break; // only look at last 12 weeks
+
+    for (const ex of w.workout_exercises) {
+      const key = ex.exercise_name.toLowerCase();
+      if (!exerciseMap.has(key)) {
+        const libEx = exercises.find(e => e.name.toLowerCase() === key);
+        exerciseMap.set(key, {
+          weeks: new Set(),
+          lastSeen: w.date,
+          type: libEx?.ml_exercise_type ?? 'unknown',
+        });
+      }
+      exerciseMap.get(key)!.weeks.add(weekNum);
+    }
+  }
+
+  const results: TrainingProfile['exerciseRotation'] = [];
+  for (const [name, data] of exerciseMap) {
+    const weeksArr = Array.from(data.weeks).sort((a, b) => a - b);
+    let consecutiveFromRecent = 0;
+    for (let i = 0; i < weeksArr.length; i++) {
+      if (weeksArr[i] === i) consecutiveFromRecent++;
+      else break;
+    }
+
+    const rotationThreshold = data.type === 'compound' ? 8 : 4;
+    const shouldRotate = consecutiveFromRecent >= rotationThreshold;
+
+    let suggestedAction = '';
+    if (shouldRotate && data.type === 'compound') {
+      suggestedAction = `Used ${consecutiveFromRecent} consecutive weeks — consider a variation for 2-4 weeks`;
+    } else if (shouldRotate) {
+      suggestedAction = `Used ${consecutiveFromRecent} consecutive weeks — rotate for a fresh stimulus`;
+    }
+
+    if (consecutiveFromRecent >= 3) {
+      results.push({
+        exerciseName: name,
+        consecutiveWeeksUsed: consecutiveFromRecent,
+        shouldRotate,
+        suggestedAction,
+      });
+    }
+  }
+
+  return results.sort((a, b) => b.consecutiveWeeksUsed - a.consecutiveWeeksUsed);
+}
+
 function computeImbalanceAlerts(volumeStatuses: MuscleVolumeStatus[]): ImbalanceAlert[] {
   const alerts: ImbalanceAlert[] = [];
   const byGroup: Record<string, number> = {};
@@ -2110,6 +2223,9 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     exercisePreferences: computeExercisePreferences(workouts),
     cardioHistory: computeCardioHistory(workouts, exercises),
     exerciseOrderProfiles: computeExerciseOrderProfiles(workouts, exercises),
+
+    cumulativeSleepDebt: computeCumulativeSleepDebt(health),
+    exerciseRotation: computeExerciseRotation(workouts, exercises),
 
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
     avgSessionDuration: Math.round(avgSessionDuration),

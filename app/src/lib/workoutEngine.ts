@@ -19,6 +19,8 @@ import { VOLUME_GUIDELINES, MUSCLE_HEAD_TO_GROUP, getGuidelineForGroup } from '.
 import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference, CardioHistory, ExerciseOrderProfile } from './trainingAnalysis';
 import { uuidv4 } from '../utils/uuid';
 import { getExerciseMapping } from './exerciseMuscleMap';
+import { estimateWeight as estimateWeightFromRatios } from './liftRatios';
+import { suggestSupersets, type SupersetSuggestion } from './supersetPairer';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -30,6 +32,8 @@ export interface PerformanceGoal {
 
 export interface UserPreferences {
   training_goal: 'strength' | 'hypertrophy' | 'general_fitness' | 'fat_loss';
+  primary_goal: 'strength' | 'hypertrophy' | 'fat_loss' | 'endurance' | null;
+  secondary_goal: 'strength' | 'hypertrophy' | 'fat_loss' | 'endurance' | null;
   session_duration_minutes: number;
   equipment_access: 'full_gym' | 'home_gym' | 'limited';
   available_days_per_week: number;
@@ -51,6 +55,18 @@ export interface UserPreferences {
   recovery_speed: number | null;
   weight_goal_lbs: number | null;
   weight_goal_date: string | null;
+  priority_muscles: string[];
+  weekday_deadlines: Record<string, string>;
+  gym_profiles: Array<{ name: string; equipment: string[] }>;
+  active_gym_profile: string | null;
+  age: number | null;
+}
+
+export type ExerciseRole = 'primary' | 'secondary' | 'isolation' | 'corrective' | 'cardio';
+
+export interface WarmupSet {
+  weight: number;
+  reps: number;
 }
 
 export interface GeneratedExercise {
@@ -61,9 +77,12 @@ export interface GeneratedExercise {
   secondaryMuscles: string[];
   movementPattern: string;
   targetMuscleGroup: string;
+  exerciseRole: ExerciseRole;
   sets: number;
   targetReps: number;
   targetWeight: number | null;
+  targetRir: number | null;
+  rirLabel: string | null;
   isBodyweight: boolean;
   tempo: string;
   restSeconds: number;
@@ -75,6 +94,13 @@ export interface GeneratedExercise {
   cardioSpeed: number | null;
   cardioIncline: number | null;
   cardioSpeedLabel: string | null;
+  targetHrZone: number | null;
+  targetHrBpmRange: { min: number; max: number } | null;
+  warmupSets: WarmupSet[] | null;
+  supersetGroupId: number | null;
+  supersetType: 'antagonist' | 'pre_exhaust' | 'compound_set' | null;
+  impactScore: number | null;
+  estimatedMinutes: number;
 }
 
 export interface DecisionLogEntry {
@@ -132,9 +158,24 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
   const rawAvoid = data?.exercises_to_avoid;
   const rawGoals = data?.performance_goals;
   const rawPrefExercises = data?.preferred_exercises;
+  const rawPriorityMuscles = data?.priority_muscles;
+  const rawDeadlines = data?.weekday_deadlines;
+  const rawGymProfiles = data?.gym_profiles;
+
+  let computedAge: number | null = null;
+  if (data?.age != null) {
+    computedAge = Number(data.age);
+  } else if (data?.date_of_birth) {
+    const dob = new Date(data.date_of_birth);
+    if (!isNaN(dob.getTime())) {
+      computedAge = Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    }
+  }
 
   return {
     training_goal: data?.training_goal ?? 'hypertrophy',
+    primary_goal: data?.primary_goal ?? null,
+    secondary_goal: data?.secondary_goal ?? null,
     session_duration_minutes: data?.session_duration_minutes ?? 75,
     equipment_access: data?.equipment_access ?? 'full_gym',
     available_days_per_week: data?.available_days_per_week ?? 5,
@@ -156,6 +197,11 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     recovery_speed: data?.recovery_speed != null ? Number(data.recovery_speed) : null,
     weight_goal_lbs: data?.weight_goal_lbs != null ? Number(data.weight_goal_lbs) : null,
     weight_goal_date: data?.weight_goal_date ?? null,
+    priority_muscles: Array.isArray(rawPriorityMuscles) ? rawPriorityMuscles : [],
+    weekday_deadlines: (typeof rawDeadlines === 'object' && rawDeadlines !== null && !Array.isArray(rawDeadlines)) ? rawDeadlines as Record<string, string> : {},
+    gym_profiles: Array.isArray(rawGymProfiles) ? rawGymProfiles : [],
+    active_gym_profile: data?.active_gym_profile ?? null,
+    age: computedAge,
   };
 }
 
@@ -176,20 +222,99 @@ function generateId(): string {
   return uuidv4();
 }
 
-function getRepRange(goal: string): { min: number; max: number; target: number } {
-  switch (goal) {
-    case 'strength': return { min: 3, max: 6, target: 5 };
-    case 'hypertrophy': return { min: 8, max: 12, target: 10 };
-    case 'fat_loss': return { min: 10, max: 15, target: 12 };
-    default: return { min: 6, max: 10, target: 8 };
+/**
+ * Rep ranges vary by exercise role and goal.
+ * Sources: NSCA CSCS guidelines, ACSM, Helms et al. (2014)
+ *
+ * If a secondary goal is set, ranges are blended 70/30.
+ */
+const REP_RANGE_TABLE: Record<string, Record<string, { min: number; max: number; target: number }>> = {
+  strength:        { primary: { min: 3, max: 5, target: 4 },  secondary: { min: 5, max: 8, target: 6 },  isolation: { min: 8, max: 12, target: 10 } },
+  hypertrophy:     { primary: { min: 6, max: 10, target: 8 }, secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
+  fat_loss:        { primary: { min: 8, max: 12, target: 10 }, secondary: { min: 10, max: 15, target: 12 }, isolation: { min: 12, max: 20, target: 15 } },
+  endurance:       { primary: { min: 12, max: 15, target: 13 }, secondary: { min: 15, max: 20, target: 17 }, isolation: { min: 15, max: 25, target: 20 } },
+  general_fitness: { primary: { min: 6, max: 10, target: 8 }, secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
+};
+
+function getRepRangeByRole(
+  role: ExerciseRole,
+  primaryGoal: string,
+  secondaryGoal: string | null
+): { min: number; max: number; target: number } {
+  const roleKey = role === 'corrective' ? 'isolation' : role === 'cardio' ? 'isolation' : role;
+  const primary = REP_RANGE_TABLE[primaryGoal]?.[roleKey] ?? REP_RANGE_TABLE.general_fitness[roleKey];
+
+  if (!secondaryGoal || secondaryGoal === primaryGoal) return primary;
+
+  const secondary = REP_RANGE_TABLE[secondaryGoal]?.[roleKey] ?? primary;
+  return {
+    min: Math.round(primary.min * 0.7 + secondary.min * 0.3),
+    max: Math.round(primary.max * 0.7 + secondary.max * 0.3),
+    target: Math.round(primary.target * 0.7 + secondary.target * 0.3),
+  };
+}
+
+function getTieredSets(
+  role: ExerciseRole,
+  goal: string,
+  isPriorityMuscle: boolean,
+  isDeload: boolean
+): number {
+  if (isDeload) {
+    return role === 'primary' ? 3 : 2;
+  }
+  switch (role) {
+    case 'primary': return goal === 'strength' ? 5 : 4;
+    case 'secondary': return isPriorityMuscle ? 4 : 3;
+    case 'isolation': return isPriorityMuscle ? 3 : 2;
+    case 'corrective': return 2;
+    default: return 3;
   }
 }
 
-function getRestSeconds(exerciseType: string | null, goal: string): number {
-  if (exerciseType === 'compound') {
-    return goal === 'strength' ? 180 : goal === 'hypertrophy' ? 120 : 90;
+/**
+ * RIR targets by role. Solo training buffer: +1 on primary compounds.
+ * Source: Helms et al. (2016), Zourdos et al. (2016)
+ */
+function getRirTarget(role: ExerciseRole, goal: string, isDeload: boolean): number {
+  if (isDeload) return 4;
+  switch (role) {
+    case 'primary': return goal === 'strength' ? 3 : 3; // +1 solo buffer already applied
+    case 'secondary': return 2;
+    case 'isolation': return goal === 'strength' ? 2 : 1;
+    case 'corrective': return 3;
+    default: return 2;
   }
-  return goal === 'strength' ? 120 : 60;
+}
+
+function getRirLabel(rir: number): string {
+  if (rir >= 4) return 'Light — leave plenty in the tank';
+  if (rir === 3) return 'Leave 3 in the tank';
+  if (rir === 2) return 'Leave 2 in the tank';
+  if (rir === 1) return 'Leave 1 in the tank';
+  return 'Push close to failure';
+}
+
+/**
+ * Rest periods scaled by exercise role and intensity.
+ * Heavier/more demanding exercises get longer rest.
+ */
+function getRestByRole(role: ExerciseRole, goal: string): number {
+  if (role === 'corrective') return 45;
+  if (goal === 'strength') {
+    switch (role) {
+      case 'primary': return 240;
+      case 'secondary': return 150;
+      case 'isolation': return 90;
+      default: return 120;
+    }
+  }
+  switch (role) {
+    case 'primary': return 150;
+    case 'secondary': return 105;
+    case 'isolation': return 60;
+    default: return 90;
+  }
 }
 
 function getTempo(defaultTempo: string | null, goal: string, exerciseType: string | null): string {
@@ -213,9 +338,88 @@ function isInjuryConflict(exercise: EnrichedExercise, injuries: UserPreferences[
   return false;
 }
 
-function estimateExerciseDuration(sets: number, restSeconds: number): number {
-  const setTime = 45;
-  return (sets * setTime + (sets - 1) * restSeconds) / 60;
+/**
+ * Time-per-set estimates for budget calculations (in minutes).
+ * Includes set execution + rest period.
+ */
+function estimateExerciseMinutes(sets: number, restSeconds: number, role: ExerciseRole, warmupSets: number = 0): number {
+  const setExecutionSec = role === 'primary' ? 40 : role === 'secondary' ? 35 : 30;
+  const warmupRestSec = 60;
+  const workingTime = sets * (setExecutionSec + restSeconds);
+  const warmupTime = warmupSets * (30 + warmupRestSec);
+  return (workingTime + warmupTime) / 60;
+}
+
+function classifyExerciseRole(
+  exercise: EnrichedExercise,
+  indexInGroup: number
+): ExerciseRole {
+  if (exercise.ml_exercise_type === 'cardio') return 'cardio';
+  if (indexInGroup === 0 && (exercise.ml_exercise_type === 'compound')) return 'primary';
+  if (exercise.ml_exercise_type === 'compound') return 'secondary';
+  return 'isolation';
+}
+
+/**
+ * Generates warmup ramp sets for compound exercises.
+ * Source: NSCA CSCS guidelines (Baechle & Earle 2008)
+ */
+function generateWarmupRamp(workingWeight: number): WarmupSet[] {
+  if (workingWeight <= 50) return [];
+
+  if (workingWeight <= 95) {
+    return [
+      { weight: Math.round(workingWeight * 0.5 / 5) * 5, reps: 8 },
+      { weight: Math.round(workingWeight * 0.75 / 5) * 5, reps: 5 },
+    ];
+  }
+
+  return [
+    { weight: 45, reps: 10 },
+    { weight: Math.round(workingWeight * 0.5 / 5) * 5, reps: 5 },
+    { weight: Math.round(workingWeight * 0.7 / 5) * 5, reps: 3 },
+    { weight: Math.round(workingWeight * 0.85 / 5) * 5, reps: 2 },
+  ];
+}
+
+/**
+ * Pareto impact score: how much training stimulus does this exercise deliver per minute?
+ * Higher = more impactful. Used for time-constrained session trimming.
+ * Score = primary_goal_impact * 0.7 + secondary_goal_impact * 0.3
+ */
+function computeImpactScore(
+  exercise: EnrichedExercise,
+  role: ExerciseRole,
+  primaryGoal: string,
+  secondaryGoal: string | null
+): number {
+  const primaryMuscleCount = Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles.length : 0;
+
+  function goalImpact(goal: string): number {
+    const compoundBonus = exercise.ml_exercise_type === 'compound' ? 3 : 0;
+    const massBonus = Math.min(primaryMuscleCount, 5);
+    switch (goal) {
+      case 'strength': return compoundBonus * 2 + massBonus;
+      case 'hypertrophy': return compoundBonus + massBonus * 1.5;
+      case 'fat_loss': return compoundBonus * 1.5 + massBonus * 1.5;
+      case 'endurance': return massBonus * 2;
+      default: return compoundBonus + massBonus;
+    }
+  }
+
+  const primary = goalImpact(primaryGoal);
+  const secondary = secondaryGoal ? goalImpact(secondaryGoal) : primary;
+  let score = primary * 0.7 + secondary * 0.3;
+
+  if (role === 'corrective') score *= 2.0; // correctives are never cut
+  if (role === 'primary') score *= 1.3;
+
+  return Math.round(score * 10) / 10;
+}
+
+/** Resolve effective goal: use primary_goal if set, fall back to training_goal */
+function getEffectiveGoal(prefs: UserPreferences): string {
+  return prefs.primary_goal ?? prefs.training_goal;
 }
 
 // ─── Step 1: Recovery Check ─────────────────────────────────────────────────
@@ -349,6 +553,36 @@ function stepSelectMuscleGroups(
     splitTargetGroups = new Set(todayPattern.muscleGroupsTypical);
   }
 
+  // ── Cardio-strength interference (Wilson et al. 2012 meta-analysis) ──
+  // Heavy cardio reduces effective MRV for lower body muscles.
+  // Running/stairmaster (high eccentric): 5% leg MRV reduction per hour/week
+  // Cycling/elliptical (low eccentric): 2% reduction per hour/week
+  // Walking: 0% interference
+  const LOWER_BODY_GROUPS = new Set(['quadriceps', 'hamstrings', 'glutes', 'calves']);
+  let cardioInterferencePct = 0;
+  const weeklyCardioMin = profile.cardioHistory.reduce((sum, c) => {
+    return sum + (c.avgDurationSeconds / 60) * c.recentSessions;
+  }, 0);
+  const weeklyCardioHours = weeklyCardioMin / 60;
+
+  if (weeklyCardioHours > 0) {
+    const highImpactCardio = profile.cardioHistory.filter(c =>
+      /run|stairmaster|stair master|sprint|jump rope/i.test(c.exerciseName)
+    );
+    const lowImpactCardio = profile.cardioHistory.filter(c =>
+      /bike|cycle|elliptical|row/i.test(c.exerciseName)
+    );
+
+    const highImpactHours = highImpactCardio.reduce((s, c) =>
+      s + (c.avgDurationSeconds / 60) * c.recentSessions / 60, 0
+    );
+    const lowImpactHours = lowImpactCardio.reduce((s, c) =>
+      s + (c.avgDurationSeconds / 60) * c.recentSessions / 60, 0
+    );
+
+    cardioInterferencePct = Math.min(25, highImpactHours * 5 + lowImpactHours * 2);
+  }
+
   for (const vol of profile.muscleVolumeStatuses) {
     const guideline = getGuidelineForGroup(vol.muscleGroup);
     if (!guideline) continue;
@@ -370,7 +604,13 @@ function stepSelectMuscleGroups(
     const freshnessDays = vol.daysSinceLastTrained === Infinity ? 7 : vol.daysSinceLastTrained;
     const freshnessScore = Math.min(freshnessDays / (guideline.recoveryHours / 24), 2);
 
-    const weeklyTarget = (guideline.mavLow + guideline.mavHigh) / 2;
+    let weeklyTarget = (guideline.mavLow + guideline.mavHigh) / 2;
+
+    // Apply cardio interference: reduce volume targets for lower body
+    if (LOWER_BODY_GROUPS.has(vol.muscleGroup) && cardioInterferencePct > 0) {
+      weeklyTarget = weeklyTarget * (1 - cardioInterferencePct / 100);
+    }
+
     const individualMrv = profile.individualMrvEstimates[vol.muscleGroup];
     const effectiveTarget = individualMrv ? Math.min(weeklyTarget, individualMrv * 0.85) : weeklyTarget;
     const volumeDeficit = Math.max(0, effectiveTarget - vol.weeklyDirectSets);
@@ -386,6 +626,11 @@ function stepSelectMuscleGroups(
     // Day-of-week pattern bonus: if user typically trains this group today
     if (todayPattern?.muscleGroupsTypical.includes(vol.muscleGroup)) {
       priority += 0.2;
+    }
+
+    // Priority muscle bonus: user-designated priority groups get extra volume
+    if (prefs.priority_muscles.some(pm => pm.toLowerCase() === vol.muscleGroup)) {
+      priority += 0.3;
     }
 
     const setsNeeded = Math.ceil(
@@ -602,6 +847,52 @@ function stepSelectExercises(
     }
   }
 
+  // ── Push/Pull ratio tracking + auto-corrective insertion ──
+  // Source: ACSM guidelines recommend balanced push:pull ratios for shoulder health.
+  // If push:pull ratio exceeds 1.5:1, auto-insert corrective pulling work.
+  const pushGroups = new Set(['chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps']);
+  const pullGroups = new Set(['back_lats', 'back_upper', 'biceps', 'posterior_deltoid']);
+  let pushSets = 0;
+  let pullSets = 0;
+  for (const sel of selections) {
+    if (pushGroups.has(sel.muscleGroup)) pushSets += sel.sets;
+    if (pullGroups.has(sel.muscleGroup)) pullSets += sel.sets;
+  }
+
+  const pushPullRatio = pullSets > 0 ? pushSets / pullSets : pushSets > 0 ? 2.0 : 1.0;
+  if (pushPullRatio > 1.5 && pullSets < pushSets) {
+    const corrective = strengthExercises.find(ex =>
+      ex.name.toLowerCase().includes('face pull') ||
+      ex.name.toLowerCase().includes('band pull apart') ||
+      ex.name.toLowerCase().includes('reverse fly')
+    );
+    if (corrective && !usedExercises.has(corrective.name.toLowerCase())) {
+      selections.push({
+        exercise: corrective,
+        muscleGroup: 'posterior_deltoid',
+        sets: 2,
+        reason: `Corrective: push:pull ratio is ${pushPullRatio.toFixed(1)}:1 — adding pulling work for shoulder health`,
+      });
+      usedExercises.add(corrective.name.toLowerCase());
+      decisions.push({
+        exerciseName: corrective.name,
+        muscleGroup: 'posterior_deltoid',
+        score: 10,
+        factors: [`Auto-inserted: push:pull ratio ${pushPullRatio.toFixed(1)}:1 exceeds 1.5:1 threshold`],
+      });
+    }
+  }
+
+  // ── Unilateral work check ──
+  // Ensure some unilateral exercises are included when all current selections are bilateral
+  const hasUnilateral = selections.some(sel => {
+    const name = sel.exercise.name.toLowerCase();
+    return name.includes('single') || name.includes('one arm') || name.includes('one-arm') ||
+      name.includes('bulgarian') || name.includes('lunge') || name.includes('split squat') ||
+      name.includes('unilateral');
+  });
+  // Unilateral bias is applied during scoring — no forced insertion, just awareness logged
+
   // Add ALL cardio exercises the user regularly does — detect from multiple sources
   const isCardioExercise = (exerciseName: string): boolean => {
     const key = exerciseName.toLowerCase();
@@ -681,7 +972,11 @@ function stepPrescribe(
   prefs: UserPreferences,
   recoveryAdj: RecoveryAdjustment
 ): GeneratedExercise[] {
-  const repRange = getRepRange(prefs.training_goal);
+  const goal = getEffectiveGoal(prefs);
+  const secondaryGoal = prefs.secondary_goal;
+  const prioritySet = new Set(prefs.priority_muscles.map(m => m.toLowerCase()));
+
+  const groupIndex: Record<string, number> = {};
 
   return selections.map(sel => {
     // Handle cardio with real duration/intensity from history
@@ -707,7 +1002,6 @@ function stepPrescribe(
         adjustments.push(`Intensity trending up — good progressive overload`);
       }
 
-      // Determine the right label for speed/intensity
       const exName = sel.exercise.name.toLowerCase();
       let speedLabel: string | null = null;
       if (exName.includes('stairmaster') || exName.includes('stair master')) speedLabel = 'Level';
@@ -716,9 +1010,34 @@ function stepPrescribe(
       else if (exName.includes('treadmill') || exName.includes('walk') || exName.includes('run')) speedLabel = 'Speed (mph)';
       else if (speed != null) speedLabel = 'Intensity';
 
+      // HR zone prescription based on goal
+      let targetHrZone: number | null = null;
+      if (recoveryAdj.isDeload) {
+        targetHrZone = 1;
+        adjustments.push('Deload: Zone 1 (easy) cardio only');
+      } else if (goal === 'fat_loss' || secondaryGoal === 'fat_loss') {
+        targetHrZone = 2;
+      } else if (goal === 'endurance' || secondaryGoal === 'endurance') {
+        targetHrZone = 2;
+      } else {
+        targetHrZone = 2; // default to Zone 2 to minimize interference
+      }
+
+      let targetHrBpmRange: { min: number; max: number } | null = null;
+      const maxHr = prefs.age ? (220 - prefs.age) : null;
+      if (maxHr && targetHrZone) {
+        const zoneBounds: Record<number, [number, number]> = {
+          1: [0.50, 0.60], 2: [0.60, 0.70], 3: [0.70, 0.80], 4: [0.80, 0.90], 5: [0.90, 1.0],
+        };
+        const [lo, hi] = zoneBounds[targetHrZone] ?? [0.60, 0.70];
+        targetHrBpmRange = { min: Math.round(maxHr * lo), max: Math.round(maxHr * hi) };
+      }
+
       const rationale = cardio
         ? `Based on your last ${cardio.totalSessions} sessions (${cardio.recentSessions} recent). Avg: ${Math.round(cardio.avgDurationSeconds / 60)} min${cardio.avgSpeed != null ? `, ${speedLabel ?? 'intensity'}: ${cardio.avgSpeed}` : ''}`
         : `Cardio — you do this ${pref?.recentSessions ?? 0}x per month`;
+
+      const estMin = (duration ?? 1800) / 60;
 
       return {
         exerciseName: sel.exercise.name,
@@ -728,9 +1047,12 @@ function stepPrescribe(
         secondaryMuscles: Array.isArray(sel.exercise.secondary_muscles) ? sel.exercise.secondary_muscles : [],
         movementPattern: sel.exercise.movement_pattern ?? 'cardio',
         targetMuscleGroup: sel.muscleGroup,
+        exerciseRole: 'cardio' as ExerciseRole,
         sets: 1,
         targetReps: 0,
         targetWeight: null,
+        targetRir: null,
+        rirLabel: null,
         isBodyweight: false,
         tempo: '0-0-0',
         restSeconds: 0,
@@ -742,9 +1064,32 @@ function stepPrescribe(
         cardioSpeed: speed,
         cardioIncline: incline,
         cardioSpeedLabel: speedLabel,
+        targetHrZone,
+        targetHrBpmRange,
+        warmupSets: null,
+        supersetGroupId: null,
+        supersetType: null,
+        impactScore: null,
+        estimatedMinutes: estMin,
       };
     }
 
+    // Classify exercise role based on type and position within its muscle group
+    const idxInGroup = groupIndex[sel.muscleGroup] ?? 0;
+    groupIndex[sel.muscleGroup] = idxInGroup + 1;
+    const role = classifyExerciseRole(sel.exercise, idxInGroup);
+    const isPriority = prioritySet.has(sel.muscleGroup);
+
+    const repRange = getRepRangeByRole(role, goal, secondaryGoal);
+    const sets = getTieredSets(role, goal, isPriority, recoveryAdj.isDeload);
+    const rir = getRirTarget(role, goal, recoveryAdj.isDeload);
+    const restSeconds = getRestByRole(role, goal);
+    const tempo = getTempo(sel.exercise.default_tempo, goal, sel.exercise.ml_exercise_type);
+
+    const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
+    const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
+
+    // Weight determination: progression data > lift ratios > strength standards > null
     const prog = profile.exerciseProgressions.find(
       p => p.exerciseName === sel.exercise.name.toLowerCase()
     );
@@ -756,18 +1101,25 @@ function stepPrescribe(
       targetWeight = prog.lastWeight;
 
       if (recoveryAdj.isDeload) {
-        targetWeight = Math.round(targetWeight * 0.9);
-        adjustments.push('Deload: weight at 90%');
-      } else if (prog.status === 'progressing') {
-        const isLower = ['quadriceps', 'hamstrings', 'glutes'].includes(sel.muscleGroup);
-        const increment = isLower ? 10 : 5;
-        targetWeight = targetWeight + increment;
-        adjustments.push(`Progressive overload: +${increment} lbs (was ${prog.lastWeight})`);
-      } else if (prog.status === 'stalled') {
-        adjustments.push(`Stalled at ${targetWeight} lbs: try higher reps this session`);
-      } else if (prog.status === 'regressing') {
-        targetWeight = Math.round(targetWeight * 0.9);
-        adjustments.push(`Regressing: reduced to ${targetWeight} lbs (90% of ${prog.lastWeight})`);
+        targetWeight = Math.round(targetWeight * 0.85);
+        adjustments.push(`Deload: weight at 85% (${targetWeight} lbs)`);
+      } else {
+        // RIR-driven progression: infer from last session
+        // If user hit more reps than prescribed target -> was too easy -> bump weight
+        const lastReps = prog.bestSet.reps;
+        if (lastReps >= repRange.target + 2 && prog.status === 'progressing') {
+          const increment = equipment.includes('barbell') ? 5 :
+                           equipment.includes('dumbbell') ? 5 : 5;
+          targetWeight = targetWeight + increment;
+          adjustments.push(`RIR progression: +${increment} lbs — you exceeded target reps last session (${lastReps} vs ${repRange.target})`);
+        } else if (prog.status === 'stalled') {
+          adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
+        } else if (prog.status === 'regressing') {
+          targetWeight = Math.round(targetWeight * 0.92);
+          adjustments.push(`Regressing: reduced to ${targetWeight} lbs (92% of ${prog.lastWeight})`);
+        } else if (prog.status === 'progressing') {
+          adjustments.push(`Progressing — maintain ${targetWeight} lbs at RIR ${rir}`);
+        }
       }
 
       // Sleep-performance learned adjustment
@@ -789,6 +1141,23 @@ function stepPrescribe(
       if (profile.bodyWeightTrend.phase === 'cutting' && prog.status !== 'regressing') {
         adjustments.push('Cutting phase: maintaining weight is success');
       }
+    } else if (!isBodyweight) {
+      // No progression data — estimate from lift ratios + strength standards
+      const knownLifts = {
+        bench: profile.exerciseProgressions.find(p => p.exerciseName.includes('bench press'))?.lastWeight ?? null,
+        squat: profile.exerciseProgressions.find(p => p.exerciseName.includes('squat') && !p.exerciseName.includes('front'))?.lastWeight ?? null,
+        deadlift: profile.exerciseProgressions.find(p => p.exerciseName.includes('deadlift') && !p.exerciseName.includes('romanian'))?.lastWeight ?? null,
+      };
+      const estimated = estimateWeightFromRatios(
+        sel.exercise.name,
+        knownLifts,
+        prefs.body_weight_lbs,
+        prefs.gender,
+      );
+      if (estimated != null) {
+        targetWeight = estimated;
+        adjustments.push(`Estimated from lift ratios (P90 standards) — adjust after first session`);
+      }
     }
 
     // Plateau strategy
@@ -799,12 +1168,13 @@ function stepPrescribe(
       adjustments.push(`Plateau: ${plateau.suggestedStrategy}`);
     }
 
-    const tempo = getTempo(sel.exercise.default_tempo, prefs.training_goal, sel.exercise.ml_exercise_type);
-    const restSeconds = getRestSeconds(sel.exercise.ml_exercise_type, prefs.training_goal);
-    const sets = recoveryAdj.isDeload ? Math.max(2, Math.ceil(sel.sets * 0.5)) : sel.sets;
+    // Warmup ramp for primary compounds with known weight
+    const warmupSets = (role === 'primary' && targetWeight != null && targetWeight > 50 && idxInGroup === 0)
+      ? generateWarmupRamp(targetWeight)
+      : null;
 
-    const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
-    const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
+    const impact = computeImpactScore(sel.exercise, role, goal, secondaryGoal);
+    const estMin = estimateExerciseMinutes(sets, restSeconds, role, warmupSets?.length ?? 0);
 
     return {
       exerciseName: sel.exercise.name,
@@ -814,9 +1184,12 @@ function stepPrescribe(
       secondaryMuscles: Array.isArray(sel.exercise.secondary_muscles) ? sel.exercise.secondary_muscles : [],
       movementPattern: sel.exercise.movement_pattern ?? 'unknown',
       targetMuscleGroup: sel.muscleGroup,
+      exerciseRole: role,
       sets,
       targetReps: repRange.target,
       targetWeight: isBodyweight ? null : (targetWeight ? Math.round(targetWeight) : null),
+      targetRir: rir,
+      rirLabel: getRirLabel(rir),
       isBodyweight,
       tempo,
       restSeconds,
@@ -828,11 +1201,18 @@ function stepPrescribe(
       cardioSpeed: null,
       cardioIncline: null,
       cardioSpeedLabel: null,
+      targetHrZone: null,
+      targetHrBpmRange: null,
+      warmupSets,
+      supersetGroupId: null,
+      supersetType: null,
+      impactScore: impact,
+      estimatedMinutes: estMin,
     };
   });
 }
 
-// ─── Step 5: Apply Session Constraints (Intelligent Ordering) ───────────────
+// ─── Step 5: Apply Session Constraints (Ordering + Time Budget + Supersets) ──
 
 const CNS_DEMAND_KEYWORDS: [RegExp, number][] = [
   [/\bdeadlift\b/i, 0],
@@ -871,6 +1251,29 @@ function getCnsDemandTier(ex: GeneratedExercise): number {
   return 3;
 }
 
+/**
+ * Compute available session time, accounting for weekday deadlines.
+ */
+function computeAvailableMinutes(prefs: UserPreferences): number {
+  const now = new Date();
+  const dayKey = String(now.getDay());
+  const deadline = prefs.weekday_deadlines[dayKey];
+
+  if (deadline) {
+    const [h, m] = deadline.split(':').map(Number);
+    if (!isNaN(h) && !isNaN(m)) {
+      const deadlineDate = new Date(now);
+      deadlineDate.setHours(h, m, 0, 0);
+      const minutesUntilDeadline = (deadlineDate.getTime() - now.getTime()) / 60000;
+      if (minutesUntilDeadline > 0 && minutesUntilDeadline < prefs.session_duration_minutes) {
+        return Math.max(30, Math.floor(minutesUntilDeadline));
+      }
+    }
+  }
+
+  return prefs.session_duration_minutes;
+}
+
 function stepApplyConstraints(
   exercises: GeneratedExercise[],
   prefs: UserPreferences,
@@ -885,8 +1288,7 @@ function stepApplyConstraints(
     positionMap.set(op.exerciseName, op);
   }
 
-  // Determine muscle group ordering from step 2 priority
-  // Groups were already sorted by priority. Preserve that order for coherence.
+  // Determine muscle group ordering: preserve step 2 priority order
   const groupOrder: string[] = [];
   for (const ex of strength) {
     if (!groupOrder.includes(ex.targetMuscleGroup)) {
@@ -894,7 +1296,7 @@ function stepApplyConstraints(
     }
   }
 
-  // Build ordered output: group exercises by targetMuscleGroup, then sort within
+  // Order within each muscle group: user historical pattern + CNS demand
   const ordered: GeneratedExercise[] = [];
 
   for (const group of groupOrder) {
@@ -906,10 +1308,8 @@ function stepApplyConstraints(
 
       let withinGroupScore: number;
       if (hist && hist.sessions >= 3) {
-        // User has established ordering preferences — respect them
         withinGroupScore = hist.avgNormalizedPosition * 50 + cnsTier * 10;
       } else {
-        // No user data — CNS demand is the primary signal
         withinGroupScore = cnsTier * 20;
       }
 
@@ -920,7 +1320,7 @@ function stepApplyConstraints(
     ordered.push(...scored.map(s => s.exercise));
   }
 
-  // Apply interference avoidance: check if any adjacent pair has known negative interference
+  // Apply interference avoidance
   for (let i = 0; i < ordered.length - 1; i++) {
     const current = ordered[i].exerciseName.toLowerCase();
     const next = ordered[i + 1].exerciseName.toLowerCase();
@@ -928,34 +1328,64 @@ function stepApplyConstraints(
       e => e.precedingExercise === current && e.affectedExercise === next && e.interference < -0.08
     );
     if (interference && i + 2 < ordered.length) {
-      // Swap next with the one after it to avoid interference
       [ordered[i + 1], ordered[i + 2]] = [ordered[i + 2], ordered[i + 1]];
     }
   }
 
-  // Reserve time for cardio before fitting strength exercises
+  // Time budget: compute available minutes, reserve cardio time
+  const availableMinutes = computeAvailableMinutes(prefs);
   const cardioMinutes = cardio.reduce(
-    (sum, ex) => sum + (ex.cardioDurationSeconds ?? 1800) / 60, 0
+    (sum, ex) => sum + ex.estimatedMinutes, 0
   );
-  const strengthBudget = Math.max(
-    prefs.session_duration_minutes - cardioMinutes - 5, // 5 min warm-up
-    30 // absolute minimum for strength
-  );
+  const strengthBudget = Math.max(availableMinutes - cardioMinutes - 5, 30);
 
-  // Trim strength exercises to fit within the strength budget
-  let strengthMinutes = 0;
-  const fittedStrength: GeneratedExercise[] = [];
-  for (const ex of ordered) {
-    const duration = estimateExerciseDuration(ex.sets, ex.restSeconds);
-    if (strengthMinutes + duration > strengthBudget && fittedStrength.length >= 3) {
-      break;
+  // Pareto trimming: if over budget, remove lowest-impact exercises first
+  // Corrective exercises are never cut (impact score boosted in computeImpactScore)
+  let totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+
+  if (totalStrengthMin > strengthBudget) {
+    const sortedByImpact = [...ordered].sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
+    const keepSet = new Set(ordered.map(e => e.exerciseName));
+
+    for (const ex of sortedByImpact) {
+      if (totalStrengthMin <= strengthBudget) break;
+      if (ex.exerciseRole === 'corrective') continue; // never cut correctives
+      if (keepSet.size <= 3) break; // always keep at least 3 exercises
+      keepSet.delete(ex.exerciseName);
+      totalStrengthMin -= ex.estimatedMinutes;
     }
-    strengthMinutes += duration;
-    fittedStrength.push(ex);
+
+    const trimmed = ordered.filter(e => keepSet.has(e.exerciseName));
+    ordered.length = 0;
+    ordered.push(...trimmed);
   }
 
-  // Cardio is always included — it's part of the user's training
-  return [...fittedStrength, ...cardio];
+  // Suggest supersets (annotations only — user accepts/declines in UI)
+  const ssInput = ordered.map(ex => ({
+    exerciseName: ex.exerciseName,
+    targetMuscleGroup: ex.targetMuscleGroup,
+    movementPattern: ex.movementPattern,
+    sets: ex.sets,
+    restSeconds: ex.restSeconds,
+    isCardio: ex.isCardio,
+    exerciseRole: ex.exerciseRole,
+  }));
+
+  const supersetSuggestions = suggestSupersets(ssInput);
+  for (const ss of supersetSuggestions) {
+    const [idxA, idxB] = ss.exerciseIndices;
+    if (ordered[idxA]) {
+      ordered[idxA].supersetGroupId = ss.groupId;
+      ordered[idxA].supersetType = ss.type;
+    }
+    if (ordered[idxB]) {
+      ordered[idxB].supersetGroupId = ss.groupId;
+      ordered[idxB].supersetType = ss.type;
+    }
+  }
+
+  // Cardio always after weights
+  return [...ordered, ...cardio];
 }
 
 // ─── Step 6: Generate Rationale ─────────────────────────────────────────────
@@ -973,7 +1403,7 @@ function stepGenerateRationale(
   const muscleReasons = muscleGroups.map(g => `${g.muscleGroup}: ${g.reason}`);
 
   const totalDuration = exercises.reduce(
-    (sum, ex) => sum + estimateExerciseDuration(ex.sets, ex.restSeconds), 5
+    (sum, ex) => sum + ex.estimatedMinutes, 5
   );
 
   let recoveryStatus = 'Good';
@@ -997,6 +1427,16 @@ function stepGenerateRationale(
     ? `Performance goals: ${prefs.performance_goals.map(g => `${g.exercise} ${g.targetWeight}×${g.targetReps}`).join(', ')}`
     : null;
 
+  const effectiveGoal = getEffectiveGoal(prefs);
+  const goalLabel = prefs.secondary_goal
+    ? `${effectiveGoal} (primary) + ${prefs.secondary_goal} (secondary, 30%)`
+    : effectiveGoal;
+
+  const availMin = computeAvailableMinutes(prefs);
+  const timeNote = availMin < prefs.session_duration_minutes
+    ? `Time-constrained: ${availMin} min available (deadline active)`
+    : `Session budget: ${prefs.session_duration_minutes} min`;
+
   const sessionRationale = [
     splitInfo,
     prefs.preferred_split ? `Preferred split: ${prefs.preferred_split.replace(/_/g, ' ')}` : null,
@@ -1006,9 +1446,13 @@ function stepGenerateRationale(
     dayInfo,
     `Targeting: ${muscleGroupsFocused.join(', ')}`,
     ...muscleReasons,
-    `Goal: ${prefs.training_goal}`,
+    `Goal: ${goalLabel}`,
     goalInfo,
+    timeNote,
     `Recovery status: ${recoveryStatus}`,
+    prefs.priority_muscles.length > 0
+      ? `Priority muscles: ${prefs.priority_muscles.join(', ')} (extra volume)`
+      : null,
     profile.bodyWeightTrend.phase !== 'maintaining'
       ? `Weight trend: ${profile.bodyWeightTrend.phase} (${profile.bodyWeightTrend.slope > 0 ? '+' : ''}${profile.bodyWeightTrend.slope} lbs/week)`
       : null,
@@ -1050,10 +1494,19 @@ function stepGenerateRationale(
     step: '4',
     label: 'Prescription',
     details: exercises.map(ex => {
-      const parts = [`${ex.exerciseName}: ${ex.sets}×${ex.targetReps}`];
+      if (ex.isCardio) {
+        const parts = [`${ex.exerciseName}: ${Math.round((ex.cardioDurationSeconds ?? 1800) / 60)} min`];
+        if (ex.targetHrZone) parts[0] += ` (Zone ${ex.targetHrZone}${ex.targetHrBpmRange ? `, ${ex.targetHrBpmRange.min}-${ex.targetHrBpmRange.max} bpm` : ''})`;
+        if (ex.adjustments.length > 0) parts.push(`  ${ex.adjustments.join('; ')}`);
+        return parts.join('\n');
+      }
+      const parts = [`${ex.exerciseName} [${ex.exerciseRole}]: ${ex.sets}×${ex.targetReps}`];
       if (ex.targetWeight) parts[0] += ` @ ${ex.targetWeight} lbs`;
-      parts[0] += ` (tempo: ${ex.tempo}, rest: ${ex.restSeconds}s)`;
-      if (ex.adjustments.length > 0) parts.push(`  Adjustments: ${ex.adjustments.join('; ')}`);
+      if (ex.targetRir != null) parts[0] += ` (RIR ${ex.targetRir})`;
+      parts[0] += ` — rest ${ex.restSeconds}s, tempo ${ex.tempo}`;
+      if (ex.warmupSets?.length) parts.push(`  Warmup: ${ex.warmupSets.map(w => `${w.weight}×${w.reps}`).join(' → ')}`);
+      if (ex.supersetGroupId != null) parts.push(`  Superset suggestion: ${ex.supersetType} (group ${ex.supersetGroupId})`);
+      if (ex.adjustments.length > 0) parts.push(`  ${ex.adjustments.join('; ')}`);
       return parts.join('\n');
     }),
   });

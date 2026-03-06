@@ -87,6 +87,8 @@ export async function saveFitbitDaily(userId: string, date: string, data: any) {
     sleep_duration: toNumber(data.sleep_duration),
     calories_burned: toNumber(data.calories),
     steps: toInteger(data.steps), // INTEGER column - must be whole number
+    hr_zones_minutes: data.hr_zones_minutes || null,
+    max_heart_rate: toNumber(data.max_heart_rate),
     source_provider: 'fitbit',
     source_data: {
       sleep_efficiency: toNumber(data.sleep_efficiency),
@@ -107,7 +109,7 @@ export async function saveFitbitDaily(userId: string, date: string, data: any) {
   }
 
   // Strip null/undefined top-level values to avoid overwriting manually entered data
-  const keepKeys = new Set(['user_id', 'date', 'source_provider', 'updated_at', 'source_data'])
+  const keepKeys = new Set(['user_id', 'date', 'source_provider', 'updated_at', 'source_data', 'hr_zones_minutes'])
   for (const key of Object.keys(healthMetricsData)) {
     if (!keepKeys.has(key) && ((healthMetricsData as Record<string, unknown>)[key] === null || (healthMetricsData as Record<string, unknown>)[key] === undefined)) {
       delete (healthMetricsData as Record<string, unknown>)[key]
@@ -400,7 +402,16 @@ async function syncFitbitDataDirect(userId: string, date: string | null = null) 
       if (hrJson['activities-heart'] && hrJson['activities-heart'].length > 0) {
         const heartData = hrJson['activities-heart'][0].value
         hrData = {
-          resting_heart_rate: heartData?.restingHeartRate || null
+          resting_heart_rate: heartData?.restingHeartRate || null,
+          hr_zones_minutes: heartData?.heartRateZones ? {
+            out_of_range: heartData.heartRateZones.find((z: any) => z.name === 'Out of Range')?.minutes ?? null,
+            fat_burn: heartData.heartRateZones.find((z: any) => z.name === 'Fat Burn')?.minutes ?? null,
+            cardio: heartData.heartRateZones.find((z: any) => z.name === 'Cardio')?.minutes ?? null,
+            peak: heartData.heartRateZones.find((z: any) => z.name === 'Peak')?.minutes ?? null,
+          } : null,
+          max_heart_rate: heartData?.heartRateZones
+            ? Math.max(...heartData.heartRateZones.map((z: any) => z.max ?? 0))
+            : null,
         }
       }
     }
@@ -554,6 +565,8 @@ export async function mergeWearableDataToMetrics(userId: string, date: string | 
     light_sleep: existingMetrics?.light_sleep ?? null,
     calories_burned: toNumber(fitbitData?.calories_burned) ?? existingMetrics?.calories_burned ?? null,
     steps: toInteger(fitbitData?.steps) ?? existingMetrics?.steps ?? null,
+    hr_zones_minutes: fitbitData?.hr_zones_minutes ?? existingMetrics?.hr_zones_minutes ?? null,
+    max_heart_rate: toNumber(fitbitData?.max_heart_rate) ?? existingMetrics?.max_heart_rate ?? null,
     weight: existingMetrics?.weight ?? toNumber(fitbitData?.source_data?.weight) ?? null,
     body_fat_percentage: existingMetrics?.body_fat_percentage ?? toNumber(fitbitData?.source_data?.fat) ?? null,
     source_provider: fitbitData ? 'fitbit' : existingMetrics?.source_provider ?? 'manual',

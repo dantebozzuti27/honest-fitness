@@ -25,6 +25,11 @@ interface PerformanceGoal {
   targetReps: string;
 }
 
+interface GymProfile {
+  name: string;
+  equipment: string[];
+}
+
 interface TrainingProfileData {
   training_goal: string;
   session_duration_minutes: string;
@@ -47,6 +52,13 @@ interface TrainingProfileData {
   recovery_speed: string;
   weight_goal_lbs: string;
   weight_goal_date: string;
+  primary_goal: string;
+  secondary_goal: string;
+  priority_muscles: string[];
+  weekday_deadlines: Record<string, string>;
+  age: string;
+  gym_profiles: GymProfile[];
+  active_gym_profile: string;
 }
 
 const GOAL_OPTIONS = [
@@ -194,6 +206,47 @@ const RECOVERY_SPEED_OPTIONS = [
   { value: '2.5', label: 'Extreme (daily training tolerance)' },
 ]
 
+const PRIMARY_GOAL_OPTIONS = [
+  { value: '', label: 'Select goal...' },
+  { value: 'strength', label: 'Strength' },
+  { value: 'hypertrophy', label: 'Hypertrophy' },
+  { value: 'fat_loss', label: 'Fat Loss' },
+  { value: 'endurance', label: 'Endurance' },
+]
+
+const MUSCLE_GROUPS = [
+  { value: 'chest', label: 'Chest' },
+  { value: 'back_lats', label: 'Lats' },
+  { value: 'back_upper', label: 'Upper Back' },
+  { value: 'anterior_deltoid', label: 'Front Delt' },
+  { value: 'lateral_deltoid', label: 'Side Delt' },
+  { value: 'posterior_deltoid', label: 'Rear Delt' },
+  { value: 'biceps', label: 'Biceps' },
+  { value: 'triceps', label: 'Triceps' },
+  { value: 'quadriceps', label: 'Quads' },
+  { value: 'hamstrings', label: 'Hamstrings' },
+  { value: 'glutes', label: 'Glutes' },
+  { value: 'calves', label: 'Calves' },
+  { value: 'core', label: 'Core' },
+  { value: 'forearms', label: 'Forearms' },
+  { value: 'erector_spinae', label: 'Erectors' },
+]
+
+const GYM_EQUIPMENT_OPTIONS = [
+  { value: 'barbell', label: 'Barbell' },
+  { value: 'dumbbell', label: 'Dumbbell' },
+  { value: 'cable', label: 'Cable' },
+  { value: 'machine', label: 'Machine' },
+  { value: 'pull_up_bar', label: 'Pull-up Bar' },
+  { value: 'dip_station', label: 'Dip Station' },
+  { value: 'smith_machine', label: 'Smith Machine' },
+  { value: 'kettlebell', label: 'Kettlebell' },
+  { value: 'bands', label: 'Bands' },
+  { value: 'bodyweight', label: 'Bodyweight' },
+]
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
 export default function Profile() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
@@ -232,10 +285,18 @@ export default function Profile() {
     recovery_speed: '',
     weight_goal_lbs: '',
     weight_goal_date: '',
+    primary_goal: '',
+    secondary_goal: '',
+    priority_muscles: [],
+    weekday_deadlines: {},
+    age: '',
+    gym_profiles: [],
+    active_gym_profile: '',
   })
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [newInjury, setNewInjury] = useState({ body_part: '', description: '', severity: 'moderate' })
+  const [newGymProfile, setNewGymProfile] = useState<GymProfile>({ name: '', equipment: [] })
   const [newGoal, setNewGoal] = useState<PerformanceGoal>({ exercise: '', targetWeight: '', targetReps: '1' })
   const [exerciseNames, setExerciseNames] = useState<string[]>([])
   const [avoidSearch, setAvoidSearch] = useState('')
@@ -317,6 +378,13 @@ export default function Profile() {
           recovery_speed: prefs.recovery_speed != null ? String(prefs.recovery_speed) : '',
           weight_goal_lbs: prefs.weight_goal_lbs != null ? String(prefs.weight_goal_lbs) : '',
           weight_goal_date: prefs.weight_goal_date || '',
+          primary_goal: prefs.primary_goal || '',
+          secondary_goal: prefs.secondary_goal || '',
+          priority_muscles: Array.isArray(prefs.priority_muscles) ? prefs.priority_muscles : [],
+          weekday_deadlines: (prefs.weekday_deadlines && typeof prefs.weekday_deadlines === 'object') ? prefs.weekday_deadlines : {},
+          age: prefs.age != null ? String(prefs.age) : '',
+          gym_profiles: Array.isArray(prefs.gym_profiles) ? prefs.gym_profiles : [],
+          active_gym_profile: prefs.active_gym_profile || '',
         })
       }
       setProfileLoaded(true)
@@ -351,6 +419,13 @@ export default function Profile() {
         recovery_speed: trainingProfile.recovery_speed ? Number(trainingProfile.recovery_speed) : null,
         weight_goal_lbs: trainingProfile.weight_goal_lbs ? Number(trainingProfile.weight_goal_lbs) : null,
         weight_goal_date: trainingProfile.weight_goal_date || null,
+        primary_goal: trainingProfile.primary_goal || null,
+        secondary_goal: trainingProfile.secondary_goal || null,
+        priority_muscles: trainingProfile.priority_muscles.length > 0 ? trainingProfile.priority_muscles : null,
+        weekday_deadlines: Object.values(trainingProfile.weekday_deadlines).some(v => v) ? trainingProfile.weekday_deadlines : null,
+        age: trainingProfile.age ? Number(trainingProfile.age) : null,
+        gym_profiles: trainingProfile.gym_profiles.length > 0 ? trainingProfile.gym_profiles : null,
+        active_gym_profile: trainingProfile.active_gym_profile || null,
       }
       await saveUserPreferences(user.id, payload)
       showToast('Training profile saved', 'success')
@@ -545,6 +620,21 @@ export default function Profile() {
                   options={GOAL_OPTIONS}
                 />
                 <SelectField
+                  label="Primary Goal"
+                  value={trainingProfile.primary_goal}
+                  onChange={e => setTrainingProfile(p => ({ ...p, primary_goal: e.target.value }))}
+                  options={PRIMARY_GOAL_OPTIONS}
+                />
+                <SelectField
+                  label="Secondary Goal"
+                  value={trainingProfile.secondary_goal}
+                  onChange={e => setTrainingProfile(p => ({ ...p, secondary_goal: e.target.value }))}
+                  options={[
+                    { value: '', label: 'None' },
+                    ...PRIMARY_GOAL_OPTIONS.filter(o => o.value && o.value !== trainingProfile.primary_goal),
+                  ]}
+                />
+                <SelectField
                   label="Equipment Access"
                   value={trainingProfile.equipment_access}
                   onChange={e => setTrainingProfile(p => ({ ...p, equipment_access: e.target.value }))}
@@ -587,6 +677,45 @@ export default function Profile() {
                   options={ACTIVITY_OPTIONS}
                 />
 
+                {/* Priority Muscles */}
+                <div>
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                    Priority Muscles (extra volume, max 3)
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {MUSCLE_GROUPS.map(mg => {
+                      const selected = trainingProfile.priority_muscles.includes(mg.value)
+                      const atMax = trainingProfile.priority_muscles.length >= 3 && !selected
+                      return (
+                        <button
+                          key={mg.value}
+                          type="button"
+                          onClick={() => {
+                            if (selected) {
+                              setTrainingProfile(p => ({ ...p, priority_muscles: p.priority_muscles.filter(v => v !== mg.value) }))
+                            } else if (!atMax) {
+                              setTrainingProfile(p => ({ ...p, priority_muscles: [...p.priority_muscles, mg.value] }))
+                            }
+                          }}
+                          disabled={atMax}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '16px',
+                            border: selected ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
+                            background: selected ? 'var(--accent, #3b82f6)' : 'var(--bg-tertiary)',
+                            color: selected ? '#fff' : atMax ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                            fontSize: '13px',
+                            cursor: atMax ? 'not-allowed' : 'pointer',
+                            opacity: atMax ? 0.5 : 1,
+                          }}
+                        >
+                          {mg.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
                 <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '-4px', marginTop: '4px' }}>
                   Body Stats
                 </label>
@@ -628,6 +757,16 @@ export default function Profile() {
                   value={trainingProfile.date_of_birth}
                   onChange={(e: any) => setTrainingProfile(p => ({ ...p, date_of_birth: e.target.value }))}
                 />
+                {!trainingProfile.date_of_birth && (
+                  <InputField
+                    label="Age (for heart rate zones)"
+                    type="number"
+                    value={trainingProfile.age}
+                    onChange={(e: any) => setTrainingProfile(p => ({ ...p, age: e.target.value }))}
+                    placeholder="e.g. 30"
+                    inputMode="numeric"
+                  />
+                )}
 
                 <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '-4px', marginTop: '4px' }}>
                   Weight Goal
@@ -682,6 +821,113 @@ export default function Profile() {
                     </div>
                   </div>
                 )}
+
+                {/* Weekday Deadlines */}
+                <div>
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                    Finish By (leave blank for no deadline)
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '6px' }}>
+                    {DAY_LABELS.map((day, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', minWidth: '32px' }}>{day}</span>
+                        <input
+                          type="time"
+                          value={trainingProfile.weekday_deadlines[String(i)] || ''}
+                          onChange={e => setTrainingProfile(p => ({
+                            ...p,
+                            weekday_deadlines: { ...p.weekday_deadlines, [String(i)]: e.target.value },
+                          }))}
+                          style={{ flex: 1, padding: '6px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Gym Profiles */}
+                <div>
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                    Gym Profiles
+                  </label>
+                  {trainingProfile.gym_profiles.length > 0 && (
+                    <>
+                      <SelectField
+                        label="Active Gym"
+                        value={trainingProfile.active_gym_profile}
+                        onChange={e => setTrainingProfile(p => ({ ...p, active_gym_profile: e.target.value }))}
+                        options={[
+                          { value: '', label: 'Select active gym...' },
+                          ...trainingProfile.gym_profiles.map(gp => ({ value: gp.name, label: gp.name })),
+                        ]}
+                      />
+                      <div style={{ marginTop: '8px', marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {trainingProfile.gym_profiles.map((gp, i) => (
+                          <div key={i} style={{ padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: '8px', fontSize: '13px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                              <strong style={{ color: 'var(--text-primary)' }}>{gp.name}</strong>
+                              <button
+                                onClick={() => setTrainingProfile(p => ({
+                                  ...p,
+                                  gym_profiles: p.gym_profiles.filter((_, idx) => idx !== i),
+                                  active_gym_profile: p.active_gym_profile === gp.name ? '' : p.active_gym_profile,
+                                }))}
+                                style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '16px', padding: '0 4px' }}
+                              >×</button>
+                            </div>
+                            <div style={{ color: 'var(--text-secondary)' }}>
+                              {gp.equipment.length > 0 ? gp.equipment.map(e => GYM_EQUIPMENT_OPTIONS.find(o => o.value === e)?.label || e).join(', ') : 'No equipment selected'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  <div style={{ padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '8px' }}>
+                    <input
+                      placeholder="Gym name"
+                      value={newGymProfile.name}
+                      onChange={e => setNewGymProfile(p => ({ ...p, name: e.target.value }))}
+                      style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', marginBottom: '8px' }}
+                    />
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                      {GYM_EQUIPMENT_OPTIONS.map(eq => {
+                        const sel = newGymProfile.equipment.includes(eq.value)
+                        return (
+                          <button
+                            key={eq.value}
+                            type="button"
+                            onClick={() => setNewGymProfile(p => ({
+                              ...p,
+                              equipment: sel ? p.equipment.filter(v => v !== eq.value) : [...p.equipment, eq.value],
+                            }))}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '14px',
+                              border: sel ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
+                              background: sel ? 'var(--accent, #3b82f6)' : 'var(--bg-primary)',
+                              color: sel ? '#fff' : 'var(--text-primary)',
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {eq.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        if (!newGymProfile.name.trim()) return
+                        setTrainingProfile(p => ({ ...p, gym_profiles: [...p.gym_profiles, { ...newGymProfile, name: newGymProfile.name.trim() }] }))
+                        setNewGymProfile({ name: '', equipment: [] })
+                      }}
+                      disabled={!newGymProfile.name.trim()}
+                      style={{ padding: '8px 12px', fontSize: '13px' }}
+                    >Add Gym</Button>
+                  </div>
+                </div>
 
                 {/* Exercises to Avoid — multi-select from library */}
                 <div>

@@ -111,6 +111,8 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     duration: workoutToSave.duration,
     template_name: workoutToSave.templateName || null,
     perceived_effort: workoutToSave.perceivedEffort || null,
+    session_rpe: workoutToSave.perceivedEffort || null,
+    training_density: workoutToSave.trainingDensity != null ? Number(workoutToSave.trainingDensity) : null,
     mood_after: workoutToSave.moodAfter || null,
     notes: workoutToSave.notes || null,
     day_of_week: workoutToSave.dayOfWeek ?? null,
@@ -1253,6 +1255,8 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     'cardio_preference', 'cardio_frequency_per_week', 'cardio_duration_minutes',
     'preferred_exercises',
     'recovery_speed', 'weight_goal_lbs', 'weight_goal_date',
+    'primary_goal', 'secondary_goal', 'priority_muscles',
+    'weekday_deadlines', 'gym_profiles', 'active_gym_profile', 'age',
   ]
   for (const key of directFields) {
     if (prefs[key] !== undefined) {

@@ -385,3 +385,73 @@ BEGIN
     ALTER TABLE user_preferences ADD COLUMN weight_goal_date DATE;
   END IF;
 END $$;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Workout Prescription Engine v2 — New user_preferences columns
+-- All additive ALTER TABLE ADD COLUMN IF NOT EXISTS — safe for existing data
+-- ══════════════════════════════════════════════════════════════════════════════
+
+DO $$
+BEGIN
+  -- Stacked goals: primary + secondary
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'primary_goal') THEN
+    ALTER TABLE user_preferences ADD COLUMN primary_goal TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'secondary_goal') THEN
+    ALTER TABLE user_preferences ADD COLUMN secondary_goal TEXT;
+  END IF;
+
+  -- Priority muscle groups (JSONB array of strings)
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'priority_muscles') THEN
+    ALTER TABLE user_preferences ADD COLUMN priority_muscles JSONB DEFAULT '[]'::jsonb;
+  END IF;
+
+  -- Weekday deadlines: {dayOfWeek: "HH:MM"} e.g. {"1": "07:30", "2": "07:30"}
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'weekday_deadlines') THEN
+    ALTER TABLE user_preferences ADD COLUMN weekday_deadlines JSONB DEFAULT '{}'::jsonb;
+  END IF;
+
+  -- Gym profiles: array of {name, equipment[]}
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'gym_profiles') THEN
+    ALTER TABLE user_preferences ADD COLUMN gym_profiles JSONB DEFAULT '[]'::jsonb;
+  END IF;
+
+  -- Active gym profile name
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'active_gym_profile') THEN
+    ALTER TABLE user_preferences ADD COLUMN active_gym_profile TEXT;
+  END IF;
+
+  -- Age (integer, for max HR estimation)
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'age') THEN
+    ALTER TABLE user_preferences ADD COLUMN age INTEGER;
+  END IF;
+
+  -- Session RPE on workouts table
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'session_rpe') THEN
+    ALTER TABLE workouts ADD COLUMN session_rpe NUMERIC;
+  END IF;
+
+  -- Training density on workouts table
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'training_density') THEN
+    ALTER TABLE workouts ADD COLUMN training_density NUMERIC;
+  END IF;
+
+  -- Per-workout HR data
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_avg_hr') THEN
+    ALTER TABLE workouts ADD COLUMN workout_avg_hr NUMERIC;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_peak_hr') THEN
+    ALTER TABLE workouts ADD COLUMN workout_peak_hr NUMERIC;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_hr_zones') THEN
+    ALTER TABLE workouts ADD COLUMN workout_hr_zones JSONB;
+  END IF;
+
+  -- Intraday HR storage on health_metrics
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'hr_zones_minutes') THEN
+    ALTER TABLE health_metrics ADD COLUMN hr_zones_minutes JSONB;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'max_heart_rate') THEN
+    ALTER TABLE health_metrics ADD COLUMN max_heart_rate INTEGER;
+  END IF;
+END $$;

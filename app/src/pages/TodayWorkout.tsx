@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
-import { generateWorkout, saveGeneratedWorkout, type GeneratedWorkout, type DecisionLogEntry, type ExerciseDecision, type MuscleGroupDecision } from '../lib/workoutEngine'
+import { generateWorkout, saveGeneratedWorkout, type GeneratedWorkout, type DecisionLogEntry, type ExerciseDecision, type MuscleGroupDecision, type ExerciseRole, type WarmupSet } from '../lib/workoutEngine'
 import { requireSupabase } from '../lib/supabase'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -21,6 +21,7 @@ export default function TodayWorkout() {
   const [workout, setWorkout] = useState<GeneratedWorkout | null>(null)
   const [profile, setProfile] = useState<TrainingProfile | null>(null)
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null)
+  const [expandedWarmup, setExpandedWarmup] = useState<Set<number>>(new Set())
   const [regenerating, setRegenerating] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [prefsSet, setPrefsSet] = useState(true)
@@ -116,6 +117,23 @@ export default function TodayWorkout() {
     const parts = tempo.split('-').map(Number)
     if (parts.length !== 3 || parts.some(isNaN)) return null
     return { eccentric: parts[0], pause: parts[1], concentric: parts[2] }
+  }
+
+  const toggleWarmup = (idx: number) => {
+    setExpandedWarmup(prev => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
+
+  const ROLE_BADGE_COLORS: Record<ExerciseRole, string> = {
+    primary: '#3b82f6',
+    secondary: '#6b7280',
+    isolation: '#eab308',
+    corrective: '#ef4444',
+    cardio: '#22c55e',
   }
 
   if (viewState === 'loading') {
@@ -216,7 +234,14 @@ export default function TodayWorkout() {
             </div>
             <div className={styles.summaryItem}>
               <span className={styles.summaryLabel}>Duration</span>
-              <span className={styles.summaryValue}>{workout.estimatedDurationMinutes} min</span>
+              <span className={styles.summaryValue}>
+                {Math.round(workout.exercises.reduce((sum, ex) => sum + ex.estimatedMinutes, 0))} min
+              </span>
+              {workout.estimatedDurationMinutes > 0 && (
+                <span className={styles.summaryBudget}>
+                  / {workout.estimatedDurationMinutes} min budget
+                </span>
+              )}
             </div>
             <div className={styles.summaryItem}>
               <span className={styles.summaryLabel}>Recovery</span>
@@ -275,13 +300,32 @@ export default function TodayWorkout() {
                   <div className={styles.exerciseInfo}>
                     <span className={styles.exerciseNumber}>{idx + 1}</span>
                     <div>
-                      <h3 className={styles.exerciseName}>{ex.exerciseName}</h3>
+                      <div className={styles.exerciseNameRow}>
+                        <h3 className={styles.exerciseName}>{ex.exerciseName}</h3>
+                        <span
+                          className={styles.roleBadge}
+                          style={{ background: ROLE_BADGE_COLORS[ex.exerciseRole] }}
+                        >
+                          {ex.exerciseRole}
+                        </span>
+                        {ex.supersetGroupId != null && (
+                          <span className={styles.supersetBadge}>
+                            SS{ex.supersetType ? ` · ${ex.supersetType.replace(/_/g, ' ')}` : ''}
+                          </span>
+                        )}
+                      </div>
                       <div className={styles.exerciseMeta}>
                         {ex.isCardio ? (
                           <>
                             {ex.cardioDurationSeconds != null ? `${Math.round(ex.cardioDurationSeconds / 60)} min` : 'Duration TBD'}
                             {ex.cardioSpeed != null && ex.cardioSpeedLabel ? ` — ${ex.cardioSpeedLabel}: ${ex.cardioSpeed}` : ''}
                             {ex.cardioIncline != null ? ` — ${ex.cardioIncline}% incline` : ''}
+                            {ex.targetHrZone != null && (
+                              <span className={styles.hrZone}>
+                                {' '}— Zone {ex.targetHrZone}
+                                {ex.targetHrBpmRange ? ` (${ex.targetHrBpmRange.min}–${ex.targetHrBpmRange.max} bpm)` : ''}
+                              </span>
+                            )}
                           </>
                         ) : (
                           <>
@@ -290,6 +334,9 @@ export default function TodayWorkout() {
                           </>
                         )}
                       </div>
+                      {!ex.isCardio && ex.targetRir != null && ex.rirLabel && (
+                        <div className={styles.rirLabel}>{ex.rirLabel} (RIR {ex.targetRir})</div>
+                      )}
                     </div>
                   </div>
                   <span className={styles.expandArrow}>{isExpanded ? '▼' : '▶'}</span>
@@ -297,6 +344,25 @@ export default function TodayWorkout() {
 
                 {isExpanded && (
                   <div className={styles.exerciseDetails}>
+                    {!ex.isCardio && ex.warmupSets && ex.warmupSets.length > 0 && (
+                      <div className={styles.warmupSection}>
+                        <div
+                          className={styles.warmupToggle}
+                          onClick={(e) => { e.stopPropagation(); toggleWarmup(idx) }}
+                        >
+                          <span>{expandedWarmup.has(idx) ? '▾' : '▸'} Warmup ({ex.warmupSets.length} sets)</span>
+                        </div>
+                        {expandedWarmup.has(idx) && (
+                          <div className={styles.warmupSets}>
+                            {ex.warmupSets.map((ws, wi) => (
+                              <div key={wi} className={styles.warmupSetRow}>
+                                {ws.weight} lbs × {ws.reps}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <table className={styles.detailTable}>
                       <tbody>
                         {ex.isCardio ? (
@@ -317,13 +383,32 @@ export default function TodayWorkout() {
                                 <td>{ex.cardioIncline}%</td>
                               </tr>
                             )}
+                            {ex.targetHrZone != null && (
+                              <tr>
+                                <td className={styles.detailLabel}>HR Zone</td>
+                                <td>
+                                  Zone {ex.targetHrZone}
+                                  {ex.targetHrBpmRange ? ` (${ex.targetHrBpmRange.min}–${ex.targetHrBpmRange.max} bpm)` : ''}
+                                </td>
+                              </tr>
+                            )}
                           </>
                         ) : (
                           <>
                             <tr>
+                              <td className={styles.detailLabel}>Role</td>
+                              <td style={{ textTransform: 'capitalize' }}>{ex.exerciseRole}</td>
+                            </tr>
+                            <tr>
                               <td className={styles.detailLabel}>Movement</td>
                               <td>{ex.movementPattern.replace(/_/g, ' ')}</td>
                             </tr>
+                            {ex.targetRir != null && (
+                              <tr>
+                                <td className={styles.detailLabel}>RIR</td>
+                                <td>{ex.targetRir} — {ex.rirLabel}</td>
+                              </tr>
+                            )}
                             {tempo && (
                               <tr>
                                 <td className={styles.detailLabel}>Tempo</td>
@@ -334,6 +419,18 @@ export default function TodayWorkout() {
                               <td className={styles.detailLabel}>Rest</td>
                               <td>{ex.restSeconds}s between sets</td>
                             </tr>
+                            <tr>
+                              <td className={styles.detailLabel}>Est. Time</td>
+                              <td>{Math.round(ex.estimatedMinutes)} min</td>
+                            </tr>
+                            {ex.supersetGroupId != null && (
+                              <tr>
+                                <td className={styles.detailLabel}>Superset</td>
+                                <td style={{ textTransform: 'capitalize' }}>
+                                  Group {ex.supersetGroupId} — {ex.supersetType?.replace(/_/g, ' ') ?? 'paired'}
+                                </td>
+                              </tr>
+                            )}
                           </>
                         )}
                         <tr>

@@ -1972,6 +1972,17 @@ export default function ActiveWorkout() {
       }
     }
     
+    // Training density = total volume load / session duration (lbs per minute)
+    const totalVolumeLoad = exercises.reduce((sum: number, ex: any) => {
+      if (ex.category === 'Cardio' || ex.category === 'Recovery') return sum;
+      return sum + (ex.sets || []).reduce((setSum: number, s: any) => {
+        const w = Number(s.weight) || 0;
+        const r = Number(s.reps) || 0;
+        return setSum + w * r;
+      }, 0);
+    }, 0);
+    const trainingDensity = workoutTime > 0 ? Math.round(totalVolumeLoad / workoutTime) : null;
+
     const workout = {
       id: uuidv4(),
       date: getTodayEST(),
@@ -1984,6 +1995,7 @@ export default function ActiveWorkout() {
       dayOfWeek: new Date().getDay(),
       workoutCaloriesBurned: workoutCaloriesBurned,
       workoutSteps: workoutSteps,
+      trainingDensity: trainingDensity,
       generatedWorkoutId: generatedWorkoutIdRef.current || null,
       // IMPORTANT: Include ALL exercises from the workout, don't filter any out
       // Only filter sets to show valid ones, but keep all exercises

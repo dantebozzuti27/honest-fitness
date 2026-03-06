@@ -1,3 +1,4 @@
+import type { RefObject } from 'react'
 import { useEffect, useRef } from 'react'
 
 const FOCUSABLE_SELECTOR = [
@@ -9,16 +10,26 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])'
 ].join(',')
 
-function getFocusable(container) {
+function getFocusable(container: HTMLElement | null | undefined): HTMLElement[] {
   if (!container) return []
-  const nodes = Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR))
-  return nodes.filter((el) => {
+  const nodes = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+  return nodes.filter((el: HTMLElement) => {
     // Filter out elements that are not actually focusable/visible
     const style = window.getComputedStyle(el)
     if (style.visibility === 'hidden' || style.display === 'none') return false
     if (el.hasAttribute('disabled')) return false
     return true
   })
+}
+
+export interface UseModalA11yOptions {
+  open: boolean
+  onClose: () => void
+  containerRef?: RefObject<HTMLElement | null>
+  initialFocusRef?: RefObject<HTMLElement | { focus: () => void } | null>
+  restoreFocus?: boolean
+  closeOnEscape?: boolean
+  trapFocus?: boolean
 }
 
 /**
@@ -37,7 +48,7 @@ export function useModalA11y({
   restoreFocus = true,
   closeOnEscape = true,
   trapFocus = true
-}) {
+}: UseModalA11yOptions) {
   // Keep latest callbacks/options without re-running the "open" effect on each render.
   const onCloseRef = useRef(onClose)
   const closeOnEscapeRef = useRef(closeOnEscape)
@@ -79,7 +90,7 @@ export function useModalA11y({
       focusable[0]?.focus?.()
     })
 
-    const onKeyDown = (e) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       const currentContainer = containerRef?.current
 
       if (closeOnEscapeRef.current && e.key === 'Escape') {
@@ -124,9 +135,9 @@ export function useModalA11y({
     document.addEventListener('keydown', onKeyDown, true)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
-      if (restoreFocusRef.current && previouslyFocused && typeof previouslyFocused.focus === 'function') {
+      if (restoreFocusRef.current && previouslyFocused && typeof (previouslyFocused as HTMLElement).focus === 'function') {
         try {
-          previouslyFocused.focus()
+          ;(previouslyFocused as HTMLElement).focus()
         } catch {
           // ignore
         }

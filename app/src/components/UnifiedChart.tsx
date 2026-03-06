@@ -40,13 +40,13 @@ export default function UnifiedChart({
   xAxisLabel = '',
   yAxisLabel = ''
 }: UnifiedChartProps) {
-  const [dateRange, setDateRange] = useState({ start: 0, end: null })
+  const [dateRange, setDateRange] = useState<{ start: number; end: number | null }>({ start: 0, end: null })
   const [isPinching, setIsPinching] = useState(false)
   const [pinchStartDistance, setPinchStartDistance] = useState(0)
-  const [pinchStartRange, setPinchStartRange] = useState({ start: 0, end: null })
+  const [pinchStartRange, setPinchStartRange] = useState<{ start: number; end: number | null }>({ start: 0, end: null })
   const [isPanning, setIsPanning] = useState(false)
   const [panStartX, setPanStartX] = useState(0)
-  const [panStartRange, setPanStartRange] = useState({ start: 0, end: null })
+  const [panStartRange, setPanStartRange] = useState<{ start: number; end: number | null }>({ start: 0, end: null })
   const containerRef = useRef<HTMLDivElement | null>(null)
   const touchStartRef = useRef<any>(null)
 

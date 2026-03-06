@@ -14,6 +14,7 @@ const Analytics = lazy(() => import('./pages/Analytics'))
 const Profile = lazy(() => import('./pages/Profile'))
 const ActiveWorkout = lazy(() => import('./pages/ActiveWorkout'))
 const Progress = lazy(() => import('./pages/Progress'))
+const TodayWorkout = lazy(() => import('./pages/TodayWorkout'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -116,6 +117,7 @@ export default function App() {
           <Route path="/fitness" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />
           <Route path="/workout" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />
           <Route path="/workout/active" element={<ProtectedRoute><ActiveWorkout /></ProtectedRoute>} />
+          <Route path="/today" element={<ProtectedRoute><TodayWorkout /></ProtectedRoute>} />
           <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
           <Route path="/progress" element={<ProtectedRoute><Progress /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

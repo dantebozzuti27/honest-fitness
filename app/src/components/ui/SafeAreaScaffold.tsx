@@ -1,3 +1,4 @@
+import React from 'react'
 import styles from './SafeAreaScaffold.module.css'
 
 /**
@@ -10,7 +11,7 @@ import styles from './SafeAreaScaffold.module.css'
  * It intentionally does NOT impose padding/margins on your content.
  * Wrap your existing page container inside it.
  */
-export default function SafeAreaScaffold({ children, className = '' }) {
+export default function SafeAreaScaffold({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
     <div className={`${styles.scaffold} ${className}`}>
       {children}

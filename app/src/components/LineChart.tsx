@@ -6,6 +6,18 @@
 import { useMemo } from 'react'
 import styles from './LineChart.module.css'
 
+type LineChartProps = {
+  data: Record<string, number>
+  labels?: string[]
+  height?: number
+  color?: string
+  showValues?: boolean
+  xAxisLabel?: string
+  yAxisLabel?: string
+  dates?: string[] | null
+  dateData?: unknown
+}
+
 export default function LineChart({ 
   data, 
   labels, 
@@ -16,7 +28,7 @@ export default function LineChart({
   yAxisLabel = '',
   dates = null,
   dateData = null
-}) {
+}: LineChartProps) {
   const axisStroke = 'rgba(255, 255, 255, 0.38)'
   const axisTickStroke = 'rgba(255, 255, 255, 0.28)'
   const axisTextFill = 'rgba(255, 255, 255, 0.72)'
@@ -162,7 +174,7 @@ export default function LineChart({
       {/* X-axis labels */}
       {chartData.keys && chartData.keys.length > 0 && (
         <div className={styles.xAxisLabels}>
-          {chartData.keys.map((key, i) => (
+          {chartData.keys.map((key: string, i: number) => (
             <span key={i} className={styles.xAxisLabel}>{key}</span>
           ))}
         </div>

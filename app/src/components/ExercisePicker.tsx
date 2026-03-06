@@ -61,7 +61,7 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }: Ex
     return Array.from(byName.values())
   }, [exercises])
 
-  const expandQueryAliases = (q) => {
+  const expandQueryAliases = (q: string) => {
     // Light aliases for common shorthand
     // Keep this small and predictable; we can expand later.
     return q
@@ -71,7 +71,7 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }: Ex
       .replace(/\bsmith\b/g, 'smith machine')
   }
 
-  const tokenize = (q) => {
+  const tokenize = (q: string) => {
     const cleaned = expandQueryAliases(normalize(q))
       .replace(/[_/.,()-]+/g, ' ')
       .replace(/\s+/g, ' ')
@@ -84,16 +84,19 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }: Ex
     if (!dedupedExercises || !Array.isArray(dedupedExercises)) return []
 
     const tokens = tokenize(debouncedSearch)
-    const matchesQuery = (ex) => {
+    const matchesQuery = (ex: any) => {
       if (tokens.length === 0) return true
       const haystack = [
         ex.name,
         ex.bodyPart,
         ex.category,
-        ex.equipment
+        ex.equipment,
+        ex.movement_pattern,
+        ex.ml_exercise_type,
+        ...(ex.primary_muscles || []),
+        ...(ex.secondary_muscles || []),
       ].map(normalize).join(' ')
-      // Token-based search: user can type "lat cable machine" and it matches regardless of word order/spacing.
-      return tokens.every(t => haystack.includes(t))
+      return tokens.every((t: string) => haystack.includes(t))
     }
 
     return dedupedExercises
@@ -142,6 +145,16 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }: Ex
               ) : (
                 filtered.map(ex => {
                   const metaParts = [ex.bodyPart, ex.category, ex.equipment].filter(Boolean)
+                  const hasMuscleData = ex.primary_muscles?.length > 0
+                  const muscleLabel = hasMuscleData
+                    ? (ex.primary_muscles as string[]).slice(0, 3).map((m: string) => m.replace(/_/g, ' ')).join(', ')
+                    : null
+                  const badges = [
+                    ex.ml_exercise_type && ex.ml_exercise_type !== 'compound' ? ex.ml_exercise_type : null,
+                    ex.movement_pattern ? ex.movement_pattern.replace(/_/g, ' ') : null,
+                    ex.difficulty,
+                  ].filter(Boolean)
+
                   return (
                     <Button
                       unstyled
@@ -151,6 +164,16 @@ export default function ExercisePicker({ exercises = [], onSelect, onClose }: Ex
                     >
                       <span className={styles.exerciseName}>{ex.name}</span>
                       <span className={styles.exerciseMeta}>{metaParts.join(' • ')}</span>
+                      {muscleLabel && (
+                        <span className={styles.exerciseMeta} style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>
+                          {muscleLabel}
+                        </span>
+                      )}
+                      {badges.length > 0 && (
+                        <span className={styles.exerciseMeta} style={{ fontSize: 10, marginTop: 2 }}>
+                          {badges.join(' · ')}
+                        </span>
+                      )}
                     </Button>
                   )
                 })

@@ -8,7 +8,7 @@ import { logError } from '../utils/logger'
 /**
  * Clean and normalize workout data
  */
-export function cleanWorkoutData(workout) {
+export function cleanWorkoutData(workout: any) {
   const cleaned = { ...workout }
   
   // Normalize date format
@@ -23,7 +23,7 @@ export function cleanWorkoutData(workout) {
   
   // Clean exercises
   if (cleaned.exercises && Array.isArray(cleaned.exercises)) {
-    cleaned.exercises = cleaned.exercises.map(exercise => cleanExerciseData(exercise))
+    cleaned.exercises = cleaned.exercises.map((exercise: any) => cleanExerciseData(exercise))
   }
   
   return cleaned
@@ -32,7 +32,7 @@ export function cleanWorkoutData(workout) {
 /**
  * Clean exercise data
  */
-function cleanExerciseData(exercise) {
+function cleanExerciseData(exercise: any) {
   const cleaned = { ...exercise }
   
   // Normalize exercise name (trim, capitalize)
@@ -42,7 +42,7 @@ function cleanExerciseData(exercise) {
   
   // Clean sets
   if (cleaned.sets && Array.isArray(cleaned.sets)) {
-    cleaned.sets = cleaned.sets.map(set => cleanSetData(set))
+    cleaned.sets = cleaned.sets.map((set: any) => cleanSetData(set))
   }
   
   return cleaned
@@ -51,7 +51,7 @@ function cleanExerciseData(exercise) {
 /**
  * Clean set data
  */
-function cleanSetData(set) {
+function cleanSetData(set: any) {
   const cleaned = { ...set }
   
   // Normalize weight (convert kg to lbs if needed, round to 2 decimals)
@@ -85,7 +85,7 @@ function cleanSetData(set) {
 /**
  * Clean and normalize health metrics
  */
-export function cleanHealthMetrics(metrics) {
+export function cleanHealthMetrics(metrics: any) {
   const cleaned = { ...metrics }
   
   // Normalize date
@@ -143,7 +143,7 @@ export function cleanHealthMetrics(metrics) {
 /**
  * Clean and normalize nutrition data
  */
-export function cleanNutritionData(nutrition) {
+export function cleanNutritionData(nutrition: any) {
   const cleaned = { ...nutrition }
   
   // Normalize date
@@ -180,7 +180,7 @@ export function cleanNutritionData(nutrition) {
 
 // Helper functions
 
-function normalizeDate(date) {
+function normalizeDate(date: any) {
   if (!date) return date
   
   // If it's already a string in YYYY-MM-DD format, return as is
@@ -203,7 +203,7 @@ function normalizeDate(date) {
   }
 }
 
-function normalizeExerciseName(name) {
+function normalizeExerciseName(name: string) {
   if (!name) return name
   
   // Trim whitespace
@@ -221,12 +221,12 @@ function normalizeExerciseName(name) {
     'sit up': 'Sit Up'
   }
   
-  const lower = normalized.toLowerCase()
+  const lower = normalized.toLowerCase() as keyof typeof typos
   if (typos[lower]) {
     normalized = typos[lower]
   } else {
     // Capitalize first letter of each word
-    normalized = normalized.split(' ').map(word => 
+    normalized = normalized.split(' ').map((word: string) => 
       word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
     ).join(' ')
   }
@@ -237,7 +237,7 @@ function normalizeExerciseName(name) {
 /**
  * Clean timezone (convert to UTC)
  */
-export function normalizeTimezone(date, timezone) {
+export function normalizeTimezone(date: string, timezone: string) {
   if (!date || !timezone) return date
   
   try {
@@ -252,7 +252,7 @@ export function normalizeTimezone(date, timezone) {
 /**
  * Comprehensive cleaning wrapper
  */
-export function cleanData(type, data) {
+export function cleanData(type: string, data: any) {
   switch (type) {
     case 'workout':
       return cleanWorkoutData(data)

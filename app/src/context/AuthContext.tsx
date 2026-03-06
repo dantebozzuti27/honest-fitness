@@ -50,9 +50,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false)
         clearTimeout(timeoutId)
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (!mounted) return
-        logWarn('AuthContext: Session fetch failed (non-critical)', { message: error?.message, code: error?.code })
+        const message = error instanceof Error ? error.message : String(error)
+        const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : undefined
+        logWarn('AuthContext: Session fetch failed (non-critical)', { message, code })
         setUser(null)
         setLoading(false)
         clearTimeout(timeoutId)
@@ -68,8 +70,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       })
       subscription = data?.subscription
-    } catch (error) {
-      logWarn('AuthContext: Failed to set up auth listener (non-critical)', { message: error?.message, code: error?.code })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : undefined
+      logWarn('AuthContext: Failed to set up auth listener (non-critical)', { message, code })
     }
 
     return () => {

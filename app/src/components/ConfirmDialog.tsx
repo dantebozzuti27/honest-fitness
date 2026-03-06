@@ -42,7 +42,7 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
   const destructive = typeof isDestructive === 'boolean' ? isDestructive : Boolean(destructiveProp)
   const handleCancel = onCancel || onClose
 
-  const cancelBtnRef = useRef(null)
+  const cancelBtnRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     if (!open) return

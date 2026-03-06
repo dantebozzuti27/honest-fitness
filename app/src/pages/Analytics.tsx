@@ -10,6 +10,7 @@ import {
   getDetailedBodyPartStats,
 } from '../lib/db/workoutsDb'
 import { getAllMetricsFromSupabase } from '../lib/db/metricsDb'
+import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
 import { getTodayEST, getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import EmptyState from '../components/EmptyState'
@@ -20,7 +21,7 @@ import Button from '../components/Button'
 import BackButton from '../components/BackButton'
 import styles from './Analytics.module.css'
 
-const TABS = ['Overview', 'Workouts', 'Metrics', 'Body Parts']
+const TABS = ['Overview', 'Workouts', 'Metrics', 'Body Parts', 'Intelligence']
 
 type AnalyticsData = {
   bodyParts: Record<string, number>
@@ -81,6 +82,8 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true)
   const [dateRange, setDateRange] = useState('Last 30 Days')
   const [expandedWorkout, setExpandedWorkout] = useState<string | null>(null)
+  const [trainingProfile, setTrainingProfile] = useState<TrainingProfile | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
   const [data, setData] = useState<AnalyticsData>({
     bodyParts: {}, bodyPartReps: {}, bodyPartSets: {}, detailedStats: {},
     streak: 0, metrics: [], frequency: {}, topExercises: [], totalWorkouts: 0, workouts: [],
@@ -437,6 +440,246 @@ export default function Analytics() {
                   </div>
                 ) : (
                   <EmptyState title="No data" message="Log workouts to see body part breakdown." actionLabel="Start Workout" onAction={() => navigate('/workout')} />
+                )}
+              </div>
+            )}
+
+            {/* ============ INTELLIGENCE TAB ============ */}
+            {activeTab === 4 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 'var(--space-md)' }}>
+                {!trainingProfile && !profileLoading && (
+                  <Button onClick={async () => {
+                    if (!user) return
+                    setProfileLoading(true)
+                    try {
+                      const p = await computeTrainingProfile(user.id)
+                      setTrainingProfile(p)
+                    } catch (err) {
+                      logError('Training profile error', err)
+                      showToast('Failed to compute training profile', 'error')
+                    }
+                    setProfileLoading(false)
+                  }}>
+                    Analyze Training Data
+                  </Button>
+                )}
+                {profileLoading && (
+                  <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
+                    Computing intelligence data...
+                  </div>
+                )}
+                {trainingProfile && (
+                  <>
+                    {/* Global Stats */}
+                    <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                      <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Global Stats</h3>
+                      <table style={tableStyle}>
+                        <tbody>
+                          <tr><td style={tdStyle}>Training Frequency</td><td style={tdRight}>{trainingProfile.trainingFrequency} days/week</td></tr>
+                          <tr><td style={tdStyle}>Avg Session Duration</td><td style={tdRight}>{Math.round(trainingProfile.avgSessionDuration / 60)} min</td></tr>
+                          <tr><td style={tdStyle}>Training Age</td><td style={tdRight}>{trainingProfile.trainingAgeDays} days</td></tr>
+                          <tr><td style={tdStyle}>Consistency</td><td style={tdRight}>{Math.round(trainingProfile.consistencyScore * 100)}%</td></tr>
+                          <tr><td style={tdStyle}>Weight Trend</td><td style={tdRight}>{trainingProfile.bodyWeightTrend.phase} ({trainingProfile.bodyWeightTrend.slope > 0 ? '+' : ''}{trainingProfile.bodyWeightTrend.slope} lbs/wk)</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Muscle Volume */}
+                    <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                      <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Muscle Volume (Weekly Sets)</h3>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={tableStyle}>
+                          <thead>
+                            <tr><th style={thStyle}>Muscle Group</th><th style={thRight}>Direct</th><th style={thRight}>Target</th><th style={thRight}>Status</th><th style={thRight}>Days Rest</th></tr>
+                          </thead>
+                          <tbody>
+                            {trainingProfile.muscleVolumeStatuses.map(v => (
+                              <tr key={v.muscleGroup}>
+                                <td style={tdStyle}>{v.muscleGroup.replace(/_/g, ' ')}</td>
+                                <td style={tdRight}>{v.weeklyDirectSets}</td>
+                                <td style={tdRight}>{v.mavLow}-{v.mavHigh}</td>
+                                <td style={{ ...tdRight, color: v.status === 'below_mev' ? 'var(--danger, #ef4444)' : v.status === 'in_mav' ? 'var(--success)' : 'var(--text-secondary)' }}>
+                                  {v.status.replace(/_/g, ' ')}
+                                </td>
+                                <td style={tdRight}>{v.daysSinceLastTrained === Infinity ? '—' : v.daysSinceLastTrained}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Exercise Progression */}
+                    {trainingProfile.exerciseProgressions.length > 0 && (
+                      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                        <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Exercise Progression</h3>
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={tableStyle}>
+                            <thead>
+                              <tr><th style={thStyle}>Exercise</th><th style={thRight}>Est 1RM</th><th style={thRight}>Status</th><th style={thRight}>Sessions</th></tr>
+                            </thead>
+                            <tbody>
+                              {trainingProfile.exerciseProgressions.slice(0, 20).map(p => (
+                                <tr key={p.exerciseName}>
+                                  <td style={tdStyle}>{p.exerciseName}</td>
+                                  <td style={tdRight}>{p.estimated1RM} lbs</td>
+                                  <td style={{ ...tdRight, color: p.status === 'progressing' ? 'var(--success)' : p.status === 'regressing' ? 'var(--danger, #ef4444)' : 'var(--text-secondary)' }}>
+                                    {p.status}
+                                  </td>
+                                  <td style={tdRight}>{p.sessionsTracked}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recovery Correlations */}
+                    <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                      <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Recovery Correlations</h3>
+                      <table style={tableStyle}>
+                        <thead>
+                          <tr><th style={thStyle}>Variable</th><th style={thRight}>Sensitivity</th><th style={thRight}>Data Points</th><th style={thRight}>Confidence</th></tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td style={tdStyle}>Sleep → Upper Body</td>
+                            <td style={tdRight}>{(trainingProfile.sleepCoefficients.upperBody * 100).toFixed(1)}%</td>
+                            <td style={tdRight}>{trainingProfile.sleepCoefficients.dataPoints}</td>
+                            <td style={tdRight}>{trainingProfile.sleepCoefficients.confidence}</td>
+                          </tr>
+                          <tr>
+                            <td style={tdStyle}>Sleep → Lower Body</td>
+                            <td style={tdRight}>{(trainingProfile.sleepCoefficients.lowerBody * 100).toFixed(1)}%</td>
+                            <td style={tdRight}>{trainingProfile.sleepCoefficients.dataPoints}</td>
+                            <td style={tdRight}>{trainingProfile.sleepCoefficients.confidence}</td>
+                          </tr>
+                          {trainingProfile.stepsPerformanceCorrelation && (
+                            <tr>
+                              <td style={tdStyle}>Steps → Leg Performance</td>
+                              <td style={tdRight}>{(trainingProfile.stepsPerformanceCorrelation.coefficient * 100).toFixed(1)}%</td>
+                              <td style={tdRight}>{trainingProfile.stepsPerformanceCorrelation.dataPoints}</td>
+                              <td style={tdRight}>{trainingProfile.stepsPerformanceCorrelation.dataPoints >= 20 ? 'medium' : 'low'}</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+
+                      {trainingProfile.timeOfDayEffects.length > 0 && (
+                        <>
+                          <h4 style={{ margin: '16px 0 8px', fontSize: 14, color: 'var(--text-secondary)' }}>Time of Day Effects</h4>
+                          <table style={tableStyle}>
+                            <thead><tr><th style={thStyle}>Time</th><th style={thRight}>Avg Delta</th><th style={thRight}>Data Points</th></tr></thead>
+                            <tbody>
+                              {trainingProfile.timeOfDayEffects.map(t => (
+                                <tr key={t.bucket}>
+                                  <td style={tdStyle}>{t.bucket}</td>
+                                  <td style={{ ...tdRight, color: t.avgDelta < -0.02 ? 'var(--danger, #ef4444)' : t.avgDelta > 0.02 ? 'var(--success)' : 'var(--text-secondary)' }}>
+                                    {t.avgDelta >= 0 ? '+' : ''}{(t.avgDelta * 100).toFixed(1)}%
+                                  </td>
+                                  <td style={tdRight}>{t.dataPoints}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      )}
+
+                      {trainingProfile.consecutiveDaysEffects.length > 0 && (
+                        <>
+                          <h4 style={{ margin: '16px 0 8px', fontSize: 14, color: 'var(--text-secondary)' }}>Consecutive Day Impact</h4>
+                          <table style={tableStyle}>
+                            <thead><tr><th style={thStyle}>Day</th><th style={thRight}>Avg Delta</th><th style={thRight}>Data Points</th></tr></thead>
+                            <tbody>
+                              {trainingProfile.consecutiveDaysEffects.map(c => (
+                                <tr key={c.dayIndex}>
+                                  <td style={tdStyle}>Day {c.dayIndex}</td>
+                                  <td style={{ ...tdRight, color: c.avgDelta < -0.02 ? 'var(--danger, #ef4444)' : 'var(--text-secondary)' }}>
+                                    {c.avgDelta >= 0 ? '+' : ''}{(c.avgDelta * 100).toFixed(1)}%
+                                  </td>
+                                  <td style={tdRight}>{c.dataPoints}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Imbalance Alerts */}
+                    {trainingProfile.imbalanceAlerts.length > 0 && (
+                      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16, borderLeft: '3px solid var(--danger, #ef4444)' }}>
+                        <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Imbalance Alerts</h3>
+                        {trainingProfile.imbalanceAlerts.map((a, i) => (
+                          <div key={i} style={{ marginBottom: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+                            <strong style={{ color: 'var(--text-primary)' }}>{a.type.replace(/_/g, ' ')}:</strong>{' '}
+                            {a.description} (ratio: {a.ratio}, target: {a.targetRatio})
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Deload & Plateaus */}
+                    <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                      <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Active Flags</h3>
+                      <table style={tableStyle}>
+                        <tbody>
+                          <tr>
+                            <td style={tdStyle}>Deload Needed</td>
+                            <td style={{ ...tdRight, color: trainingProfile.deloadRecommendation.needed ? 'var(--danger, #ef4444)' : 'var(--success)', fontWeight: 600 }}>
+                              {trainingProfile.deloadRecommendation.needed ? 'YES' : 'No'}
+                            </td>
+                          </tr>
+                          {trainingProfile.deloadRecommendation.signals.map((s, i) => (
+                            <tr key={i}><td style={tdStyle} colSpan={2}>{s}</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      {trainingProfile.plateauDetections.filter(p => p.isPlateaued).length > 0 && (
+                        <>
+                          <h4 style={{ margin: '16px 0 8px', fontSize: 14, color: 'var(--text-secondary)' }}>Plateaued Exercises</h4>
+                          <table style={tableStyle}>
+                            <thead><tr><th style={thStyle}>Exercise</th><th style={thRight}>Sessions</th><th style={thStyle}>Strategy</th></tr></thead>
+                            <tbody>
+                              {trainingProfile.plateauDetections.filter(p => p.isPlateaued).map(p => (
+                                <tr key={p.exerciseName}>
+                                  <td style={tdStyle}>{p.exerciseName}</td>
+                                  <td style={tdRight}>{p.sessionsSinceProgress}</td>
+                                  <td style={{ ...tdStyle, fontSize: 12 }}>{p.suggestedStrategy}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Muscle Recovery */}
+                    <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                      <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Muscle Recovery Status</h3>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={tableStyle}>
+                          <thead>
+                            <tr><th style={thStyle}>Muscle</th><th style={thRight}>Recovery %</th><th style={thRight}>Hours Rest</th><th style={thRight}>Ready</th></tr>
+                          </thead>
+                          <tbody>
+                            {trainingProfile.muscleRecovery.map(r => (
+                              <tr key={r.muscleGroup}>
+                                <td style={tdStyle}>{r.muscleGroup.replace(/_/g, ' ')}</td>
+                                <td style={tdRight}>{r.recoveryPercent}%</td>
+                                <td style={tdRight}>{r.hoursSinceLastTrained === Infinity ? '—' : r.hoursSinceLastTrained.toFixed(0)}h</td>
+                                <td style={{ ...tdRight, color: r.readyToTrain ? 'var(--success)' : 'var(--danger, #ef4444)' }}>
+                                  {r.readyToTrain ? 'Yes' : 'No'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}

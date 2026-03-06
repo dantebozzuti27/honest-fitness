@@ -8,7 +8,7 @@ import { logError } from '../utils/logger'
 /**
  * Validate workout data
  */
-export function validateWorkout(workout) {
+export function validateWorkout(workout: any) {
   const errors = []
   
   // Schema validation
@@ -40,13 +40,13 @@ export function validateWorkout(workout) {
   
   // Exercise validation
   if (workout.exercises) {
-    workout.exercises.forEach((exercise, index) => {
+    workout.exercises.forEach((exercise: any, index: number) => {
       if (!exercise.name || exercise.name.trim() === '') {
         errors.push(`Exercise ${index + 1}: Name is required`)
       }
       
       if (exercise.sets && Array.isArray(exercise.sets)) {
-        exercise.sets.forEach((set, setIndex) => {
+        exercise.sets.forEach((set: any, setIndex: number) => {
           // Range validation for sets
           if (set.weight !== null && set.weight !== undefined) {
             if (set.weight < 0) {
@@ -112,7 +112,7 @@ export function validateWorkout(workout) {
 /**
  * Validate health metrics
  */
-export function validateHealthMetrics(metrics) {
+export function validateHealthMetrics(metrics: any) {
   const errors = []
   
   // Range validation
@@ -190,7 +190,7 @@ export function validateHealthMetrics(metrics) {
 /**
  * Comprehensive validation wrapper
  */
-export function validateData(type, data) {
+export function validateData(type: string, data: any) {
   switch (type) {
     case 'workout':
       return validateWorkout(data)

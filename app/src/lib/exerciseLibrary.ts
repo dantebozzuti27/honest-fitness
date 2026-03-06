@@ -3,16 +3,16 @@
  * Manage exercise library and custom exercises
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
 
-// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
-const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
+const supabase = (supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })) as SupabaseClient
 
 /**
  * Get all system exercises (non-custom)
  */
-export async function getSystemExercises(filters = {}) {
+export async function getSystemExercises(filters: { category?: string; bodyPart?: string; search?: string } = {}) {
   let query = supabase
     .from('exercise_library')
     .select('*')
@@ -43,7 +43,7 @@ export async function getSystemExercises(filters = {}) {
 /**
  * Get user's custom exercises
  */
-export async function getCustomExercises(userId) {
+export async function getCustomExercises(userId: string) {
   const { data, error } = await supabase
     .from('exercise_library')
     .select('*')
@@ -62,7 +62,7 @@ export async function getCustomExercises(userId) {
 /**
  * Create a custom exercise
  */
-export async function createCustomExercise(userId, exercise) {
+export async function createCustomExercise(userId: string, exercise: any) {
   const { data, error } = await supabase
     .from('exercise_library')
     .insert({
@@ -90,7 +90,7 @@ export async function createCustomExercise(userId, exercise) {
 /**
  * Update a custom exercise
  */
-export async function updateCustomExercise(userId, exerciseId, updates) {
+export async function updateCustomExercise(userId: string, exerciseId: string, updates: any) {
   const { data, error } = await supabase
     .from('exercise_library')
     .update({
@@ -120,7 +120,7 @@ export async function updateCustomExercise(userId, exerciseId, updates) {
 /**
  * Delete a custom exercise
  */
-export async function deleteCustomExercise(userId, exerciseId) {
+export async function deleteCustomExercise(userId: string, exerciseId: string) {
   const { error } = await supabase
     .from('exercise_library')
     .delete()
@@ -137,7 +137,7 @@ export async function deleteCustomExercise(userId, exerciseId) {
 /**
  * Get exercise by name (system or custom for user)
  */
-export async function getExerciseByName(userId, exerciseName) {
+export async function getExerciseByName(userId: string, exerciseName: string) {
   // Try system exercise first
   const { data: systemExercise } = await supabase
     .from('exercise_library')

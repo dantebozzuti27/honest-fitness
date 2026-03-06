@@ -7,7 +7,6 @@ const DB_VERSION = 1
 export async function getDB() {
   return openDB(DB_NAME, DB_VERSION, {
     upgrade(db) {
-      // Exercises store
       if (!db.objectStoreNames.contains('exercises')) {
         const exerciseStore = db.createObjectStore('exercises', { keyPath: 'id', autoIncrement: true })
         exerciseStore.createIndex('category', 'category')
@@ -15,23 +14,19 @@ export async function getDB() {
         exerciseStore.createIndex('name', 'name')
       }
       
-      // Templates store
       if (!db.objectStoreNames.contains('templates')) {
         db.createObjectStore('templates', { keyPath: 'id' })
       }
       
-      // Workouts store (completed workouts)
       if (!db.objectStoreNames.contains('workouts')) {
         const workoutStore = db.createObjectStore('workouts', { keyPath: 'id', autoIncrement: true })
         workoutStore.createIndex('date', 'date')
       }
       
-      // Daily metrics store
       if (!db.objectStoreNames.contains('metrics')) {
-        const metricsStore = db.createObjectStore('metrics', { keyPath: 'date' })
+        db.createObjectStore('metrics', { keyPath: 'date' })
       }
       
-      // Scheduled workouts store
       if (!db.objectStoreNames.contains('scheduled')) {
         db.createObjectStore('scheduled', { keyPath: 'date' })
       }
@@ -39,63 +34,60 @@ export async function getDB() {
   })
 }
 
-// Exercise functions
 export async function getAllExercises() {
   const db = await getDB()
   return db.getAll('exercises')
 }
 
-export async function addExercise(exercise) {
+export async function addExercise(exercise: any) {
   const db = await getDB()
   return db.add('exercises', exercise)
 }
 
-export async function bulkAddExercises(exercises) {
+export async function bulkAddExercises(exercises: any[]) {
   const db = await getDB()
   const tx = db.transaction('exercises', 'readwrite')
   await Promise.all([
-    ...exercises.map(e => tx.store.add(e)),
+    ...exercises.map((e: any) => tx.store.add(e)),
     tx.done
   ])
 }
 
-export async function getExercisesByBodyPart(bodyPart) {
+export async function getExercisesByBodyPart(bodyPart: string) {
   const db = await getDB()
   return db.getAllFromIndex('exercises', 'bodyPart', bodyPart)
 }
 
-// Template functions
 export async function getAllTemplates() {
   const db = await getDB()
   return db.getAll('templates')
 }
 
-export async function getTemplate(id) {
+export async function getTemplate(id: string) {
   const db = await getDB()
   return db.get('templates', id)
 }
 
-export async function saveTemplate(template) {
+export async function saveTemplate(template: any) {
   const db = await getDB()
   return db.put('templates', template)
 }
 
-export async function deleteTemplate(id) {
+export async function deleteTemplate(id: string) {
   const db = await getDB()
   return db.delete('templates', id)
 }
 
-export async function bulkAddTemplates(templates) {
+export async function bulkAddTemplates(templates: any[]) {
   const db = await getDB()
   const tx = db.transaction('templates', 'readwrite')
   await Promise.all([
-    ...templates.map(t => tx.store.put(t)),
+    ...templates.map((t: any) => tx.store.put(t)),
     tx.done
   ])
 }
 
-// Workout functions
-export async function saveWorkout(workout) {
+export async function saveWorkout(workout: any) {
   const db = await getDB()
   return db.add('workouts', {
     ...workout,
@@ -104,7 +96,7 @@ export async function saveWorkout(workout) {
   })
 }
 
-export async function getWorkoutsByDate(date) {
+export async function getWorkoutsByDate(date: string) {
   const db = await getDB()
   return db.getAllFromIndex('workouts', 'date', date)
 }
@@ -117,41 +109,37 @@ export async function getAllWorkouts() {
 export async function getWorkoutDates() {
   const db = await getDB()
   const workouts = await db.getAll('workouts')
-  return [...new Set(workouts.map(w => w.date))]
+  return [...new Set(workouts.map((w: any) => w.date))]
 }
 
-// Metrics functions
-export async function saveMetrics(date, metrics) {
+export async function saveMetrics(date: string, metrics: any) {
   const db = await getDB()
   return db.put('metrics', { date, ...metrics })
 }
 
-export async function getMetrics(date) {
+export async function getMetrics(date: string) {
   const db = await getDB()
   return db.get('metrics', date)
 }
 
-// Scheduled workout functions
-export async function scheduleWorkout(date, templateId) {
+export async function scheduleWorkout(date: string, templateId: string) {
   const db = await getDB()
   return db.put('scheduled', { date, templateId })
 }
 
-export async function getScheduledWorkout(date) {
+export async function getScheduledWorkout(date: string) {
   const db = await getDB()
   return db.get('scheduled', date)
 }
 
-// Streak calculation
 export async function calculateStreak() {
   const dates = await getWorkoutDates()
   if (dates.length === 0) return 0
   
-  const sortedDates = dates.sort((a, b) => new Date(b) - new Date(a))
+  const sortedDates = dates.sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime())
   const today = getTodayEST()
   const yesterday = getYesterdayEST()
   
-  // Check if most recent workout is today or yesterday
   if (sortedDates[0] !== today && sortedDates[0] !== yesterday) {
     return 0
   }
@@ -160,7 +148,7 @@ export async function calculateStreak() {
   for (let i = 1; i < sortedDates.length; i++) {
     const current = new Date(sortedDates[i - 1])
     const prev = new Date(sortedDates[i])
-    const diffDays = (current - prev) / 86400000
+    const diffDays = (current.getTime() - prev.getTime()) / 86400000
     
     if (diffDays === 1) {
       streak++
@@ -172,22 +160,18 @@ export async function calculateStreak() {
   return streak
 }
 
-// Check if exercises are loaded
 export async function hasExercises() {
   const db = await getDB()
   const count = await db.count('exercises')
   return count > 0
 }
 
-// Clear and reload all exercises
 export async function clearExercises() {
   const db = await getDB()
   await db.clear('exercises')
 }
 
-// Clear and reload all templates
 export async function clearTemplates() {
   const db = await getDB()
   await db.clear('templates')
 }
-

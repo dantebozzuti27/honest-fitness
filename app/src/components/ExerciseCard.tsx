@@ -79,7 +79,7 @@ export default function ExerciseCard({
   })()
 
   const [activeSet, setActiveSet] = useState(0)
-  const setRowRefs = useRef([])
+  const setRowRefs = useRef<(HTMLDivElement | null)[]>([])
 
   useEffect(() => {
     // Keep refs array aligned with current set count.
@@ -129,13 +129,13 @@ export default function ExerciseCard({
     return parts.join(' · ')
   })()
 
-  const roundTo2_5 = (n) => {
+  const roundTo2_5 = (n: number | string | null | undefined) => {
     const x = Number(n)
     if (!Number.isFinite(x)) return null
     return Math.round(x / 2.5) * 2.5
   }
 
-  const computeStrengthSuggestion = (set) => {
+  const computeStrengthSuggestion = (set: any) => {
     const cat = (exercise?.category || '').toString()
     if (cat === 'Cardio' || cat === 'Recovery') return null
 
@@ -157,16 +157,34 @@ export default function ExerciseCard({
     const safeFactor = Number.isFinite(factor) ? Math.max(0.6, Math.min(1.0, factor)) : 1
     const adjusted = base * safeFactor
     const weight = roundTo2_5(adjusted)
-    if (!Number.isFinite(weight) || weight <= 0) return null
+    if (weight == null || !Number.isFinite(weight) || weight <= 0) return null
 
     return { weight, reps: desiredReps }
   }
 
+  // Determine cardio input configuration based on exercise name.
+  // The `speed` DB column stores the contextual value (mph, level, watts, resistance).
+  // The `incline` column is only relevant for treadmill exercises.
+  const cardioInputConfig = (() => {
+    const name = (exercise?.name || '').toLowerCase()
+    if (name.includes('stairmaster') || name.includes('stair master'))
+      return { speedLabel: 'Level', speedPlaceholder: '1-20', speedStep: '1', speedUnit: '', showIncline: false, showSpeed: true }
+    if (name.includes('rowing') || name.includes('row erg') || name.includes('ski erg'))
+      return { speedLabel: 'Watts', speedPlaceholder: 'watts', speedStep: '1', speedUnit: 'W', showIncline: false, showSpeed: true }
+    if (name.includes('bike') || name.includes('cycling') || name.includes('stationary'))
+      return { speedLabel: 'Resistance', speedPlaceholder: 'lvl', speedStep: '1', speedUnit: '', showIncline: false, showSpeed: true }
+    if (name.includes('elliptical'))
+      return { speedLabel: 'Resistance', speedPlaceholder: 'lvl', speedStep: '1', speedUnit: '', showIncline: name.includes('incline'), showSpeed: true }
+    if (name.includes('treadmill'))
+      return { speedLabel: 'Speed', speedPlaceholder: 'mph', speedStep: '0.1', speedUnit: 'mph', showIncline: true, showSpeed: true }
+    return { speedLabel: '', speedPlaceholder: '', speedStep: '1', speedUnit: '', showIncline: false, showSpeed: false }
+  })()
+
   // Cardio timer (per exercise card; applied to the active set row)
-  const cardioTimerIntervalRef = useRef(null)
-  const cardioTimerStartMsRef = useRef(null)
-  const cardioTimerBaseSecondsRef = useRef(0)
-  const cardioTimerSetIdxRef = useRef(null)
+  const cardioTimerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cardioTimerStartMsRef = useRef<number | null>(null)
+  const cardioTimerBaseSecondsRef = useRef<number>(0)
+  const cardioTimerSetIdxRef = useRef<number | null>(null)
   const [cardioTimerSeconds, setCardioTimerSeconds] = useState(0)
 
   useEffect(() => {
@@ -178,7 +196,7 @@ export default function ExerciseCard({
     }
   }, [])
 
-  function parseCardioSeconds(raw) {
+  function parseCardioSeconds(raw: any) {
     if (raw == null) return 0
     const s = String(raw).trim()
     if (!s) return 0
@@ -213,19 +231,19 @@ export default function ExerciseCard({
     return Math.max(0, Math.floor(n))
   }
 
-  function secondsToMMSS(totalSeconds) {
+  function secondsToMMSS(totalSeconds: number) {
     const mins = Math.floor(totalSeconds / 60)
     const secs = totalSeconds % 60
     return { mins, secs }
   }
 
-  function secondsToMMSSString(totalSeconds) {
+  function secondsToMMSSString(totalSeconds: number | string | null | undefined) {
     const safe = Number.isFinite(Number(totalSeconds)) ? Math.max(0, Math.floor(Number(totalSeconds))) : 0
     const { mins, secs } = secondsToMMSS(safe)
     return `${mins}:${String(secs).padStart(2, '0')}`
   }
 
-  function startCardioTimer(setIdx, existingSeconds) {
+  function startCardioTimer(setIdx: number, existingSeconds: number) {
     if (cardioTimerIntervalRef.current) {
       clearInterval(cardioTimerIntervalRef.current)
       cardioTimerIntervalRef.current = null
@@ -280,14 +298,14 @@ export default function ExerciseCard({
     }
   }
 
-  const toNum = (v) => {
+  const toNum = (v: any) => {
     const n = Number(v)
     return Number.isFinite(n) ? n : null
   }
 
-  const isBodyweightValue = (v) => String(v ?? '').trim().toUpperCase() === 'BW'
+  const isBodyweightValue = (v: any) => String(v ?? '').trim().toUpperCase() === 'BW'
 
-  const adjustFieldNumber = (setIdx, field, delta, { min = 0, max = null, step = 1 } = {}) => {
+  const adjustFieldNumber = (setIdx: number, field: string, delta: number, { min = 0, max = null as number | null, step = 1 } = {}) => {
     const current = exercise?.sets?.[setIdx]?.[field]
     const n = toNum(current)
     const base = n == null ? 0 : n
@@ -299,7 +317,7 @@ export default function ExerciseCard({
     onUpdateSet(setIdx, field, String(next))
   }
 
-  const copyPreviousSet = (setIdx) => {
+  const copyPreviousSet = (setIdx: number) => {
     if (!exercise?.sets || setIdx <= 0) return
     const prev = exercise.sets[setIdx - 1] || {}
     // Copy only the relevant fields for the exercise type.
@@ -318,11 +336,11 @@ export default function ExerciseCard({
     onUpdateSet(setIdx, 'reps', prev.reps ?? '')
   }
 
-  const weightInputRef = useRef(null)
-  const repsInputRef = useRef(null)
-  const lastNumericWeightBySetRef = useRef(new Map())
+  const weightInputRef = useRef<HTMLInputElement | null>(null)
+  const repsInputRef = useRef<HTMLInputElement | null>(null)
+  const lastNumericWeightBySetRef = useRef(new Map<number, string>())
 
-  const toggleBodyweight = (setIdx) => {
+  const toggleBodyweight = (setIdx: number) => {
     const currentRaw = exercise?.sets?.[setIdx]?.weight
     const current = String(currentRaw ?? '')
 
@@ -344,7 +362,7 @@ export default function ExerciseCard({
 
   // Auto-next should never fire while the user is mid-typing (mobile keyboards in particular).
   // We call this only on "commit" events (blur / Enter), not onChange.
-  const maybeAutoNext = (setIdx, nextWeight, nextReps) => {
+  const maybeAutoNext = (setIdx: number, nextWeight: any, nextReps: any) => {
     if (!autoNext) return
     if (setIdx !== activeSet) return
     const w = String(nextWeight ?? '').trim()
@@ -360,14 +378,14 @@ export default function ExerciseCard({
     <Card
       className={`${styles.card} ${exercise.expanded ? styles.expanded : ''} ${exercise.completed ? styles.completed : ''} ${isDragging ? styles.dragging : ''} ${stacked ? styles.stacked : ''} ${containerClassName || ''}`}
       draggable={Boolean(draggable)}
-      onDragStart={(e) => {
+      onDragStart={(e: React.DragEvent) => {
         if (onDragStart) {
           onDragStart(e, exercise.id)
         }
       }}
       onDragOver={onDragOver}
       onDragEnter={onDragEnter}
-      onDragEnd={(e) => {
+      onDragEnd={(e: React.DragEvent) => {
         if (onDragEnd) {
           onDragEnd(e)
         }
@@ -496,7 +514,7 @@ export default function ExerciseCard({
                 Next: {stackMembers[(stackIndex + 1) % stackMembers.length]?.name || ''}
               </div>
               <div className={styles.stackSectionChips}>
-                {stackMembers.map((member, idx) => (
+                {stackMembers.map((member: any, idx: number) => (
                   <span
                     key={member.id}
                     className={`${styles.stackMember} ${idx === stackIndex ? styles.activeStackMember : ''}`}
@@ -510,10 +528,10 @@ export default function ExerciseCard({
           ) : null}
 
           <div className={styles.sets}>
-            {exercise.sets.map((set, idx) => (
+            {exercise.sets.map((set: any, idx: number) => (
               <div 
                 key={idx} 
-                ref={(node) => { setRowRefs.current[idx] = node }}
+                ref={(node: HTMLDivElement | null) => { setRowRefs.current[idx] = node }}
                 className={`${styles.setRow} ${idx === activeSet ? styles.activeSet : ''} ${idx < activeSet ? styles.completedSet : ''}`}
               >
                 <div className={styles.setMainRow}>
@@ -605,19 +623,28 @@ export default function ExerciseCard({
                             })()}
                           </div>
 
+                          {(cardioInputConfig.showSpeed || cardioInputConfig.showIncline) && (
                           <div className={styles.cardioMetaRow}>
+                            {cardioInputConfig.showSpeed && (
                             <div className={styles.cardioMetaGroup}>
                               <input
                                 type="number"
                                 inputMode="decimal"
-                                step="0.1"
-                                placeholder="mph"
+                                step={cardioInputConfig.speedStep}
+                                placeholder={cardioInputConfig.speedPlaceholder}
                                 value={set.speed || ''}
                                 onChange={(e) => onUpdateSet(idx, 'speed', e.target.value)}
                                 className={`${styles.input} ${styles.cardioMetaInput}`}
                               />
-                              <span className={styles.cardioMetaUnit}>mph</span>
+                              {cardioInputConfig.speedUnit && (
+                                <span className={styles.cardioMetaUnit}>{cardioInputConfig.speedUnit}</span>
+                              )}
+                              {!cardioInputConfig.speedUnit && (
+                                <span className={styles.cardioMetaUnit}>{cardioInputConfig.speedLabel}</span>
+                              )}
                             </div>
+                            )}
+                            {cardioInputConfig.showIncline && (
                             <div className={styles.cardioMetaGroup}>
                               <input
                                 type="number"
@@ -628,9 +655,11 @@ export default function ExerciseCard({
                                 onChange={(e) => onUpdateSet(idx, 'incline', e.target.value)}
                                 className={`${styles.input} ${styles.cardioMetaInput}`}
                               />
-                              <span className={styles.cardioMetaUnit}>%</span>
+                              <span className={styles.cardioMetaUnit}>% incline</span>
                             </div>
+                            )}
                           </div>
+                          )}
                         </div>
                       )
                     })()}
@@ -727,6 +756,14 @@ export default function ExerciseCard({
                     </div>
                   </>
                 )}
+
+                  {/* Generated workout target indicator */}
+                  {set._target_reps != null && (set._target_weight != null || set._is_bodyweight) && (
+                    <div className={styles.targetHint} title={`Model prescribed: ${set._target_reps} reps${set._is_bodyweight ? ' (bodyweight)' : ` @ ${set._target_weight} lbs`}${set._tempo ? ` (tempo: ${set._tempo})` : ''}`}>
+                      <span className={styles.targetLabel}>Rx</span>
+                      <span className={styles.targetValue}>{set._target_reps}{set._is_bodyweight ? ' BW' : `×${set._target_weight}`}</span>
+                    </div>
+                  )}
 
                   {idx === activeSet && (
                     <button

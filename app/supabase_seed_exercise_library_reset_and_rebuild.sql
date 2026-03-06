@@ -217,7 +217,7 @@ values
 ('Outdoor Cycling', 'cardio', 'cardio', array['legs'], array['bicycle'], false, 'Cycling outdoors.'),
 ('Rowing Machine', 'cardio', 'cardio', array['full_body'], array['rowing_machine'], false, 'Row erg.'),
 ('Elliptical', 'cardio', 'cardio', array['legs'], array['elliptical_machine'], false, 'Elliptical trainer.'),
-('Stair Climber', 'cardio', 'cardio', array['legs','glutes'], array['stair_climber'], false, 'Stair stepping machine.'),
+('StairMaster', 'cardio', 'cardio', array['legs','glutes'], array['stairmaster'], false, 'StairMaster revolving staircase machine. Uses levels 1-20.'),
 ('Ski Erg', 'cardio', 'cardio', array['full_body'], array['ski_erg'], false, 'Ski ergometer.'),
 
 -- CARDIO — BODYWEIGHT / FIELD
@@ -243,9 +243,14 @@ values
 ('Farmer Carry (Conditioning)', 'cardio', 'cardio', array['full_body'], array['dumbbells','kettlebell'], false, 'Continuous loaded carry conditioning.'),
 
 -- CARDIO — WALK / HIKE
+('Outdoor Walk', 'cardio', 'cardio', array['legs'], array['none'], false, 'Walking outdoors at moderate pace.'),
 ('Brisk Walk', 'cardio', 'cardio', array['legs'], array['none'], false, 'Brisk walking.'),
+('Power Walk', 'cardio', 'cardio', array['legs','glutes'], array['none'], false, 'High-intensity walking with arm drive.'),
+('Treadmill Walk', 'cardio', 'cardio', array['legs'], array['treadmill'], false, 'Flat treadmill walking.'),
 ('Incline Treadmill Walk', 'cardio', 'cardio', array['legs','glutes'], array['treadmill'], false, 'Incline walking on treadmill.'),
+('Weighted Walk (Ruck)', 'cardio', 'cardio', array['legs','core','shoulders'], array['backpack','weight_vest'], false, 'Walking with weighted backpack or vest.'),
 ('Hiking', 'cardio', 'cardio', array['legs','glutes'], array['none'], false, 'Outdoor hiking.'),
+('Treadmill Walk Intervals', 'cardio', 'cardio', array['legs','glutes'], array['treadmill'], false, 'Alternating incline/speed intervals while walking on treadmill.'),
 
 -- =========================
 -- STRENGTH — EXTRA COVERAGE (PUSH/PULL/LEGS/CORE)
@@ -293,7 +298,7 @@ values
 ('Assault Bike Intervals', 'cardio', 'cardio', array['legs','arms'], array['air_bike'], false, 'Interval protocol on air bike.'),
 ('Treadmill Intervals', 'cardio', 'cardio', array['legs'], array['treadmill'], false, 'Interval running on treadmill.'),
 ('Rowing Intervals', 'cardio', 'cardio', array['full_body'], array['rowing_machine'], false, 'Interval rowing on erg.'),
-('Stair Climber Intervals', 'cardio', 'cardio', array['legs','glutes'], array['stair_climber'], false, 'Intervals on stair climber.'),
+('StairMaster Intervals', 'cardio', 'cardio', array['legs','glutes'], array['stairmaster'], false, 'Interval protocol alternating levels on StairMaster.'),
 ('Elliptical Intervals', 'cardio', 'cardio', array['legs'], array['elliptical_machine'], false, 'Intervals on elliptical.'),
 ('Box Jumps', 'cardio', 'cardio', array['legs'], array['box','bodyweight'], false, 'Plyometric box jumps for conditioning.'),
 ('Medicine Ball Throws', 'cardio', 'cardio', array['full_body'], array['medicine_ball'], false, 'Explosive throws for conditioning.'),

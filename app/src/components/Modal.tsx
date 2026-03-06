@@ -76,7 +76,7 @@ export default function Modal({
     >
       <div
         {...dialogProps}
-        ref={containerRef}
+        ref={containerRef as React.Ref<HTMLDivElement>}
         className={modalClassName || styles.modal}
         style={modalStyle}
         tabIndex={-1}

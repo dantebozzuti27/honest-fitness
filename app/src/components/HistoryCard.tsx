@@ -35,7 +35,7 @@ export default function HistoryCard({
   const [isExpanded, setIsExpanded] = useState(false)
 
   // Format date with relative labels
-  const formatDate = (dateStr) => {
+  const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return ''
     const today = getTodayEST()
     const yesterday = getYesterdayEST()
@@ -50,7 +50,7 @@ export default function HistoryCard({
   }
 
   // Calculate trends
-  const getTrend = (current, previous, format = (v) => v) => {
+  const getTrend = (current: any, previous: any, format: (v: any) => any = (v) => v) => {
     if (!previous || current == null || previous == null) return null
     const diff = current - previous
     if (Math.abs(diff) < 0.01) return { direction: '→', value: 'Same', color: 'var(--text-secondary)' }
@@ -85,9 +85,9 @@ export default function HistoryCard({
     const templateName = isRecovery ? 'Recovery Session' : (data.template_name || 'Freestyle')
     
     // Calculate total volume (handle both workout_sets and sets)
-    const totalVolume = data.workout_exercises?.reduce((sum, ex) => {
+    const totalVolume = data.workout_exercises?.reduce((sum: number, ex: any) => {
       const sets = ex.workout_sets || ex.sets || []
-      return sum + (sets.reduce((setSum, set) => {
+      return sum + (sets.reduce((setSum: number, set: any) => {
         const w = Number(set?.weight)
         const r = Number(set?.reps)
         const weight = Number.isFinite(w) && w > 0 ? w : 0
@@ -97,8 +97,8 @@ export default function HistoryCard({
     }, 0) || 0
     
     // Get body parts worked
-    const bodyParts = [...new Set(
-      data.workout_exercises?.map(ex => ex.body_part || ex.bodyPart).filter(Boolean) || []
+    const bodyParts: string[] = [...new Set<string>(
+      (data.workout_exercises?.map((ex: any) => ex.body_part || ex.bodyPart).filter(Boolean) || []) as string[]
     )].slice(0, 3)
     
     // Duration trend
@@ -258,7 +258,7 @@ export default function HistoryCard({
       style={{ 
         animationDelay: `${index * 0.05}s`,
         '--card-type': type
-      }}
+      } as React.CSSProperties}
       onClick={() => {
         if (onView && typeof onView === 'function') {
           onView()

@@ -38,6 +38,11 @@ export async function hasExercises() {
   return db.hasExercises()
 }
 
+export async function clearExercises() {
+  const db = await loadDb()
+  return db.clearExercises()
+}
+
 // Templates (synced to Supabase)
 export async function getAllTemplates() {
   const db = await loadDb()

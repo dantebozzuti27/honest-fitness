@@ -21,7 +21,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 /**
  * Get Fitbit OAuth authorization URL
  */
-export function getFitbitAuthUrl(userId) {
+export function getFitbitAuthUrl(userId: string) {
   const scopes = [
     'activity',
     'heartrate',
@@ -46,7 +46,7 @@ export function getFitbitAuthUrl(userId) {
 /**
  * Initiate Fitbit OAuth flow
  */
-export function connectFitbit(userId) {
+export function connectFitbit(userId: string) {
   if (import.meta.env.DEV) {
     logDebug('connectFitbit called', { hasUserId: Boolean(userId), clientConfigured: Boolean(FITBIT_CLIENT_ID) })
     logDebug('FITBIT_REDIRECT_URI', { redirectUri: FITBIT_REDIRECT_URI })
@@ -86,7 +86,7 @@ export function connectFitbit(userId) {
 /**
  * Check if Fitbit is connected
  */
-export async function isFitbitConnected(userId) {
+export async function isFitbitConnected(userId: string) {
   const account = await getConnectedAccount(userId, 'fitbit')
   return !!account
 }

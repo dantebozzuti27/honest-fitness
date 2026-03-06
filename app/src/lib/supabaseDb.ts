@@ -90,7 +90,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   const inferSessionType = () => {
     const exs = Array.isArray(workoutToSave.exercises) ? workoutToSave.exercises : []
     if (exs.length === 0) return 'workout'
-    const nonRecovery = exs.some(e => (e?.category || '').toString().toLowerCase() !== 'recovery')
+    const nonRecovery = exs.some((e: any) => (e?.category || '').toString().toLowerCase() !== 'recovery')
     return nonRecovery ? 'workout' : 'recovery'
   }
   const sessionType = (workoutToSave.sessionType || workoutToSave.session_type || inferSessionType())
@@ -116,6 +116,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     day_of_week: workoutToSave.dayOfWeek ?? null,
     workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
     workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null,
+    generated_workout_id: workoutToSave.generatedWorkoutId || null,
     updated_at: new Date().toISOString()
   }
 
@@ -138,7 +139,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       workoutData = retry.data
       workoutError = retry.error
     }
-  } catch (e) {
+  } catch (e: any) {
     workoutError = e
   }
 
@@ -203,7 +204,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     const ex = workoutToSave.exercises[i]
     
     // Skip exercises without valid sets data (prevent dummy data)
-    if (!ex.sets || ex.sets.length === 0 || !ex.sets.some(s => s.weight || s.reps || s.time)) {
+    if (!ex.sets || ex.sets.length === 0 || !ex.sets.some((s: any) => s.weight || s.reps || s.time)) {
       continue
     }
     
@@ -266,9 +267,9 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     if (exerciseError) throw exerciseError
 
     // Insert sets (only sets with actual data)
-    const validSets = ex.sets.filter(s => s.weight || s.reps || s.time || s.time_seconds)
+    const validSets = ex.sets.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds)
     if (validSets.length > 0) {
-      const setsToInsert = validSets.map((set, idx) => ({
+      const setsToInsert = validSets.map((set: any, idx: number) => ({
         workout_exercise_id: exerciseData.id,
         set_number: idx + 1,
         weight: (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null),
@@ -281,11 +282,11 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
         incline: set.incline ? Number(set.incline) : null
       }))
 
-      const tryInsert = async (rows) => supabase.from('workout_sets').insert(rows)
+      const tryInsert = async (rows: any[]) => supabase.from('workout_sets').insert(rows)
       let { error: setsError } = await tryInsert(setsToInsert)
       if (setsError && (setsError.code === '42703' || `${setsError.message || ''}`.toLowerCase().includes('column'))) {
         // Retry without optional BW columns for older schemas.
-        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, ...rest }) => rest)
+        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, ...rest }: any) => rest)
         const retry = await tryInsert(stripped)
         setsError = retry.error
       }
@@ -296,7 +297,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   return workoutData
 }
 
-export async function getWorkoutsFromSupabase(userId) {
+export async function getWorkoutsFromSupabase(userId: string) {
   // Prefer a single embedded query for convenience, but be resilient:
   // some deployments have missing relationships / RLS differences that can break embeds.
   const embedded = await supabase
@@ -331,11 +332,11 @@ export async function getWorkoutsFromSupabase(userId) {
 
   if (plain.error) throw plain.error
 
-  return (plain.data || []).map(w => ({ ...w, workout_exercises: w.workout_exercises || [] }))
+  return (plain.data || []).map((w: any) => ({ ...w, workout_exercises: w.workout_exercises || [] }))
 }
 
 // Lightweight query for "last-time cues" (avoid fetching all history)
-export async function getRecentWorkoutsFromSupabase(userId, limit = 30) {
+export async function getRecentWorkoutsFromSupabase(userId: string, limit = 30) {
   if (!userId) return []
   const n = Number(limit || 0)
   const safeLimit = Number.isFinite(n) ? Math.max(1, Math.min(100, Math.floor(n))) : 30
@@ -563,7 +564,7 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
   // If exercises exist, ensure they have valid structure (but allow empty array)
   if (workout.exercises && workout.exercises.length > 0) {
     // Validate exercise structure if exercises are provided
-    const hasInvalidExercise = workout.exercises.some(ex => 
+    const hasInvalidExercise = workout.exercises.some((ex: any) => 
       !ex || typeof ex !== 'object' || !ex.name
     )
     if (hasInvalidExercise) {
@@ -685,7 +686,7 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
     // Insert sets (only sets with actual data)
     const validSets = ex.sets.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds)
     if (validSets.length > 0) {
-      const setsToInsert = validSets.map((set, idx) => ({
+      const setsToInsert = validSets.map((set: any, idx: number) => ({
         workout_exercise_id: exerciseData.id,
         set_number: idx + 1,
         weight: (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null),
@@ -818,9 +819,9 @@ export async function cleanupDuplicateWorkouts(userId: string) {
   
   // First, identify and delete invalid workouts (dummy data - no valid exercises/sets)
   for (const workout of allWorkouts) {
-    const hasValidExercise = workout.workout_exercises?.some(ex => {
+    const hasValidExercise = workout.workout_exercises?.some((ex: any) => {
       if (!ex.workout_sets || ex.workout_sets.length === 0) return false
-      return ex.workout_sets.some(s => s.weight || s.reps || s.time)
+      return ex.workout_sets.some((s: any) => s.weight || s.reps || s.time)
     })
     
     if (!hasValidExercise) {
@@ -1060,7 +1061,7 @@ export async function getScheduledWorkoutsFromSupabase(userId: string) {
   return data
 }
 
-export async function getScheduledWorkoutByDateFromSupabase(userId, date) {
+export async function getScheduledWorkoutByDateFromSupabase(userId: string, date: string) {
   // Back-compat: return the most recently created scheduled workout for a date (if multiple exist).
   const { data, error } = await supabase
     .from('scheduled_workouts')
@@ -1075,7 +1076,7 @@ export async function getScheduledWorkoutByDateFromSupabase(userId, date) {
   return data
 }
 
-export async function getScheduledWorkoutsByDateFromSupabase(userId, date) {
+export async function getScheduledWorkoutsByDateFromSupabase(userId: string, date: string) {
   const { data, error } = await supabase
     .from('scheduled_workouts')
     .select('*')

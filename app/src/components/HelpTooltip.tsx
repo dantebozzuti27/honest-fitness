@@ -3,14 +3,15 @@
  * Apple-style tooltip with info icon and helpful explanations
  */
 
+import type { ReactNode } from 'react'
 import { useState } from 'react'
 import styles from './HelpTooltip.module.css'
 
 export default function HelpTooltip({ 
   content, 
   title,
-  position = 'top' // 'top' | 'bottom' | 'left' | 'right'
-}) {
+  position = 'top'
+}: { content: ReactNode; title?: string; position?: 'top' | 'bottom' | 'left' | 'right' }) {
   const [show, setShow] = useState(false)
 
   if (!content) return null

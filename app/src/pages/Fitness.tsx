@@ -12,7 +12,7 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ExercisePicker from '../components/ExercisePicker'
-import TemplateEditor from '../components/TemplateEditor'
+import TemplateEditor, { type TemplateRow } from '../components/TemplateEditor'
 import HistoryCard from '../components/HistoryCard'
 import { FitnessIcon } from '../components/Icons'
 import EmptyState from '../components/EmptyState'
@@ -25,7 +25,15 @@ const TABS = ['Workout', 'Templates', 'History']
 
 type FitnessTab = (typeof TABS)[number]
 
-type TemplateRow = { id: string; name?: string; exercises?: unknown; [key: string]: unknown }
+function normalizeToTemplateRow(raw: unknown): TemplateRow {
+  const r = raw as Record<string, unknown>
+  return {
+    ...r,
+    id: String(r?.id ?? ''),
+    name: String(r?.name ?? ''),
+    exercises: r?.exercises
+  } as TemplateRow
+}
 
 type PausedWorkout = {
   exercises?: unknown[]
@@ -94,7 +102,7 @@ export default function Fitness() {
   const loadTemplates = useCallback(async () => {
     try {
       const t = await getAllTemplates()
-      setTemplates(Array.isArray(t) ? t : [])
+      setTemplates(Array.isArray(t) ? t.map(normalizeToTemplateRow) : [])
     } catch {
       setTemplates([])
     }
@@ -258,7 +266,7 @@ export default function Fitness() {
 
     async function load() {
       const t = await getAllTemplates()
-      setTemplates(t)
+      setTemplates(Array.isArray(t) ? t.map(normalizeToTemplateRow) : [])
       if (user) {
         try {
           const workouts = await getWorkoutsFromSupabase(user.id)
@@ -512,11 +520,11 @@ export default function Fitness() {
             onSave={async (template: TemplateRow) => {
               await saveTemplate(template)
               const updated = await getAllTemplates()
-              setTemplates((Array.isArray(updated) ? updated : []) as TemplateRow[])
+              setTemplates(Array.isArray(updated) ? updated.map(normalizeToTemplateRow) : [])
               setEditingTemplate(null)
             }}
             onDelete={async (id: string) => setConfirmState({ open: true, title: 'Delete template?', message: 'Delete this template?', action: 'delete_template', payload: { templateId: id } })}
-            onEdit={(template: TemplateRow) => setEditingTemplate(template)}
+            onEdit={(template: TemplateRow | null) => setEditingTemplate(template)}
             editingTemplate={editingTemplate}
           />
         )}
@@ -540,7 +548,7 @@ export default function Fitness() {
                 if (!templateId) return
                 await deleteTemplate(templateId)
                 const updated = await getAllTemplates()
-                setTemplates((Array.isArray(updated) ? updated : []) as TemplateRow[])
+                setTemplates(Array.isArray(updated) ? updated.map(normalizeToTemplateRow) : [])
                 showToast('Template deleted', 'success')
               } else if (action === 'delete_workout') {
                 const workoutId = (payload as any)?.workoutId

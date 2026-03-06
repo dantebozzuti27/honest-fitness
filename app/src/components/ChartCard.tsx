@@ -10,8 +10,8 @@ import styles from './ChartCard.module.css'
 
 type ChartCardAction = { label: string; onClick: () => void }
 type ChartCardInsight = { icon?: string; text: string; value?: string }
-type ChartCategory = { id?: string; label?: string } | string
-type DateRangePreset = { id?: string; label?: string } | string
+type ChartCategory = { id: string; label: string }
+type DateRangePreset = { id: string; label: string }
 
 export type ChartCardProps = {
   title: ReactNode
@@ -97,9 +97,9 @@ export default function ChartCard({
         <div className={styles.categorySelector}>
           {categories.map((category) => (
             <button
-              key={category.id || category}
+              key={category.id}
               className={`${styles.categoryBtn} ${
-                (selectedCategory?.id || selectedCategory) === (category.id || category) 
+                selectedCategory?.id === category.id
                   ? styles.active 
                   : ''
               }`}
@@ -109,7 +109,7 @@ export default function ChartCard({
                 }
               }}
             >
-              {category.label || category}
+              {category.label}
             </button>
           ))}
         </div>
@@ -135,9 +135,9 @@ export default function ChartCard({
               <div className={styles.controlButtons}>
                 {dateRangePresets.map((preset) => (
                   <button
-                    key={preset.id || preset.label}
+                    key={preset.id}
                     className={`${styles.controlBtn} ${
-                      (selectedDateRange?.id || selectedDateRange) === (preset.id || preset.label)
+                      selectedDateRange?.id === preset.id
                         ? styles.active
                         : ''
                     }`}
@@ -147,7 +147,7 @@ export default function ChartCard({
                       }
                     }}
                   >
-                    {preset.label || preset}
+                    {preset.label}
                   </button>
                 ))}
               </div>

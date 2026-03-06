@@ -11,7 +11,7 @@ import type { TemplateExercisePresetV2 } from '../utils/templateUtils'
 import Modal from './Modal'
 import styles from './TemplateEditor.module.css'
 
-type TemplateRow = {
+export type TemplateRow = {
   id: string
   name: string
   exercises: unknown

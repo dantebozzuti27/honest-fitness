@@ -13,9 +13,53 @@ import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import BackButton from '../components/BackButton'
 import InputField from '../components/InputField'
+import SelectField from '../components/SelectField'
 import Button from '../components/Button'
 import { logError } from '../utils/logger'
 import styles from './Profile.module.css'
+
+interface TrainingProfileData {
+  training_goal: string;
+  session_duration_minutes: string;
+  equipment_access: string;
+  available_days_per_week: string;
+  job_activity_level: string;
+  injuries: Array<{ body_part: string; description: string; severity: string }>;
+  exercises_to_avoid: string;
+}
+
+const GOAL_OPTIONS = [
+  { value: '', label: 'Select goal...' },
+  { value: 'strength', label: 'Strength' },
+  { value: 'hypertrophy', label: 'Hypertrophy (Muscle Growth)' },
+  { value: 'general_fitness', label: 'General Fitness' },
+  { value: 'fat_loss', label: 'Fat Loss' },
+]
+
+const EQUIPMENT_OPTIONS = [
+  { value: '', label: 'Select access...' },
+  { value: 'full_gym', label: 'Full Gym' },
+  { value: 'home_gym', label: 'Home Gym' },
+  { value: 'limited', label: 'Limited / Bodyweight' },
+]
+
+const ACTIVITY_OPTIONS = [
+  { value: '', label: 'Select level...' },
+  { value: 'sedentary', label: 'Sedentary (Desk Job)' },
+  { value: 'lightly_active', label: 'Lightly Active' },
+  { value: 'active', label: 'Active (On Feet)' },
+  { value: 'very_active', label: 'Very Active (Manual Labor)' },
+]
+
+const DAYS_OPTIONS = [
+  { value: '', label: 'Select...' },
+  { value: '2', label: '2 days' },
+  { value: '3', label: '3 days' },
+  { value: '4', label: '4 days' },
+  { value: '5', label: '5 days' },
+  { value: '6', label: '6 days' },
+  { value: '7', label: '7 days' },
+]
 
 export default function Profile() {
   const navigate = useNavigate()
@@ -33,9 +77,86 @@ export default function Profile() {
   const [disconnectConfirm, setDisconnectConfirm] = useState<{ open: boolean; provider: string | null }>({ open: false, provider: null })
   const shownErrorsRef = useRef({ connected: false })
 
+  const [trainingProfile, setTrainingProfile] = useState<TrainingProfileData>({
+    training_goal: '',
+    session_duration_minutes: '75',
+    equipment_access: '',
+    available_days_per_week: '',
+    job_activity_level: '',
+    injuries: [],
+    exercises_to_avoid: '',
+  })
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [profileLoaded, setProfileLoaded] = useState(false)
+  const [newInjury, setNewInjury] = useState({ body_part: '', description: '', severity: 'moderate' })
+
   useEffect(() => {
-    if (user) loadConnectedAccounts()
+    if (user) {
+      loadConnectedAccounts()
+      loadTrainingProfile()
+    }
   }, [user])
+
+  const loadTrainingProfile = async () => {
+    if (!user) return
+    try {
+      const prefs = await getUserPreferences(user.id)
+      if (prefs) {
+        setTrainingProfile({
+          training_goal: prefs.training_goal || '',
+          session_duration_minutes: String(prefs.session_duration_minutes || 75),
+          equipment_access: prefs.equipment_access || '',
+          available_days_per_week: String(prefs.available_days_per_week || ''),
+          job_activity_level: prefs.job_activity_level || '',
+          injuries: prefs.injuries || [],
+          exercises_to_avoid: (prefs.exercises_to_avoid || []).join(', '),
+        })
+      }
+      setProfileLoaded(true)
+    } catch (err) {
+      logError('Training profile load error', err)
+    }
+  }
+
+  const handleSaveTrainingProfile = async () => {
+    if (!user) return
+    setSavingProfile(true)
+    try {
+      const payload: Record<string, any> = {
+        training_goal: trainingProfile.training_goal || null,
+        session_duration_minutes: trainingProfile.session_duration_minutes ? Number(trainingProfile.session_duration_minutes) : null,
+        equipment_access: trainingProfile.equipment_access || null,
+        available_days_per_week: trainingProfile.available_days_per_week ? Number(trainingProfile.available_days_per_week) : null,
+        job_activity_level: trainingProfile.job_activity_level || null,
+        injuries: trainingProfile.injuries,
+        exercises_to_avoid: trainingProfile.exercises_to_avoid
+          ? trainingProfile.exercises_to_avoid.split(',').map(s => s.trim()).filter(Boolean)
+          : [],
+      }
+      await saveUserPreferences(user.id, payload)
+      showToast('Training profile saved', 'success')
+    } catch (err) {
+      logError('Training profile save error', err)
+      showToast('Failed to save training profile', 'error')
+    }
+    setSavingProfile(false)
+  }
+
+  const addInjury = () => {
+    if (!newInjury.body_part) return
+    setTrainingProfile(prev => ({
+      ...prev,
+      injuries: [...prev.injuries, { ...newInjury }],
+    }))
+    setNewInjury({ body_part: '', description: '', severity: 'moderate' })
+  }
+
+  const removeInjury = (idx: number) => {
+    setTrainingProfile(prev => ({
+      ...prev,
+      injuries: prev.injuries.filter((_, i) => i !== idx),
+    }))
+  }
 
   const loadConnectedAccounts = async () => {
     if (!user) return
@@ -189,6 +310,99 @@ export default function Profile() {
                   <Button onClick={handleConnectFitbit}>Connect Fitbit</Button>
                 </div>
               )}
+            </section>
+
+            {/* Training Profile */}
+            <section style={{ padding: '16px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', margin: '0 16px 16px' }}>
+              <h2 style={{ margin: '0 0 12px', fontSize: '18px', color: 'var(--text-primary)' }}>Training Profile</h2>
+              <p style={{ margin: '0 0 16px', fontSize: '13px', color: 'var(--text-tertiary)' }}>
+                Used by the workout generator to build personalized workouts.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <SelectField
+                  label="Training Goal"
+                  value={trainingProfile.training_goal}
+                  onChange={e => setTrainingProfile(p => ({ ...p, training_goal: e.target.value }))}
+                  options={GOAL_OPTIONS}
+                />
+                <SelectField
+                  label="Equipment Access"
+                  value={trainingProfile.equipment_access}
+                  onChange={e => setTrainingProfile(p => ({ ...p, equipment_access: e.target.value }))}
+                  options={EQUIPMENT_OPTIONS}
+                />
+                <SelectField
+                  label="Available Days Per Week"
+                  value={trainingProfile.available_days_per_week}
+                  onChange={e => setTrainingProfile(p => ({ ...p, available_days_per_week: e.target.value }))}
+                  options={DAYS_OPTIONS}
+                />
+                <InputField
+                  label="Session Duration (minutes)"
+                  type="number"
+                  value={trainingProfile.session_duration_minutes}
+                  onChange={(e: any) => setTrainingProfile(p => ({ ...p, session_duration_minutes: e.target.value }))}
+                />
+                <SelectField
+                  label="Job Activity Level"
+                  value={trainingProfile.job_activity_level}
+                  onChange={e => setTrainingProfile(p => ({ ...p, job_activity_level: e.target.value }))}
+                  options={ACTIVITY_OPTIONS}
+                />
+                <InputField
+                  label="Exercises to Avoid (comma-separated)"
+                  value={trainingProfile.exercises_to_avoid}
+                  onChange={(e: any) => setTrainingProfile(p => ({ ...p, exercises_to_avoid: e.target.value }))}
+                  placeholder="e.g. Behind Neck Press, Good Morning"
+                />
+
+                {/* Injuries */}
+                <div>
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '8px' }}>
+                    Injuries / Limitations
+                  </label>
+                  {trainingProfile.injuries.length > 0 && (
+                    <div style={{ marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {trainingProfile.injuries.map((inj, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: '8px', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-primary)' }}>
+                            <strong>{inj.body_part}</strong> — {inj.description} ({inj.severity})
+                          </span>
+                          <button onClick={() => removeInjury(i)} style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '16px', padding: '0 4px' }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <input
+                      placeholder="Body part"
+                      value={newInjury.body_part}
+                      onChange={e => setNewInjury(p => ({ ...p, body_part: e.target.value }))}
+                      style={{ flex: '1 1 100px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                    />
+                    <input
+                      placeholder="Description"
+                      value={newInjury.description}
+                      onChange={e => setNewInjury(p => ({ ...p, description: e.target.value }))}
+                      style={{ flex: '2 1 140px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                    />
+                    <select
+                      value={newInjury.severity}
+                      onChange={e => setNewInjury(p => ({ ...p, severity: e.target.value }))}
+                      style={{ padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                    >
+                      <option value="mild">Mild</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="severe">Severe</option>
+                    </select>
+                    <Button variant="secondary" onClick={addInjury} disabled={!newInjury.body_part} style={{ padding: '8px 12px', fontSize: '13px' }}>Add</Button>
+                  </div>
+                </div>
+
+                <Button onClick={handleSaveTrainingProfile} loading={savingProfile} disabled={savingProfile}>
+                  Save Training Profile
+                </Button>
+              </div>
             </section>
 
             {/* Data Export */}

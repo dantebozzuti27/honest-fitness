@@ -115,11 +115,11 @@ export default function Home() {
         <div style={{ padding: 'var(--space-md)', display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '100px' }}>
           {/* Quick Actions */}
           <div style={{ display: 'flex', gap: '10px' }}>
-            <Button onClick={() => navigate('/workout/active', { state: { mode: 'picker', sessionType: 'workout' } })} style={{ flex: 1 }}>
-              Start Workout
+            <Button onClick={() => navigate('/today')} style={{ flex: 1 }}>
+              Today's Workout
             </Button>
-            <Button variant="secondary" onClick={() => navigate('/workout', { state: { openTemplates: true } })} style={{ flex: 1 }}>
-              Templates
+            <Button variant="secondary" onClick={() => navigate('/workout/active', { state: { mode: 'picker', sessionType: 'workout' } })} style={{ flex: 1 }}>
+              Manual Workout
             </Button>
           </div>
 

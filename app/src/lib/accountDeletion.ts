@@ -3,18 +3,18 @@
  * Handles complete account deletion with data purge (GDPR/CCPA compliant)
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
 import { logError } from '../utils/logger'
 
-// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
-const supabase = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
+const supabase = (supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })) as SupabaseClient
 
 /**
  * Delete all user data from all tables
  * This function explicitly deletes data from all tables to ensure complete removal
  * Note: Most tables have ON DELETE CASCADE, but we delete explicitly for transparency
  */
-export async function deleteUserAccount(userId) {
+export async function deleteUserAccount(userId: string) {
   if (!userId) {
     throw new Error('User ID is required for account deletion')
   }
@@ -59,7 +59,7 @@ export async function deleteUserAccount(userId) {
 
     if (workouts && workouts.length > 0) {
       // Get all exercise IDs first (batch operation)
-      const workoutIds = workouts.map(w => w.id)
+      const workoutIds = workouts.map((w: any) => w.id)
       const { data: allExercises, error: exercisesFetchError } = await supabase
         .from('workout_exercises')
         .select('id')
@@ -72,7 +72,7 @@ export async function deleteUserAccount(userId) {
 
       // Batch delete all sets (if exercises exist)
       if (allExercises && allExercises.length > 0) {
-        const exerciseIds = allExercises.map(ex => ex.id)
+        const exerciseIds = allExercises.map((ex: any) => ex.id)
         const { error: setsError } = await supabase
           .from('workout_sets')
           .delete()
@@ -86,7 +86,7 @@ export async function deleteUserAccount(userId) {
 
       // Batch delete all exercises
       if (allExercises && allExercises.length > 0) {
-        const exerciseIds = allExercises.map(ex => ex.id)
+        const exerciseIds = allExercises.map((ex: any) => ex.id)
         const { error: exercisesError } = await supabase
           .from('workout_exercises')
           .delete()
@@ -253,7 +253,7 @@ export async function deleteUserAccount(userId) {
  * Delete auth user (requires server-side function with service role key)
  * This should be called from a serverless function
  */
-export async function deleteAuthUser(userId) {
+export async function deleteAuthUser(userId: string) {
   // This requires admin privileges
   // Should be implemented as a serverless function
   // For now, return a message that user should contact support

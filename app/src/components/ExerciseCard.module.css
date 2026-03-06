@@ -734,3 +734,30 @@
   transform: scale(0.95);
 }
 
+/* Generated workout target indicator */
+.targetHint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--accent);
+  border-radius: 4px;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.targetLabel {
+  font-size: 9px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.targetValue {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+

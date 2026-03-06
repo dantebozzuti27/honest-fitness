@@ -183,6 +183,7 @@ export default function ActiveWorkout() {
   const workoutStartMetricsRef = useRef<any | null>(null) // Track wearable metrics at workout start (calories, steps)
   const pausedMetricsRef = useRef<any[]>([]) // Track metrics during paused periods: [{pauseTime, resumeTime, metricsAtPause, metricsAtResume}]
   const didQuickAddRef = useRef(false)
+  const generatedWorkoutIdRef = useRef<string | null>(null)
 
   // Keep refs in sync with the latest state so event listeners always read fresh values.
   useEffect(() => { exercisesRef.current = Array.isArray(exercises) ? exercises : [] }, [exercises])
@@ -1060,6 +1061,38 @@ export default function ActiveWorkout() {
           
           try {
             localStorage.setItem(`workoutStartMetrics_${userId}`, JSON.stringify(startMetrics))
+          } catch (_) {}
+          
+          // Check for pre-populated exercises from the workout generator
+          try {
+            const generatedRaw = sessionStorage.getItem('generated_workout')
+            if (generatedRaw) {
+              sessionStorage.removeItem('generated_workout')
+              const generated = JSON.parse(generatedRaw)
+              if (generated.exercises?.length > 0) {
+                const prePopulated = generated.exercises.map((gex: any, idx: number) => ({
+                  id: Date.now() + idx,
+                  name: gex.name,
+                  category: 'Strength',
+                  bodyPart: gex.body_part || '',
+                  exercise_library_id: gex.exercise_library_id || null,
+                  sets: (gex.sets || []).map((s: any) => ({
+                    weight: s.target_weight != null ? String(s.target_weight) : '',
+                    reps: s.target_reps != null ? String(s.target_reps) : '',
+                    time: '',
+                    time_seconds: '',
+                    speed: '',
+                    incline: '',
+                    _target_weight: s.target_weight,
+                    _target_reps: s.target_reps,
+                    _tempo: s.tempo,
+                  })),
+                  expanded: idx === 0,
+                }))
+                setExercises(prePopulated)
+                generatedWorkoutIdRef.current = generated.generated_workout_id || null
+              }
+            }
           } catch (_) {}
           
           // Don't persist an empty session to the DB — the auto-save will
@@ -1951,6 +1984,7 @@ export default function ActiveWorkout() {
       dayOfWeek: new Date().getDay(),
       workoutCaloriesBurned: workoutCaloriesBurned,
       workoutSteps: workoutSteps,
+      generatedWorkoutId: generatedWorkoutIdRef.current || null,
       // IMPORTANT: Include ALL exercises from the workout, don't filter any out
       // Only filter sets to show valid ones, but keep all exercises
       exercises: exercises.map((ex: any) => ({

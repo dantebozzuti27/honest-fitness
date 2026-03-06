@@ -22,7 +22,7 @@ const requestHistory = new Map()
  * @param {string} type - Type of rate limit ('sync' or 'api')
  * @returns {boolean} - true if allowed, false if rate limited
  */
-export function checkRateLimit(key, type = 'api') {
+export function checkRateLimit(key: string, type: keyof typeof RATE_LIMITS = 'api') {
   const limit = RATE_LIMITS[type]
   if (!limit) return true
 
@@ -30,7 +30,7 @@ export function checkRateLimit(key, type = 'api') {
   const history = requestHistory.get(key) || []
 
   // Remove old entries outside the window
-  const recentRequests = history.filter(timestamp => now - timestamp < limit.windowMs)
+  const recentRequests = history.filter((timestamp: number) => now - timestamp < limit.windowMs)
 
   // Check if we've exceeded the limit
   if (recentRequests.length >= limit.maxRequests) {
@@ -60,13 +60,13 @@ export function checkRateLimit(key, type = 'api') {
  * @param {string} type - Type of rate limit ('sync' or 'api')
  * @returns {number} - Number of remaining requests
  */
-export function getRemainingRequests(key, type = 'api') {
+export function getRemainingRequests(key: string, type: keyof typeof RATE_LIMITS = 'api') {
   const limit = RATE_LIMITS[type]
   if (!limit) return Infinity
 
   const now = Date.now()
   const history = requestHistory.get(key) || []
-  const recentRequests = history.filter(timestamp => now - timestamp < limit.windowMs)
+  const recentRequests = history.filter((timestamp: number) => now - timestamp < limit.windowMs)
 
   return Math.max(0, limit.maxRequests - recentRequests.length)
 }
@@ -75,7 +75,7 @@ export function getRemainingRequests(key, type = 'api') {
  * Clear rate limit history for a key
  * @param {string} key - Unique key for the rate limit
  */
-export function clearRateLimit(key) {
+export function clearRateLimit(key: string) {
   requestHistory.delete(key)
 }
 

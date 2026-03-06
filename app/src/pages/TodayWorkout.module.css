@@ -1,0 +1,531 @@
+.container {
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.content {
+  padding: 16px;
+  padding-bottom: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Loading */
+.loadingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 16px;
+  color: var(--text-secondary);
+}
+
+.loadingState p {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.loadingSub {
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  color: var(--text-tertiary) !important;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top: 3px solid var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Empty / Error */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 12px;
+  padding: 32px;
+  text-align: center;
+}
+
+.emptyState h2 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--text-primary);
+}
+
+.emptyState p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 320px;
+}
+
+/* Summary Card */
+.summaryCard {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.summaryItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summaryLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.summaryValue {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.good { color: var(--success); }
+.warning { color: var(--warning, #f59e0b); }
+.danger { color: var(--danger, #ef4444); }
+
+.deloadBanner {
+  background: var(--warning, #f59e0b);
+  color: #000;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 12px;
+  letter-spacing: 0.5px;
+}
+
+.muscleGroups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.muscleTag {
+  background: var(--accent);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+/* Adjustments */
+.adjustmentsCard {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+  border-left: 3px solid var(--warning, #f59e0b);
+}
+
+.adjustmentsCard h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.adjustmentsCard ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.adjustmentsCard li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+/* Exercise List */
+.exerciseList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exerciseCard {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.exerciseHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.exerciseHeader:active {
+  background: var(--bg-tertiary);
+}
+
+.exerciseInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.exerciseNumber {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.exerciseName {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.exerciseMeta {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.expandArrow {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* Exercise Details */
+.exerciseDetails {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.detailTable {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.detailTable td {
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  vertical-align: top;
+}
+
+.detailLabel {
+  color: var(--text-tertiary) !important;
+  font-weight: 600;
+  width: 90px;
+}
+
+.exerciseAdjustments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.adjustmentTag {
+  background: var(--bg-tertiary);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.rationaleText {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Rationale Card */
+.rationaleCard {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+}
+
+.rationaleCard summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.rationaleContent {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: pre-wrap;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+/* Decision Log */
+.decisionLogCard {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+  border-left: 3px solid var(--accent);
+}
+
+.decisionLogCard summary {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.decisionStep {
+  margin-top: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.decisionStep:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.stepHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.stepNumber {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.stepLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stepDetails {
+  margin: 0;
+  padding-left: 30px;
+  list-style: none;
+}
+
+.stepDetails li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 2px 0;
+  line-height: 1.4;
+}
+
+.stepDetails li::before {
+  content: '→ ';
+  color: var(--text-tertiary);
+}
+
+/* Muscle Group Decision Table */
+.decisionTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.decisionTable th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid var(--border);
+}
+
+.decisionTable td {
+  padding: 6px 8px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.decisionTable th:not(:first-child),
+.decisionTable td:not(:first-child) {
+  text-align: right;
+}
+
+/* Exercise Scoring */
+.scoringCard {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+}
+
+.scoringCard summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.scoreGroup {
+  margin-top: 12px;
+}
+
+.scoreGroupLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: capitalize;
+  margin-bottom: 6px;
+}
+
+.scoreEntry {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.scoreEntry .name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.scoreEntry .score {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.scoreFactors {
+  padding-left: 12px;
+  margin: 2px 0 6px;
+}
+
+.scoreFactors li {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 1px 0;
+}
+
+/* Training Context */
+.contextCard {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+}
+
+.contextCard summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.contextGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.contextItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.contextItem .label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.contextItem .value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  gap: 8px;
+  position: fixed;
+  bottom: 72px;
+  left: 16px;
+  right: 16px;
+  max-width: 600px;
+  margin: 0 auto;
+  z-index: 10;
+}

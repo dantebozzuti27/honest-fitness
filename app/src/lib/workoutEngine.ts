@@ -16,7 +16,7 @@
 
 import { requireSupabase } from './supabase';
 import { VOLUME_GUIDELINES, MUSCLE_HEAD_TO_GROUP, getGuidelineForGroup } from './volumeGuidelines';
-import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference, CardioHistory } from './trainingAnalysis';
+import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference, CardioHistory, ExerciseOrderProfile } from './trainingAnalysis';
 import { uuidv4 } from '../utils/uuid';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -41,6 +41,7 @@ export interface GeneratedExercise {
   primaryMuscles: string[];
   secondaryMuscles: string[];
   movementPattern: string;
+  targetMuscleGroup: string;
   sets: number;
   targetReps: number;
   targetWeight: number | null;
@@ -621,6 +622,7 @@ function stepPrescribe(
         primaryMuscles: sel.exercise.primary_muscles ?? [],
         secondaryMuscles: sel.exercise.secondary_muscles ?? [],
         movementPattern: sel.exercise.movement_pattern ?? 'cardio',
+        targetMuscleGroup: sel.muscleGroup,
         sets: 1,
         targetReps: 0,
         targetWeight: null,
@@ -706,6 +708,7 @@ function stepPrescribe(
       primaryMuscles: sel.exercise.primary_muscles ?? [],
       secondaryMuscles: sel.exercise.secondary_muscles ?? [],
       movementPattern: sel.exercise.movement_pattern ?? 'unknown',
+      targetMuscleGroup: sel.muscleGroup,
       sets,
       targetReps: repRange.target,
       targetWeight: isBodyweight ? null : (targetWeight ? Math.round(targetWeight) : null),
@@ -724,40 +727,123 @@ function stepPrescribe(
   });
 }
 
-// ─── Step 5: Apply Session Constraints ──────────────────────────────────────
+// ─── Step 5: Apply Session Constraints (Intelligent Ordering) ───────────────
+
+const CNS_DEMAND_KEYWORDS: [RegExp, number][] = [
+  [/\bdeadlift\b/i, 0],
+  [/\bsquat\b/i, 0],
+  [/\bfront squat\b/i, 0],
+  [/\bpower clean\b/i, 0],
+  [/\bclean and press\b/i, 0],
+  [/\bsnatch\b/i, 0],
+  [/\bbench press\b/i, 1],
+  [/\boverhead press\b/i, 1],
+  [/\bmilitary press\b/i, 1],
+  [/\bbarbell row\b/i, 1],
+  [/\bromanian deadlift\b/i, 1],
+  [/\bhip thrust\b/i, 1],
+  [/\bpendlay row\b/i, 1],
+  [/\bt-bar row\b/i, 1],
+  [/\bincline.*press\b/i, 2],
+  [/\bdumbbell.*press\b/i, 2],
+  [/\bdb.*press\b/i, 2],
+  [/\blunge\b/i, 2],
+  [/\bbulgarian\b/i, 2],
+  [/\bpull-?up\b/i, 2],
+  [/\bchin-?up\b/i, 2],
+  [/\bdip\b/i, 2],
+  [/\brow\b/i, 2],
+];
+
+function getCnsDemandTier(ex: GeneratedExercise): number {
+  const name = ex.exerciseName.toLowerCase();
+  for (const [pattern, tier] of CNS_DEMAND_KEYWORDS) {
+    if (pattern.test(name)) return tier;
+  }
+  if (ex.movementPattern === 'compound') return 2;
+  if (name.includes('machine') || name.includes('cable') || name.includes('smith')) return 3;
+  if (ex.movementPattern === 'isolation') return 4;
+  return 3;
+}
 
 function stepApplyConstraints(
   exercises: GeneratedExercise[],
   prefs: UserPreferences,
   profile: TrainingProfile
 ): GeneratedExercise[] {
-  // Order: compounds first, then by muscle group priority
-  const compounds = exercises.filter(e => e.movementPattern !== 'isolation' && e.sets >= 3);
-  const isolations = exercises.filter(e => !compounds.includes(e));
+  const cardio = exercises.filter(e => e.isCardio);
+  const strength = exercises.filter(e => !e.isCardio);
 
-  // Check exercise ordering interference and reorder if beneficial
-  const reordered = [...compounds, ...isolations];
+  const orderProfiles = profile.exerciseOrderProfiles ?? [];
+  const positionMap = new Map<string, ExerciseOrderProfile>();
+  for (const op of orderProfiles) {
+    positionMap.set(op.exerciseName, op);
+  }
+
+  // Determine muscle group ordering from step 2 priority
+  // Groups were already sorted by priority. Preserve that order for coherence.
+  const groupOrder: string[] = [];
+  for (const ex of strength) {
+    if (!groupOrder.includes(ex.targetMuscleGroup)) {
+      groupOrder.push(ex.targetMuscleGroup);
+    }
+  }
+
+  // Build ordered output: group exercises by targetMuscleGroup, then sort within
+  const ordered: GeneratedExercise[] = [];
+
+  for (const group of groupOrder) {
+    const groupExercises = strength.filter(e => e.targetMuscleGroup === group);
+
+    const scored = groupExercises.map(ex => {
+      const hist = positionMap.get(ex.exerciseName.toLowerCase());
+      const cnsTier = getCnsDemandTier(ex);
+
+      let withinGroupScore: number;
+      if (hist && hist.sessions >= 3) {
+        // User has established ordering preferences — respect them
+        withinGroupScore = hist.avgNormalizedPosition * 50 + cnsTier * 10;
+      } else {
+        // No user data — CNS demand is the primary signal
+        withinGroupScore = cnsTier * 20;
+      }
+
+      return { exercise: ex, withinGroupScore, cnsTier };
+    });
+
+    scored.sort((a, b) => a.withinGroupScore - b.withinGroupScore);
+    ordered.push(...scored.map(s => s.exercise));
+  }
+
+  // Apply interference avoidance: check if any adjacent pair has known negative interference
+  for (let i = 0; i < ordered.length - 1; i++) {
+    const current = ordered[i].exerciseName.toLowerCase();
+    const next = ordered[i + 1].exerciseName.toLowerCase();
+    const interference = profile.exerciseOrderingEffects.find(
+      e => e.precedingExercise === current && e.affectedExercise === next && e.interference < -0.08
+    );
+    if (interference && i + 2 < ordered.length) {
+      // Swap next with the one after it to avoid interference
+      [ordered[i + 1], ordered[i + 2]] = [ordered[i + 2], ordered[i + 1]];
+    }
+  }
+
+  // Cardio always at the end
+  const finalOrder = [...ordered, ...cardio];
 
   // Trim to fit session duration
   let totalMinutes = 5; // warm-up
   const fitted: GeneratedExercise[] = [];
 
-  for (const ex of reordered) {
-    const duration = estimateExerciseDuration(ex.sets, ex.restSeconds);
+  for (const ex of finalOrder) {
+    const duration = ex.isCardio
+      ? (ex.cardioDurationSeconds ?? 1800) / 60
+      : estimateExerciseDuration(ex.sets, ex.restSeconds);
     if (totalMinutes + duration > prefs.session_duration_minutes && fitted.length >= 3) {
       break;
     }
     totalMinutes += duration;
     fitted.push(ex);
-  }
-
-  // Check intra-session fatigue: if user's performance drops after X minutes,
-  // move important exercises earlier
-  const fatigueDropoff = profile.sessionFatigueEffects.find(
-    e => e.avgDelta < -0.05 && e.dataPoints >= 10
-  );
-  if (fatigueDropoff) {
-    // Already ordered compounds first, so this is naturally handled
   }
 
   return fitted;
@@ -857,14 +943,31 @@ function stepGenerateRationale(
     }),
   });
 
+  const groupOrder: string[] = [];
+  for (const ex of exercises) {
+    if (!groupOrder.includes(ex.targetMuscleGroup)) groupOrder.push(ex.targetMuscleGroup);
+  }
+
+  const orderingDetails: string[] = [
+    `Session duration limit: ${prefs.session_duration_minutes} min`,
+    `Estimated duration: ${Math.round(totalDuration)} min`,
+    `Muscle group order: ${groupOrder.join(' → ')}`,
+  ];
+  for (const ex of exercises) {
+    const hist = (profile.exerciseOrderProfiles ?? []).find(
+      p => p.exerciseName === ex.exerciseName.toLowerCase()
+    );
+    if (hist && hist.sessions >= 3) {
+      orderingDetails.push(`${ex.exerciseName}: historical position ${hist.positionCategory} (avg ${hist.avgNormalizedPosition}, ${hist.sessions} sessions)`);
+    } else {
+      orderingDetails.push(`${ex.exerciseName}: CNS-based ordering (no historical data)`);
+    }
+  }
+
   decisionLog.push({
     step: '5',
-    label: 'Session Constraints',
-    details: [
-      `Session duration limit: ${prefs.session_duration_minutes} min`,
-      `Estimated duration: ${Math.round(totalDuration)} min`,
-      `Exercises ordered: compounds first, then isolations`,
-    ],
+    label: 'Exercise Ordering',
+    details: orderingDetails,
   });
 
   const muscleGroupDecisions: MuscleGroupDecision[] = muscleGroups.map(g => ({

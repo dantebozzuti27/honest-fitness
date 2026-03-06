@@ -264,6 +264,7 @@ export interface TrainingProfile {
   dayOfWeekPatterns: DayOfWeekPattern[];
   exercisePreferences: ExercisePreference[];
   cardioHistory: CardioHistory[];
+  exerciseOrderProfiles: ExerciseOrderProfile[];
 
   // Global
   trainingFrequency: number;
@@ -321,6 +322,14 @@ export interface CardioHistory {
   lastIncline: number | null;
   trendDuration: 'increasing' | 'stable' | 'decreasing';
   trendIntensity: 'increasing' | 'stable' | 'decreasing';
+}
+
+export interface ExerciseOrderProfile {
+  exerciseName: string;
+  avgNormalizedPosition: number;
+  positionCategory: 'opener' | 'early' | 'middle' | 'late' | 'closer';
+  sessions: number;
+  muscleGroupsUsedWith: string[];
 }
 
 // ─── Data Fetching ──────────────────────────────────────────────────────────
@@ -1754,6 +1763,80 @@ function computeCardioHistory(
 }
 
 /**
+ * Learn the user's preferred exercise ordering from their actual workout history.
+ * For each exercise, computes normalized position (0 = always first, 1 = always last)
+ * and categorizes it as opener/early/middle/late/closer.
+ * This powers the workout engine's exercise sequencing.
+ */
+function computeExerciseOrderProfiles(
+  workouts: WorkoutRecord[],
+  exercises: EnrichedExercise[]
+): ExerciseOrderProfile[] {
+  const positionData: Record<string, { positions: number[]; coExercises: Set<string> }> = {};
+
+  const exerciseGroupLookup = new Map<string, string[]>();
+  for (const ex of exercises) {
+    const groups = (ex.primary_muscles ?? [])
+      .map(m => MUSCLE_HEAD_TO_GROUP[m])
+      .filter(Boolean);
+    exerciseGroupLookup.set(ex.name.toLowerCase(), groups);
+  }
+
+  for (const w of workouts) {
+    const exList = w.workout_exercises;
+    if (exList.length < 2) continue;
+
+    const cardioFiltered = exList.filter(ex => {
+      const enriched = exercises.find(e => e.name.toLowerCase() === ex.exercise_name.toLowerCase());
+      return enriched?.ml_exercise_type !== 'cardio';
+    });
+    if (cardioFiltered.length < 2) continue;
+
+    const allNamesInSession = new Set(cardioFiltered.map(e => e.exercise_name.toLowerCase()));
+
+    for (let i = 0; i < cardioFiltered.length; i++) {
+      const key = cardioFiltered[i].exercise_name.toLowerCase();
+      const normalized = i / (cardioFiltered.length - 1);
+
+      if (!positionData[key]) {
+        positionData[key] = { positions: [], coExercises: new Set() };
+      }
+      positionData[key].positions.push(normalized);
+
+      for (const other of allNamesInSession) {
+        if (other !== key) positionData[key].coExercises.add(other);
+      }
+    }
+  }
+
+  return Object.entries(positionData)
+    .map(([name, d]) => {
+      const avg = mean(d.positions);
+      let category: ExerciseOrderProfile['positionCategory'];
+      if (avg <= 0.15) category = 'opener';
+      else if (avg <= 0.35) category = 'early';
+      else if (avg <= 0.65) category = 'middle';
+      else if (avg <= 0.85) category = 'late';
+      else category = 'closer';
+
+      const groups = exerciseGroupLookup.get(name) ?? [];
+      const coGroups = new Set<string>();
+      for (const coEx of d.coExercises) {
+        for (const g of exerciseGroupLookup.get(coEx) ?? []) coGroups.add(g);
+      }
+
+      return {
+        exerciseName: name,
+        avgNormalizedPosition: Math.round(avg * 1000) / 1000,
+        positionCategory: category,
+        sessions: d.positions.length,
+        muscleGroupsUsedWith: Array.from(coGroups),
+      };
+    })
+    .sort((a, b) => a.avgNormalizedPosition - b.avgNormalizedPosition);
+}
+
+/**
  * Compute structural imbalances.
  */
 function computeImbalanceAlerts(volumeStatuses: MuscleVolumeStatus[]): ImbalanceAlert[] {
@@ -1985,6 +2068,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     dayOfWeekPatterns: computeDayOfWeekPatterns(workouts, exercises),
     exercisePreferences: computeExercisePreferences(workouts),
     cardioHistory: computeCardioHistory(workouts, exercises),
+    exerciseOrderProfiles: computeExerciseOrderProfiles(workouts, exercises),
 
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
     avgSessionDuration: Math.round(avgSessionDuration),

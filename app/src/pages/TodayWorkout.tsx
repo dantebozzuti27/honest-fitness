@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
 import { generateWorkout, saveGeneratedWorkout, type GeneratedWorkout, type DecisionLogEntry, type ExerciseDecision, type MuscleGroupDecision } from '../lib/workoutEngine'
+import { requireSupabase } from '../lib/supabase'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import BackButton from '../components/BackButton'
@@ -22,6 +23,7 @@ export default function TodayWorkout() {
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null)
   const [regenerating, setRegenerating] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [prefsSet, setPrefsSet] = useState(true)
 
   useEffect(() => {
     if (user) generate()
@@ -31,6 +33,16 @@ export default function TodayWorkout() {
     if (!user) return
     setViewState('loading')
     try {
+      // Check if user has set their training preferences
+      const supabase = requireSupabase()
+      const { data: prefsData } = await supabase
+        .from('user_preferences')
+        .select('training_goal, session_duration_minutes')
+        .eq('user_id', user.id)
+        .single()
+
+      setPrefsSet(!!(prefsData?.training_goal && prefsData?.session_duration_minutes))
+
       const tp = await computeTrainingProfile(user.id)
       setProfile(tp)
 
@@ -42,7 +54,6 @@ export default function TodayWorkout() {
       const w = await generateWorkout(tp)
       setWorkout(w)
       setViewState('ready')
-      // Save asynchronously — don't let DB errors block the UI
       saveGeneratedWorkout(user.id, w).catch(e => logError('Save generated workout failed (non-blocking)', e))
     } catch (err) {
       logError('Workout generation error', err)
@@ -168,6 +179,19 @@ export default function TodayWorkout() {
       </div>
 
       <div className={styles.content}>
+        {/* Preferences prompt */}
+        {!prefsSet && (
+          <div className={styles.prefsBanner}>
+            <div className={styles.prefsBannerText}>
+              <strong>Training profile not configured</strong>
+              <span>Set your training goal, session duration, equipment, and injuries so the engine can build workouts tailored to you.</span>
+            </div>
+            <Button variant="secondary" onClick={() => navigate('/profile')} style={{ whiteSpace: 'nowrap', fontSize: '13px', padding: '6px 12px' }}>
+              Set Preferences
+            </Button>
+          </div>
+        )}
+
         {/* Detected Split + Session Summary */}
         {profile?.detectedSplit && profile.detectedSplit.confidence >= 0.5 && (
           <div className={styles.splitCard}>
@@ -233,8 +257,16 @@ export default function TodayWorkout() {
           {workout.exercises.map((ex, idx) => {
             const isExpanded = expandedExercise === idx
             const tempo = parseTempo(ex.tempo)
+            const prevGroup = idx > 0 ? workout.exercises[idx - 1].targetMuscleGroup : null
+            const showGroupHeader = ex.targetMuscleGroup !== prevGroup
             return (
-              <div key={idx} className={styles.exerciseCard}>
+              <div key={idx}>
+                {showGroupHeader && (
+                  <div className={styles.muscleGroupHeader}>
+                    {(ex.targetMuscleGroup || ex.bodyPart).replace(/_/g, ' ')}
+                  </div>
+                )}
+              <div className={styles.exerciseCard}>
                 <div
                   className={styles.exerciseHeader}
                   onClick={() => setExpandedExercise(isExpanded ? null : idx)}
@@ -327,6 +359,7 @@ export default function TodayWorkout() {
                     <div className={styles.rationaleText}>{ex.rationale}</div>
                   </div>
                 )}
+              </div>
               </div>
             )
           })}

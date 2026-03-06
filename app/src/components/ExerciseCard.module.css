@@ -761,3 +761,95 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Prescription block from workout generator */
+.prescriptionBlock {
+  background: var(--surface-2, #1a1a2e);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.prescriptionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.prescriptionRole {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #fff;
+  background: #555;
+}
+.prescriptionRole[data-role="primary"] { background: #3b82f6; }
+.prescriptionRole[data-role="secondary"] { background: #6b7280; }
+.prescriptionRole[data-role="isolation"] { background: #eab308; color: #000; }
+.prescriptionRole[data-role="corrective"] { background: #ef4444; }
+.prescriptionRole[data-role="cardio"] { background: #22c55e; }
+
+.prescriptionRir {
+  color: var(--text-secondary, #aaa);
+  font-weight: 500;
+}
+
+.prescriptionRest {
+  color: var(--text-secondary, #aaa);
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.prescriptionHr {
+  color: #22c55e;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.prescriptionWarmup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--text-secondary, #aaa);
+}
+
+.prescriptionWarmupLabel {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.prescriptionWarmupSet {
+  background: var(--surface-3, #252540);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.prescriptionAdjustments {
+  margin-top: 4px;
+}
+
+.prescriptionAdj {
+  color: var(--text-secondary, #aaa);
+  font-size: 11px;
+  padding-left: 8px;
+  border-left: 2px solid var(--accent, #3b82f6);
+  margin-top: 2px;
+}
+
+.prescriptionSuperset {
+  color: #a855f7;
+  font-weight: 600;
+  font-size: 11px;
+  margin-top: 4px;
+}
+

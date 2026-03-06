@@ -1070,25 +1070,30 @@ export default function ActiveWorkout() {
               sessionStorage.removeItem('generated_workout')
               const generated = JSON.parse(generatedRaw)
               if (generated.exercises?.length > 0) {
-                const prePopulated = generated.exercises.map((gex: any, idx: number) => ({
-                  id: Date.now() + idx,
-                  name: gex.name,
-                  category: 'Strength',
-                  bodyPart: gex.body_part || '',
-                  exercise_library_id: gex.exercise_library_id || null,
-                  sets: (gex.sets || []).map((s: any) => ({
-                    weight: s.target_weight != null ? String(s.target_weight) : '',
-                    reps: s.target_reps != null ? String(s.target_reps) : '',
-                    time: '',
-                    time_seconds: '',
-                    speed: '',
-                    incline: '',
-                    _target_weight: s.target_weight,
-                    _target_reps: s.target_reps,
-                    _tempo: s.tempo,
-                  })),
-                  expanded: idx === 0,
-                }))
+                const prePopulated = generated.exercises.map((gex: any, idx: number) => {
+                  const isCardio = gex.category === 'Cardio'
+                  return {
+                    id: Date.now() + idx,
+                    name: gex.name,
+                    category: gex.category || 'Strength',
+                    bodyPart: gex.body_part || '',
+                    exercise_library_id: gex.exercise_library_id || null,
+                    _prescription: gex._prescription || null,
+                    sets: (gex.sets || []).map((s: any) => ({
+                      weight: s.target_weight != null ? String(s.target_weight) : (s.weight ?? ''),
+                      reps: s.target_reps != null ? String(s.target_reps) : (s.reps ?? ''),
+                      time: s.time != null ? String(s.time) : '',
+                      time_seconds: s.time_seconds != null ? String(s.time_seconds) : (isCardio && s.time ? String(s.time) : ''),
+                      speed: s.speed != null ? String(s.speed) : '',
+                      incline: s.incline != null ? String(s.incline) : '',
+                      _target_weight: s.target_weight,
+                      _target_reps: s.target_reps,
+                      _tempo: s.tempo,
+                      _is_bodyweight: s._is_bodyweight,
+                    })),
+                    expanded: idx === 0,
+                  }
+                })
                 setExercises(prePopulated)
                 generatedWorkoutIdRef.current = generated.generated_workout_id || null
               }

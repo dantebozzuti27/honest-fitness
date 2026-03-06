@@ -73,17 +73,36 @@ export default function TodayWorkout() {
   const handleStartWorkout = () => {
     if (!workout) return
     const exercises = workout.exercises.map(ex => {
+      const prescription = {
+        exerciseRole: ex.exerciseRole,
+        targetRir: ex.targetRir,
+        rirLabel: ex.rirLabel,
+        warmupSets: ex.warmupSets,
+        supersetGroupId: ex.supersetGroupId,
+        supersetType: ex.supersetType,
+        restSeconds: ex.restSeconds,
+        adjustments: ex.adjustments,
+        rationale: ex.rationale,
+        targetHrZone: ex.targetHrZone,
+        targetHrBpmRange: ex.targetHrBpmRange,
+        impactScore: ex.impactScore,
+        estimatedMinutes: ex.estimatedMinutes,
+        tempo: ex.tempo,
+      }
+
       if (ex.isCardio) {
         return {
           name: ex.exerciseName,
           body_part: ex.bodyPart,
           exercise_library_id: ex.exerciseLibraryId,
           category: 'Cardio',
+          _prescription: prescription,
           sets: [{
             set_number: 1,
             time: ex.cardioDurationSeconds ?? 1800,
-            speed: ex.cardioSpeed ?? null,
-            incline: ex.cardioIncline ?? null,
+            time_seconds: ex.cardioDurationSeconds ?? 1800,
+            speed: ex.cardioSpeed != null ? String(ex.cardioSpeed) : '',
+            incline: ex.cardioIncline != null ? String(ex.cardioIncline) : '',
             weight: '',
             reps: '',
           }],
@@ -94,6 +113,7 @@ export default function TodayWorkout() {
         body_part: ex.bodyPart,
         exercise_library_id: ex.exerciseLibraryId,
         category: 'Strength',
+        _prescription: prescription,
         sets: Array.from({ length: ex.sets }, (_, i) => ({
           set_number: i + 1,
           target_weight: ex.isBodyweight ? null : ex.targetWeight,
@@ -108,6 +128,7 @@ export default function TodayWorkout() {
     sessionStorage.setItem('generated_workout', JSON.stringify({
       exercises,
       generated_workout_id: workout.id,
+      sessionRationale: workout.sessionRationale,
     }))
     navigate('/workout/active')
   }

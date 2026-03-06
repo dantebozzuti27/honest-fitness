@@ -450,6 +450,58 @@ export default function ExerciseCard({
 
       {exercise.expanded && (
         <div className={styles.content}>
+          {/* Prescription targets from the workout generator */}
+          {exercise._prescription && (
+            <div className={styles.prescriptionBlock}>
+              <div className={styles.prescriptionHeader}>
+                <span className={styles.prescriptionRole} data-role={exercise._prescription.exerciseRole}>
+                  {exercise._prescription.exerciseRole}
+                </span>
+                {exercise._prescription.rirLabel && (
+                  <span className={styles.prescriptionRir}>
+                    RIR {exercise._prescription.targetRir} — {exercise._prescription.rirLabel}
+                  </span>
+                )}
+                {exercise._prescription.restSeconds > 0 && (
+                  <span className={styles.prescriptionRest}>
+                    Rest {exercise._prescription.restSeconds >= 60
+                      ? `${Math.round(exercise._prescription.restSeconds / 60)}m`
+                      : `${exercise._prescription.restSeconds}s`}
+                  </span>
+                )}
+              </div>
+              {exercise._prescription.targetHrZone && (
+                <div className={styles.prescriptionHr}>
+                  Zone {exercise._prescription.targetHrZone}
+                  {exercise._prescription.targetHrBpmRange
+                    ? ` (${exercise._prescription.targetHrBpmRange.min}–${exercise._prescription.targetHrBpmRange.max} bpm)`
+                    : ''}
+                </div>
+              )}
+              {exercise._prescription.warmupSets?.length > 0 && (
+                <div className={styles.prescriptionWarmup}>
+                  <span className={styles.prescriptionWarmupLabel}>Warmup:</span>
+                  {exercise._prescription.warmupSets.map((ws: any, i: number) => (
+                    <span key={i} className={styles.prescriptionWarmupSet}>
+                      {ws.weight}×{ws.reps}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {exercise._prescription.adjustments?.length > 0 && (
+                <div className={styles.prescriptionAdjustments}>
+                  {exercise._prescription.adjustments.map((adj: string, i: number) => (
+                    <div key={i} className={styles.prescriptionAdj}>{adj}</div>
+                  ))}
+                </div>
+              )}
+              {exercise._prescription.supersetGroupId != null && (
+                <div className={styles.prescriptionSuperset}>
+                  Superset ({exercise._prescription.supersetType?.replace('_', '-')})
+                </div>
+              )}
+            </div>
+          )}
           {lastInfo?.summary ? (
             <div className={styles.lastInfo}>
               <span className={styles.lastInfoLabel}>Last:</span> {lastInfo.summary}

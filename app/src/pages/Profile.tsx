@@ -34,6 +34,15 @@ interface TrainingProfileData {
   exercises_to_avoid: string;
   performance_goals: PerformanceGoal[];
   preferred_split: string;
+  date_of_birth: string;
+  gender: string;
+  height_feet: string;
+  height_inches: string;
+  body_weight_lbs: string;
+  experience_level: string;
+  cardio_preference: string;
+  cardio_frequency_per_week: string;
+  cardio_duration_minutes: string;
 }
 
 const GOAL_OPTIONS = [
@@ -42,6 +51,29 @@ const GOAL_OPTIONS = [
   { value: 'hypertrophy', label: 'Hypertrophy (Muscle Growth)' },
   { value: 'general_fitness', label: 'General Fitness' },
   { value: 'fat_loss', label: 'Fat Loss' },
+]
+
+const EXPERIENCE_OPTIONS = [
+  { value: '', label: 'Select level...' },
+  { value: 'beginner', label: 'Beginner (< 1 year)' },
+  { value: 'intermediate', label: 'Intermediate (1-3 years)' },
+  { value: 'advanced', label: 'Advanced (3-7 years)' },
+  { value: 'elite', label: 'Elite (7+ years / Competitive)' },
+]
+
+const GENDER_OPTIONS = [
+  { value: '', label: 'Select...' },
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+]
+
+const CARDIO_OPTIONS = [
+  { value: '', label: 'Select preference...' },
+  { value: 'daily', label: 'Daily (part of every session)' },
+  { value: 'most_days', label: 'Most days (4-6x/week)' },
+  { value: 'few_days', label: 'A few days (2-3x/week)' },
+  { value: 'minimal', label: 'Minimal (1x/week or less)' },
+  { value: 'none', label: 'None' },
 ]
 
 const EQUIPMENT_OPTIONS = [
@@ -104,6 +136,15 @@ export default function Profile() {
     exercises_to_avoid: '',
     performance_goals: [],
     preferred_split: '',
+    date_of_birth: '',
+    gender: '',
+    height_feet: '',
+    height_inches: '',
+    body_weight_lbs: '',
+    experience_level: '',
+    cardio_preference: '',
+    cardio_frequency_per_week: '',
+    cardio_duration_minutes: '',
   })
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
@@ -135,6 +176,15 @@ export default function Profile() {
           exercises_to_avoid: Array.isArray(rawAvoid) ? rawAvoid.join(', ') : (typeof rawAvoid === 'string' ? rawAvoid : ''),
           performance_goals: Array.isArray(rawGoals) ? rawGoals : [],
           preferred_split: prefs.preferred_split || '',
+          date_of_birth: prefs.date_of_birth || '',
+          gender: prefs.gender || '',
+          height_feet: prefs.height_feet != null ? String(prefs.height_feet) : '',
+          height_inches: prefs.height_inches != null ? String(prefs.height_inches) : '',
+          body_weight_lbs: prefs.body_weight_lbs != null ? String(prefs.body_weight_lbs) : '',
+          experience_level: prefs.experience_level || '',
+          cardio_preference: prefs.cardio_preference || '',
+          cardio_frequency_per_week: prefs.cardio_frequency_per_week != null ? String(prefs.cardio_frequency_per_week) : '',
+          cardio_duration_minutes: prefs.cardio_duration_minutes != null ? String(prefs.cardio_duration_minutes) : '',
         })
       }
       setProfileLoaded(true)
@@ -159,6 +209,15 @@ export default function Profile() {
           : [],
         performance_goals: trainingProfile.performance_goals,
         preferred_split: trainingProfile.preferred_split || null,
+        date_of_birth: trainingProfile.date_of_birth || null,
+        gender: trainingProfile.gender || null,
+        height_feet: trainingProfile.height_feet ? Number(trainingProfile.height_feet) : null,
+        height_inches: trainingProfile.height_inches ? Number(trainingProfile.height_inches) : null,
+        body_weight_lbs: trainingProfile.body_weight_lbs ? Number(trainingProfile.body_weight_lbs) : null,
+        experience_level: trainingProfile.experience_level || null,
+        cardio_preference: trainingProfile.cardio_preference || null,
+        cardio_frequency_per_week: trainingProfile.cardio_frequency_per_week ? Number(trainingProfile.cardio_frequency_per_week) : null,
+        cardio_duration_minutes: trainingProfile.cardio_duration_minutes ? Number(trainingProfile.cardio_duration_minutes) : null,
       }
       await saveUserPreferences(user.id, payload)
       showToast('Training profile saved', 'success')
@@ -371,11 +430,93 @@ export default function Profile() {
                   onChange={(e: any) => setTrainingProfile(p => ({ ...p, session_duration_minutes: e.target.value }))}
                 />
                 <SelectField
+                  label="Experience Level"
+                  value={trainingProfile.experience_level}
+                  onChange={e => setTrainingProfile(p => ({ ...p, experience_level: e.target.value }))}
+                  options={EXPERIENCE_OPTIONS}
+                />
+                <SelectField
                   label="Job Activity Level"
                   value={trainingProfile.job_activity_level}
                   onChange={e => setTrainingProfile(p => ({ ...p, job_activity_level: e.target.value }))}
                   options={ACTIVITY_OPTIONS}
                 />
+
+                <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '-4px', marginTop: '4px' }}>
+                  Body Stats
+                </label>
+                <SelectField
+                  label="Gender"
+                  value={trainingProfile.gender}
+                  onChange={e => setTrainingProfile(p => ({ ...p, gender: e.target.value }))}
+                  options={GENDER_OPTIONS}
+                />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ flex: 1 }}>
+                    <InputField
+                      label="Height (ft)"
+                      type="number"
+                      value={trainingProfile.height_feet}
+                      onChange={(e: any) => setTrainingProfile(p => ({ ...p, height_feet: e.target.value }))}
+                      placeholder="5"
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <InputField
+                      label="Height (in)"
+                      type="number"
+                      value={trainingProfile.height_inches}
+                      onChange={(e: any) => setTrainingProfile(p => ({ ...p, height_inches: e.target.value }))}
+                      placeholder="10"
+                    />
+                  </div>
+                </div>
+                <InputField
+                  label="Body Weight (lbs)"
+                  type="number"
+                  value={trainingProfile.body_weight_lbs}
+                  onChange={(e: any) => setTrainingProfile(p => ({ ...p, body_weight_lbs: e.target.value }))}
+                  placeholder="185"
+                />
+                <InputField
+                  label="Date of Birth"
+                  type="date"
+                  value={trainingProfile.date_of_birth}
+                  onChange={(e: any) => setTrainingProfile(p => ({ ...p, date_of_birth: e.target.value }))}
+                />
+
+                <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '-4px', marginTop: '4px' }}>
+                  Cardio
+                </label>
+                <SelectField
+                  label="Cardio Preference"
+                  value={trainingProfile.cardio_preference}
+                  onChange={e => setTrainingProfile(p => ({ ...p, cardio_preference: e.target.value }))}
+                  options={CARDIO_OPTIONS}
+                />
+                {trainingProfile.cardio_preference && trainingProfile.cardio_preference !== 'none' && (
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ flex: 1 }}>
+                      <InputField
+                        label="Cardio Sessions/Week"
+                        type="number"
+                        value={trainingProfile.cardio_frequency_per_week}
+                        onChange={(e: any) => setTrainingProfile(p => ({ ...p, cardio_frequency_per_week: e.target.value }))}
+                        placeholder="7"
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <InputField
+                        label="Duration (min)"
+                        type="number"
+                        value={trainingProfile.cardio_duration_minutes}
+                        onChange={(e: any) => setTrainingProfile(p => ({ ...p, cardio_duration_minutes: e.target.value }))}
+                        placeholder="60"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <InputField
                   label="Exercises to Avoid (comma-separated)"
                   value={trainingProfile.exercises_to_avoid}

@@ -41,6 +41,13 @@ export interface UserPreferences {
   gender: string | null;
   height_feet: number | null;
   height_inches: number | null;
+  job_activity_level: string | null;
+  experience_level: string | null;
+  body_weight_lbs: number | null;
+  cardio_preference: string | null;
+  cardio_frequency_per_week: number | null;
+  cardio_duration_minutes: number | null;
+  preferred_exercises: string[] | null;
 }
 
 export interface GeneratedExercise {
@@ -112,7 +119,7 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
   const supabase = requireSupabase();
   const { data, error } = await supabase
     .from('user_preferences')
-    .select('training_goal, session_duration_minutes, equipment_access, available_days_per_week, injuries, exercises_to_avoid, performance_goals, preferred_split, date_of_birth, gender, height_feet, height_inches')
+    .select('*')
     .eq('user_id', userId)
     .single();
 
@@ -121,6 +128,7 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
   const rawInjuries = data?.injuries;
   const rawAvoid = data?.exercises_to_avoid;
   const rawGoals = data?.performance_goals;
+  const rawPrefExercises = data?.preferred_exercises;
 
   return {
     training_goal: data?.training_goal ?? 'hypertrophy',
@@ -135,6 +143,13 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     gender: data?.gender ?? null,
     height_feet: data?.height_feet ?? null,
     height_inches: data?.height_inches ?? null,
+    job_activity_level: data?.job_activity_level ?? null,
+    experience_level: data?.experience_level ?? null,
+    body_weight_lbs: data?.body_weight_lbs != null ? Number(data.body_weight_lbs) : null,
+    cardio_preference: data?.cardio_preference ?? null,
+    cardio_frequency_per_week: data?.cardio_frequency_per_week != null ? Number(data.cardio_frequency_per_week) : null,
+    cardio_duration_minutes: data?.cardio_duration_minutes != null ? Number(data.cardio_duration_minutes) : null,
+    preferred_exercises: Array.isArray(rawPrefExercises) ? rawPrefExercises : null,
   };
 }
 

@@ -1239,88 +1239,74 @@ export async function getUserPreferences(userId: string) {
 }
 
 export async function saveUserPreferences(userId: string, prefs: any) {
-  // Build the upsert object, only including fields that exist
+  // Only include fields that the caller explicitly provided (non-undefined).
+  // This prevents overwriting fields the caller didn't intend to change.
   const upsertData: any = {
     user_id: userId,
-    plan_name: prefs.planName || null,
-    fitness_goal: prefs.fitnessGoal,
-    experience_level: prefs.experienceLevel,
-    available_days: prefs.availableDays,
-    session_duration: prefs.sessionDuration,
-    // New profile fields
-    date_of_birth: prefs.dateOfBirth || null,
-    gender: prefs.gender || null,
-    height_inches: prefs.heightInches || null,
-    height_feet: prefs.heightFeet || null,
-    equipment_available: prefs.equipmentAvailable,
-    injuries: prefs.injuries,
     updated_at: new Date().toISOString()
   }
 
-  // Planner lifter fields (columns may not exist until latest SQL is run)
-  if (prefs.trainingSplit !== undefined) {
-    upsertData.training_split = prefs.trainingSplit || null
-  }
-  if (prefs.progressionModel !== undefined) {
-    upsertData.progression_model = prefs.progressionModel || null
-  }
-  if (prefs.weeklySetsTargets !== undefined) {
-    upsertData.weekly_sets_targets = (prefs.weeklySetsTargets && typeof prefs.weeklySetsTargets === 'object')
-      ? prefs.weeklySetsTargets
-      : {}
-  }
-  
-  // Only include username if provided (column may not exist yet)
-  if (prefs.username !== undefined) {
-    upsertData.username = prefs.username || null
-  }
-  
-  // Only include profile_picture if provided (column may not exist yet)
-  if (prefs.profilePicture !== undefined) {
-    upsertData.profile_picture = prefs.profilePicture || null
-  }
-  
-  // Only include onboarding_completed if provided (column may not exist yet)
-  if (prefs.onboarding_completed !== undefined) {
-    upsertData.onboarding_completed = prefs.onboarding_completed || false
+  // ML-v2 training profile fields (snake_case — sent by Profile.tsx)
+  const directFields = [
+    'training_goal', 'session_duration_minutes', 'equipment_access',
+    'available_days_per_week', 'job_activity_level', 'injuries',
+    'exercises_to_avoid', 'performance_goals', 'preferred_split',
+    'date_of_birth', 'gender', 'height_feet', 'height_inches',
+    'body_weight_lbs', 'experience_level',
+    'cardio_preference', 'cardio_frequency_per_week', 'cardio_duration_minutes',
+    'preferred_exercises',
+  ]
+  for (const key of directFields) {
+    if (prefs[key] !== undefined) {
+      upsertData[key] = prefs[key] ?? null
+    }
   }
 
-  // Only include default_visibility if provided (column may not exist yet)
-  if (prefs.defaultVisibility !== undefined) {
-    upsertData.default_visibility = prefs.defaultVisibility || 'public'
+  // Legacy camelCase fields (sent by onboarding / other callers)
+  if (prefs.planName !== undefined) upsertData.plan_name = prefs.planName || null
+  if (prefs.fitnessGoal !== undefined) upsertData.fitness_goal = prefs.fitnessGoal || null
+  if (prefs.experienceLevel !== undefined) upsertData.experience_level = prefs.experienceLevel || null
+  if (prefs.availableDays !== undefined) upsertData.available_days = prefs.availableDays || null
+  if (prefs.sessionDuration !== undefined) upsertData.session_duration = prefs.sessionDuration || null
+  if (prefs.dateOfBirth !== undefined) upsertData.date_of_birth = prefs.dateOfBirth || null
+  if (prefs.gender !== undefined) upsertData.gender = prefs.gender || null
+  if (prefs.heightInches !== undefined) upsertData.height_inches = prefs.heightInches || null
+  if (prefs.heightFeet !== undefined) upsertData.height_feet = prefs.heightFeet || null
+  if (prefs.equipmentAvailable !== undefined) upsertData.equipment_available = prefs.equipmentAvailable || null
+  if (prefs.trainingSplit !== undefined) upsertData.training_split = prefs.trainingSplit || null
+  if (prefs.progressionModel !== undefined) upsertData.progression_model = prefs.progressionModel || null
+  if (prefs.weeklySetsTargets !== undefined) {
+    upsertData.weekly_sets_targets = (prefs.weeklySetsTargets && typeof prefs.weeklySetsTargets === 'object')
+      ? prefs.weeklySetsTargets : {}
   }
-  
+  if (prefs.username !== undefined) upsertData.username = prefs.username || null
+  if (prefs.profilePicture !== undefined) upsertData.profile_picture = prefs.profilePicture || null
+  if (prefs.onboarding_completed !== undefined) upsertData.onboarding_completed = prefs.onboarding_completed || false
+  if (prefs.defaultVisibility !== undefined) upsertData.default_visibility = prefs.defaultVisibility || 'public'
+
   const { data, error } = await supabase
     .from('user_preferences')
     .upsert(upsertData, { onConflict: 'user_id' })
     .select()
 
-  // If error is about missing columns, try without them
-  if (error && (
-    error.message?.includes('profile_picture') ||
-    error.message?.includes('username') ||
-    error.message?.includes('default_visibility') ||
-    error.message?.includes('training_split') ||
-    error.message?.includes('progression_model') ||
-    error.message?.includes('weekly_sets_targets')
-  )) {
-    // Remove the problematic fields and try again
-    delete upsertData.username
-    delete upsertData.profile_picture
-    delete upsertData.default_visibility
-    delete upsertData.training_split
-    delete upsertData.progression_model
-    delete upsertData.weekly_sets_targets
-    
+  if (error && error.code === '42703') {
+    // Column doesn't exist — strip optional fields and retry
+    const optionalCols = [
+      'username', 'profile_picture', 'default_visibility',
+      'training_split', 'progression_model', 'weekly_sets_targets',
+      'body_weight_lbs', 'experience_level',
+      'cardio_preference', 'cardio_frequency_per_week', 'cardio_duration_minutes',
+      'preferred_exercises',
+    ]
+    for (const col of optionalCols) delete upsertData[col]
+
     const { data: retryData, error: retryError } = await supabase
       .from('user_preferences')
       .upsert(upsertData, { onConflict: 'user_id' })
       .select()
-    
+
     if (retryError) throw retryError
-    
-    // Warn user about missing columns
-    logWarn('Profile columns not found. Run migration: app/supabase_migrations_user_profile.sql')
+    logWarn('Some profile columns not found — run latest migration.')
     return retryData
   }
 

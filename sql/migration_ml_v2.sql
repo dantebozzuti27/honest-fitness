@@ -230,6 +230,54 @@ BEGIN
   ) THEN
     ALTER TABLE user_preferences ADD COLUMN preferred_split TEXT;
   END IF;
+
+  -- Body weight for relative strength calculations
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'body_weight_lbs'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN body_weight_lbs NUMERIC;
+  END IF;
+
+  -- Experience level for volume/intensity calibration
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'experience_level'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN experience_level TEXT;
+  END IF;
+
+  -- Cardio preference (daily, most_days, few_days, minimal, none)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'cardio_preference'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN cardio_preference TEXT;
+  END IF;
+
+  -- Cardio frequency (sessions per week)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'cardio_frequency_per_week'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN cardio_frequency_per_week INTEGER;
+  END IF;
+
+  -- Cardio duration (minutes per session)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'cardio_duration_minutes'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN cardio_duration_minutes INTEGER;
+  END IF;
+
+  -- Preferred exercises (always include these)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'user_preferences' AND column_name = 'preferred_exercises'
+  ) THEN
+    ALTER TABLE user_preferences ADD COLUMN preferred_exercises TEXT[];
+  END IF;
 END $$;
 
 -- ============================================================================

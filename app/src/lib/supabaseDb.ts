@@ -897,23 +897,20 @@ export async function saveMetricsToSupabase(userId: string, date: string, metric
   // Data pipeline: Validate -> Clean -> Save -> Enrich
   
   // Step 1: Validate data
-  let validation: { valid: boolean; errors: string[] } = { valid: true, errors: [] }
   try {
     const validationModule = await import('./dataValidation')
     const { validateHealthMetrics } = validationModule || {}
     if (validateHealthMetrics && typeof validateHealthMetrics === 'function') {
-      validation = validateHealthMetrics({ ...metrics, date })
+      const validation = validateHealthMetrics({ ...metrics, date })
       if (!validation.valid) {
-        logError('Health metrics validation failed', validation.errors)
-        throw new Error(`Health metrics validation failed: ${validation.errors.join(', ')}`)
+        throw new Error(`Validation failed: ${validation.errors.join(', ')}`)
       }
-    } else {
-      logError('validateHealthMetrics is not a function', { validationModule })
-      // Continue without validation if function is not available
     }
-  } catch (validationError) {
-    logError('Error importing or calling validateHealthMetrics', validationError)
-    // Continue without validation if import fails
+  } catch (validationError: any) {
+    if (validationError?.message?.startsWith('Validation failed:')) {
+      throw validationError
+    }
+    logError('Error importing validation module (continuing without validation)', validationError)
   }
   
   // Step 2: Clean and normalize data

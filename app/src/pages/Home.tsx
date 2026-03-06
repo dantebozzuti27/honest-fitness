@@ -47,9 +47,11 @@ export default function Home() {
       setRecentWorkouts(Array.isArray(workouts) ? workouts : [])
 
       const todayRow = Array.isArray(todayMetrics) ? todayMetrics.find((m: any) => m?.date === today) : null
-      if (todayRow?.weight) {
+      if (todayRow?.weight != null) {
         setWeight(String(todayRow.weight))
         setSavedWeight(String(todayRow.weight))
+      } else {
+        setSavedWeight(null)
       }
 
       // Fitbit data
@@ -92,9 +94,14 @@ export default function Home() {
     }
     setSavingWeight(true)
     try {
-      await saveMetricsToSupabase(user.id, getTodayEST(), { weight: val })
+      const result = await saveMetricsToSupabase(user.id, getTodayEST(), { weight: val }, { allowOutbox: false })
+      if (result && typeof result === 'object' && 'queued' in result) {
+        showToast('Weight queued — will sync when online', 'error')
+        return
+      }
       setSavedWeight(String(val))
       showToast('Weight saved', 'success')
+      loadData()
     } catch (e) {
       logError('Save weight failed', e)
       showToast('Failed to save weight', 'error')

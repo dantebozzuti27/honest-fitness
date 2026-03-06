@@ -106,6 +106,14 @@ export async function saveFitbitDaily(userId: string, date: string, data: any) {
     updated_at: new Date().toISOString()
   }
 
+  // Strip null/undefined top-level values to avoid overwriting manually entered data
+  const keepKeys = new Set(['user_id', 'date', 'source_provider', 'updated_at', 'source_data'])
+  for (const key of Object.keys(healthMetricsData)) {
+    if (!keepKeys.has(key) && ((healthMetricsData as Record<string, unknown>)[key] === null || (healthMetricsData as Record<string, unknown>)[key] === undefined)) {
+      delete (healthMetricsData as Record<string, unknown>)[key]
+    }
+  }
+
   const { data: result, error } = await supabase
     .from('health_metrics')
     .upsert(healthMetricsData, { onConflict: 'user_id,date' })

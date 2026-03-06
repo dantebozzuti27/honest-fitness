@@ -8,6 +8,7 @@ import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferenc
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
 import { getTodayEST } from '../utils/dateUtils'
+import { getAllMetricsFromSupabase } from '../lib/db/metricsDb'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -31,7 +32,7 @@ interface TrainingProfileData {
   available_days_per_week: string;
   job_activity_level: string;
   injuries: Array<{ body_part: string; description: string; severity: string }>;
-  exercises_to_avoid: string;
+  exercises_to_avoid: string[];
   performance_goals: PerformanceGoal[];
   preferred_split: string;
   date_of_birth: string;
@@ -110,6 +111,77 @@ const SPLIT_OPTIONS = [
   { value: 'custom', label: 'Custom' },
 ]
 
+const DURATION_OPTIONS = [
+  { value: '', label: 'Select...' },
+  { value: '30', label: '30 min' },
+  { value: '45', label: '45 min' },
+  { value: '60', label: '60 min' },
+  { value: '75', label: '75 min' },
+  { value: '90', label: '90 min' },
+  { value: '120', label: '120 min' },
+]
+
+const HEIGHT_FT_OPTIONS = [
+  { value: '', label: 'ft' },
+  { value: '4', label: "4'" },
+  { value: '5', label: "5'" },
+  { value: '6', label: "6'" },
+  { value: '7', label: "7'" },
+]
+
+const HEIGHT_IN_OPTIONS = [
+  { value: '', label: 'in' },
+  ...Array.from({ length: 12 }, (_, i) => ({ value: String(i), label: `${i}"` })),
+]
+
+const CARDIO_FREQ_OPTIONS = [
+  { value: '', label: 'Select...' },
+  ...Array.from({ length: 7 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}x / week` })),
+]
+
+const CARDIO_DURATION_OPTIONS = [
+  { value: '', label: 'Select...' },
+  { value: '15', label: '15 min' },
+  { value: '20', label: '20 min' },
+  { value: '30', label: '30 min' },
+  { value: '45', label: '45 min' },
+  { value: '60', label: '60 min' },
+  { value: '90', label: '90 min' },
+]
+
+const REPS_OPTIONS = [
+  ...Array.from({ length: 20 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}` })),
+]
+
+const BODY_PART_OPTIONS = [
+  { value: '', label: 'Select...' },
+  { value: 'Shoulder', label: 'Shoulder' },
+  { value: 'Knee', label: 'Knee' },
+  { value: 'Lower Back', label: 'Lower Back' },
+  { value: 'Upper Back', label: 'Upper Back' },
+  { value: 'Neck', label: 'Neck' },
+  { value: 'Hip', label: 'Hip' },
+  { value: 'Elbow', label: 'Elbow' },
+  { value: 'Wrist', label: 'Wrist' },
+  { value: 'Ankle', label: 'Ankle' },
+  { value: 'Chest', label: 'Chest' },
+  { value: 'Hamstring', label: 'Hamstring' },
+  { value: 'Quad', label: 'Quad' },
+  { value: 'Calf', label: 'Calf' },
+  { value: 'Bicep', label: 'Bicep' },
+  { value: 'Tricep', label: 'Tricep' },
+  { value: 'Forearm', label: 'Forearm' },
+  { value: 'Glute', label: 'Glute' },
+  { value: 'Core / Abs', label: 'Core / Abs' },
+  { value: 'Other', label: 'Other' },
+]
+
+const SEVERITY_OPTIONS = [
+  { value: 'mild', label: 'Mild' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'severe', label: 'Severe' },
+]
+
 export default function Profile() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
@@ -133,7 +205,7 @@ export default function Profile() {
     available_days_per_week: '',
     job_activity_level: '',
     injuries: [],
-    exercises_to_avoid: '',
+    exercises_to_avoid: [],
     performance_goals: [],
     preferred_split: '',
     date_of_birth: '',
@@ -150,13 +222,50 @@ export default function Profile() {
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [newInjury, setNewInjury] = useState({ body_part: '', description: '', severity: 'moderate' })
   const [newGoal, setNewGoal] = useState<PerformanceGoal>({ exercise: '', targetWeight: '', targetReps: '1' })
+  const [exerciseNames, setExerciseNames] = useState<string[]>([])
+  const [avoidSearch, setAvoidSearch] = useState('')
 
   useEffect(() => {
     if (user) {
       loadConnectedAccounts()
       loadTrainingProfile()
+      loadExerciseNames()
+      loadLatestWeight()
     }
   }, [user])
+
+  const loadExerciseNames = async () => {
+    try {
+      const { getAllExercises } = await import('../db/lazyDb')
+      const exercises = await getAllExercises()
+      const names = (exercises || [])
+        .map((e: any) => e?.name)
+        .filter(Boolean)
+        .sort((a: string, b: string) => a.localeCompare(b))
+      setExerciseNames([...new Set(names)] as string[])
+    } catch {
+      // exercises will just be empty
+    }
+  }
+
+  const loadLatestWeight = async () => {
+    if (!user) return
+    try {
+      const metrics = await getAllMetricsFromSupabase(user.id)
+      if (Array.isArray(metrics) && metrics.length > 0) {
+        const withWeight = metrics.filter((m: any) => m?.weight != null)
+        if (withWeight.length > 0) {
+          const latest = withWeight[withWeight.length - 1]
+          setTrainingProfile(prev => {
+            if (prev.body_weight_lbs) return prev
+            return { ...prev, body_weight_lbs: String(latest.weight) }
+          })
+        }
+      }
+    } catch {
+      // non-critical
+    }
+  }
 
   const loadTrainingProfile = async () => {
     if (!user) return
@@ -166,6 +275,11 @@ export default function Profile() {
         const rawInjuries = prefs.injuries;
         const rawAvoid = prefs.exercises_to_avoid;
         const rawGoals = prefs.performance_goals;
+        const avoidArr: string[] = Array.isArray(rawAvoid)
+          ? rawAvoid
+          : typeof rawAvoid === 'string' && rawAvoid.trim()
+            ? rawAvoid.split(',').map((s: string) => s.trim()).filter(Boolean)
+            : []
         setTrainingProfile({
           training_goal: prefs.training_goal || '',
           session_duration_minutes: String(prefs.session_duration_minutes || 75),
@@ -173,7 +287,7 @@ export default function Profile() {
           available_days_per_week: String(prefs.available_days_per_week || ''),
           job_activity_level: prefs.job_activity_level || '',
           injuries: Array.isArray(rawInjuries) ? rawInjuries : [],
-          exercises_to_avoid: Array.isArray(rawAvoid) ? rawAvoid.join(', ') : (typeof rawAvoid === 'string' ? rawAvoid : ''),
+          exercises_to_avoid: avoidArr,
           performance_goals: Array.isArray(rawGoals) ? rawGoals : [],
           preferred_split: prefs.preferred_split || '',
           date_of_birth: prefs.date_of_birth || '',
@@ -204,9 +318,7 @@ export default function Profile() {
         available_days_per_week: trainingProfile.available_days_per_week ? Number(trainingProfile.available_days_per_week) : null,
         job_activity_level: trainingProfile.job_activity_level || null,
         injuries: trainingProfile.injuries,
-        exercises_to_avoid: trainingProfile.exercises_to_avoid
-          ? trainingProfile.exercises_to_avoid.split(',').map(s => s.trim()).filter(Boolean)
-          : [],
+        exercises_to_avoid: trainingProfile.exercises_to_avoid,
         performance_goals: trainingProfile.performance_goals,
         preferred_split: trainingProfile.preferred_split || null,
         date_of_birth: trainingProfile.date_of_birth || null,
@@ -423,17 +535,23 @@ export default function Profile() {
                   onChange={e => setTrainingProfile(p => ({ ...p, available_days_per_week: e.target.value }))}
                   options={DAYS_OPTIONS}
                 />
-                <InputField
-                  label="Session Duration (minutes)"
-                  type="number"
+                <SelectField
+                  label="Session Duration"
                   value={trainingProfile.session_duration_minutes}
-                  onChange={(e: any) => setTrainingProfile(p => ({ ...p, session_duration_minutes: e.target.value }))}
+                  onChange={e => setTrainingProfile(p => ({ ...p, session_duration_minutes: e.target.value }))}
+                  options={DURATION_OPTIONS}
                 />
                 <SelectField
                   label="Experience Level"
                   value={trainingProfile.experience_level}
                   onChange={e => setTrainingProfile(p => ({ ...p, experience_level: e.target.value }))}
                   options={EXPERIENCE_OPTIONS}
+                />
+                <SelectField
+                  label="Preferred Split"
+                  value={trainingProfile.preferred_split}
+                  onChange={e => setTrainingProfile(p => ({ ...p, preferred_split: e.target.value }))}
+                  options={SPLIT_OPTIONS}
                 />
                 <SelectField
                   label="Job Activity Level"
@@ -453,21 +571,19 @@ export default function Profile() {
                 />
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <div style={{ flex: 1 }}>
-                    <InputField
+                    <SelectField
                       label="Height (ft)"
-                      type="number"
                       value={trainingProfile.height_feet}
-                      onChange={(e: any) => setTrainingProfile(p => ({ ...p, height_feet: e.target.value }))}
-                      placeholder="5"
+                      onChange={e => setTrainingProfile(p => ({ ...p, height_feet: e.target.value }))}
+                      options={HEIGHT_FT_OPTIONS}
                     />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <InputField
+                    <SelectField
                       label="Height (in)"
-                      type="number"
                       value={trainingProfile.height_inches}
-                      onChange={(e: any) => setTrainingProfile(p => ({ ...p, height_inches: e.target.value }))}
-                      placeholder="10"
+                      onChange={e => setTrainingProfile(p => ({ ...p, height_inches: e.target.value }))}
+                      options={HEIGHT_IN_OPTIONS}
                     />
                   </div>
                 </div>
@@ -476,7 +592,8 @@ export default function Profile() {
                   type="number"
                   value={trainingProfile.body_weight_lbs}
                   onChange={(e: any) => setTrainingProfile(p => ({ ...p, body_weight_lbs: e.target.value }))}
-                  placeholder="185"
+                  placeholder="Auto-filled from your logs"
+                  inputMode="decimal"
                 />
                 <InputField
                   label="Date of Birth"
@@ -497,38 +614,73 @@ export default function Profile() {
                 {trainingProfile.cardio_preference && trainingProfile.cardio_preference !== 'none' && (
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <div style={{ flex: 1 }}>
-                      <InputField
-                        label="Cardio Sessions/Week"
-                        type="number"
+                      <SelectField
+                        label="Sessions / Week"
                         value={trainingProfile.cardio_frequency_per_week}
-                        onChange={(e: any) => setTrainingProfile(p => ({ ...p, cardio_frequency_per_week: e.target.value }))}
-                        placeholder="7"
+                        onChange={e => setTrainingProfile(p => ({ ...p, cardio_frequency_per_week: e.target.value }))}
+                        options={CARDIO_FREQ_OPTIONS}
                       />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <InputField
-                        label="Duration (min)"
-                        type="number"
+                      <SelectField
+                        label="Duration"
                         value={trainingProfile.cardio_duration_minutes}
-                        onChange={(e: any) => setTrainingProfile(p => ({ ...p, cardio_duration_minutes: e.target.value }))}
-                        placeholder="60"
+                        onChange={e => setTrainingProfile(p => ({ ...p, cardio_duration_minutes: e.target.value }))}
+                        options={CARDIO_DURATION_OPTIONS}
                       />
                     </div>
                   </div>
                 )}
 
-                <InputField
-                  label="Exercises to Avoid (comma-separated)"
-                  value={trainingProfile.exercises_to_avoid}
-                  onChange={(e: any) => setTrainingProfile(p => ({ ...p, exercises_to_avoid: e.target.value }))}
-                  placeholder="e.g. Behind Neck Press, Good Morning"
-                />
-                <SelectField
-                  label="Preferred Split"
-                  value={trainingProfile.preferred_split}
-                  onChange={e => setTrainingProfile(p => ({ ...p, preferred_split: e.target.value }))}
-                  options={SPLIT_OPTIONS}
-                />
+                {/* Exercises to Avoid — multi-select from library */}
+                <div>
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                    Exercises to Avoid
+                  </label>
+                  {trainingProfile.exercises_to_avoid.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                      {trainingProfile.exercises_to_avoid.map((ex, i) => (
+                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', background: 'var(--bg-tertiary)', borderRadius: '16px', fontSize: '13px', color: 'var(--text-primary)' }}>
+                          {ex}
+                          <button
+                            onClick={() => setTrainingProfile(p => ({ ...p, exercises_to_avoid: p.exercises_to_avoid.filter((_, idx) => idx !== i) }))}
+                            style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '14px', padding: '0 2px', lineHeight: 1 }}
+                          >×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      placeholder="Search exercises..."
+                      value={avoidSearch}
+                      onChange={e => setAvoidSearch(e.target.value)}
+                      style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }}
+                    />
+                    {avoidSearch.length >= 2 && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: '160px', overflowY: 'auto', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '8px', marginTop: '2px', zIndex: 10 }}>
+                        {exerciseNames
+                          .filter(n => n.toLowerCase().includes(avoidSearch.toLowerCase()) && !trainingProfile.exercises_to_avoid.includes(n))
+                          .slice(0, 15)
+                          .map(n => (
+                            <div
+                              key={n}
+                              onClick={() => {
+                                setTrainingProfile(p => ({ ...p, exercises_to_avoid: [...p.exercises_to_avoid, n] }))
+                                setAvoidSearch('')
+                              }}
+                              style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', borderBottom: '1px solid var(--border)' }}
+                            >
+                              {n}
+                            </div>
+                          ))}
+                        {exerciseNames.filter(n => n.toLowerCase().includes(avoidSearch.toLowerCase()) && !trainingProfile.exercises_to_avoid.includes(n)).length === 0 && (
+                          <div style={{ padding: '8px 12px', fontSize: '13px', color: 'var(--text-tertiary)' }}>No matches</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 {/* Performance Goals */}
                 <div>
@@ -536,7 +688,7 @@ export default function Profile() {
                     Performance Goals
                   </label>
                   <p style={{ margin: '0 0 8px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                    Set specific lift targets. The engine will prioritize these exercises and track your progress toward them.
+                    Set specific lift targets. The engine will prioritize these exercises.
                   </p>
                   {trainingProfile.performance_goals.length > 0 && (
                     <div style={{ marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -551,26 +703,35 @@ export default function Profile() {
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <input
-                      placeholder="Exercise (e.g. Bench Press)"
-                      value={newGoal.exercise}
-                      onChange={e => setNewGoal(p => ({ ...p, exercise: e.target.value }))}
-                      style={{ flex: '2 1 140px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
-                    />
+                    <div style={{ flex: '2 1 140px', position: 'relative' }}>
+                      <select
+                        value={newGoal.exercise}
+                        onChange={e => setNewGoal(p => ({ ...p, exercise: e.target.value }))}
+                        style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                      >
+                        <option value="">Select exercise...</option>
+                        {exerciseNames.map(n => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </div>
                     <input
                       placeholder="Weight (lbs)"
                       type="number"
+                      inputMode="numeric"
                       value={newGoal.targetWeight}
                       onChange={e => setNewGoal(p => ({ ...p, targetWeight: e.target.value }))}
                       style={{ flex: '1 1 80px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
                     />
-                    <input
-                      placeholder="Reps"
-                      type="number"
+                    <select
                       value={newGoal.targetReps}
                       onChange={e => setNewGoal(p => ({ ...p, targetReps: e.target.value }))}
                       style={{ flex: '0 0 60px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
-                    />
+                    >
+                      {REPS_OPTIONS.map(o => (
+                        <option key={o.value} value={o.value}>{o.label} rep{Number(o.value) !== 1 ? 's' : ''}</option>
+                      ))}
+                    </select>
                     <Button
                       variant="secondary"
                       onClick={() => {
@@ -594,7 +755,7 @@ export default function Profile() {
                       {trainingProfile.injuries.map((inj, i) => (
                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: '8px', fontSize: '13px' }}>
                           <span style={{ color: 'var(--text-primary)' }}>
-                            <strong>{inj.body_part}</strong> — {inj.description} ({inj.severity})
+                            <strong>{inj.body_part}</strong>{inj.description ? ` — ${inj.description}` : ''} ({inj.severity})
                           </span>
                           <button onClick={() => removeInjury(i)} style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '16px', padding: '0 4px' }}>×</button>
                         </div>
@@ -602,14 +763,17 @@ export default function Profile() {
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <input
-                      placeholder="Body part"
+                    <select
                       value={newInjury.body_part}
                       onChange={e => setNewInjury(p => ({ ...p, body_part: e.target.value }))}
                       style={{ flex: '1 1 100px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
-                    />
+                    >
+                      {BODY_PART_OPTIONS.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
                     <input
-                      placeholder="Description"
+                      placeholder="Description (optional)"
                       value={newInjury.description}
                       onChange={e => setNewInjury(p => ({ ...p, description: e.target.value }))}
                       style={{ flex: '2 1 140px', padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
@@ -619,9 +783,9 @@ export default function Profile() {
                       onChange={e => setNewInjury(p => ({ ...p, severity: e.target.value }))}
                       style={{ padding: '8px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: '13px' }}
                     >
-                      <option value="mild">Mild</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="severe">Severe</option>
+                      {SEVERITY_OPTIONS.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
                     </select>
                     <Button variant="secondary" onClick={addInjury} disabled={!newInjury.body_part} style={{ padding: '8px 12px', fontSize: '13px' }}>Add</Button>
                   </div>

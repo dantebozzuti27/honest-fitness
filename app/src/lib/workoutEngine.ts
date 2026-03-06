@@ -16,7 +16,7 @@
 
 import { requireSupabase } from './supabase';
 import { VOLUME_GUIDELINES, MUSCLE_HEAD_TO_GROUP, getGuidelineForGroup } from './volumeGuidelines';
-import type { TrainingProfile, ExerciseProgression, EnrichedExercise } from './trainingAnalysis';
+import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference } from './trainingAnalysis';
 import { uuidv4 } from '../utils/uuid';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -247,7 +247,7 @@ function stepRecoveryCheck(profile: TrainingProfile): RecoveryAdjustment {
   return { volumeMultiplier: Math.max(0.5, volumeMultiplier), adjustmentReasons: reasons, isDeload: false };
 }
 
-// ─── Step 2: Select Muscle Groups ───────────────────────────────────────────
+// ─── Step 2: Select Muscle Groups (Split-Aware) ─────────────────────────────
 
 interface MuscleGroupSelection {
   muscleGroup: string;
@@ -259,6 +259,15 @@ interface MuscleGroupSelection {
   volumeTarget: string | null;
 }
 
+const SPLIT_MUSCLE_MAPPING: Record<string, string[]> = {
+  push: ['chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'],
+  pull: ['back_lats', 'back_upper', 'biceps', 'posterior_deltoid', 'forearms'],
+  legs: ['quadriceps', 'hamstrings', 'glutes', 'calves'],
+  upper: ['chest', 'back_lats', 'back_upper', 'anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid', 'biceps', 'triceps'],
+  lower: ['quadriceps', 'hamstrings', 'glutes', 'calves'],
+  full: ['chest', 'back_lats', 'quadriceps', 'anterior_deltoid', 'biceps', 'triceps', 'hamstrings', 'glutes'],
+};
+
 function stepSelectMuscleGroups(
   profile: TrainingProfile,
   prefs: UserPreferences,
@@ -266,6 +275,25 @@ function stepSelectMuscleGroups(
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
+
+  // Determine today's target groups from detected split
+  const { detectedSplit, dayOfWeekPatterns } = profile;
+  const todayDow = new Date().getDay();
+  const todayPattern = dayOfWeekPatterns[todayDow];
+
+  let splitTargetGroups: Set<string> | null = null;
+
+  if (detectedSplit.confidence >= 0.6 && detectedSplit.nextRecommended.length > 0) {
+    // Use split-based recommendation
+    splitTargetGroups = new Set<string>();
+    for (const rec of detectedSplit.nextRecommended) {
+      const groups = SPLIT_MUSCLE_MAPPING[rec];
+      if (groups) groups.forEach(g => splitTargetGroups!.add(g));
+    }
+  } else if (todayPattern && !todayPattern.isRestDay && todayPattern.muscleGroupsTypical.length > 0) {
+    // Fall back to day-of-week pattern
+    splitTargetGroups = new Set(todayPattern.muscleGroupsTypical);
+  }
 
   for (const vol of profile.muscleVolumeStatuses) {
     const guideline = getGuidelineForGroup(vol.muscleGroup);
@@ -288,22 +316,37 @@ function stepSelectMuscleGroups(
     const freshnessDays = vol.daysSinceLastTrained === Infinity ? 7 : vol.daysSinceLastTrained;
     const freshnessScore = Math.min(freshnessDays / (guideline.recoveryHours / 24), 2);
 
-    let volumeDeficit = 0;
     const weeklyTarget = (guideline.mavLow + guideline.mavHigh) / 2;
     const individualMrv = profile.individualMrvEstimates[vol.muscleGroup];
     const effectiveTarget = individualMrv ? Math.min(weeklyTarget, individualMrv * 0.85) : weeklyTarget;
-    volumeDeficit = Math.max(0, effectiveTarget - vol.weeklyDirectSets);
+    const volumeDeficit = Math.max(0, effectiveTarget - vol.weeklyDirectSets);
 
-    const priority = freshnessScore * 0.6 + (volumeDeficit / effectiveTarget) * 0.4;
+    // Base priority: freshness + volume deficit
+    let priority = freshnessScore * 0.4 + (volumeDeficit / Math.max(effectiveTarget, 1)) * 0.3;
+
+    // Split bonus: if this group is in today's recommended split, strong boost
+    if (splitTargetGroups?.has(vol.muscleGroup)) {
+      priority += 0.5;
+    }
+
+    // Day-of-week pattern bonus: if user typically trains this group today
+    if (todayPattern?.muscleGroupsTypical.includes(vol.muscleGroup)) {
+      priority += 0.2;
+    }
 
     const setsNeeded = Math.ceil(
-      Math.min(volumeDeficit, 10) * recoveryAdj.volumeMultiplier
+      Math.min(Math.max(volumeDeficit, 3), 10) * recoveryAdj.volumeMultiplier
     );
 
-    if (setsNeeded > 0 || freshnessDays >= 5) {
-      const reason = freshnessDays >= 5
-        ? `Not trained in ${freshnessDays} days`
-        : `${volumeDeficit.toFixed(0)} sets below weekly target (${vol.weeklyDirectSets}/${effectiveTarget.toFixed(0)})`;
+    const splitLabel = splitTargetGroups?.has(vol.muscleGroup) ? ' [split match]' : '';
+    const dayLabel = todayPattern?.muscleGroupsTypical.includes(vol.muscleGroup) ? ' [day pattern]' : '';
+
+    if (setsNeeded > 0 || freshnessDays >= 5 || splitTargetGroups?.has(vol.muscleGroup)) {
+      const reason = splitTargetGroups?.has(vol.muscleGroup)
+        ? `Split: ${detectedSplit.nextRecommended.join('/')} day${dayLabel} — ${vol.weeklyDirectSets}/${effectiveTarget.toFixed(0)} weekly sets`
+        : freshnessDays >= 5
+          ? `Not trained in ${freshnessDays} days${splitLabel}`
+          : `${volumeDeficit.toFixed(0)} sets below target (${vol.weeklyDirectSets}/${effectiveTarget.toFixed(0)})${splitLabel}${dayLabel}`;
 
       candidates.push({
         muscleGroup: vol.muscleGroup,
@@ -326,13 +369,14 @@ function stepSelectMuscleGroups(
   return { selected: candidates.slice(0, maxGroups), skipped };
 }
 
-// ─── Step 3: Select Exercises ───────────────────────────────────────────────
+// ─── Step 3: Select Exercises (Preference-Aware + Cardio) ───────────────────
 
 interface ExerciseSelection {
   exercise: EnrichedExercise;
   muscleGroup: string;
   sets: number;
   reason: string;
+  isCardio?: boolean;
 }
 
 function stepSelectExercises(
@@ -345,14 +389,22 @@ function stepSelectExercises(
   const decisions: ExerciseDecision[] = [];
   const avoidSet = new Set(prefs.exercises_to_avoid.map(e => e.toLowerCase()));
 
-  // Filter out cardio and recovery exercises from strength workout generation
+  // Build preference lookup for fast access
+  const prefMap = new Map<string, ExercisePreference>();
+  for (const p of profile.exercisePreferences) {
+    prefMap.set(p.exerciseName, p);
+  }
+
   const strengthExercises = allExercises.filter(ex =>
     ex.ml_exercise_type !== 'cardio' && ex.ml_exercise_type !== 'recovery'
   );
 
+  const usedExercises = new Set<string>();
+
   for (const group of muscleGroups) {
     const groupExercises = strengthExercises.filter(ex => {
       if (avoidSet.has(ex.name.toLowerCase())) return false;
+      if (usedExercises.has(ex.name.toLowerCase())) return false;
       if (isInjuryConflict(ex, prefs.injuries)) return false;
 
       const primaryGroups = (ex.primary_muscles ?? [])
@@ -372,28 +424,39 @@ function stepSelectExercises(
         factors.push('Compound exercise (+3)');
       }
 
+      // User preference: exercises they actually do score much higher
+      const pref = prefMap.get(ex.name.toLowerCase());
+      if (pref) {
+        // Recency-weighted preference: half-life 14 days
+        const prefBonus = Math.min(pref.recencyScore * 1.5, 4);
+        score += prefBonus;
+        factors.push(`User preference (+${prefBonus.toFixed(1)}, ${pref.recentSessions} recent sessions, recency: ${pref.recencyScore})`);
+        if (pref.isStaple) {
+          score += 1;
+          factors.push('Staple exercise (+1)');
+        }
+      } else {
+        score -= 1;
+        factors.push('Never used by user (-1)');
+      }
+
       const prog = profile.exerciseProgressions.find(
         p => p.exerciseName === ex.name.toLowerCase()
       );
       if (prog) {
-        score += 1;
-        factors.push(`Familiar exercise (+1, ${prog.sessionsTracked} sessions logged)`);
         if (prog.status === 'progressing') {
-          score += 2;
-          factors.push('Currently progressing (+2)');
-        }
-        if (prog.status === 'stalled') {
+          score += 2.5;
+          factors.push(`Progressing (+2.5, ${prog.sessionsTracked} sessions, slope: ${(prog.progressionSlope * 100).toFixed(1)}%)`);
+        } else if (prog.status === 'stalled') {
           score += 0.5;
-          factors.push('Stalled — may benefit from variation (+0.5)');
-        }
-        if (prog.status === 'regressing') {
+          factors.push(`Stalled (+0.5, ${prog.sessionsTracked} sessions)`);
+        } else if (prog.status === 'regressing') {
           score -= 1;
-          factors.push('Regressing — consider alternatives (-1)');
+          factors.push(`Regressing (-1, consider variation)`);
         }
-      } else {
-        factors.push('Never logged — no progression data');
       }
 
+      // Ordering interference
       if (selections.length > 0) {
         const lastSelected = selections[selections.length - 1].exercise.name.toLowerCase();
         const interference = profile.exerciseOrderingEffects.find(
@@ -420,7 +483,6 @@ function stepSelectExercises(
 
     scored.sort((a, b) => b.score - a.score);
 
-    // Track top 5 candidates per group for transparency
     for (const item of scored.slice(0, 5)) {
       decisions.push({
         exerciseName: item.exercise.name,
@@ -433,6 +495,7 @@ function stepSelectExercises(
     let remainingSets = group.targetSets;
     const maxExercises = remainingSets <= 4 ? 1 : remainingSets <= 8 ? 2 : 3;
 
+    // Prefer compounds first, then isolations (but sorted by overall score within each)
     const compounds = scored.filter(s => s.exercise.ml_exercise_type === 'compound');
     const isolations = scored.filter(s => s.exercise.ml_exercise_type !== 'compound');
     const ordered = [...compounds, ...isolations];
@@ -454,8 +517,36 @@ function stepSelectExercises(
           : `Additional ${group.muscleGroup} volume (score: ${item.score.toFixed(1)})`,
       });
 
+      usedExercises.add(item.exercise.name.toLowerCase());
       remainingSets -= setsForThis;
       exerciseCount++;
+    }
+  }
+
+  // Add cardio if user regularly does it
+  const cardioPrefs = profile.exercisePreferences.filter(p => {
+    const ex = allExercises.find(e => e.name.toLowerCase() === p.exerciseName);
+    return ex?.ml_exercise_type === 'cardio' && p.recentSessions >= 2;
+  });
+
+  if (cardioPrefs.length > 0) {
+    // Pick the user's most-preferred cardio exercise
+    const topCardio = cardioPrefs[0];
+    const cardioEx = allExercises.find(e => e.name.toLowerCase() === topCardio.exerciseName);
+    if (cardioEx && !avoidSet.has(cardioEx.name.toLowerCase())) {
+      selections.push({
+        exercise: cardioEx,
+        muscleGroup: 'cardio',
+        sets: 1, // Cardio is time-based, 1 "set" = one block
+        reason: `Cardio — staple exercise (${topCardio.recentSessions} recent sessions)`,
+        isCardio: true,
+      });
+      decisions.push({
+        exerciseName: cardioEx.name,
+        muscleGroup: 'cardio',
+        score: topCardio.recencyScore,
+        factors: [`User does this ${topCardio.recentSessions}x in last 4 weeks`, `Recency score: ${topCardio.recencyScore}`],
+      });
     }
   }
 
@@ -473,6 +564,28 @@ function stepPrescribe(
   const repRange = getRepRange(prefs.training_goal);
 
   return selections.map(sel => {
+    // Handle cardio differently
+    if (sel.isCardio || sel.exercise.ml_exercise_type === 'cardio') {
+      const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+      return {
+        exerciseName: sel.exercise.name,
+        exerciseLibraryId: sel.exercise.id,
+        bodyPart: sel.exercise.body_part,
+        primaryMuscles: sel.exercise.primary_muscles ?? [],
+        secondaryMuscles: sel.exercise.secondary_muscles ?? [],
+        movementPattern: sel.exercise.movement_pattern ?? 'cardio',
+        sets: 1,
+        targetReps: 0,
+        targetWeight: null,
+        isBodyweight: false,
+        tempo: '0-0-0',
+        restSeconds: 0,
+        rationale: `Cardio — you do this ${pref?.recentSessions ?? 0}x per month. Duration based on your typical sessions.`,
+        adjustments: recoveryAdj.isDeload ? ['Deload: reduce intensity/duration by 20%'] : [],
+        isDeload: recoveryAdj.isDeload,
+      };
+    }
+
     const prog = profile.exerciseProgressions.find(
       p => p.exerciseName === sel.exercise.name.toLowerCase()
     );
@@ -487,20 +600,18 @@ function stepPrescribe(
         targetWeight = Math.round(targetWeight * 0.9);
         adjustments.push('Deload: weight at 90%');
       } else if (prog.status === 'progressing') {
-        // Apply progressive overload
         const isLower = ['quadriceps', 'hamstrings', 'glutes'].includes(sel.muscleGroup);
         const increment = isLower ? 10 : 5;
         targetWeight = targetWeight + increment;
-        adjustments.push(`Progressive overload: +${increment} lbs`);
+        adjustments.push(`Progressive overload: +${increment} lbs (was ${prog.lastWeight})`);
       } else if (prog.status === 'stalled') {
-        // Same weight, try more reps
-        adjustments.push('Stalled: maintaining weight, targeting higher reps');
+        adjustments.push(`Stalled at ${targetWeight} lbs: try higher reps this session`);
       } else if (prog.status === 'regressing') {
         targetWeight = Math.round(targetWeight * 0.9);
-        adjustments.push('Regressing: weight reduced to 90%');
+        adjustments.push(`Regressing: reduced to ${targetWeight} lbs (90% of ${prog.lastWeight})`);
       }
 
-      // Apply sleep coefficient adjustment
+      // Sleep-performance learned adjustment
       if (profile.sleepCoefficients.confidence !== 'low' && profile.recoveryContext.sleepDurationLastNight != null && profile.recoveryContext.sleepBaseline30d != null) {
         const sleepDelta = (profile.recoveryContext.sleepDurationLastNight - profile.recoveryContext.sleepBaseline30d) / profile.recoveryContext.sleepBaseline30d;
         if (sleepDelta < -0.1) {
@@ -510,31 +621,29 @@ function stepPrescribe(
             const weightAdj = Math.round(coeff * sleepDelta * (targetWeight ?? 100));
             if (weightAdj < -2) {
               targetWeight = (targetWeight ?? 0) + weightAdj;
-              adjustments.push(`Sleep-performance adjustment: ${weightAdj} lbs (learned from your data)`);
+              adjustments.push(`Sleep-performance: ${weightAdj} lbs (learned from your data)`);
             }
           }
         }
       }
 
-      // Body weight trend adjustment
       if (profile.bodyWeightTrend.phase === 'cutting' && prog.status !== 'regressing') {
-        adjustments.push('Cutting phase: maintaining current weight is success');
+        adjustments.push('Cutting phase: maintaining weight is success');
       }
     }
 
-    // Plateau-specific strategy
+    // Plateau strategy
     const plateau = profile.plateauDetections.find(
       p => p.exerciseName === sel.exercise.name.toLowerCase() && p.isPlateaued
     );
     if (plateau?.suggestedStrategy) {
-      adjustments.push(`Plateau strategy: ${plateau.suggestedStrategy}`);
+      adjustments.push(`Plateau: ${plateau.suggestedStrategy}`);
     }
 
     const tempo = getTempo(sel.exercise.default_tempo, prefs.training_goal, sel.exercise.ml_exercise_type);
     const restSeconds = getRestSeconds(sel.exercise.ml_exercise_type, prefs.training_goal);
     const sets = recoveryAdj.isDeload ? Math.max(2, Math.ceil(sel.sets * 0.5)) : sel.sets;
 
-    // Detect bodyweight exercises by equipment list
     const equipment = sel.exercise.equipment ?? [];
     const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
 
@@ -622,7 +731,22 @@ function stepGenerateRationale(
     recoveryStatus = 'Reduced capacity';
   }
 
+  const splitInfo = profile.detectedSplit.confidence >= 0.5
+    ? `Detected split: ${profile.detectedSplit.type.replace(/_/g, ' ')} (${Math.round(profile.detectedSplit.confidence * 100)}% confidence)`
+    : 'No clear split detected — using volume-based selection';
+
+  const todayDow = new Date().getDay();
+  const todayPattern = profile.dayOfWeekPatterns[todayDow];
+  const dayInfo = todayPattern && !todayPattern.isRestDay
+    ? `Typical ${todayPattern.dayName}: ${todayPattern.muscleGroupsTypical.slice(0, 4).join(', ')} (${Math.round(todayPattern.frequency * 100)}% of weeks)`
+    : null;
+
   const sessionRationale = [
+    splitInfo,
+    profile.detectedSplit.nextRecommended.length > 0
+      ? `Split recommends: ${profile.detectedSplit.nextRecommended.join(', ')} day`
+      : null,
+    dayInfo,
     `Targeting: ${muscleGroupsFocused.join(', ')}`,
     ...muscleReasons,
     `Goal: ${prefs.training_goal}`,
@@ -647,12 +771,15 @@ function stepGenerateRationale(
 
   decisionLog.push({
     step: '2',
-    label: 'Muscle Group Selection',
+    label: 'Split Detection & Muscle Group Selection',
     details: [
+      splitInfo,
+      ...(profile.detectedSplit.evidence ?? []),
+      dayInfo ?? `${todayPattern?.dayName ?? 'Today'}: typical rest day`,
       `Selected ${muscleGroups.length} groups from ${muscleGroups.length + skippedGroups.length} candidates`,
       ...muscleGroups.map(g => `✓ ${g.muscleGroup}: ${g.reason} (priority: ${g.priority.toFixed(2)}, ${g.targetSets} sets)`),
       ...skippedGroups.map(g => `✗ ${g.muscleGroup}: ${g.reason}`),
-    ],
+    ].filter((d): d is string => d != null),
   });
 
   decisionLog.push({

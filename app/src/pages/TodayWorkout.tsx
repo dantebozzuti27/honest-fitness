@@ -149,12 +149,26 @@ export default function TodayWorkout() {
       </div>
 
       <div className={styles.content}>
-        {/* Session Summary */}
+        {/* Detected Split + Session Summary */}
+        {profile?.detectedSplit && profile.detectedSplit.confidence >= 0.5 && (
+          <div className={styles.splitCard}>
+            <div className={styles.splitHeader}>
+              <span className={styles.splitType}>{profile.detectedSplit.type.replace(/_/g, ' ')}</span>
+              <span className={styles.splitConfidence}>{Math.round(profile.detectedSplit.confidence * 100)}% confidence</span>
+            </div>
+            {profile.detectedSplit.nextRecommended.length > 0 && (
+              <div className={styles.splitRecommendation}>
+                Today: <strong>{profile.detectedSplit.nextRecommended.join(' / ')}</strong> day
+              </div>
+            )}
+          </div>
+        )}
+
         <div className={styles.summaryCard}>
           <div className={styles.summaryRow}>
             <div className={styles.summaryItem}>
               <span className={styles.summaryLabel}>Goal</span>
-              <span className={styles.summaryValue}>{workout.trainingGoal}</span>
+              <span className={styles.summaryValue}>{workout.trainingGoal.replace(/_/g, ' ')}</span>
             </div>
             <div className={styles.summaryItem}>
               <span className={styles.summaryLabel}>Duration</span>

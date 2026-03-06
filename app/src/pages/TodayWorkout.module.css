@@ -89,6 +89,42 @@
 }
 
 /* Summary Card */
+.splitCard {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  border-left: 3px solid var(--accent, #3b82f6);
+}
+
+.splitHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.splitType {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.splitConfidence {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.splitRecommendation {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.splitRecommendation strong {
+  color: var(--accent, #3b82f6);
+  text-transform: capitalize;
+}
+
 .summaryCard {
   background: var(--bg-secondary);
   border-radius: var(--radius-lg);

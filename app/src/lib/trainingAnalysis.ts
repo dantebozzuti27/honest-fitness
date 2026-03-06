@@ -259,6 +259,11 @@ export interface TrainingProfile {
   // Strength Percentiles (from OpenPowerlifting data)
   strengthPercentiles: StrengthPercentile[];
 
+  // Split Detection & Scheduling
+  detectedSplit: DetectedSplit;
+  dayOfWeekPatterns: DayOfWeekPattern[];
+  exercisePreferences: ExercisePreference[];
+
   // Global
   trainingFrequency: number;
   avgSessionDuration: number;
@@ -271,6 +276,36 @@ export interface StrengthPercentile {
   estimated1RM: number;
   percentile: number;
   bodyWeightClass: string;
+}
+
+export type SplitType = 'push_pull_legs' | 'upper_lower' | 'bro_split' | 'full_body' | 'custom';
+
+export interface DetectedSplit {
+  type: SplitType;
+  confidence: number;
+  typicalRotation: string[];
+  nextRecommended: string[];
+  evidence: string[];
+}
+
+export interface DayOfWeekPattern {
+  dayOfWeek: number; // 0=Sun, 6=Sat
+  dayName: string;
+  muscleGroupsTypical: string[];
+  templateNames: string[];
+  frequency: number; // fraction of weeks this day was trained
+  avgExerciseCount: number;
+  isRestDay: boolean;
+}
+
+export interface ExercisePreference {
+  exerciseName: string;
+  totalSessions: number;
+  recentSessions: number; // last 4 weeks
+  recencyScore: number; // exponential decay weighted
+  lastUsedDaysAgo: number;
+  avgSetsPerSession: number;
+  isStaple: boolean; // used in >50% of relevant sessions
 }
 
 // ─── Data Fetching ──────────────────────────────────────────────────────────
@@ -1335,6 +1370,297 @@ function computeStrengthPercentiles(
 }
 
 /**
+ * Detect training split from workout history.
+ * Analyzes which muscle groups appear together in sessions and the rotation pattern.
+ */
+function detectTrainingSplit(
+  workouts: WorkoutRecord[],
+  exercises: EnrichedExercise[]
+): DetectedSplit {
+  const exerciseToGroup = new Map<string, Set<string>>();
+  for (const ex of exercises) {
+    const groups = new Set<string>();
+    for (const m of ex.primary_muscles ?? []) {
+      const g = MUSCLE_HEAD_TO_GROUP[m];
+      if (g) groups.add(g);
+    }
+    if (groups.size > 0) exerciseToGroup.set(ex.name.toLowerCase(), groups);
+  }
+
+  // Extract muscle group sets per session
+  const sessionProfiles: Array<{ date: string; dayOfWeek: number; groups: Set<string>; template: string | null }> = [];
+
+  for (const w of workouts) {
+    const groups = new Set<string>();
+    for (const ex of w.workout_exercises) {
+      const exGroups = exerciseToGroup.get(ex.exercise_name.toLowerCase());
+      if (exGroups) exGroups.forEach(g => groups.add(g));
+    }
+    sessionProfiles.push({
+      date: w.date,
+      dayOfWeek: new Date(w.date).getDay(),
+      groups,
+      template: w.template_name,
+    });
+  }
+
+  if (sessionProfiles.length < 6) {
+    return { type: 'custom', confidence: 0, typicalRotation: [], nextRecommended: [], evidence: ['Not enough data to detect split'] };
+  }
+
+  const PUSH_GROUPS = new Set(['chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps']);
+  const PULL_GROUPS = new Set(['back_lats', 'back_upper', 'biceps', 'posterior_deltoid']);
+  const LEG_GROUPS = new Set(['quadriceps', 'hamstrings', 'glutes', 'calves']);
+  const UPPER_GROUPS = new Set([...PUSH_GROUPS, ...PULL_GROUPS]);
+
+  // Classify each session
+  type SessionClass = 'push' | 'pull' | 'legs' | 'upper' | 'lower' | 'full' | 'other';
+  const classified: SessionClass[] = [];
+
+  for (const sp of sessionProfiles) {
+    const pushCount = [...sp.groups].filter(g => PUSH_GROUPS.has(g)).length;
+    const pullCount = [...sp.groups].filter(g => PULL_GROUPS.has(g)).length;
+    const legCount = [...sp.groups].filter(g => LEG_GROUPS.has(g)).length;
+    const upperCount = [...sp.groups].filter(g => UPPER_GROUPS.has(g)).length;
+    const total = sp.groups.size;
+
+    if (total === 0) { classified.push('other'); continue; }
+
+    // Full body: hits upper + lower significantly
+    if (upperCount >= 2 && legCount >= 2) { classified.push('full'); continue; }
+    // Push: mostly push muscles
+    if (pushCount >= 2 && pullCount <= 1 && legCount <= 1) { classified.push('push'); continue; }
+    // Pull: mostly pull muscles
+    if (pullCount >= 2 && pushCount <= 1 && legCount <= 1) { classified.push('pull'); continue; }
+    // Legs: mostly leg muscles
+    if (legCount >= 2 && upperCount <= 1) { classified.push('legs'); continue; }
+    // Upper: mostly upper body
+    if (upperCount >= 3 && legCount <= 1) { classified.push('upper'); continue; }
+    // Lower: mostly lower body
+    if (legCount >= 2 && upperCount <= 1) { classified.push('lower'); continue; }
+    classified.push('other');
+  }
+
+  // Count session types
+  const counts: Record<string, number> = {};
+  for (const c of classified) counts[c] = (counts[c] ?? 0) + 1;
+  const total = classified.length;
+  const evidence: string[] = [];
+
+  // Detect PPL
+  const pplCount = (counts.push ?? 0) + (counts.pull ?? 0) + (counts.legs ?? 0);
+  const pplPct = pplCount / total;
+
+  // Detect Upper/Lower
+  const ulCount = (counts.upper ?? 0) + (counts.lower ?? 0);
+  const ulPct = ulCount / total;
+
+  // Detect Full Body
+  const fullPct = (counts.full ?? 0) / total;
+
+  let type: SplitType = 'custom';
+  let confidence = 0;
+
+  if (pplPct >= 0.7) {
+    type = 'push_pull_legs';
+    confidence = pplPct;
+    evidence.push(`${Math.round(pplPct * 100)}% of sessions follow push/pull/legs pattern`);
+  } else if (ulPct >= 0.7) {
+    type = 'upper_lower';
+    confidence = ulPct;
+    evidence.push(`${Math.round(ulPct * 100)}% of sessions follow upper/lower pattern`);
+  } else if (fullPct >= 0.6) {
+    type = 'full_body';
+    confidence = fullPct;
+    evidence.push(`${Math.round(fullPct * 100)}% of sessions are full body`);
+  } else {
+    type = 'custom';
+    confidence = 0.5;
+    const parts = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}: ${v}`);
+    evidence.push(`Mixed pattern: ${parts.join(', ')}`);
+  }
+
+  // Build typical rotation from recent sessions
+  const recentClassified = classified.slice(-12);
+  const rotation: string[] = [];
+  const seen = new Set<string>();
+  for (const c of recentClassified) {
+    if (c !== 'other' && !seen.has(c)) {
+      rotation.push(c);
+      seen.add(c);
+    }
+  }
+
+  // Determine what to train next based on what was trained recently
+  const last3Sessions = classified.slice(-3);
+  const last3Groups = sessionProfiles.slice(-3).flatMap(sp => [...sp.groups]);
+  const recentGroupCounts: Record<string, number> = {};
+  for (const g of last3Groups) recentGroupCounts[g] = (recentGroupCounts[g] ?? 0) + 1;
+
+  let nextRecommended: string[] = [];
+
+  if (type === 'push_pull_legs') {
+    const lastType = last3Sessions[last3Sessions.length - 1];
+    if (lastType === 'push') nextRecommended = ['pull'];
+    else if (lastType === 'pull') nextRecommended = ['legs'];
+    else if (lastType === 'legs') nextRecommended = ['push'];
+    else nextRecommended = ['push'];
+    evidence.push(`Last session was ${lastType} → next: ${nextRecommended[0]}`);
+  } else if (type === 'upper_lower') {
+    const lastType = last3Sessions[last3Sessions.length - 1];
+    nextRecommended = lastType === 'upper' ? ['lower'] : ['upper'];
+    evidence.push(`Last session was ${lastType} → next: ${nextRecommended[0]}`);
+  } else {
+    // For custom/full body, find least-recently-trained major groups
+    const allMajorGroups = ['chest', 'back_lats', 'quadriceps', 'hamstrings', 'anterior_deltoid', 'biceps', 'triceps'];
+    const sorted = allMajorGroups.sort((a, b) => (recentGroupCounts[a] ?? 0) - (recentGroupCounts[b] ?? 0));
+    nextRecommended = sorted.slice(0, 3);
+  }
+
+  return { type, confidence, typicalRotation: rotation, nextRecommended, evidence };
+}
+
+/**
+ * Compute day-of-week training patterns from history.
+ */
+function computeDayOfWeekPatterns(
+  workouts: WorkoutRecord[],
+  exercises: EnrichedExercise[]
+): DayOfWeekPattern[] {
+  const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  const exerciseToGroup = new Map<string, Set<string>>();
+  for (const ex of exercises) {
+    const groups = new Set<string>();
+    for (const m of ex.primary_muscles ?? []) {
+      const g = MUSCLE_HEAD_TO_GROUP[m];
+      if (g) groups.add(g);
+    }
+    if (groups.size > 0) exerciseToGroup.set(ex.name.toLowerCase(), groups);
+  }
+
+  // Count weeks in history
+  if (workouts.length === 0) return DAY_NAMES.map((name, i) => ({
+    dayOfWeek: i, dayName: name, muscleGroupsTypical: [], templateNames: [],
+    frequency: 0, avgExerciseCount: 0, isRestDay: true,
+  }));
+
+  const firstDate = new Date(workouts[0].date);
+  const lastDate = new Date(workouts[workouts.length - 1].date);
+  const totalWeeks = Math.max(1, Math.ceil((lastDate.getTime() - firstDate.getTime()) / (7 * 24 * 60 * 60 * 1000)));
+
+  const dayData: Record<number, {
+    workoutCount: number;
+    muscleGroupCounts: Record<string, number>;
+    templateCounts: Record<string, number>;
+    exerciseCounts: number[];
+  }> = {};
+
+  for (let i = 0; i < 7; i++) {
+    dayData[i] = { workoutCount: 0, muscleGroupCounts: {}, templateCounts: {}, exerciseCounts: [] };
+  }
+
+  for (const w of workouts) {
+    const dow = new Date(w.date).getDay();
+    const dd = dayData[dow];
+    dd.workoutCount++;
+    dd.exerciseCounts.push(w.workout_exercises.length);
+
+    if (w.template_name) {
+      dd.templateCounts[w.template_name] = (dd.templateCounts[w.template_name] ?? 0) + 1;
+    }
+
+    for (const ex of w.workout_exercises) {
+      const groups = exerciseToGroup.get(ex.exercise_name.toLowerCase());
+      if (groups) {
+        for (const g of groups) {
+          dd.muscleGroupCounts[g] = (dd.muscleGroupCounts[g] ?? 0) + 1;
+        }
+      }
+    }
+  }
+
+  return DAY_NAMES.map((name, i) => {
+    const dd = dayData[i];
+    const frequency = dd.workoutCount / totalWeeks;
+    const isRestDay = frequency < 0.25;
+
+    // Get top muscle groups by frequency
+    const sortedGroups = Object.entries(dd.muscleGroupCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([g]) => g);
+
+    const sortedTemplates = Object.entries(dd.templateCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([t]) => t);
+
+    return {
+      dayOfWeek: i,
+      dayName: name,
+      muscleGroupsTypical: sortedGroups,
+      templateNames: sortedTemplates,
+      frequency: Math.round(frequency * 100) / 100,
+      avgExerciseCount: dd.exerciseCounts.length > 0 ? Math.round(mean(dd.exerciseCounts) * 10) / 10 : 0,
+      isRestDay,
+    };
+  });
+}
+
+/**
+ * Compute exercise preferences with recency weighting.
+ * More recent usage scores higher (exponential decay, half-life = 14 days).
+ */
+function computeExercisePreferences(workouts: WorkoutRecord[]): ExercisePreference[] {
+  const now = Date.now();
+  const HALF_LIFE_MS = 14 * 24 * 60 * 60 * 1000;
+  const LN2 = Math.log(2);
+
+  const exerciseData: Record<string, {
+    totalSessions: number;
+    recentSessions: number;
+    recencySum: number;
+    lastUsed: number;
+    totalSets: number;
+    groupSessions: number;
+  }> = {};
+
+  const fourWeeksAgo = now - 28 * 24 * 60 * 60 * 1000;
+
+  for (const w of workouts) {
+    const wDate = new Date(w.date).getTime();
+    const decayFactor = Math.exp(-LN2 * (now - wDate) / HALF_LIFE_MS);
+    const isRecent = wDate >= fourWeeksAgo;
+
+    for (const ex of w.workout_exercises) {
+      const key = ex.exercise_name.toLowerCase();
+      if (!exerciseData[key]) {
+        exerciseData[key] = { totalSessions: 0, recentSessions: 0, recencySum: 0, lastUsed: 0, totalSets: 0, groupSessions: 0 };
+      }
+      const d = exerciseData[key];
+      d.totalSessions++;
+      d.recencySum += decayFactor;
+      d.totalSets += ex.workout_sets.length;
+      if (isRecent) d.recentSessions++;
+      if (wDate > d.lastUsed) d.lastUsed = wDate;
+    }
+  }
+
+  return Object.entries(exerciseData)
+    .map(([name, d]) => ({
+      exerciseName: name,
+      totalSessions: d.totalSessions,
+      recentSessions: d.recentSessions,
+      recencyScore: Math.round(d.recencySum * 100) / 100,
+      lastUsedDaysAgo: Math.round((now - d.lastUsed) / (24 * 60 * 60 * 1000)),
+      avgSetsPerSession: Math.round((d.totalSets / d.totalSessions) * 10) / 10,
+      isStaple: d.recentSessions >= 2,
+    }))
+    .sort((a, b) => b.recencyScore - a.recencyScore);
+}
+
+/**
  * Compute structural imbalances.
  */
 function computeImbalanceAlerts(volumeStatuses: MuscleVolumeStatus[]): ImbalanceAlert[] {
@@ -1561,6 +1887,10 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     repWeightBreakthroughs: computeRepWeightBreakthroughs(workouts),
     imbalanceAlerts: computeImbalanceAlerts(muscleVolumeStatuses),
     strengthPercentiles: computeStrengthPercentiles(exerciseProgressions, userBodyWeight, userGender),
+
+    detectedSplit: detectTrainingSplit(workouts, exercises),
+    dayOfWeekPatterns: computeDayOfWeekPatterns(workouts, exercises),
+    exercisePreferences: computeExercisePreferences(workouts),
 
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
     avgSessionDuration: Math.round(avgSessionDuration),

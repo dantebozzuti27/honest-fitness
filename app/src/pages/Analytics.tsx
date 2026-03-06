@@ -470,6 +470,133 @@ export default function Analytics() {
                 )}
                 {trainingProfile && (
                   <>
+                    {/* 30-Day Trends */}
+                    {(() => {
+                      const t = trainingProfile.rolling30DayTrends
+                      const arrow = (d: string) => d === 'up' ? '↑' : d === 'down' ? '↓' : '→'
+                      const trendColor = (d: string, goodDir: 'up' | 'down') =>
+                        d === goodDir ? 'var(--success)' : d === (goodDir === 'up' ? 'down' : 'up') ? 'var(--danger, #ef4444)' : 'var(--text-secondary)'
+                      const renderTrendRow = (label: string, mt: typeof t.sleep, unit: string, goodDir: 'up' | 'down') => {
+                        if (mt.dataPoints < 3) return null
+                        return (
+                          <tr key={label}>
+                            <td style={tdStyle}>{label}</td>
+                            <td style={tdRight}>{mt.current?.toFixed(1) ?? '—'} {unit}</td>
+                            <td style={tdRight}>{mt.avg30d?.toFixed(1) ?? '—'}</td>
+                            <td style={{ ...tdRight, color: trendColor(mt.direction, goodDir), fontWeight: 600 }}>
+                              {arrow(mt.direction)} {Math.abs(mt.slopePct).toFixed(1)}%/wk
+                            </td>
+                          </tr>
+                        )
+                      }
+                      return (
+                        <>
+                          {/* Overall Strength */}
+                          <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                            <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Overall Progress (30 Days)</h3>
+                            <table style={tableStyle}>
+                              <thead>
+                                <tr><th style={thStyle}>Metric</th><th style={thRight}>Current</th><th style={thRight}>30d Avg</th><th style={thRight}>Trend</th></tr>
+                              </thead>
+                              <tbody>
+                                {renderTrendRow('Strength Index', t.totalStrengthIndex, 'lbs', 'up')}
+                                {renderTrendRow('Big 3 Total', t.big3Total, 'lbs', 'up')}
+                                {renderTrendRow('Relative Strength', t.relativeStrength, '', 'up')}
+                                {renderTrendRow('Volume Load', t.totalVolumeLoad, 'lbs', 'up')}
+                                {renderTrendRow('Body Weight', t.bodyWeight, 'lbs', t.bodyWeight.direction === 'up' ? 'up' : 'down')}
+                                {renderTrendRow('Body Fat', t.bodyFat, '%', 'down')}
+                                {renderTrendRow('Lean Mass', t.estimatedLeanMass, 'lbs', 'up')}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Recovery Trends */}
+                          <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                            <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Recovery Trends (30 Days)</h3>
+                            <table style={tableStyle}>
+                              <thead>
+                                <tr><th style={thStyle}>Metric</th><th style={thRight}>Current</th><th style={thRight}>30d Avg</th><th style={thRight}>Trend</th></tr>
+                              </thead>
+                              <tbody>
+                                {renderTrendRow('Sleep', t.sleep, 'hrs', 'up')}
+                                {renderTrendRow('HRV', t.hrv, 'ms', 'up')}
+                                {renderTrendRow('RHR', t.rhr, 'bpm', 'down')}
+                                {renderTrendRow('Steps', t.steps, '', 'up')}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Training Trends */}
+                          <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                            <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Training Trends (30 Days)</h3>
+                            <table style={tableStyle}>
+                              <thead>
+                                <tr><th style={thStyle}>Metric</th><th style={thRight}>Current</th><th style={thRight}>30d Avg</th><th style={thRight}>Trend</th></tr>
+                              </thead>
+                              <tbody>
+                                {renderTrendRow('Frequency', t.trainingFrequency, 'days/wk', 'up')}
+                                {renderTrendRow('Session Duration', t.avgSessionDuration, 'min', 'up')}
+                                {renderTrendRow('Weekly Sets', t.totalWeeklyVolume, 'sets', 'up')}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Per-Exercise Strength */}
+                          {t.exerciseTrends.filter(e => e.estimated1RM.dataPoints >= 2).length > 0 && (
+                            <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                              <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Lift Trends (30 Days)</h3>
+                              <div style={{ overflowX: 'auto' }}>
+                                <table style={tableStyle}>
+                                  <thead>
+                                    <tr><th style={thStyle}>Exercise</th><th style={thRight}>e1RM</th><th style={thRight}>Trend</th><th style={thRight}>Vol Load</th></tr>
+                                  </thead>
+                                  <tbody>
+                                    {t.exerciseTrends.filter(e => e.estimated1RM.dataPoints >= 2).map(et => (
+                                      <tr key={et.exerciseName}>
+                                        <td style={tdStyle}>{et.exerciseName}</td>
+                                        <td style={tdRight}>{et.estimated1RM.current?.toFixed(0) ?? '—'} lbs</td>
+                                        <td style={{ ...tdRight, color: trendColor(et.estimated1RM.direction, 'up'), fontWeight: 600 }}>
+                                          {arrow(et.estimated1RM.direction)} {Math.abs(et.estimated1RM.slopePct).toFixed(1)}%/wk
+                                        </td>
+                                        <td style={{ ...tdRight, color: trendColor(et.volumeLoad.direction, 'up') }}>
+                                          {et.volumeLoad.dataPoints >= 2 ? `${arrow(et.volumeLoad.direction)} ${Math.abs(et.volumeLoad.slopePct).toFixed(1)}%` : '—'}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Per-Muscle-Group Volume */}
+                          {t.muscleGroupTrends.length > 0 && (
+                            <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                              <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Muscle Volume Trends (30 Days)</h3>
+                              <div style={{ overflowX: 'auto' }}>
+                                <table style={tableStyle}>
+                                  <thead>
+                                    <tr><th style={thStyle}>Muscle Group</th><th style={thRight}>Avg Sets/Wk</th><th style={thRight}>Trend</th></tr>
+                                  </thead>
+                                  <tbody>
+                                    {t.muscleGroupTrends.map(mg => (
+                                      <tr key={mg.muscleGroup}>
+                                        <td style={tdStyle}>{mg.muscleGroup.replace(/_/g, ' ')}</td>
+                                        <td style={tdRight}>{mg.weeklySetsTrend.avg30d?.toFixed(1) ?? '—'}</td>
+                                        <td style={{ ...tdRight, color: trendColor(mg.weeklySetsTrend.direction, 'up'), fontWeight: 600 }}>
+                                          {arrow(mg.weeklySetsTrend.direction)} {Math.abs(mg.weeklySetsTrend.slopePct).toFixed(1)}%/wk
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()}
+
                     {/* Global Stats */}
                     <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
                       <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Global Stats</h3>

@@ -263,6 +263,7 @@ export interface TrainingProfile {
   detectedSplit: DetectedSplit;
   dayOfWeekPatterns: DayOfWeekPattern[];
   exercisePreferences: ExercisePreference[];
+  cardioHistory: CardioHistory[];
 
   // Global
   trainingFrequency: number;
@@ -301,11 +302,25 @@ export interface DayOfWeekPattern {
 export interface ExercisePreference {
   exerciseName: string;
   totalSessions: number;
-  recentSessions: number; // last 4 weeks
-  recencyScore: number; // exponential decay weighted
+  recentSessions: number;
+  recencyScore: number;
   lastUsedDaysAgo: number;
   avgSetsPerSession: number;
-  isStaple: boolean; // used in >50% of relevant sessions
+  isStaple: boolean;
+}
+
+export interface CardioHistory {
+  exerciseName: string;
+  totalSessions: number;
+  recentSessions: number;
+  avgDurationSeconds: number;
+  avgSpeed: number | null;
+  avgIncline: number | null;
+  lastDurationSeconds: number;
+  lastSpeed: number | null;
+  lastIncline: number | null;
+  trendDuration: 'increasing' | 'stable' | 'decreasing';
+  trendIntensity: 'increasing' | 'stable' | 'decreasing';
 }
 
 // ─── Data Fetching ──────────────────────────────────────────────────────────
@@ -1661,6 +1676,84 @@ function computeExercisePreferences(workouts: WorkoutRecord[]): ExercisePreferen
 }
 
 /**
+ * Compute cardio exercise history — duration trends, intensity (speed/level/incline).
+ */
+function computeCardioHistory(
+  workouts: WorkoutRecord[],
+  exercises: EnrichedExercise[]
+): CardioHistory[] {
+  const cardioNames = new Set(
+    exercises.filter(e => e.ml_exercise_type === 'cardio').map(e => e.name.toLowerCase())
+  );
+
+  const data: Record<string, {
+    durations: number[];
+    speeds: number[];
+    inclines: number[];
+    dates: number[];
+  }> = {};
+
+  const fourWeeksAgo = Date.now() - 28 * 24 * 60 * 60 * 1000;
+
+  for (const w of workouts) {
+    const wTime = new Date(w.date).getTime();
+    for (const ex of w.workout_exercises) {
+      const key = ex.exercise_name.toLowerCase();
+      if (!cardioNames.has(key)) continue;
+
+      if (!data[key]) data[key] = { durations: [], speeds: [], inclines: [], dates: [] };
+      const d = data[key];
+      d.dates.push(wTime);
+
+      let totalTime = 0;
+      const sessSpeed: number[] = [];
+      const sessIncline: number[] = [];
+
+      for (const s of ex.workout_sets) {
+        if (s.time != null && s.time > 0) totalTime += s.time;
+        if (s.speed != null && s.speed > 0) sessSpeed.push(s.speed);
+        if (s.incline != null && s.incline > 0) sessIncline.push(s.incline);
+      }
+
+      if (totalTime > 0) d.durations.push(totalTime);
+      if (sessSpeed.length > 0) d.speeds.push(mean(sessSpeed));
+      if (sessIncline.length > 0) d.inclines.push(mean(sessIncline));
+    }
+  }
+
+  return Object.entries(data)
+    .filter(([, d]) => d.durations.length >= 1)
+    .map(([name, d]) => {
+      const recentCount = d.dates.filter(t => t >= fourWeeksAgo).length;
+      const avgDur = mean(d.durations);
+      const lastDur = d.durations[d.durations.length - 1] ?? avgDur;
+
+      const durSlope = d.durations.length >= 3 ? linearRegressionSlope(d.durations) : 0;
+      const durMean = avgDur || 1;
+      const normDurSlope = durSlope / durMean;
+
+      const speedSlope = d.speeds.length >= 3 ? linearRegressionSlope(d.speeds) : 0;
+      const speedMean = d.speeds.length > 0 ? mean(d.speeds) : 1;
+      const normSpeedSlope = speedMean > 0 ? speedSlope / speedMean : 0;
+
+      return {
+        exerciseName: name,
+        totalSessions: d.durations.length,
+        recentSessions: recentCount,
+        avgDurationSeconds: Math.round(avgDur),
+        avgSpeed: d.speeds.length > 0 ? Math.round(mean(d.speeds) * 10) / 10 : null,
+        avgIncline: d.inclines.length > 0 ? Math.round(mean(d.inclines) * 10) / 10 : null,
+        lastDurationSeconds: Math.round(lastDur),
+        lastSpeed: d.speeds.length > 0 ? d.speeds[d.speeds.length - 1] : null,
+        lastIncline: d.inclines.length > 0 ? d.inclines[d.inclines.length - 1] : null,
+        trendDuration: (normDurSlope > 0.02 ? 'increasing' : normDurSlope < -0.02 ? 'decreasing' : 'stable') as CardioHistory['trendDuration'],
+        trendIntensity: (normSpeedSlope > 0.02 ? 'increasing' : normSpeedSlope < -0.02 ? 'decreasing' : 'stable') as CardioHistory['trendIntensity'],
+      };
+    })
+    .sort((a, b) => b.recentSessions - a.recentSessions);
+}
+
+/**
  * Compute structural imbalances.
  */
 function computeImbalanceAlerts(volumeStatuses: MuscleVolumeStatus[]): ImbalanceAlert[] {
@@ -1891,6 +1984,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     detectedSplit: detectTrainingSplit(workouts, exercises),
     dayOfWeekPatterns: computeDayOfWeekPatterns(workouts, exercises),
     exercisePreferences: computeExercisePreferences(workouts),
+    cardioHistory: computeCardioHistory(workouts, exercises),
 
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
     avgSessionDuration: Math.round(avgSessionDuration),

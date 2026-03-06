@@ -16,7 +16,7 @@
 
 import { requireSupabase } from './supabase';
 import { VOLUME_GUIDELINES, MUSCLE_HEAD_TO_GROUP, getGuidelineForGroup } from './volumeGuidelines';
-import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference } from './trainingAnalysis';
+import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference, CardioHistory } from './trainingAnalysis';
 import { uuidv4 } from '../utils/uuid';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -50,6 +50,11 @@ export interface GeneratedExercise {
   rationale: string;
   adjustments: string[];
   isDeload: boolean;
+  isCardio: boolean;
+  cardioDurationSeconds: number | null;
+  cardioSpeed: number | null;
+  cardioIncline: number | null;
+  cardioSpeedLabel: string | null;
 }
 
 export interface DecisionLogEntry {
@@ -523,31 +528,40 @@ function stepSelectExercises(
     }
   }
 
-  // Add cardio if user regularly does it
+  // Add ALL cardio exercises the user regularly does
   const cardioPrefs = profile.exercisePreferences.filter(p => {
     const ex = allExercises.find(e => e.name.toLowerCase() === p.exerciseName);
-    return ex?.ml_exercise_type === 'cardio' && p.recentSessions >= 2;
+    return ex?.ml_exercise_type === 'cardio' && p.recentSessions >= 1;
   });
 
-  if (cardioPrefs.length > 0) {
-    // Pick the user's most-preferred cardio exercise
-    const topCardio = cardioPrefs[0];
-    const cardioEx = allExercises.find(e => e.name.toLowerCase() === topCardio.exerciseName);
-    if (cardioEx && !avoidSet.has(cardioEx.name.toLowerCase())) {
-      selections.push({
-        exercise: cardioEx,
-        muscleGroup: 'cardio',
-        sets: 1, // Cardio is time-based, 1 "set" = one block
-        reason: `Cardio — staple exercise (${topCardio.recentSessions} recent sessions)`,
-        isCardio: true,
-      });
-      decisions.push({
-        exerciseName: cardioEx.name,
-        muscleGroup: 'cardio',
-        score: topCardio.recencyScore,
-        factors: [`User does this ${topCardio.recentSessions}x in last 4 weeks`, `Recency score: ${topCardio.recencyScore}`],
-      });
-    }
+  for (const cardioPref of cardioPrefs) {
+    const cardioEx = allExercises.find(e => e.name.toLowerCase() === cardioPref.exerciseName);
+    if (!cardioEx || avoidSet.has(cardioEx.name.toLowerCase())) continue;
+
+    const cardioHist = profile.cardioHistory.find(c => c.exerciseName === cardioPref.exerciseName);
+    const durationInfo = cardioHist
+      ? `avg ${Math.round(cardioHist.avgDurationSeconds / 60)} min${cardioHist.avgSpeed != null ? `, intensity: ${cardioHist.avgSpeed}` : ''}`
+      : '';
+
+    selections.push({
+      exercise: cardioEx,
+      muscleGroup: 'cardio',
+      sets: 1,
+      reason: `Cardio — ${cardioPref.recentSessions} recent sessions${durationInfo ? `, ${durationInfo}` : ''}`,
+      isCardio: true,
+    });
+    decisions.push({
+      exerciseName: cardioEx.name,
+      muscleGroup: 'cardio',
+      score: cardioPref.recencyScore,
+      factors: [
+        `User does this ${cardioPref.recentSessions}x in last 4 weeks`,
+        `Total: ${cardioPref.totalSessions} sessions`,
+        cardioHist ? `Avg duration: ${Math.round(cardioHist.avgDurationSeconds / 60)} min` : 'No duration data',
+        cardioHist?.avgSpeed != null ? `Avg intensity: ${cardioHist.avgSpeed}` : '',
+        `Recency score: ${cardioPref.recencyScore}`,
+      ].filter(Boolean),
+    });
   }
 
   return { selections, decisions };
@@ -564,9 +578,42 @@ function stepPrescribe(
   const repRange = getRepRange(prefs.training_goal);
 
   return selections.map(sel => {
-    // Handle cardio differently
+    // Handle cardio with real duration/intensity from history
     if (sel.isCardio || sel.exercise.ml_exercise_type === 'cardio') {
+      const cardio = profile.cardioHistory.find(c => c.exerciseName === sel.exercise.name.toLowerCase());
       const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+
+      let duration = cardio?.lastDurationSeconds ?? cardio?.avgDurationSeconds ?? 1800;
+      let speed = cardio?.lastSpeed ?? cardio?.avgSpeed ?? null;
+      let incline = cardio?.lastIncline ?? cardio?.avgIncline ?? null;
+      const adjustments: string[] = [];
+
+      if (recoveryAdj.isDeload) {
+        duration = Math.round(duration * 0.8);
+        adjustments.push('Deload: duration reduced 20%');
+        if (speed != null) {
+          speed = Math.round(speed * 0.85 * 10) / 10;
+          adjustments.push('Deload: intensity reduced 15%');
+        }
+      } else if (cardio && cardio.trendDuration === 'increasing') {
+        adjustments.push(`Duration trending up — maintaining at ${Math.round(duration / 60)} min`);
+      } else if (cardio && cardio.trendIntensity === 'increasing') {
+        adjustments.push(`Intensity trending up — good progressive overload`);
+      }
+
+      // Determine the right label for speed/intensity
+      const exName = sel.exercise.name.toLowerCase();
+      let speedLabel: string | null = null;
+      if (exName.includes('stairmaster') || exName.includes('stair master')) speedLabel = 'Level';
+      else if (exName.includes('bike') || exName.includes('cycle')) speedLabel = 'Resistance';
+      else if (exName.includes('row')) speedLabel = 'Watts';
+      else if (exName.includes('treadmill') || exName.includes('walk') || exName.includes('run')) speedLabel = 'Speed (mph)';
+      else if (speed != null) speedLabel = 'Intensity';
+
+      const rationale = cardio
+        ? `Based on your last ${cardio.totalSessions} sessions (${cardio.recentSessions} recent). Avg: ${Math.round(cardio.avgDurationSeconds / 60)} min${cardio.avgSpeed != null ? `, ${speedLabel ?? 'intensity'}: ${cardio.avgSpeed}` : ''}`
+        : `Cardio — you do this ${pref?.recentSessions ?? 0}x per month`;
+
       return {
         exerciseName: sel.exercise.name,
         exerciseLibraryId: sel.exercise.id,
@@ -580,9 +627,14 @@ function stepPrescribe(
         isBodyweight: false,
         tempo: '0-0-0',
         restSeconds: 0,
-        rationale: `Cardio — you do this ${pref?.recentSessions ?? 0}x per month. Duration based on your typical sessions.`,
-        adjustments: recoveryAdj.isDeload ? ['Deload: reduce intensity/duration by 20%'] : [],
+        rationale,
+        adjustments,
         isDeload: recoveryAdj.isDeload,
+        isCardio: true,
+        cardioDurationSeconds: duration,
+        cardioSpeed: speed,
+        cardioIncline: incline,
+        cardioSpeedLabel: speedLabel,
       };
     }
 
@@ -663,6 +715,11 @@ function stepPrescribe(
       rationale: sel.reason,
       adjustments,
       isDeload: recoveryAdj.isDeload,
+      isCardio: false,
+      cardioDurationSeconds: null,
+      cardioSpeed: null,
+      cardioIncline: null,
+      cardioSpeedLabel: null,
     };
   });
 }

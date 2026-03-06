@@ -41,8 +41,9 @@ export default function TodayWorkout() {
 
       const w = await generateWorkout(tp)
       setWorkout(w)
-      await saveGeneratedWorkout(user.id, w)
       setViewState('ready')
+      // Save asynchronously — don't let DB errors block the UI
+      saveGeneratedWorkout(user.id, w).catch(e => logError('Save generated workout failed (non-blocking)', e))
     } catch (err) {
       logError('Workout generation error', err)
       setErrorMsg(err instanceof Error ? err.message : 'Failed to generate workout')
@@ -59,21 +60,39 @@ export default function TodayWorkout() {
 
   const handleStartWorkout = () => {
     if (!workout) return
-    const exercises = workout.exercises.map(ex => ({
-      name: ex.exerciseName,
-      body_part: ex.bodyPart,
-      exercise_library_id: ex.exerciseLibraryId,
-      category: ex.movementPattern.startsWith('cardio') ? 'Cardio' : ex.movementPattern === 'recovery' ? 'Recovery' : 'Strength',
-      sets: Array.from({ length: ex.sets }, (_, i) => ({
-        set_number: i + 1,
-        target_weight: ex.isBodyweight ? null : ex.targetWeight,
-        target_reps: ex.targetReps,
-        tempo: ex.tempo,
-        _is_bodyweight: ex.isBodyweight,
-        weight: ex.isBodyweight ? 'BW' : (ex.targetWeight != null ? String(ex.targetWeight) : ''),
-        reps: String(ex.targetReps),
-      })),
-    }))
+    const exercises = workout.exercises.map(ex => {
+      if (ex.isCardio) {
+        return {
+          name: ex.exerciseName,
+          body_part: ex.bodyPart,
+          exercise_library_id: ex.exerciseLibraryId,
+          category: 'Cardio',
+          sets: [{
+            set_number: 1,
+            time: ex.cardioDurationSeconds ?? 1800,
+            speed: ex.cardioSpeed ?? null,
+            incline: ex.cardioIncline ?? null,
+            weight: '',
+            reps: '',
+          }],
+        }
+      }
+      return {
+        name: ex.exerciseName,
+        body_part: ex.bodyPart,
+        exercise_library_id: ex.exerciseLibraryId,
+        category: 'Strength',
+        sets: Array.from({ length: ex.sets }, (_, i) => ({
+          set_number: i + 1,
+          target_weight: ex.isBodyweight ? null : ex.targetWeight,
+          target_reps: ex.targetReps,
+          tempo: ex.tempo,
+          _is_bodyweight: ex.isBodyweight,
+          weight: ex.isBodyweight ? 'BW' : (ex.targetWeight != null ? String(ex.targetWeight) : ''),
+          reps: String(ex.targetReps),
+        })),
+      }
+    })
     sessionStorage.setItem('generated_workout', JSON.stringify({
       exercises,
       generated_workout_id: workout.id,
@@ -225,8 +244,18 @@ export default function TodayWorkout() {
                     <div>
                       <h3 className={styles.exerciseName}>{ex.exerciseName}</h3>
                       <div className={styles.exerciseMeta}>
-                        {ex.sets} × {ex.targetReps}
-                        {ex.isBodyweight ? ' (BW)' : ex.targetWeight != null ? ` @ ${ex.targetWeight} lbs` : ''}
+                        {ex.isCardio ? (
+                          <>
+                            {ex.cardioDurationSeconds != null ? `${Math.round(ex.cardioDurationSeconds / 60)} min` : 'Duration TBD'}
+                            {ex.cardioSpeed != null && ex.cardioSpeedLabel ? ` — ${ex.cardioSpeedLabel}: ${ex.cardioSpeed}` : ''}
+                            {ex.cardioIncline != null ? ` — ${ex.cardioIncline}% incline` : ''}
+                          </>
+                        ) : (
+                          <>
+                            {ex.sets} × {ex.targetReps}
+                            {ex.isBodyweight ? ' (BW)' : ex.targetWeight != null ? ` @ ${ex.targetWeight} lbs` : ''}
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -237,20 +266,43 @@ export default function TodayWorkout() {
                   <div className={styles.exerciseDetails}>
                     <table className={styles.detailTable}>
                       <tbody>
-                        <tr>
-                          <td className={styles.detailLabel}>Movement</td>
-                          <td>{ex.movementPattern.replace(/_/g, ' ')}</td>
-                        </tr>
-                        {tempo && (
-                          <tr>
-                            <td className={styles.detailLabel}>Tempo</td>
-                            <td>{tempo.eccentric}s down / {tempo.pause}s pause / {tempo.concentric}s up</td>
-                          </tr>
+                        {ex.isCardio ? (
+                          <>
+                            <tr>
+                              <td className={styles.detailLabel}>Duration</td>
+                              <td>{ex.cardioDurationSeconds != null ? `${Math.round(ex.cardioDurationSeconds / 60)} minutes` : 'Based on feel'}</td>
+                            </tr>
+                            {ex.cardioSpeed != null && (
+                              <tr>
+                                <td className={styles.detailLabel}>{ex.cardioSpeedLabel ?? 'Intensity'}</td>
+                                <td>{ex.cardioSpeed}</td>
+                              </tr>
+                            )}
+                            {ex.cardioIncline != null && (
+                              <tr>
+                                <td className={styles.detailLabel}>Incline</td>
+                                <td>{ex.cardioIncline}%</td>
+                              </tr>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <tr>
+                              <td className={styles.detailLabel}>Movement</td>
+                              <td>{ex.movementPattern.replace(/_/g, ' ')}</td>
+                            </tr>
+                            {tempo && (
+                              <tr>
+                                <td className={styles.detailLabel}>Tempo</td>
+                                <td>{tempo.eccentric}s down / {tempo.pause}s pause / {tempo.concentric}s up</td>
+                              </tr>
+                            )}
+                            <tr>
+                              <td className={styles.detailLabel}>Rest</td>
+                              <td>{ex.restSeconds}s between sets</td>
+                            </tr>
+                          </>
                         )}
-                        <tr>
-                          <td className={styles.detailLabel}>Rest</td>
-                          <td>{ex.restSeconds}s between sets</td>
-                        </tr>
                         <tr>
                           <td className={styles.detailLabel}>Primary</td>
                           <td>{ex.primaryMuscles.map(m => m.replace(/_/g, ' ')).join(', ') || '—'}</td>

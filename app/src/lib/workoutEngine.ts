@@ -18,6 +18,7 @@ import { requireSupabase } from './supabase';
 import { VOLUME_GUIDELINES, MUSCLE_HEAD_TO_GROUP, getGuidelineForGroup } from './volumeGuidelines';
 import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference, CardioHistory, ExerciseOrderProfile } from './trainingAnalysis';
 import { uuidv4 } from '../utils/uuid';
+import { getExerciseMapping } from './exerciseMuscleMap';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -580,14 +581,46 @@ function stepSelectExercises(
     }
   }
 
-  // Add ALL cardio exercises the user regularly does
-  const cardioPrefs = profile.exercisePreferences.filter(p => {
-    const ex = allExercises.find(e => e.name.toLowerCase() === p.exerciseName);
-    return ex?.ml_exercise_type === 'cardio' && p.recentSessions >= 1;
-  });
+  // Add ALL cardio exercises the user regularly does — detect from multiple sources
+  const isCardioExercise = (exerciseName: string): boolean => {
+    const key = exerciseName.toLowerCase();
+    // Source 1: exercise library tag
+    const libEx = allExercises.find(e => e.name.toLowerCase() === key);
+    if (libEx?.ml_exercise_type === 'cardio') return true;
+    // Source 2: local muscle map
+    const mapping = getExerciseMapping(exerciseName);
+    if (mapping?.exercise_type === 'cardio') return true;
+    // Source 3: appears in computed cardio history
+    if (profile.cardioHistory.some(c => c.exerciseName === key)) return true;
+    return false;
+  };
+
+  const cardioPrefs = profile.exercisePreferences.filter(p =>
+    isCardioExercise(p.exerciseName) && p.recentSessions >= 1
+  );
 
   for (const cardioPref of cardioPrefs) {
-    const cardioEx = allExercises.find(e => e.name.toLowerCase() === cardioPref.exerciseName);
+    let cardioEx = allExercises.find(e => e.name.toLowerCase() === cardioPref.exerciseName);
+    // If not in library, synthesize from muscle map so we still include it
+    if (!cardioEx) {
+      const mapping = getExerciseMapping(cardioPref.exerciseName);
+      if (mapping) {
+        cardioEx = {
+          id: `synth-${cardioPref.exerciseName}`,
+          name: cardioPref.exerciseName,
+          body_part: 'cardio',
+          primary_muscles: mapping.primary_muscles ?? [],
+          secondary_muscles: mapping.secondary_muscles ?? [],
+          stabilizer_muscles: mapping.stabilizer_muscles ?? [],
+          movement_pattern: mapping.movement_pattern,
+          ml_exercise_type: 'cardio',
+          force_type: mapping.force_type,
+          difficulty: mapping.difficulty,
+          default_tempo: mapping.default_tempo ?? null,
+          equipment: null,
+        } as EnrichedExercise;
+      }
+    }
     if (!cardioEx || avoidSet.has(cardioEx.name.toLowerCase())) continue;
 
     const cardioHist = profile.cardioHistory.find(c => c.exerciseName === cardioPref.exerciseName);
@@ -879,25 +912,29 @@ function stepApplyConstraints(
     }
   }
 
-  // Cardio always at the end
-  const finalOrder = [...ordered, ...cardio];
+  // Reserve time for cardio before fitting strength exercises
+  const cardioMinutes = cardio.reduce(
+    (sum, ex) => sum + (ex.cardioDurationSeconds ?? 1800) / 60, 0
+  );
+  const strengthBudget = Math.max(
+    prefs.session_duration_minutes - cardioMinutes - 5, // 5 min warm-up
+    30 // absolute minimum for strength
+  );
 
-  // Trim to fit session duration
-  let totalMinutes = 5; // warm-up
-  const fitted: GeneratedExercise[] = [];
-
-  for (const ex of finalOrder) {
-    const duration = ex.isCardio
-      ? (ex.cardioDurationSeconds ?? 1800) / 60
-      : estimateExerciseDuration(ex.sets, ex.restSeconds);
-    if (totalMinutes + duration > prefs.session_duration_minutes && fitted.length >= 3) {
+  // Trim strength exercises to fit within the strength budget
+  let strengthMinutes = 0;
+  const fittedStrength: GeneratedExercise[] = [];
+  for (const ex of ordered) {
+    const duration = estimateExerciseDuration(ex.sets, ex.restSeconds);
+    if (strengthMinutes + duration > strengthBudget && fittedStrength.length >= 3) {
       break;
     }
-    totalMinutes += duration;
-    fitted.push(ex);
+    strengthMinutes += duration;
+    fittedStrength.push(ex);
   }
 
-  return fitted;
+  // Cardio is always included — it's part of the user's training
+  return [...fittedStrength, ...cardio];
 }
 
 // ─── Step 6: Generate Rationale ─────────────────────────────────────────────

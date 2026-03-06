@@ -1700,9 +1700,38 @@ function computeCardioHistory(
   workouts: WorkoutRecord[],
   exercises: EnrichedExercise[]
 ): CardioHistory[] {
+  // Build cardio set from multiple sources — don't rely on a single tag
   const cardioNames = new Set(
     exercises.filter(e => e.ml_exercise_type === 'cardio').map(e => e.name.toLowerCase())
   );
+
+  // Source 2: local muscle map (always has cardio tagged correctly)
+  for (const w of workouts) {
+    for (const ex of w.workout_exercises) {
+      const key = ex.exercise_name.toLowerCase();
+      if (cardioNames.has(key)) continue;
+      const mapping = getExerciseMapping(ex.exercise_name);
+      if (mapping?.exercise_type === 'cardio') {
+        cardioNames.add(key);
+      }
+    }
+  }
+
+  // Source 3: heuristic — exercises with time data but no weight/reps are cardio
+  for (const w of workouts) {
+    for (const ex of w.workout_exercises) {
+      const key = ex.exercise_name.toLowerCase();
+      if (cardioNames.has(key)) continue;
+      const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : [];
+      const hasTime = sets.some(s => s.time != null && s.time > 0);
+      const hasWeightOrReps = sets.some(s =>
+        (s.weight != null && Number(s.weight) > 0) || (s.reps != null && Number(s.reps) > 0)
+      );
+      if (hasTime && !hasWeightOrReps) {
+        cardioNames.add(key);
+      }
+    }
+  }
 
   const data: Record<string, {
     durations: number[];

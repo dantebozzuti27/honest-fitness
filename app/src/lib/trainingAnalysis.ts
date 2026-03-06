@@ -199,6 +199,58 @@ export interface ImbalanceAlert {
   targetRatio: number;
 }
 
+type TrendDirection = 'up' | 'flat' | 'down';
+
+export interface MetricTrend {
+  current: number | null;
+  avg30d: number | null;
+  slope: number;          // units per week
+  slopePct: number;       // % change per week relative to avg
+  direction: TrendDirection;
+  dataPoints: number;
+}
+
+export interface ExerciseTrend {
+  exerciseName: string;
+  estimated1RM: MetricTrend;
+  volumeLoad: MetricTrend; // total weight × reps over 30 days weekly
+}
+
+export interface MuscleGroupTrend {
+  muscleGroup: string;
+  weeklySetsTrend: MetricTrend;
+}
+
+export interface Rolling30DayTrends {
+  // Recovery inputs (from wearables)
+  sleep: MetricTrend;
+  hrv: MetricTrend;
+  rhr: MetricTrend;
+  steps: MetricTrend;
+
+  // Body composition
+  bodyWeight: MetricTrend;
+  bodyFat: MetricTrend;
+  estimatedLeanMass: MetricTrend;   // weight × (1 - bf%) when bf% available
+
+  // Overall strength progress
+  totalStrengthIndex: MetricTrend;  // sum of e1RM across all tracked lifts per session
+  big3Total: MetricTrend;           // bench + squat + deadlift e1RM
+  relativeStrength: MetricTrend;    // total strength / body weight (Wilks-like normalization)
+  totalVolumeLoad: MetricTrend;     // total weight × reps per week across all exercises
+
+  // Training outputs
+  trainingFrequency: MetricTrend;   // sessions per week
+  avgSessionDuration: MetricTrend;  // minutes
+  totalWeeklyVolume: MetricTrend;   // total sets per week across all muscles
+
+  // Per-exercise strength trends (top exercises by recency)
+  exerciseTrends: ExerciseTrend[];
+
+  // Per-muscle-group volume trends
+  muscleGroupTrends: MuscleGroupTrend[];
+}
+
 export interface TrainingProfile {
   userId: string;
   computedAt: string;
@@ -274,6 +326,9 @@ export interface TrainingProfile {
     sleepDebt7d: number | null;
     recoveryModifier: number; // 0.8 to 1.0 multiplier on training capacity
   };
+
+  // Rolling 30-day trends (objective, all derived from measured data)
+  rolling30DayTrends: Rolling30DayTrends;
 
   // Exercise rotation status
   exerciseRotation: Array<{
@@ -1896,6 +1951,243 @@ function computeExerciseOrderProfiles(
 /**
  * Compute structural imbalances.
  */
+// ─── Rolling 30-Day Trends ────────────────────────────────────────────────
+
+function classifyTrend(slopePct: number): TrendDirection {
+  if (slopePct > 2) return 'up';
+  if (slopePct < -2) return 'down';
+  return 'flat';
+}
+
+function buildMetricTrend(dailyValues: number[]): MetricTrend {
+  if (dailyValues.length === 0) {
+    return { current: null, avg30d: null, slope: 0, slopePct: 0, direction: 'flat', dataPoints: 0 };
+  }
+  const current = dailyValues[dailyValues.length - 1];
+  const avg = mean(dailyValues);
+  const slope = linearRegressionSlope(dailyValues);
+  const slopePerWeek = slope * 7;
+  const slopePct = avg !== 0 ? (slopePerWeek / avg) * 100 : 0;
+  return {
+    current,
+    avg30d: Math.round(avg * 100) / 100,
+    slope: Math.round(slopePerWeek * 100) / 100,
+    slopePct: Math.round(slopePct * 10) / 10,
+    direction: classifyTrend(slopePct),
+    dataPoints: dailyValues.length,
+  };
+}
+
+function computeRolling30DayTrends(
+  workouts: WorkoutRecord[],
+  health: HealthRecord[],
+  exercises: EnrichedExercise[],
+  exerciseProgressions: ExerciseProgression[]
+): Rolling30DayTrends {
+  const today = new Date().toISOString().split('T')[0];
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000).toISOString().split('T')[0];
+
+  const recentHealth = health.filter(h => h.date >= thirtyDaysAgo && h.date <= today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const recentWorkouts = workouts.filter(w => w.date >= thirtyDaysAgo && w.date <= today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Health metric trends
+  const sleepValues = recentHealth.filter(h => h.sleep_duration != null).map(h => h.sleep_duration!);
+  const hrvValues = recentHealth.filter(h => h.hrv != null).map(h => h.hrv!);
+  const rhrValues = recentHealth.filter(h => h.resting_heart_rate != null).map(h => h.resting_heart_rate!);
+  const stepsValues = recentHealth.filter(h => h.steps != null).map(h => h.steps!);
+  const weightValues = recentHealth.filter(h => h.weight != null).map(h => h.weight!);
+
+  // Training frequency: sessions per week (bucket into 4 weeks)
+  const weekBuckets: number[] = [0, 0, 0, 0];
+  for (const w of recentWorkouts) {
+    const daysAgo = daysBetween(w.date, today);
+    const weekIdx = Math.min(Math.floor(daysAgo / 7), 3);
+    weekBuckets[3 - weekIdx]++;
+  }
+
+  // Session duration trend (per workout)
+  const durationValues = recentWorkouts.filter(w => w.duration != null).map(w => w.duration!);
+
+  // Total weekly volume (sets per week)
+  const weeklySetCounts: number[] = [0, 0, 0, 0];
+  for (const w of recentWorkouts) {
+    const daysAgo = daysBetween(w.date, today);
+    const weekIdx = Math.min(Math.floor(daysAgo / 7), 3);
+    const totalSets = w.workout_exercises.reduce((sum, ex) => {
+      const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets.length : 0;
+      return sum + sets;
+    }, 0);
+    weeklySetCounts[3 - weekIdx] += totalSets;
+  }
+
+  // Body fat & lean mass
+  const bfValues = recentHealth.filter(h => h.body_fat_percentage != null).map(h => h.body_fat_percentage!);
+  const leanMassValues: number[] = [];
+  for (const h of recentHealth) {
+    if (h.weight != null && h.body_fat_percentage != null) {
+      leanMassValues.push(h.weight * (1 - h.body_fat_percentage / 100));
+    }
+  }
+
+  // Per-exercise strength trends (top 10 by recency from progressions)
+  const topExercises = [...exerciseProgressions]
+    .sort((a, b) => b.sessionsTracked - a.sessionsTracked)
+    .slice(0, 10);
+
+  // Track per-session aggregate strength for overall index
+  const sessionStrengthIndices: number[] = [];
+  const weeklyVolumeLoad: number[] = [0, 0, 0, 0];
+
+  // Big 3 tracking
+  const big3Patterns = {
+    bench: /\bbench press\b/i,
+    squat: /\b(?:back |barbell )?squat\b(?!.*front)/i,
+    deadlift: /\b(?:conventional |barbell )?deadlift\b(?!.*romanian|.*rdl|.*sumo)/i,
+  };
+  const big3SessionValues: number[] = [];
+
+  const exerciseTrends: ExerciseTrend[] = topExercises.map(prog => {
+    const exWorkouts = recentWorkouts.filter(w =>
+      w.workout_exercises.some(e => e.exercise_name.toLowerCase() === prog.exerciseName)
+    );
+
+    const e1rmValues: number[] = [];
+    const volumeLoadByWeek: number[] = [0, 0, 0, 0];
+
+    for (const w of exWorkouts) {
+      const exRecord = w.workout_exercises.find(e => e.exercise_name.toLowerCase() === prog.exerciseName);
+      if (!exRecord || !Array.isArray(exRecord.workout_sets)) continue;
+
+      let sessionMax1RM = 0;
+      let sessionVolLoad = 0;
+
+      for (const s of exRecord.workout_sets) {
+        if (s.weight != null && s.reps != null && s.reps > 0) {
+          const e1rm = s.weight * (1 + s.reps / 30);
+          if (e1rm > sessionMax1RM) sessionMax1RM = e1rm;
+          sessionVolLoad += s.weight * s.reps;
+        }
+      }
+
+      if (sessionMax1RM > 0) e1rmValues.push(sessionMax1RM);
+
+      const daysAgo = daysBetween(w.date, today);
+      const weekIdx = Math.min(Math.floor(daysAgo / 7), 3);
+      volumeLoadByWeek[3 - weekIdx] += sessionVolLoad;
+    }
+
+    return {
+      exerciseName: prog.exerciseName,
+      estimated1RM: buildMetricTrend(e1rmValues),
+      volumeLoad: buildMetricTrend(volumeLoadByWeek.filter(v => v > 0)),
+    };
+  });
+
+  // Overall strength index + big 3 total + volume load — computed per session
+  for (const w of recentWorkouts) {
+    let sessionTotalE1RM = 0;
+    let exerciseCount = 0;
+    let sessionVolLoad = 0;
+    const big3: Record<string, number> = {};
+
+    for (const ex of w.workout_exercises) {
+      if (!Array.isArray(ex.workout_sets)) continue;
+      let bestE1RM = 0;
+
+      for (const s of ex.workout_sets) {
+        if (s.weight != null && s.reps != null && s.reps > 0) {
+          const e1rm = s.weight * (1 + s.reps / 30);
+          if (e1rm > bestE1RM) bestE1RM = e1rm;
+          sessionVolLoad += s.weight * s.reps;
+        }
+      }
+
+      if (bestE1RM > 0) {
+        sessionTotalE1RM += bestE1RM;
+        exerciseCount++;
+      }
+
+      const exName = ex.exercise_name.toLowerCase();
+      for (const [lift, pattern] of Object.entries(big3Patterns)) {
+        if (pattern.test(exName) && bestE1RM > (big3[lift] ?? 0)) {
+          big3[lift] = bestE1RM;
+        }
+      }
+    }
+
+    if (exerciseCount > 0) {
+      sessionStrengthIndices.push(sessionTotalE1RM);
+    }
+
+    if (Object.keys(big3).length === 3) {
+      big3SessionValues.push(big3.bench + big3.squat + big3.deadlift);
+    }
+
+    const daysAgo = daysBetween(w.date, today);
+    const weekIdx = Math.min(Math.floor(daysAgo / 7), 3);
+    weeklyVolumeLoad[3 - weekIdx] += sessionVolLoad;
+  }
+
+  // Relative strength: total strength index / body weight (per session, using closest weight)
+  const relativeStrengthValues: number[] = [];
+  if (weightValues.length > 0) {
+    const latestWeight = weightValues[weightValues.length - 1];
+    for (const si of sessionStrengthIndices) {
+      relativeStrengthValues.push(Math.round((si / latestWeight) * 100) / 100);
+    }
+  }
+
+  // Per-muscle-group weekly sets trend
+  const muscleGroupWeekly: Record<string, number[]> = {};
+
+  for (const w of recentWorkouts) {
+    const daysAgo = daysBetween(w.date, today);
+    const weekIdx = Math.min(Math.floor(daysAgo / 7), 3);
+
+    for (const ex of w.workout_exercises) {
+      const mapping = getExerciseMapping(ex.exercise_name);
+      if (!mapping) continue;
+
+      const groups = (mapping.primary_muscles || []).map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+      const uniqueGroups = [...new Set(groups)];
+      const setCount = Array.isArray(ex.workout_sets) ? ex.workout_sets.filter((s: SetRecord) => s.weight != null || s.reps != null).length : 0;
+
+      for (const g of uniqueGroups) {
+        if (!muscleGroupWeekly[g]) muscleGroupWeekly[g] = [0, 0, 0, 0];
+        muscleGroupWeekly[g][3 - weekIdx] += setCount;
+      }
+    }
+  }
+
+  const muscleGroupTrends: MuscleGroupTrend[] = Object.entries(muscleGroupWeekly)
+    .map(([muscleGroup, weeklySets]) => ({
+      muscleGroup,
+      weeklySetsTrend: buildMetricTrend(weeklySets),
+    }))
+    .sort((a, b) => (b.weeklySetsTrend.avg30d ?? 0) - (a.weeklySetsTrend.avg30d ?? 0));
+
+  return {
+    sleep: buildMetricTrend(sleepValues),
+    hrv: buildMetricTrend(hrvValues),
+    rhr: buildMetricTrend(rhrValues),
+    steps: buildMetricTrend(stepsValues),
+    bodyWeight: buildMetricTrend(weightValues),
+    bodyFat: buildMetricTrend(bfValues),
+    estimatedLeanMass: buildMetricTrend(leanMassValues),
+    totalStrengthIndex: buildMetricTrend(sessionStrengthIndices),
+    big3Total: buildMetricTrend(big3SessionValues),
+    relativeStrength: buildMetricTrend(relativeStrengthValues),
+    totalVolumeLoad: buildMetricTrend(weeklyVolumeLoad),
+    trainingFrequency: buildMetricTrend(weekBuckets),
+    avgSessionDuration: buildMetricTrend(durationValues),
+    totalWeeklyVolume: buildMetricTrend(weeklySetCounts),
+    exerciseTrends,
+    muscleGroupTrends,
+  };
+}
+
 // ─── Cumulative Sleep Debt ─────────────────────────────────────────────────
 
 function computeCumulativeSleepDebt(health: HealthRecord[]): TrainingProfile['cumulativeSleepDebt'] {
@@ -2226,6 +2518,8 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
 
     cumulativeSleepDebt: computeCumulativeSleepDebt(health),
     exerciseRotation: computeExerciseRotation(workouts, exercises),
+
+    rolling30DayTrends: computeRolling30DayTrends(workouts, health, exercises, exerciseProgressions),
 
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
     avgSessionDuration: Math.round(avgSessionDuration),

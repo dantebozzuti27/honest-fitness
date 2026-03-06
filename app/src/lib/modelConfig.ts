@@ -105,6 +105,26 @@ export interface ModelConfig {
   priorityMuscleBoost: number;
   /** Split detection confidence threshold */
   splitConfidenceThreshold: number;
+
+  // ── 30-Day Trend Sensitivities ─────────────────────────────────────────
+  /** Sleep trending down: slope% threshold to trigger proactive volume cut */
+  sleepTrendDownThreshold: number;
+  /** Volume reduction when sleep is trending down (before single-night crash) */
+  sleepTrendVolumeReduction: number;
+  /** HRV trending down: slope% threshold for proactive adjustment */
+  hrvTrendDownThreshold: number;
+  /** Volume reduction when HRV trend is declining */
+  hrvTrendVolumeReduction: number;
+  /** RHR trending up: slope% threshold */
+  rhrTrendUpThreshold: number;
+  /** Volume reduction when RHR trend is rising */
+  rhrTrendVolumeReduction: number;
+  /** Training frequency trending up: slope% threshold for overreach warning */
+  frequencyTrendUpThreshold: number;
+  /** Per-session volume reduction when frequency is spiking */
+  frequencyTrendVolumeReduction: number;
+  /** Minimum data points for trends to be actionable */
+  trendMinDataPoints: number;
 }
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
@@ -166,4 +186,15 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   dayPatternBoost: 0.20,
   priorityMuscleBoost: 0.30,
   splitConfidenceThreshold: 0.60,
+
+  // 30-day trend sensitivities
+  sleepTrendDownThreshold: -3,       // sleep declining > 3% per week
+  sleepTrendVolumeReduction: 0.05,   // 5% proactive volume cut
+  hrvTrendDownThreshold: -5,         // HRV declining > 5% per week
+  hrvTrendVolumeReduction: 0.05,
+  rhrTrendUpThreshold: 3,            // RHR rising > 3% per week
+  rhrTrendVolumeReduction: 0.05,
+  frequencyTrendUpThreshold: 15,     // frequency up > 15% per week
+  frequencyTrendVolumeReduction: 0.05,
+  trendMinDataPoints: 7,
 };

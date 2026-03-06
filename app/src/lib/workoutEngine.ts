@@ -509,6 +509,40 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
     reasons.push('Cutting phase detected: progression expectations reduced');
   }
 
+  // 30-day trend signals — proactive adjustments before single-day thresholds trigger
+  const trends = profile.rolling30DayTrends;
+
+  if (trends.sleep.dataPoints >= cfg.trendMinDataPoints && trends.sleep.slopePct < cfg.sleepTrendDownThreshold) {
+    volumeMultiplier *= (1 - cfg.sleepTrendVolumeReduction);
+    reasons.push(`Sleep trending down ${Math.abs(trends.sleep.slopePct).toFixed(1)}%/wk over 30d → proactive volume −${Math.round(cfg.sleepTrendVolumeReduction * 100)}%`);
+  }
+
+  if (trends.hrv.dataPoints >= cfg.trendMinDataPoints && trends.hrv.slopePct < cfg.hrvTrendDownThreshold) {
+    volumeMultiplier *= (1 - cfg.hrvTrendVolumeReduction);
+    reasons.push(`HRV trending down ${Math.abs(trends.hrv.slopePct).toFixed(1)}%/wk over 30d → proactive volume −${Math.round(cfg.hrvTrendVolumeReduction * 100)}%`);
+  }
+
+  if (trends.rhr.dataPoints >= cfg.trendMinDataPoints && trends.rhr.slopePct > cfg.rhrTrendUpThreshold) {
+    volumeMultiplier *= (1 - cfg.rhrTrendVolumeReduction);
+    reasons.push(`RHR trending up ${trends.rhr.slopePct.toFixed(1)}%/wk over 30d → proactive volume −${Math.round(cfg.rhrTrendVolumeReduction * 100)}%`);
+  }
+
+  if (trends.trainingFrequency.dataPoints >= 4 && trends.trainingFrequency.slopePct > cfg.frequencyTrendUpThreshold) {
+    volumeMultiplier *= (1 - cfg.frequencyTrendVolumeReduction);
+    reasons.push(`Training frequency spiking ${trends.trainingFrequency.slopePct.toFixed(1)}%/wk → reducing per-session volume −${Math.round(cfg.frequencyTrendVolumeReduction * 100)}%`);
+  }
+
+  // Overall strength trending down while volume is stable/up = possible overtraining or poor recovery
+  if (trends.totalStrengthIndex.dataPoints >= 4 && trends.totalStrengthIndex.direction === 'down' &&
+      trends.totalWeeklyVolume.direction !== 'down') {
+    reasons.push(`Strength declining (${Math.abs(trends.totalStrengthIndex.slopePct).toFixed(1)}%/wk) while volume maintained — possible overreach, consider deload`);
+  }
+
+  // Relative strength trending up = effective training (body recomp or getting stronger at same weight)
+  if (trends.relativeStrength.dataPoints >= 4 && trends.relativeStrength.direction === 'up') {
+    reasons.push(`Relative strength improving ${trends.relativeStrength.slopePct.toFixed(1)}%/wk — effective progression`);
+  }
+
   return { volumeMultiplier: Math.max(cfg.volumeMultiplierFloor, volumeMultiplier), adjustmentReasons: reasons, isDeload: false };
 }
 
@@ -645,6 +679,14 @@ function stepSelectMuscleGroups(
 
     if (prefs.priority_muscles.some(pm => pm.toLowerCase() === vol.muscleGroup)) {
       priority += cfg.priorityMuscleBoost;
+    }
+
+    // 30-day trend: if volume for this group is declining, boost priority to recover it
+    const mgTrend = profile.rolling30DayTrends.muscleGroupTrends.find(
+      t => t.muscleGroup === vol.muscleGroup
+    );
+    if (mgTrend && mgTrend.weeklySetsTrend.direction === 'down' && mgTrend.weeklySetsTrend.dataPoints >= 3) {
+      priority += 0.15;
     }
 
     const setsNeeded = Math.ceil(
@@ -1603,6 +1645,70 @@ function stepGenerateRationale(
     step: '6',
     label: 'Evidence Basis',
     details: scienceDetails,
+  });
+
+  // Step 7: 30-day trends summary
+  const trendDetails: string[] = [];
+  const t = profile.rolling30DayTrends;
+  const trendLine = (label: string, mt: { direction: string; slopePct: number; avg30d: number | null; current: number | null; dataPoints: number }, unit?: string) => {
+    if (mt.dataPoints < 3) return null;
+    const arrow = mt.direction === 'up' ? '↑' : mt.direction === 'down' ? '↓' : '→';
+    const u = unit ? ` ${unit}` : '';
+    return `${label}: ${arrow} ${Math.abs(mt.slopePct).toFixed(1)}%/wk (current: ${mt.current?.toFixed(1) ?? '—'}${u}, avg: ${mt.avg30d?.toFixed(1) ?? '—'}${u}, ${mt.dataPoints} pts)`;
+  };
+
+  trendDetails.push('— Recovery —');
+  const recoveryLines = [
+    trendLine('Sleep', t.sleep, 'hrs'),
+    trendLine('HRV', t.hrv, 'ms'),
+    trendLine('RHR', t.rhr, 'bpm'),
+    trendLine('Steps', t.steps),
+  ].filter((l): l is string => l != null);
+  trendDetails.push(...(recoveryLines.length > 0 ? recoveryLines : ['No wearable data']));
+
+  trendDetails.push('');
+  trendDetails.push('— Body —');
+  const bodyLines = [
+    trendLine('Weight', t.bodyWeight, 'lbs'),
+    trendLine('Body Fat', t.bodyFat, '%'),
+    trendLine('Lean Mass', t.estimatedLeanMass, 'lbs'),
+  ].filter((l): l is string => l != null);
+  trendDetails.push(...(bodyLines.length > 0 ? bodyLines : ['No body data']));
+
+  trendDetails.push('');
+  trendDetails.push('— Overall Strength —');
+  const strengthLines = [
+    trendLine('Strength Index', t.totalStrengthIndex, 'lbs'),
+    trendLine('Big 3 Total', t.big3Total, 'lbs'),
+    trendLine('Relative Strength', t.relativeStrength),
+    trendLine('Volume Load', t.totalVolumeLoad, 'lbs'),
+  ].filter((l): l is string => l != null);
+  trendDetails.push(...(strengthLines.length > 0 ? strengthLines : ['Insufficient lifting data']));
+
+  trendDetails.push('');
+  trendDetails.push('— Training —');
+  const trainingLines = [
+    trendLine('Frequency', t.trainingFrequency, 'sessions/wk'),
+    trendLine('Session Duration', t.avgSessionDuration, 'min'),
+    trendLine('Weekly Sets', t.totalWeeklyVolume, 'sets'),
+  ].filter((l): l is string => l != null);
+  trendDetails.push(...trainingLines);
+
+  if (t.exerciseTrends.length > 0) {
+    trendDetails.push('');
+    trendDetails.push('— Top Lifts (e1RM) —');
+    for (const et of t.exerciseTrends.slice(0, 8)) {
+      const arrow = et.estimated1RM.direction === 'up' ? '↑' : et.estimated1RM.direction === 'down' ? '↓' : '→';
+      if (et.estimated1RM.dataPoints >= 2) {
+        trendDetails.push(`  ${et.exerciseName}: ${arrow} ${Math.abs(et.estimated1RM.slopePct).toFixed(1)}%/wk (e1RM: ${et.estimated1RM.current?.toFixed(0) ?? '—'} lbs)`);
+      }
+    }
+  }
+
+  decisionLog.push({
+    step: '7',
+    label: '30-Day Trends',
+    details: trendDetails.length > 0 ? trendDetails : ['Insufficient data for trend analysis'],
   });
 
   const muscleGroupDecisions: MuscleGroupDecision[] = muscleGroups.map(g => ({

@@ -21,6 +21,7 @@ import { uuidv4 } from '../utils/uuid';
 import { getExerciseMapping } from './exerciseMuscleMap';
 import { estimateWeight as estimateWeightFromRatios } from './liftRatios';
 import { suggestSupersets, type SupersetSuggestion } from './supersetPairer';
+import { DEFAULT_MODEL_CONFIG, type ModelConfig } from './modelConfig';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -430,7 +431,7 @@ interface RecoveryAdjustment {
   isDeload: boolean;
 }
 
-function stepRecoveryCheck(profile: TrainingProfile): RecoveryAdjustment {
+function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): RecoveryAdjustment {
   const reasons: string[] = [];
   let volumeMultiplier = 1.0;
 
@@ -442,58 +443,73 @@ function stepRecoveryCheck(profile: TrainingProfile): RecoveryAdjustment {
     };
   }
 
-  const { sleepCoefficients, recoveryContext } = profile;
+  const { recoveryContext } = profile;
 
+  // Sleep: single-night vs baseline
   if (recoveryContext.sleepDurationLastNight != null && recoveryContext.sleepBaseline30d != null) {
     const sleepRatio = recoveryContext.sleepDurationLastNight / recoveryContext.sleepBaseline30d;
-    if (sleepRatio < 0.8) {
-      const reduction = Math.round((1 - sleepRatio) * 30);
+    if (sleepRatio < cfg.sleepReductionThreshold) {
+      const reduction = Math.min(Math.round((1 - sleepRatio) * 100 * (cfg.sleepMaxReduction / 0.30)), Math.round(cfg.sleepMaxReduction * 100));
       volumeMultiplier *= 1 - reduction / 100;
-      reasons.push(`Sleep ${Math.round((1 - sleepRatio) * 100)}% below baseline → volume reduced ${reduction}%`);
+      reasons.push(`Sleep ${Math.round((1 - sleepRatio) * 100)}% below baseline → volume −${reduction}%`);
     }
   }
 
+  // Cumulative sleep debt: amplifies the single-night signal
+  if (profile.cumulativeSleepDebt.recoveryModifier < 1.0) {
+    const debtPct = Math.round((1 - profile.cumulativeSleepDebt.recoveryModifier) * 100);
+    volumeMultiplier *= profile.cumulativeSleepDebt.recoveryModifier;
+    reasons.push(`Cumulative sleep debt (7d): recovery capacity −${debtPct}%`);
+  }
+
+  // HRV
   if (recoveryContext.hrvLastNight != null && recoveryContext.hrvBaseline30d != null) {
     const hrvRatio = recoveryContext.hrvLastNight / recoveryContext.hrvBaseline30d;
-    if (hrvRatio < 0.85) {
-      volumeMultiplier *= 0.85;
-      reasons.push(`HRV ${Math.round((1 - hrvRatio) * 100)}% below baseline → volume reduced 15%`);
+    if (hrvRatio < cfg.hrvReductionThreshold) {
+      volumeMultiplier *= cfg.hrvVolumeMultiplier;
+      const cut = Math.round((1 - cfg.hrvVolumeMultiplier) * 100);
+      reasons.push(`HRV ${Math.round((1 - hrvRatio) * 100)}% below baseline → volume −${cut}%`);
     }
   }
 
+  // RHR
   if (recoveryContext.rhrLastNight != null && recoveryContext.rhrBaseline30d != null) {
     const rhrRatio = recoveryContext.rhrLastNight / recoveryContext.rhrBaseline30d;
-    if (rhrRatio > 1.1) {
-      volumeMultiplier *= 0.9;
-      reasons.push(`RHR ${Math.round((rhrRatio - 1) * 100)}% above baseline → volume reduced 10%`);
+    if (rhrRatio > cfg.rhrElevationThreshold) {
+      volumeMultiplier *= cfg.rhrVolumeMultiplier;
+      const cut = Math.round((1 - cfg.rhrVolumeMultiplier) * 100);
+      reasons.push(`RHR ${Math.round((rhrRatio - 1) * 100)}% above baseline → volume −${cut}%`);
     }
   }
 
-  // Apply time-of-day adjustment info (not volume reduction, just awareness)
+  // Steps/NEAT: if strong negative correlation exists and yesterday was high-step, reduce
+  const stepsCorr = profile.stepsPerformanceCorrelation;
+  if (stepsCorr && stepsCorr.dataPoints >= cfg.stepsMinDataPoints && stepsCorr.coefficient < cfg.stepsCorrelationThreshold) {
+    volumeMultiplier *= (1 - cfg.stepsVolumeReduction);
+    reasons.push(`High NEAT load (steps correlation: ${stepsCorr.coefficient.toFixed(2)}) → volume −${Math.round(cfg.stepsVolumeReduction * 100)}%`);
+  }
+
+  // Time-of-day performance effect
   const currentHour = new Date().getHours();
   const bucket = currentHour < 10 ? 'morning' : currentHour < 14 ? 'midday'
     : currentHour < 17 ? 'afternoon' : 'evening';
   const todEffect = profile.timeOfDayEffects.find(e => e.bucket === bucket);
-  if (todEffect && todEffect.avgDelta < -0.05 && todEffect.dataPoints >= 10) {
+  if (todEffect && todEffect.avgDelta < cfg.timeOfDayDeltaThreshold && todEffect.dataPoints >= cfg.timeOfDayMinDataPoints) {
     reasons.push(`Training during ${bucket}: historically ${Math.round(Math.abs(todEffect.avgDelta) * 100)}% lower performance`);
   }
 
-  // Consecutive days check
-  const recentWorkoutDates = profile.muscleVolumeStatuses.length > 0
-    ? profile.muscleRecovery.filter(m => m.hoursSinceLastTrained < 30).length
-    : 0;
-
-  const consEffect = profile.consecutiveDaysEffects.find(e => e.dayIndex >= 4 && e.avgDelta < -0.05);
-  if (consEffect && consEffect.dataPoints >= 5) {
+  // Consecutive days
+  const consEffect = profile.consecutiveDaysEffects.find(e => e.dayIndex >= 4 && e.avgDelta < cfg.timeOfDayDeltaThreshold);
+  if (consEffect && consEffect.dataPoints >= cfg.consecutiveDaysMinDataPoints) {
     reasons.push(`Consecutive training day ${consEffect.dayIndex}: historically ${Math.round(Math.abs(consEffect.avgDelta) * 100)}% lower performance`);
   }
 
-  // Body weight trend adjustment
+  // Body weight trend
   if (profile.bodyWeightTrend.phase === 'cutting') {
     reasons.push('Cutting phase detected: progression expectations reduced');
   }
 
-  return { volumeMultiplier: Math.max(0.5, volumeMultiplier), adjustmentReasons: reasons, isDeload: false };
+  return { volumeMultiplier: Math.max(cfg.volumeMultiplierFloor, volumeMultiplier), adjustmentReasons: reasons, isDeload: false };
 }
 
 // ─── Step 2: Select Muscle Groups (Split-Aware) ─────────────────────────────
@@ -520,7 +536,8 @@ const SPLIT_MUSCLE_MAPPING: Record<string, string[]> = {
 function stepSelectMuscleGroups(
   profile: TrainingProfile,
   prefs: UserPreferences,
-  recoveryAdj: RecoveryAdjustment
+  recoveryAdj: RecoveryAdjustment,
+  cfg: ModelConfig
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
@@ -542,7 +559,7 @@ function stepSelectMuscleGroups(
         if (groups) groups.forEach(g => splitTargetGroups!.add(g));
       }
     }
-  } else if (detectedSplit.confidence >= 0.6 && detectedSplit.nextRecommended.length > 0) {
+  } else if (detectedSplit.confidence >= cfg.splitConfidenceThreshold && detectedSplit.nextRecommended.length > 0) {
     splitTargetGroups = new Set<string>();
     for (const rec of detectedSplit.nextRecommended) {
       const groups = SPLIT_MUSCLE_MAPPING[rec];
@@ -580,7 +597,7 @@ function stepSelectMuscleGroups(
       s + (c.avgDurationSeconds / 60) * c.recentSessions / 60, 0
     );
 
-    cardioInterferencePct = Math.min(25, highImpactHours * 5 + lowImpactHours * 2);
+    cardioInterferencePct = Math.min(cfg.maxCardioInterferencePct, highImpactHours * cfg.highImpactCardioInterferencePct + lowImpactHours * cfg.lowImpactCardioInterferencePct);
   }
 
   for (const vol of profile.muscleVolumeStatuses) {
@@ -618,19 +635,16 @@ function stepSelectMuscleGroups(
     // Base priority: freshness + volume deficit
     let priority = freshnessScore * 0.4 + (volumeDeficit / Math.max(effectiveTarget, 1)) * 0.3;
 
-    // Split bonus: if this group is in today's recommended split, strong boost
     if (splitTargetGroups?.has(vol.muscleGroup)) {
-      priority += 0.5;
+      priority += cfg.splitMatchBoost;
     }
 
-    // Day-of-week pattern bonus: if user typically trains this group today
     if (todayPattern?.muscleGroupsTypical.includes(vol.muscleGroup)) {
-      priority += 0.2;
+      priority += cfg.dayPatternBoost;
     }
 
-    // Priority muscle bonus: user-designated priority groups get extra volume
     if (prefs.priority_muscles.some(pm => pm.toLowerCase() === vol.muscleGroup)) {
-      priority += 0.3;
+      priority += cfg.priorityMuscleBoost;
     }
 
     const setsNeeded = Math.ceil(
@@ -682,7 +696,8 @@ function stepSelectExercises(
   muscleGroups: MuscleGroupSelection[],
   allExercises: EnrichedExercise[],
   profile: TrainingProfile,
-  prefs: UserPreferences
+  prefs: UserPreferences,
+  cfg: ModelConfig
 ): { selections: ExerciseSelection[]; decisions: ExerciseDecision[] } {
   const selections: ExerciseSelection[] = [];
   const decisions: ExerciseDecision[] = [];
@@ -752,9 +767,19 @@ function stepSelectExercises(
           factors.push(`Used ${pref.lastUsedDaysAgo}d ago (+2)`);
         }
       } else {
-        // Strong penalty — exercises you've never done should almost never be recommended
-        score -= 8;
-        factors.push('Never used in your training history (-8)');
+        score += cfg.neverUsedPenalty;
+        factors.push(`Never used in your training history (${cfg.neverUsedPenalty})`);
+      }
+
+      // Exercise rotation: penalize stale exercises that have been used too many consecutive weeks
+      if (cfg.enforceRotation && profile.exerciseRotation) {
+        const rot = profile.exerciseRotation.find(
+          r => r.exerciseName === ex.name.toLowerCase()
+        );
+        if (rot && rot.shouldRotate) {
+          score += cfg.rotationPenalty;
+          factors.push(`Rotation suggested: ${rot.consecutiveWeeksUsed} consecutive weeks (${cfg.rotationPenalty})`);
+        }
       }
 
       const prog = profile.exerciseProgressions.find(
@@ -860,7 +885,7 @@ function stepSelectExercises(
   }
 
   const pushPullRatio = pullSets > 0 ? pushSets / pullSets : pushSets > 0 ? 2.0 : 1.0;
-  if (pushPullRatio > 1.5 && pullSets < pushSets) {
+  if (pushPullRatio > cfg.pushPullCorrectionThreshold && pullSets < pushSets) {
     const corrective = strengthExercises.find(ex =>
       ex.name.toLowerCase().includes('face pull') ||
       ex.name.toLowerCase().includes('band pull apart') ||
@@ -870,7 +895,7 @@ function stepSelectExercises(
       selections.push({
         exercise: corrective,
         muscleGroup: 'posterior_deltoid',
-        sets: 2,
+        sets: cfg.correctiveSetsCount,
         reason: `Corrective: push:pull ratio is ${pushPullRatio.toFixed(1)}:1 — adding pulling work for shoulder health`,
       });
       usedExercises.add(corrective.name.toLowerCase());
@@ -878,7 +903,7 @@ function stepSelectExercises(
         exerciseName: corrective.name,
         muscleGroup: 'posterior_deltoid',
         score: 10,
-        factors: [`Auto-inserted: push:pull ratio ${pushPullRatio.toFixed(1)}:1 exceeds 1.5:1 threshold`],
+        factors: [`Auto-inserted: push:pull ratio ${pushPullRatio.toFixed(1)}:1 exceeds ${cfg.pushPullCorrectionThreshold}:1 threshold`],
       });
     }
   }
@@ -970,7 +995,8 @@ function stepPrescribe(
   selections: ExerciseSelection[],
   profile: TrainingProfile,
   prefs: UserPreferences,
-  recoveryAdj: RecoveryAdjustment
+  recoveryAdj: RecoveryAdjustment,
+  cfg: ModelConfig
 ): GeneratedExercise[] {
   const goal = getEffectiveGoal(prefs);
   const secondaryGoal = prefs.secondary_goal;
@@ -990,11 +1016,11 @@ function stepPrescribe(
       const adjustments: string[] = [];
 
       if (recoveryAdj.isDeload) {
-        duration = Math.round(duration * 0.8);
-        adjustments.push('Deload: duration reduced 20%');
+        duration = Math.round(duration * cfg.deloadCardioDurationMultiplier);
+        adjustments.push(`Deload: duration reduced ${Math.round((1 - cfg.deloadCardioDurationMultiplier) * 100)}%`);
         if (speed != null) {
-          speed = Math.round(speed * 0.85 * 10) / 10;
-          adjustments.push('Deload: intensity reduced 15%');
+          speed = Math.round(speed * cfg.deloadCardioIntensityMultiplier * 10) / 10;
+          adjustments.push(`Deload: intensity reduced ${Math.round((1 - cfg.deloadCardioIntensityMultiplier) * 100)}%`);
         }
       } else if (cardio && cardio.trendDuration === 'increasing') {
         adjustments.push(`Duration trending up — maintaining at ${Math.round(duration / 60)} min`);
@@ -1101,13 +1127,13 @@ function stepPrescribe(
       targetWeight = prog.lastWeight;
 
       if (recoveryAdj.isDeload) {
-        targetWeight = Math.round(targetWeight * 0.85);
-        adjustments.push(`Deload: weight at 85% (${targetWeight} lbs)`);
+        targetWeight = Math.round(targetWeight * cfg.deloadWeightMultiplier);
+        adjustments.push(`Deload: weight at ${Math.round(cfg.deloadWeightMultiplier * 100)}% (${targetWeight} lbs)`);
       } else {
         // RIR-driven progression: infer from last session
         // If user hit more reps than prescribed target -> was too easy -> bump weight
         const lastReps = prog.bestSet.reps;
-        if (lastReps >= repRange.target + 2 && prog.status === 'progressing') {
+        if (lastReps >= repRange.target + cfg.repsAboveTargetForProgression && prog.status === 'progressing') {
           const increment = equipment.includes('barbell') ? 5 :
                            equipment.includes('dumbbell') ? 5 : 5;
           targetWeight = targetWeight + increment;
@@ -1115,8 +1141,8 @@ function stepPrescribe(
         } else if (prog.status === 'stalled') {
           adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
         } else if (prog.status === 'regressing') {
-          targetWeight = Math.round(targetWeight * 0.92);
-          adjustments.push(`Regressing: reduced to ${targetWeight} lbs (92% of ${prog.lastWeight})`);
+          targetWeight = Math.round(targetWeight * cfg.regressionWeightMultiplier);
+          adjustments.push(`Regressing: reduced to ${targetWeight} lbs (${Math.round(cfg.regressionWeightMultiplier * 100)}% of ${prog.lastWeight})`);
         } else if (prog.status === 'progressing') {
           adjustments.push(`Progressing — maintain ${targetWeight} lbs at RIR ${rir}`);
         }
@@ -1125,10 +1151,10 @@ function stepPrescribe(
       // Sleep-performance learned adjustment
       if (profile.sleepCoefficients.confidence !== 'low' && profile.recoveryContext.sleepDurationLastNight != null && profile.recoveryContext.sleepBaseline30d != null) {
         const sleepDelta = (profile.recoveryContext.sleepDurationLastNight - profile.recoveryContext.sleepBaseline30d) / profile.recoveryContext.sleepBaseline30d;
-        if (sleepDelta < -0.1) {
+        if (sleepDelta < cfg.sleepDeltaThreshold) {
           const isLower = ['quadriceps', 'hamstrings', 'glutes'].includes(sel.muscleGroup);
           const coeff = isLower ? profile.sleepCoefficients.lowerBody : profile.sleepCoefficients.upperBody;
-          if (Math.abs(coeff) > 0.1) {
+          if (Math.abs(coeff) > cfg.sleepCoefficientMinimum) {
             const weightAdj = Math.round(coeff * sleepDelta * (targetWeight ?? 100));
             if (weightAdj < -2) {
               targetWeight = (targetWeight ?? 0) + weightAdj;
@@ -1277,7 +1303,8 @@ function computeAvailableMinutes(prefs: UserPreferences): number {
 function stepApplyConstraints(
   exercises: GeneratedExercise[],
   prefs: UserPreferences,
-  profile: TrainingProfile
+  profile: TrainingProfile,
+  cfg: ModelConfig
 ): GeneratedExercise[] {
   const cardio = exercises.filter(e => e.isCardio);
   const strength = exercises.filter(e => !e.isCardio);
@@ -1337,20 +1364,30 @@ function stepApplyConstraints(
   const cardioMinutes = cardio.reduce(
     (sum, ex) => sum + ex.estimatedMinutes, 0
   );
-  const strengthBudget = Math.max(availableMinutes - cardioMinutes - 5, 30);
+  const strengthBudget = Math.max(availableMinutes - cardioMinutes - 5, cfg.minStrengthBudgetMinutes);
+
+  // Session fatigue: if user historically loses performance late in session,
+  // tighten the time budget to keep them in productive training zones
+  const lateFatigueEffect = profile.sessionFatigueEffects.find(
+    e => e.positionBucket === 'late' && e.dataPoints >= cfg.sessionFatigueMinDataPoints
+  );
+  let sessionFatigueAdj = 1.0;
+  if (lateFatigueEffect && lateFatigueEffect.avgDelta < cfg.sessionFatigueThreshold) {
+    sessionFatigueAdj = 0.90;
+  }
 
   // Pareto trimming: if over budget, remove lowest-impact exercises first
-  // Corrective exercises are never cut (impact score boosted in computeImpactScore)
   let totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+  const effectiveStrengthBudget = Math.round(strengthBudget * sessionFatigueAdj);
 
-  if (totalStrengthMin > strengthBudget) {
+  if (totalStrengthMin > effectiveStrengthBudget) {
     const sortedByImpact = [...ordered].sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
     const keepSet = new Set(ordered.map(e => e.exerciseName));
 
     for (const ex of sortedByImpact) {
-      if (totalStrengthMin <= strengthBudget) break;
+      if (totalStrengthMin <= effectiveStrengthBudget) break;
       if (ex.exerciseRole === 'corrective') continue; // never cut correctives
-      if (keepSet.size <= 3) break; // always keep at least 3 exercises
+      if (keepSet.size <= cfg.minExercisesUnderTimePressure) break;
       keepSet.delete(ex.exerciseName);
       totalStrengthMin -= ex.estimatedMinutes;
     }
@@ -1627,20 +1664,22 @@ export async function generateWorkout(
     prefs.active_gym_profile = overrides.gymProfile;
   }
 
+  const cfg: ModelConfig = { ...DEFAULT_MODEL_CONFIG };
+
   // Step 1: Recovery check
-  const recoveryAdj = stepRecoveryCheck(profile);
+  const recoveryAdj = stepRecoveryCheck(profile, cfg);
 
   // Step 2: Select muscle groups
-  const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj);
+  const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg);
 
   // Step 3: Select exercises
-  const { selections: exerciseSelections, decisions: exerciseDecisions } = stepSelectExercises(muscleGroups, allExercises, profile, prefs);
+  const { selections: exerciseSelections, decisions: exerciseDecisions } = stepSelectExercises(muscleGroups, allExercises, profile, prefs, cfg);
 
   // Step 4: Prescribe sets/reps/weight/tempo
-  const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj);
+  const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg);
 
   // Step 5: Apply session constraints
-  const constrained = stepApplyConstraints(prescribed, prefs, profile);
+  const constrained = stepApplyConstraints(prescribed, prefs, profile, cfg);
 
   // Step 6: Generate rationale + decision log
   const workout = stepGenerateRationale(constrained, muscleGroups, recoveryAdj, profile, prefs, skippedGroups, exerciseDecisions);

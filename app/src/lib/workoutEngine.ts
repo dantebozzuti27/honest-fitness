@@ -1597,17 +1597,34 @@ function stepGenerateRationale(
 
 // ─── Main Entry Point ───────────────────────────────────────────────────────
 
+export interface SessionOverrides {
+  durationMinutes?: number;
+  finishByTime?: string; // "HH:MM"
+  goalOverride?: string;
+  gymProfile?: string;
+}
+
 export async function generateWorkout(
   profile: TrainingProfile,
-  goalOverride?: string
+  overrides?: SessionOverrides
 ): Promise<GeneratedWorkout> {
   const [prefs, allExercises] = await Promise.all([
     fetchUserPreferences(profile.userId),
     fetchAllExercises(),
   ]);
 
-  if (goalOverride) {
-    (prefs as any).training_goal = goalOverride;
+  if (overrides?.goalOverride) {
+    (prefs as any).training_goal = overrides.goalOverride;
+  }
+  if (overrides?.durationMinutes) {
+    prefs.session_duration_minutes = overrides.durationMinutes;
+  }
+  if (overrides?.finishByTime) {
+    const dayKey = String(new Date().getDay());
+    prefs.weekday_deadlines = { ...prefs.weekday_deadlines, [dayKey]: overrides.finishByTime };
+  }
+  if (overrides?.gymProfile) {
+    prefs.active_gym_profile = overrides.gymProfile;
   }
 
   // Step 1: Recovery check

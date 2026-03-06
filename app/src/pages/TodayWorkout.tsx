@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
-import { generateWorkout, saveGeneratedWorkout, type GeneratedWorkout, type DecisionLogEntry, type ExerciseDecision, type MuscleGroupDecision, type ExerciseRole, type WarmupSet } from '../lib/workoutEngine'
+import { generateWorkout, saveGeneratedWorkout, type GeneratedWorkout, type DecisionLogEntry, type ExerciseDecision, type MuscleGroupDecision, type ExerciseRole, type WarmupSet, type SessionOverrides } from '../lib/workoutEngine'
 import { requireSupabase } from '../lib/supabase'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -25,16 +25,25 @@ export default function TodayWorkout() {
   const [regenerating, setRegenerating] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [prefsSet, setPrefsSet] = useState(true)
+  const [defaultDuration, setDefaultDuration] = useState(75)
+  const [durationOverride, setDurationOverride] = useState<number | null>(null)
+  const [finishByTime, setFinishByTime] = useState('')
 
   useEffect(() => {
     if (user) generate()
   }, [user])
 
+  const buildOverrides = (): SessionOverrides | undefined => {
+    const o: SessionOverrides = {}
+    if (durationOverride != null) o.durationMinutes = durationOverride
+    if (finishByTime) o.finishByTime = finishByTime
+    return Object.keys(o).length > 0 ? o : undefined
+  }
+
   const generate = async () => {
     if (!user) return
     setViewState('loading')
     try {
-      // Check if user has set their training preferences
       const supabase = requireSupabase()
       const { data: prefsData } = await supabase
         .from('user_preferences')
@@ -43,6 +52,9 @@ export default function TodayWorkout() {
         .single()
 
       setPrefsSet(!!(prefsData?.training_goal && prefsData?.session_duration_minutes))
+      if (prefsData?.session_duration_minutes) {
+        setDefaultDuration(Number(prefsData.session_duration_minutes))
+      }
 
       const tp = await computeTrainingProfile(user.id)
       setProfile(tp)
@@ -52,7 +64,7 @@ export default function TodayWorkout() {
         return
       }
 
-      const w = await generateWorkout(tp)
+      const w = await generateWorkout(tp, buildOverrides())
       setWorkout(w)
       setViewState('ready')
       saveGeneratedWorkout(user.id, w).catch(e => logError('Save generated workout failed (non-blocking)', e))
@@ -231,6 +243,44 @@ export default function TodayWorkout() {
             </Button>
           </div>
         )}
+
+        {/* Session Controls — duration override + finish-by */}
+        <div className={styles.sessionControls}>
+          <div className={styles.controlRow}>
+            <label className={styles.controlLabel}>Session Time</label>
+            <div className={styles.durationControl}>
+              {[30, 45, 60, 75, 90, 120].map(mins => (
+                <button
+                  key={mins}
+                  className={`${styles.durationBtn} ${
+                    (durationOverride ?? defaultDuration) === mins ? styles.durationBtnActive : ''
+                  }`}
+                  onClick={() => setDurationOverride(mins === defaultDuration ? null : mins)}
+                >
+                  {mins}m
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className={styles.controlRow}>
+            <label className={styles.controlLabel}>Finish By</label>
+            <input
+              type="time"
+              className={styles.finishByInput}
+              value={finishByTime}
+              onChange={e => setFinishByTime(e.target.value)}
+              placeholder="No deadline"
+            />
+            {finishByTime && (
+              <button className={styles.clearBtn} onClick={() => setFinishByTime('')}>Clear</button>
+            )}
+          </div>
+          {(durationOverride != null || finishByTime) && (
+            <Button variant="secondary" onClick={handleRegenerate} loading={regenerating} style={{ marginTop: 8, width: '100%' }}>
+              Regenerate with {durationOverride ? `${durationOverride}m` : ''}{durationOverride && finishByTime ? ' + ' : ''}{finishByTime ? `finish by ${finishByTime}` : ''}
+            </Button>
+          )}
+        </div>
 
         {/* Detected Split + Session Summary */}
         {profile?.detectedSplit && profile.detectedSplit.confidence >= 0.5 && (

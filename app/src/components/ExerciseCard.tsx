@@ -187,9 +187,35 @@ export default function ExerciseCard({
   const cardioTimerSetIdxRef = useRef<number | null>(null)
   const [cardioTimerSeconds, setCardioTimerSeconds] = useState(0)
 
+  // Commit running timer value to parent state every 10 seconds so it's never lost
+  const lastCommitRef = useRef<number>(0)
   useEffect(() => {
+    const commitInterval = setInterval(() => {
+      if (!cardioTimerIntervalRef.current || cardioTimerSetIdxRef.current == null) return
+      const startMs = cardioTimerStartMsRef.current
+      const base = cardioTimerBaseSecondsRef.current
+      if (!startMs) return
+      const elapsed = Math.floor((Date.now() - startMs) / 1000)
+      const total = base + Math.max(0, elapsed)
+      if (total !== lastCommitRef.current) {
+        lastCommitRef.current = total
+        onUpdateSet(cardioTimerSetIdxRef.current, 'time_seconds', total)
+        onUpdateSet(cardioTimerSetIdxRef.current, 'time', `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`)
+      }
+    }, 10000)
+
     return () => {
-      if (cardioTimerIntervalRef.current) {
+      clearInterval(commitInterval)
+      // On unmount, commit any running timer value one final time
+      if (cardioTimerIntervalRef.current && cardioTimerSetIdxRef.current != null) {
+        const startMs = cardioTimerStartMsRef.current
+        const base = cardioTimerBaseSecondsRef.current
+        if (startMs) {
+          const elapsed = Math.floor((Date.now() - startMs) / 1000)
+          const total = base + Math.max(0, elapsed)
+          onUpdateSet(cardioTimerSetIdxRef.current, 'time_seconds', total)
+          onUpdateSet(cardioTimerSetIdxRef.current, 'time', `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`)
+        }
         clearInterval(cardioTimerIntervalRef.current)
         cardioTimerIntervalRef.current = null
       }

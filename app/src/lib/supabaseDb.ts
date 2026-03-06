@@ -204,7 +204,9 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     const ex = workoutToSave.exercises[i]
     
     const exSets = Array.isArray(ex.sets) ? ex.sets : []
-    if (exSets.length === 0 || !exSets.some((s: any) => s.weight || s.reps || s.time)) {
+    if (exSets.length === 0 || !exSets.some((s: any) =>
+      s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline
+    )) {
       continue
     }
     
@@ -266,21 +268,28 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
 
     if (exerciseError) throw exerciseError
 
-    // Insert sets (only sets with actual data)
-    const validSets = ex.sets.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds)
+    // Insert sets (only sets with actual data — including cardio fields)
+    const validSets = ex.sets.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline)
     if (validSets.length > 0) {
-      const setsToInsert = validSets.map((set: any, idx: number) => ({
-        workout_exercise_id: exerciseData.id,
-        set_number: idx + 1,
-        weight: (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null),
-        // Best-effort persistence for BW. If the column doesn't exist, we'll retry without it.
-        is_bodyweight: String(set?.weight || '').trim().toUpperCase() === 'BW',
-        weight_label: String(set?.weight || '').trim().toUpperCase() === 'BW' ? 'BW' : null,
-        reps: set.reps ? Number(set.reps) : null,
-        time: set.time || null,
-        speed: set.speed ? Number(set.speed) : null,
-        incline: set.incline ? Number(set.incline) : null
-      }))
+      const setsToInsert = validSets.map((set: any, idx: number) => {
+        // Resolve time: prefer time string, fall back to time_seconds
+        let timeVal = set.time || null
+        if (!timeVal && set.time_seconds != null && Number(set.time_seconds) > 0) {
+          const ts = Math.floor(Number(set.time_seconds))
+          timeVal = String(ts)
+        }
+        return {
+          workout_exercise_id: exerciseData.id,
+          set_number: idx + 1,
+          weight: (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null),
+          is_bodyweight: String(set?.weight || '').trim().toUpperCase() === 'BW',
+          weight_label: String(set?.weight || '').trim().toUpperCase() === 'BW' ? 'BW' : null,
+          reps: set.reps ? Number(set.reps) : null,
+          time: timeVal,
+          speed: set.speed ? Number(set.speed) : null,
+          incline: set.incline ? Number(set.incline) : null
+        }
+      })
 
       const tryInsert = async (rows: any[]) => supabase.from('workout_sets').insert(rows)
       let { error: setsError } = await tryInsert(setsToInsert)
@@ -621,7 +630,9 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
     const ex = workout.exercises[i]
     
     const exSets2 = Array.isArray(ex.sets) ? ex.sets : []
-    if (exSets2.length === 0 || !exSets2.some((s: any) => s.weight || s.reps || s.time)) {
+    if (exSets2.length === 0 || !exSets2.some((s: any) =>
+      s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline
+    )) {
       continue
     }
     

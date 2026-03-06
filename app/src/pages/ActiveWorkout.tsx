@@ -1994,14 +1994,17 @@ export default function ActiveWorkout() {
         equipment: ex.equipment || '',
         stacked: ex.stacked || false,
         stackGroup: ex.stackGroup || null,
-        // Filter sets: include if weight, reps, or time is not null/undefined/empty string
-        // NOTE: 0 is a valid value, so check for != null and != '' (matches ShareCard logic)
+        // Filter sets: include if ANY meaningful data is present.
+        // Cardio sets may have time_seconds, speed, or incline without weight/reps.
         sets: ex.sets.filter((s: any) => {
           if (!s) return false
           const hasWeight = s.weight != null && s.weight !== ''
           const hasReps = s.reps != null && s.reps !== ''
           const hasTime = s.time != null && s.time !== ''
-          return hasWeight || hasReps || hasTime
+          const hasTimeSeconds = s.time_seconds != null && s.time_seconds !== '' && Number(s.time_seconds) > 0
+          const hasSpeed = s.speed != null && s.speed !== '' && Number(s.speed) > 0
+          const hasIncline = s.incline != null && s.incline !== '' && Number(s.incline) > 0
+          return hasWeight || hasReps || hasTime || hasTimeSeconds || hasSpeed || hasIncline
         })
       }))
       // REMOVED: .filter(ex => ex.sets.length > 0) - this was removing exercises!

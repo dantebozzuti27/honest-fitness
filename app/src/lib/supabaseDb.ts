@@ -1359,38 +1359,54 @@ export async function saveUserPreferences(userId: string, prefs: any) {
   if (prefs.onboarding_completed !== undefined) upsertData.onboarding_completed = prefs.onboarding_completed || false
   if (prefs.defaultVisibility !== undefined) upsertData.default_visibility = prefs.defaultVisibility || 'public'
 
-  const { data, error } = await supabase
-    .from('user_preferences')
-    .upsert(upsertData, { onConflict: 'user_id' })
-    .select()
+  const missingCols: string[] = []
+  let attempts = 0
+  const maxAttempts = 15
 
-  if (error && error.code === '42703') {
-    // Column doesn't exist — strip all optional/newer fields and retry
-    const optionalCols = [
-      'username', 'profile_picture', 'default_visibility',
-      'training_split', 'progression_model', 'weekly_sets_targets',
-      'body_weight_lbs', 'experience_level',
-      'cardio_preference', 'cardio_frequency_per_week', 'cardio_duration_minutes',
-      'preferred_exercises',
-      'recovery_speed', 'weight_goal_lbs', 'weight_goal_date',
-      'primary_goal', 'secondary_goal', 'priority_muscles',
-      'weekday_deadlines', 'gym_profiles', 'active_gym_profile', 'age',
-      'rest_days',
-    ]
-    for (const col of optionalCols) delete upsertData[col]
-
-    const { data: retryData, error: retryError } = await supabase
+  while (attempts < maxAttempts) {
+    attempts++
+    const { data, error } = await supabase
       .from('user_preferences')
       .upsert(upsertData, { onConflict: 'user_id' })
       .select()
 
-    if (retryError) throw retryError
-    logWarn('Some profile columns not found — run latest migration.')
-    return retryData
+    if (!error) return data
+
+    if (error.code === '42703') {
+      // Parse the missing column name from the error message
+      // Format: 'column "rest_days" of relation "user_preferences" does not exist'
+      const match = error.message?.match(/column "([^"]+)"/)
+      const badCol = match?.[1]
+      if (badCol && badCol in upsertData) {
+        missingCols.push(badCol)
+        delete upsertData[badCol]
+        logWarn(`Column "${badCol}" not in DB — stripped and retrying (attempt ${attempts})`)
+        continue
+      }
+      // Couldn't parse — fall back to stripping everything non-essential
+      const essentialCols = new Set(['user_id', 'updated_at'])
+      for (const key of Object.keys(upsertData)) {
+        if (!essentialCols.has(key)) delete upsertData[key]
+      }
+      logWarn('Could not parse missing column — stripped all optional fields')
+      continue
+    }
+
+    throw error
   }
 
-  if (error) throw error
-  return data
+  if (missingCols.length > 0) {
+    logWarn(`Profile saved with ${missingCols.length} columns stripped: ${missingCols.join(', ')}. Run the latest migration to add them.`)
+  }
+
+  // Final attempt after all stripping
+  const { data: finalData, error: finalError } = await supabase
+    .from('user_preferences')
+    .upsert(upsertData, { onConflict: 'user_id' })
+    .select()
+
+  if (finalError) throw finalError
+  return finalData
 }
 
 export async function deleteUserPreferences(userId: string) {

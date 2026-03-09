@@ -454,4 +454,32 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'max_heart_rate') THEN
     ALTER TABLE health_metrics ADD COLUMN max_heart_rate INTEGER;
   END IF;
+
+  -- Rest days configuration (array of day-of-week integers, 0=Sunday..6=Saturday)
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'rest_days') THEN
+    ALTER TABLE user_preferences ADD COLUMN rest_days JSONB DEFAULT '[]'::jsonb;
+  END IF;
+
+  -- Fitbit wearable extended metrics on health_metrics
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'active_minutes_fairly') THEN
+    ALTER TABLE health_metrics ADD COLUMN active_minutes_fairly INTEGER;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'active_minutes_very') THEN
+    ALTER TABLE health_metrics ADD COLUMN active_minutes_very INTEGER;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'active_minutes_lightly') THEN
+    ALTER TABLE health_metrics ADD COLUMN active_minutes_lightly INTEGER;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'sedentary_minutes') THEN
+    ALTER TABLE health_metrics ADD COLUMN sedentary_minutes INTEGER;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'floors') THEN
+    ALTER TABLE health_metrics ADD COLUMN floors INTEGER;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'distance') THEN
+    ALTER TABLE health_metrics ADD COLUMN distance NUMERIC;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'average_heart_rate') THEN
+    ALTER TABLE health_metrics ADD COLUMN average_heart_rate INTEGER;
+  END IF;
 END $$;

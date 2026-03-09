@@ -62,7 +62,21 @@ interface TrainingProfileData {
   gym_profiles: GymProfile[];
   active_gym_profile: string;
   rest_days: number[];
+  sport_focus: string;
+  sport_season: string;
 }
+
+const SPORT_OPTIONS = [
+  { value: '', label: 'None' },
+  { value: 'golf', label: 'Golf' },
+]
+
+const SEASON_OPTIONS = [
+  { value: '', label: 'Not set' },
+  { value: 'off_season', label: 'Off-Season (build strength)' },
+  { value: 'pre_season', label: 'Pre-Season (ramp up)' },
+  { value: 'in_season', label: 'In-Season (maintain)' },
+]
 
 const GOAL_OPTIONS = [
   { value: '', label: 'Select goal...' },
@@ -296,6 +310,8 @@ export default function Profile() {
     gym_profiles: [],
     active_gym_profile: '',
     rest_days: [],
+    sport_focus: '',
+    sport_season: '',
   })
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
@@ -390,6 +406,8 @@ export default function Profile() {
           gym_profiles: Array.isArray(prefs.gym_profiles) ? prefs.gym_profiles : [],
           active_gym_profile: prefs.active_gym_profile || '',
           rest_days: Array.isArray(prefs.rest_days) ? prefs.rest_days : [],
+          sport_focus: prefs.sport_focus || '',
+          sport_season: prefs.sport_season || '',
         })
       }
       setProfileLoaded(true)
@@ -432,6 +450,8 @@ export default function Profile() {
         gym_profiles: trainingProfile.gym_profiles.length > 0 ? trainingProfile.gym_profiles : null,
         active_gym_profile: trainingProfile.active_gym_profile || null,
         rest_days: trainingProfile.rest_days.length > 0 ? trainingProfile.rest_days : null,
+        sport_focus: trainingProfile.sport_focus || null,
+        sport_season: trainingProfile.sport_season || null,
       }
       await saveUserPreferences(user.id, payload)
       showToast('Training profile saved', 'success')
@@ -722,6 +742,20 @@ export default function Profile() {
                   onChange={e => setTrainingProfile(p => ({ ...p, recovery_speed: e.target.value }))}
                   options={RECOVERY_SPEED_OPTIONS}
                 />
+                <SelectField
+                  label="Sport Focus"
+                  value={trainingProfile.sport_focus}
+                  onChange={e => setTrainingProfile(p => ({ ...p, sport_focus: e.target.value }))}
+                  options={SPORT_OPTIONS}
+                />
+                {trainingProfile.sport_focus && (
+                  <SelectField
+                    label="Sport Season"
+                    value={trainingProfile.sport_season}
+                    onChange={e => setTrainingProfile(p => ({ ...p, sport_season: e.target.value }))}
+                    options={SEASON_OPTIONS}
+                  />
+                )}
                 <SelectField
                   label="Job Activity Level"
                   value={trainingProfile.job_activity_level}

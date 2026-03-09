@@ -22,6 +22,7 @@ import { getExerciseMapping } from './exerciseMuscleMap';
 import { estimateWeight as estimateWeightFromRatios } from './liftRatios';
 import { suggestSupersets, type SupersetSuggestion } from './supersetPairer';
 import { DEFAULT_MODEL_CONFIG, type ModelConfig } from './modelConfig';
+import { getSportProfile, type SportProfile, type SportSeason } from './sportProfiles';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,8 @@ export interface UserPreferences {
   active_gym_profile: string | null;
   age: number | null;
   rest_days: number[]; // 0=Sun, 1=Mon, ... 6=Sat
+  sport_focus: string | null;
+  sport_season: SportSeason | null;
 }
 
 export type ExerciseRole = 'primary' | 'secondary' | 'isolation' | 'corrective' | 'cardio';
@@ -205,6 +208,8 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     active_gym_profile: data?.active_gym_profile ?? null,
     age: computedAge,
     rest_days: Array.isArray(data?.rest_days) ? data.rest_days : [],
+    sport_focus: data?.sport_focus ?? null,
+    sport_season: data?.sport_season ?? null,
   };
 }
 
@@ -758,6 +763,13 @@ function stepSelectMuscleGroups(
 
     let weeklyTarget = (guideline.mavLow + guideline.mavHigh) / 2;
 
+    // Sport-specific volume scaling
+    const sportProfile = getSportProfile(prefs.sport_focus);
+    const sportMuscle = sportProfile?.muscleGroupPriorities.find(p => p.muscleGroup === vol.muscleGroup);
+    if (sportMuscle) {
+      weeklyTarget *= sportMuscle.volumeMultiplier;
+    }
+
     // #15: Caloric-phase MRV scaling
     weeklyTarget *= caloricPhaseScale;
 
@@ -812,6 +824,11 @@ function stepSelectMuscleGroups(
       t => t.muscleGroup === vol.muscleGroup
     );
     if (mgTrend && mgTrend.weeklySetsTrend.direction === 'down' && mgTrend.weeklySetsTrend.dataPoints >= 3) {
+      priority += 0.15;
+    }
+
+    // Sport-specific muscle group priority (sportProfile/sportMuscle declared above)
+    if (sportMuscle) {
       priority += 0.15;
     }
 
@@ -1035,6 +1052,24 @@ function stepSelectExercises(
 
       return { exercise: ex, score, factors };
     });
+
+    // Sport-specific scoring adjustments
+    const sportProfile = getSportProfile(prefs.sport_focus);
+    if (sportProfile) {
+      for (const item of scored) {
+        const exKey = item.exercise.name.toLowerCase();
+        const boost = sportProfile.exerciseBoosts.find(b => b.exerciseName === exKey);
+        if (boost) {
+          item.score += boost.boost;
+          item.factors.push(`${sportProfile.label}: ${boost.reason} (+${boost.boost})`);
+        }
+        const limit = sportProfile.exerciseLimits.find(l => l.exerciseName === exKey);
+        if (limit) {
+          item.score += limit.penalty;
+          item.factors.push(`${sportProfile.label}: ${limit.reason} (${limit.penalty})`);
+        }
+      }
+    }
 
     scored.sort((a, b) => b.score - a.score);
 
@@ -2119,6 +2154,23 @@ function stepGenerateRationale(
   if (profile.prescribedVsActual && profile.prescribedVsActual.complianceRate < 1) {
     mlDetails.push(`Compliance: ${Math.round(profile.prescribedVsActual.complianceRate * 100)}% exercises completed`);
   }
+  // Sport-specific context
+  const sportCtx = getSportProfile(prefs.sport_focus);
+  if (sportCtx) {
+    const seasonLabel = prefs.sport_season ? prefs.sport_season.replace('_', '-') : 'no season set';
+    const seasonMod = prefs.sport_season ? sportCtx.seasonModifiers[prefs.sport_season] : null;
+    mlDetails.push(`Sport: ${sportCtx.label} (${seasonLabel})`);
+    if (seasonMod) {
+      mlDetails.push(`  Volume ×${seasonMod.volumeMultiplier}, prehab ${Math.round(seasonMod.prehabFrequency * 100)}% chance — ${seasonMod.description}`);
+    }
+    const boosted = exerciseDecisions
+      .filter(d => d.factors.some(f => f.startsWith(sportCtx.label)))
+      .map(d => d.exerciseName);
+    if (boosted.length > 0) {
+      mlDetails.push(`  Boosted: ${boosted.join(', ')}`);
+    }
+  }
+
   if (mlDetails.length > 1) {
     decisionLog.push({
       step: '8',
@@ -2238,11 +2290,43 @@ export async function generateWorkout(
     recoveryAdj.adjustmentReasons.push('Bulking phase: MRV increased 8% (caloric surplus supports recovery)');
   }
 
+  // Sport-specific season adjustments
+  const sportProfile = getSportProfile(prefs.sport_focus);
+  if (sportProfile && prefs.sport_season) {
+    const season = sportProfile.seasonModifiers[prefs.sport_season];
+    if (season) {
+      recoveryAdj.volumeMultiplier *= season.volumeMultiplier;
+      recoveryAdj.adjustmentReasons.push(`${sportProfile.label} (${prefs.sport_season.replace('_', '-')}): volume ×${season.volumeMultiplier}, ${season.description}`);
+    }
+  }
+
   // Step 2: Select muscle groups
   const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg, caloricPhaseScale);
 
   // Step 3: Select exercises
   const { selections: exerciseSelections, decisions: exerciseDecisions } = stepSelectExercises(muscleGroups, allExercises, profile, prefs, cfg);
+
+  // Sport prehab injection — add 1 prehab exercise per session when sport focus is set
+  if (sportProfile && prefs.sport_season) {
+    const season = sportProfile.seasonModifiers[prefs.sport_season];
+    if (season && Math.random() < season.prehabFrequency && sportProfile.prehabExercises.length > 0) {
+      const usedNames = new Set(exerciseSelections.map(s => s.exercise.name.toLowerCase()));
+      const available = sportProfile.prehabExercises.filter(p => !usedNames.has(p.exerciseName));
+      if (available.length > 0) {
+        const pick = available[Math.floor(Math.random() * available.length)];
+        const prehabEx = allExercises.find(e => e.name.toLowerCase() === pick.exerciseName);
+        if (prehabEx) {
+          exerciseSelections.push({
+            exercise: prehabEx,
+            muscleGroup: 'core',
+            sets: pick.sets,
+            reason: `${sportProfile.label} prehab: ${pick.reason}`,
+            isCardio: false,
+          });
+        }
+      }
+    }
+  }
 
   // Step 4: Prescribe sets/reps/weight/tempo
   const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg, expProgressionScale * ageProgressionScale);

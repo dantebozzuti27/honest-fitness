@@ -496,6 +496,14 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'average_heart_rate') THEN
     ALTER TABLE health_metrics ADD COLUMN average_heart_rate INTEGER;
   END IF;
+
+  -- Sport focus columns
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'sport_focus') THEN
+    ALTER TABLE user_preferences ADD COLUMN sport_focus TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'sport_season') THEN
+    ALTER TABLE user_preferences ADD COLUMN sport_season TEXT;
+  END IF;
 END $$;
 
 -- Exercise swap tracking for ML swap learning
@@ -515,3 +523,13 @@ DROP POLICY IF EXISTS "users_own_swaps" ON exercise_swaps;
 CREATE POLICY "users_own_swaps" ON exercise_swaps
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
+
+-- Sport-specific training preferences
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'sport_focus') THEN
+    ALTER TABLE user_preferences ADD COLUMN sport_focus TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_preferences' AND column_name = 'sport_season') THEN
+    ALTER TABLE user_preferences ADD COLUMN sport_season TEXT;
+  END IF;
+END $$;

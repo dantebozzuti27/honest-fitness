@@ -666,6 +666,79 @@ export default function Analytics() {
                       )
                     })()}
 
+                    {/* Health Percentiles */}
+                    {trainingProfile.healthPercentiles && trainingProfile.healthPercentiles.length > 0 && (() => {
+                      const hp = trainingProfile.healthPercentiles
+                      const ageGroup = hp[0]?.ageGroup ?? ''
+                      const interpretationLabel = (i: string) => {
+                        switch (i) {
+                          case 'excellent': return 'Excellent'
+                          case 'good': return 'Good'
+                          case 'average': return 'Average'
+                          case 'below_average': return 'Below Avg'
+                          case 'poor': return 'Low'
+                          default: return i
+                        }
+                      }
+                      const pctColor = (p: number) =>
+                        p >= 75 ? 'var(--success)' : p >= 50 ? '#e6a800' : p >= 25 ? 'var(--text-primary)' : '#ef4444'
+                      const pctBarBg = (p: number) =>
+                        p >= 75 ? 'rgba(34, 197, 94, 0.2)' : p >= 50 ? 'rgba(230, 168, 0, 0.2)' : p >= 25 ? 'rgba(255,255,255,0.06)' : 'rgba(239, 68, 68, 0.15)'
+                      const pctBarFill = (p: number) =>
+                        p >= 75 ? 'rgba(34, 197, 94, 0.4)' : p >= 50 ? 'rgba(230, 168, 0, 0.4)' : p >= 25 ? 'rgba(255,255,255,0.12)' : 'rgba(239, 68, 68, 0.3)'
+                      return (
+                        <div style={cardStyle}>
+                          <h3 style={{ margin: '0 0 4px', fontSize: 16, color: 'var(--text-primary)' }}>Health Percentiles</h3>
+                          <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-secondary)' }}>
+                            Your 30-day averages vs. population (age {ageGroup})
+                          </p>
+                          <table style={tableStyle}>
+                            <thead>
+                              <tr>
+                                <th style={thStyle}>Metric</th>
+                                <th style={thRight}>Your Avg</th>
+                                <th style={thRight}>Percentile</th>
+                                <th style={thRight}>Rating</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {hp.map(h => (
+                                <tr key={h.metric}>
+                                  <td style={tdStyle}>{h.label}</td>
+                                  <td style={tdRight}>{h.value} {h.unit}</td>
+                                  <td style={tdRight}>
+                                    <span style={{
+                                      display: 'inline-block',
+                                      position: 'relative',
+                                      minWidth: 48,
+                                      padding: '2px 6px',
+                                      borderRadius: 4,
+                                      backgroundColor: pctBarBg(h.percentile),
+                                      color: pctColor(h.percentile),
+                                      fontWeight: 600,
+                                      zIndex: 1,
+                                      overflow: 'hidden',
+                                    }}>
+                                      <span style={{
+                                        position: 'absolute',
+                                        left: 0, top: 0, bottom: 0,
+                                        width: `${Math.min(h.percentile, 100)}%`,
+                                        backgroundColor: pctBarFill(h.percentile),
+                                        borderRadius: 4,
+                                        zIndex: -1,
+                                      }} />
+                                      {h.percentile}th
+                                    </span>
+                                  </td>
+                                  <td style={tdRight}>{interpretationLabel(h.interpretation)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    })()}
+
                     {/* Global Stats */}
                     <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
                       <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Global Stats</h3>

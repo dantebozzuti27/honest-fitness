@@ -313,6 +313,8 @@ export interface TrainingProfile {
 
   // Strength Percentiles (from OpenPowerlifting data)
   strengthPercentiles: StrengthPercentile[];
+  // Health Percentiles (population norms for HRV, RHR, sleep, steps)
+  healthPercentiles: HealthPercentile[];
   gender: string | null;
 
   // Split Detection & Scheduling
@@ -374,6 +376,16 @@ export interface StrengthPercentile {
   estimated1RM: number;
   percentile: number;
   bodyWeightClass: string;
+}
+
+export interface HealthPercentile {
+  metric: string;
+  label: string;
+  value: number;
+  unit: string;
+  percentile: number;
+  ageGroup: string;
+  interpretation: string; // 'excellent' | 'good' | 'average' | 'below_average' | 'poor'
 }
 
 export type SplitType = 'push_pull_legs' | 'upper_lower' | 'bro_split' | 'full_body' | 'custom';
@@ -1520,6 +1532,220 @@ function computeStrengthPercentiles(
   return results;
 }
 
+// ─── Health Metric Population Norms ──────────────────────────────────────────
+// Sources: AHA, CDC, Whoop population data, Oura ring studies, Fitbit aggregate data.
+// Stratified by age group. Values represent percentile cutoffs.
+// "higher is better" for HRV, sleep, steps; "lower is better" for RHR.
+
+interface HealthNormTable {
+  [ageGroup: string]: { p10: number; p25: number; p50: number; p75: number; p90: number };
+}
+
+// HRV (ms RMSSD) — higher is better. Source: Whoop population data, Shaffer & Ginsberg 2017
+const HRV_NORMS: HealthNormTable = {
+  '18-25': { p10: 30, p25: 45, p50: 65, p75: 90, p90: 120 },
+  '26-35': { p10: 25, p25: 38, p50: 55, p75: 78, p90: 105 },
+  '36-45': { p10: 20, p25: 30, p50: 45, p75: 65, p90: 88 },
+  '46-55': { p10: 15, p25: 25, p50: 35, p75: 52, p90: 70 },
+  '56-65': { p10: 12, p25: 20, p50: 30, p75: 42, p90: 58 },
+  '65+':   { p10: 10, p25: 16, p50: 25, p75: 35, p90: 50 },
+};
+
+// Resting Heart Rate (bpm) — lower is better. Source: AHA, Fitbit aggregate studies
+const RHR_NORMS: HealthNormTable = {
+  '18-25': { p10: 52, p25: 57, p50: 65, p75: 72, p90: 80 },
+  '26-35': { p10: 53, p25: 58, p50: 66, p75: 73, p90: 81 },
+  '36-45': { p10: 54, p25: 59, p50: 67, p75: 74, p90: 82 },
+  '46-55': { p10: 55, p25: 60, p50: 68, p75: 76, p90: 84 },
+  '56-65': { p10: 54, p25: 59, p50: 67, p75: 75, p90: 83 },
+  '65+':   { p10: 53, p25: 58, p50: 66, p75: 74, p90: 82 },
+};
+
+// Sleep duration (hours) — optimal range is 7-9h. Source: NSF, CDC BRFSS
+const SLEEP_NORMS: HealthNormTable = {
+  '18-25': { p10: 5.0, p25: 6.0, p50: 7.0, p75: 8.0, p90: 9.0 },
+  '26-35': { p10: 5.0, p25: 6.0, p50: 7.0, p75: 7.8, p90: 8.5 },
+  '36-45': { p10: 5.0, p25: 5.8, p50: 6.8, p75: 7.5, p90: 8.3 },
+  '46-55': { p10: 4.8, p25: 5.5, p50: 6.5, p75: 7.3, p90: 8.0 },
+  '56-65': { p10: 4.5, p25: 5.5, p50: 6.5, p75: 7.2, p90: 8.0 },
+  '65+':   { p10: 4.5, p25: 5.2, p50: 6.2, p75: 7.0, p90: 7.8 },
+};
+
+// Daily steps — higher is better. Source: Fitbit aggregate data, Tudor-Locke 2011
+const STEPS_NORMS: HealthNormTable = {
+  '18-25': { p10: 3500, p25: 5500, p50: 8000, p75: 11000, p90: 14000 },
+  '26-35': { p10: 3200, p25: 5000, p50: 7500, p75: 10500, p90: 13500 },
+  '36-45': { p10: 3000, p25: 4800, p50: 7200, p75: 10000, p90: 13000 },
+  '46-55': { p10: 2800, p25: 4500, p50: 6800, p75: 9500, p90: 12500 },
+  '56-65': { p10: 2500, p25: 4000, p50: 6000, p75: 8500, p90: 11000 },
+  '65+':   { p10: 2000, p25: 3200, p50: 4800, p75: 7000, p90: 9500 },
+};
+
+// Daily calories burned — higher generally indicates more active. Source: Fitbit, NHANES
+const CALORIES_NORMS: { [gender: string]: HealthNormTable } = {
+  M: {
+    '18-25': { p10: 1800, p25: 2100, p50: 2500, p75: 3000, p90: 3500 },
+    '26-35': { p10: 1750, p25: 2050, p50: 2450, p75: 2900, p90: 3400 },
+    '36-45': { p10: 1700, p25: 2000, p50: 2400, p75: 2850, p90: 3300 },
+    '46-55': { p10: 1650, p25: 1950, p50: 2300, p75: 2750, p90: 3200 },
+    '56-65': { p10: 1600, p25: 1900, p50: 2200, p75: 2650, p90: 3000 },
+    '65+':   { p10: 1500, p25: 1800, p50: 2100, p75: 2500, p90: 2800 },
+  },
+  F: {
+    '18-25': { p10: 1400, p25: 1650, p50: 2000, p75: 2400, p90: 2800 },
+    '26-35': { p10: 1380, p25: 1620, p50: 1950, p75: 2350, p90: 2750 },
+    '36-45': { p10: 1350, p25: 1580, p50: 1900, p75: 2300, p90: 2700 },
+    '46-55': { p10: 1300, p25: 1550, p50: 1850, p75: 2200, p90: 2600 },
+    '56-65': { p10: 1250, p25: 1500, p50: 1800, p75: 2100, p90: 2500 },
+    '65+':   { p10: 1200, p25: 1400, p50: 1700, p75: 2000, p90: 2300 },
+  },
+};
+
+function getAgeGroup(age: number | null): string {
+  if (!age || age < 18) return '26-35'; // default
+  if (age <= 25) return '18-25';
+  if (age <= 35) return '26-35';
+  if (age <= 45) return '36-45';
+  if (age <= 55) return '46-55';
+  if (age <= 65) return '56-65';
+  return '65+';
+}
+
+function interpolatePercentile(
+  value: number,
+  norms: { p10: number; p25: number; p50: number; p75: number; p90: number },
+  higherIsBetter: boolean
+): number {
+  const points = [
+    { pct: 10, val: norms.p10 },
+    { pct: 25, val: norms.p25 },
+    { pct: 50, val: norms.p50 },
+    { pct: 75, val: norms.p75 },
+    { pct: 90, val: norms.p90 },
+  ];
+
+  if (!higherIsBetter) {
+    // For RHR: lower value = higher percentile. Invert the mapping.
+    points.reverse();
+    // After reversing: p90 val (low) → 10th pct, p10 val (high) → 90th pct
+    // Re-label so lower values map to higher percentiles
+    return interpolatePercentile(value, {
+      p10: norms.p90, p25: norms.p75, p50: norms.p50, p75: norms.p25, p90: norms.p10,
+    }, true);
+  }
+
+  if (value >= points[points.length - 1].val) {
+    const overshoot = (value - points[points.length - 1].val) / (points[points.length - 1].val * 0.2);
+    return Math.min(99, Math.round(90 + overshoot * 7));
+  }
+  if (value <= points[0].val) {
+    const ratio = points[0].val > 0 ? value / points[0].val : 0;
+    return Math.max(1, Math.round(ratio * 10));
+  }
+
+  for (let i = 0; i < points.length - 1; i++) {
+    if (value >= points[i].val && value < points[i + 1].val) {
+      const range = points[i + 1].val - points[i].val;
+      const t = range > 0 ? (value - points[i].val) / range : 0;
+      return Math.round(points[i].pct + t * (points[i + 1].pct - points[i].pct));
+    }
+  }
+  return 50;
+}
+
+function getInterpretation(pct: number): string {
+  if (pct >= 90) return 'excellent';
+  if (pct >= 75) return 'good';
+  if (pct >= 50) return 'average';
+  if (pct >= 25) return 'below_average';
+  return 'poor';
+}
+
+function computeHealthPercentiles(
+  health: HealthRecord[],
+  age: number | null,
+  gender: string | null
+): HealthPercentile[] {
+  const results: HealthPercentile[] = [];
+  const recent = health.slice(-30);
+  if (recent.length < 3) return results;
+
+  const ageGroup = getAgeGroup(age);
+  const sex = (gender || 'M').toUpperCase().startsWith('F') ? 'F' : 'M';
+
+  // HRV
+  const hrvVals = recent.filter(h => h.hrv != null).map(h => h.hrv!);
+  if (hrvVals.length >= 3) {
+    const avg = hrvVals.reduce((s, v) => s + v, 0) / hrvVals.length;
+    const norms = HRV_NORMS[ageGroup];
+    if (norms) {
+      const pct = interpolatePercentile(avg, norms, true);
+      results.push({
+        metric: 'hrv', label: 'HRV', value: Math.round(avg),
+        unit: 'ms', percentile: pct, ageGroup, interpretation: getInterpretation(pct),
+      });
+    }
+  }
+
+  // RHR
+  const rhrVals = recent.filter(h => h.resting_heart_rate != null).map(h => h.resting_heart_rate!);
+  if (rhrVals.length >= 3) {
+    const avg = rhrVals.reduce((s, v) => s + v, 0) / rhrVals.length;
+    const norms = RHR_NORMS[ageGroup];
+    if (norms) {
+      const pct = interpolatePercentile(avg, norms, false);
+      results.push({
+        metric: 'rhr', label: 'Resting HR', value: Math.round(avg),
+        unit: 'bpm', percentile: pct, ageGroup, interpretation: getInterpretation(pct),
+      });
+    }
+  }
+
+  // Sleep
+  const sleepVals = recent.filter(h => h.sleep_duration != null).map(h => h.sleep_duration! / 60);
+  if (sleepVals.length >= 3) {
+    const avg = sleepVals.reduce((s, v) => s + v, 0) / sleepVals.length;
+    const norms = SLEEP_NORMS[ageGroup];
+    if (norms) {
+      const pct = interpolatePercentile(avg, norms, true);
+      results.push({
+        metric: 'sleep', label: 'Sleep', value: Math.round(avg * 10) / 10,
+        unit: 'hrs', percentile: pct, ageGroup, interpretation: getInterpretation(pct),
+      });
+    }
+  }
+
+  // Steps
+  const stepsVals = recent.filter(h => h.steps != null).map(h => h.steps!);
+  if (stepsVals.length >= 3) {
+    const avg = stepsVals.reduce((s, v) => s + v, 0) / stepsVals.length;
+    const norms = STEPS_NORMS[ageGroup];
+    if (norms) {
+      const pct = interpolatePercentile(avg, norms, true);
+      results.push({
+        metric: 'steps', label: 'Daily Steps', value: Math.round(avg),
+        unit: 'steps', percentile: pct, ageGroup, interpretation: getInterpretation(pct),
+      });
+    }
+  }
+
+  // Calories burned
+  const calVals = recent.filter(h => h.calories_burned != null).map(h => h.calories_burned!);
+  if (calVals.length >= 3) {
+    const avg = calVals.reduce((s, v) => s + v, 0) / calVals.length;
+    const norms = CALORIES_NORMS[sex]?.[ageGroup];
+    if (norms) {
+      const pct = interpolatePercentile(avg, norms, true);
+      results.push({
+        metric: 'calories', label: 'Calories Burned', value: Math.round(avg),
+        unit: 'kcal', percentile: pct, ageGroup, interpretation: getInterpretation(pct),
+      });
+    }
+  }
+
+  return results;
+}
+
 /**
  * Detect training split from workout history.
  * Analyzes which muscle groups appear together in sessions and the rotation pattern.
@@ -2507,6 +2733,14 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const userBodyWeightLbs = prefsResult?.data?.body_weight_lbs != null ? Number(prefsResult.data.body_weight_lbs) : null;
   const userWeightGoalLbs = prefsResult?.data?.weight_goal_lbs != null ? Number(prefsResult.data.weight_goal_lbs) : null;
 
+  let userAge: number | null = prefsResult?.data?.age != null ? Number(prefsResult.data.age) : null;
+  if (userAge == null && prefsResult?.data?.date_of_birth) {
+    const dob = new Date(prefsResult.data.date_of_birth);
+    if (!isNaN(dob.getTime())) {
+      userAge = Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    }
+  }
+
   const healthByDate = new Map<string, HealthRecord>();
   for (const h of health) healthByDate.set(h.date, h);
 
@@ -2653,6 +2887,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     repWeightBreakthroughs: computeRepWeightBreakthroughs(workouts),
     imbalanceAlerts: computeImbalanceAlerts(muscleVolumeStatuses),
     strengthPercentiles: computeStrengthPercentiles(exerciseProgressions, userBodyWeight, userGender),
+    healthPercentiles: computeHealthPercentiles(health, userAge, userGender),
     gender: userGender,
 
     detectedSplit: detectTrainingSplit(workouts, exercises),

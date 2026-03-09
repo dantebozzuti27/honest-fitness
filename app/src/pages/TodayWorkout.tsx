@@ -774,6 +774,19 @@ export default function TodayWorkout() {
                 </div>
               </div>
             )}
+            {profile.healthPercentiles && profile.healthPercentiles.length > 0 && (
+              <div style={{ marginTop: '12px', padding: '0 4px' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px', opacity: 0.8 }}>Health Metrics (vs. age group)</div>
+                <div className={styles.contextGrid}>
+                  {profile.healthPercentiles.map(hp => (
+                    <div key={hp.metric} className={styles.contextItem}>
+                      <span className="label">{hp.label}</span>
+                      <span className="value">{hp.value} {hp.unit} — {hp.percentile}th %ile</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </details>
         )}
 

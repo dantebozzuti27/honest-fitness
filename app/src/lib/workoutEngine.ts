@@ -378,26 +378,28 @@ function isInjuryConflict(exercise: EnrichedExercise, injuries: UserPreferences[
   return false;
 }
 
+// Transition time per exercise: walk to machine, load plates, adjust seat
+const TRANSITION_TIME_SEC = {
+  primary: 120,   // heavy compound: more plate loading, setup
+  secondary: 90,  // moderate compound
+  isolation: 60,  // lighter, simpler setup
+  corrective: 45, // bands, bodyweight
+  cardio: 60,     // walk over, set speed/incline
+};
+
 /**
- * Time-per-set estimates for budget calculations (in minutes).
- * Includes set execution + rest period.
+ * Time-per-exercise estimate including set execution, rest between sets,
+ * warmup sets, and transition/setup time to the next station.
  */
 function estimateExerciseMinutes(
   sets: number, restSeconds: number, role: ExerciseRole, warmupSets: number = 0,
-  avgSessionDuration?: number, exerciseCount?: number
 ): number {
-  // #16: If we have historical session data, derive per-exercise time from actuals
-  if (avgSessionDuration && exerciseCount && exerciseCount > 0) {
-    const perExerciseMin = avgSessionDuration / 60 / exerciseCount;
-    if (perExerciseMin > 2 && perExerciseMin < 25) {
-      return perExerciseMin * (sets / 3); // scale by set count relative to typical 3
-    }
-  }
   const setExecutionSec = role === 'primary' ? 40 : role === 'secondary' ? 35 : 30;
   const warmupRestSec = 60;
   const workingTime = sets * (setExecutionSec + restSeconds);
   const warmupTime = warmupSets * (30 + warmupRestSec);
-  return (workingTime + warmupTime) / 60;
+  const transition = TRANSITION_TIME_SEC[role] ?? 60;
+  return (workingTime + warmupTime + transition) / 60;
 }
 
 function classifyExerciseRole(
@@ -1607,7 +1609,7 @@ function stepApplyConstraints(
     }
   }
 
-  // Time budget: hard ceiling for entire session (strength + cardio)
+  // Time budget: hard ceiling for entire session (strength + cardio + transitions)
   const availableMinutes = computeAvailableMinutes(prefs);
 
   // Session fatigue adjustment
@@ -1620,45 +1622,90 @@ function stepApplyConstraints(
   }
 
   const effectiveBudget = Math.round(availableMinutes * sessionFatigueAdj);
-  const transitionBuffer = 5; // warmup, water breaks, transitions
+
+  // Helper: recalculate an exercise's time after changing sets or rest
+  const recalcTime = (ex: GeneratedExercise) => {
+    if (ex.isCardio) {
+      ex.estimatedMinutes = (ex.cardioDurationSeconds ?? 1800) / 60 + (TRANSITION_TIME_SEC.cardio / 60);
+    } else {
+      ex.estimatedMinutes = estimateExerciseMinutes(
+        ex.sets, ex.restSeconds, ex.exerciseRole, ex.warmupSets?.length ?? 0
+      );
+    }
+  };
 
   // ── Cardio time enforcement ───────────────────────────────────────────
-  // Cardio must fit within the budget alongside strength, not ignore it.
+  // Strength gets priority. Cardio must fit in whatever remains.
   let totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   const strengthFloor = Math.min(totalStrengthMin, cfg.minStrengthBudgetMinutes);
-  const maxCardioMinutes = Math.max(0, effectiveBudget - strengthFloor - transitionBuffer);
+  const maxCardioMinutes = Math.max(0, effectiveBudget - strengthFloor);
   let totalCardioMin = cardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   const keptCardio: GeneratedExercise[] = [];
 
-  if (totalCardioMin > maxCardioMinutes && maxCardioMinutes > 0) {
-    // Scale all cardio durations proportionally to fit the budget
+  if (totalCardioMin > maxCardioMinutes && maxCardioMinutes >= 10) {
     const scale = maxCardioMinutes / totalCardioMin;
-    const minCardioSeconds = 10 * 60; // never prescribe less than 10 min of cardio
+    const minCardioSeconds = 10 * 60;
     for (const ex of cardio) {
       const originalSec = ex.cardioDurationSeconds ?? ex.estimatedMinutes * 60;
       const scaledSec = Math.round(originalSec * scale);
       if (scaledSec >= minCardioSeconds) {
         ex.cardioDurationSeconds = scaledSec;
-        ex.estimatedMinutes = scaledSec / 60;
         ex.adjustments.push(`Duration capped to ${Math.round(scaledSec / 60)} min (session budget: ${effectiveBudget} min)`);
+        recalcTime(ex);
         keptCardio.push(ex);
-      } else {
-        // Too short to be useful — drop this cardio exercise
-        ex.adjustments.push(`Dropped: ${Math.round(originalSec / 60)} min → ${Math.round(scaledSec / 60)} min would be too short`);
       }
     }
-    totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   } else if (totalCardioMin > maxCardioMinutes) {
-    // No room for cardio at all — drop it
-    totalCardioMin = 0;
+    // No room for cardio
   } else {
     keptCardio.push(...cardio);
   }
 
-  // ── Strength time enforcement ─────────────────────────────────────────
-  const strengthBudget = Math.max(effectiveBudget - totalCardioMin - transitionBuffer, cfg.minStrengthBudgetMinutes);
+  // ── Strength time enforcement (3-phase) ───────────────────────────────
+  // Budget remaining after cardio
+  totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+  const strengthBudget = Math.max(effectiveBudget - totalCardioMin, cfg.minStrengthBudgetMinutes);
+  totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
 
   if (totalStrengthMin > strengthBudget) {
+    // Phase 1: Compress rest on isolation and secondary exercises (15% reduction)
+    for (const ex of ordered) {
+      if (totalStrengthMin <= strengthBudget) break;
+      if (ex.exerciseRole === 'isolation' || ex.exerciseRole === 'corrective') {
+        const oldRest = ex.restSeconds;
+        ex.restSeconds = Math.max(30, Math.round(ex.restSeconds * 0.85));
+        if (ex.restSeconds < oldRest) {
+          const oldMin = ex.estimatedMinutes;
+          recalcTime(ex);
+          totalStrengthMin -= (oldMin - ex.estimatedMinutes);
+          ex.adjustments.push(`Rest compressed: ${oldRest}s → ${ex.restSeconds}s (time budget)`);
+        }
+      }
+    }
+  }
+
+  if (totalStrengthMin > strengthBudget) {
+    // Phase 2: Reduce sets on non-primary exercises (4→3, 3→2, never below 2)
+    const reductionOrder = [...ordered]
+      .filter(e => e.exerciseRole !== 'primary')
+      .sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
+
+    for (const ex of reductionOrder) {
+      if (totalStrengthMin <= strengthBudget) break;
+      if (ex.sets > 2) {
+        const removeSets = ex.sets > 3 ? 2 : 1;
+        const oldSets = ex.sets;
+        ex.sets = Math.max(2, ex.sets - removeSets);
+        const oldMin = ex.estimatedMinutes;
+        recalcTime(ex);
+        totalStrengthMin -= (oldMin - ex.estimatedMinutes);
+        ex.adjustments.push(`Sets reduced: ${oldSets} → ${ex.sets} (time budget: ${effectiveBudget} min)`);
+      }
+    }
+  }
+
+  if (totalStrengthMin > strengthBudget) {
+    // Phase 3: Last resort — drop lowest-impact exercises entirely
     const sortedByImpact = [...ordered].sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
     const keepSet = new Set(ordered.map(e => e.exerciseName));
 

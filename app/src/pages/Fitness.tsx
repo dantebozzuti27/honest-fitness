@@ -466,7 +466,71 @@ export default function Fitness() {
 
         {activeTab === 'History' && (
           <div className={styles.historyContent}>
-            <h2 className={styles.sectionTitle}>Workout History</h2>
+            {/* Stats Bar */}
+            {workoutHistory.length > 0 && (
+              <div style={{
+                display: 'flex',
+                gap: '8px',
+                flexWrap: 'wrap',
+                marginBottom: '4px',
+              }}>
+                <span style={{
+                  fontSize: '12px',
+                  padding: '4px 10px',
+                  borderRadius: '999px',
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.10)',
+                  color: 'var(--text-secondary)',
+                  fontWeight: 600,
+                }}>
+                  {workoutHistory.length} sessions
+                </span>
+                {(() => {
+                  const totalMins = workoutHistory.reduce((s: number, w: any) => s + Math.floor((w?.duration || 0) / 60), 0)
+                  return (
+                    <span style={{
+                      fontSize: '12px',
+                      padding: '4px 10px',
+                      borderRadius: '999px',
+                      background: 'rgba(255,255,255,0.06)',
+                      border: '1px solid rgba(255,255,255,0.10)',
+                      color: 'var(--text-secondary)',
+                      fontWeight: 600,
+                    }}>
+                      {totalMins >= 60 ? `${(totalMins / 60).toFixed(0)}h ${totalMins % 60}m` : `${totalMins}m`} total
+                    </span>
+                  )
+                })()}
+                {(() => {
+                  const totalVol = workoutHistory.reduce((s: number, w: any) => {
+                    const exs = Array.isArray(w?.workout_exercises) ? w.workout_exercises : []
+                    return s + exs.reduce((es: number, ex: any) => {
+                      const sets = Array.isArray(ex?.workout_sets) ? ex.workout_sets : []
+                      return es + sets.reduce((ss: number, set: any) => {
+                        const wt = Number(set?.weight)
+                        const rp = Number(set?.reps)
+                        return ss + (Number.isFinite(wt) && wt > 0 && Number.isFinite(rp) && rp > 0 ? wt * rp : 0)
+                      }, 0)
+                    }, 0)
+                  }, 0)
+                  if (totalVol <= 0) return null
+                  return (
+                    <span style={{
+                      fontSize: '12px',
+                      padding: '4px 10px',
+                      borderRadius: '999px',
+                      background: 'rgba(255,255,255,0.06)',
+                      border: '1px solid rgba(255,255,255,0.10)',
+                      color: 'var(--text-secondary)',
+                      fontWeight: 600,
+                    }}>
+                      {totalVol >= 1_000_000 ? `${(totalVol / 1_000_000).toFixed(1)}M` : `${(totalVol / 1000).toFixed(0)}k`} lbs lifted
+                    </span>
+                  )
+                })()}
+              </div>
+            )}
+
             <div className={styles.historyQuickActions}>
               <Button variant="secondary" onClick={() => repeatYesterdayTemplate()}>Repeat yesterday</Button>
             </div>

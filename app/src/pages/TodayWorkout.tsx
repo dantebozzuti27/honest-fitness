@@ -30,19 +30,22 @@ export default function TodayWorkout() {
   const [finishByTime, setFinishByTime] = useState('')
   const [cachedProfile, setCachedProfile] = useState<TrainingProfile | null>(null)
   const [weekPreview, setWeekPreview] = useState<DayPreview[]>([])
+  const [restDays, setRestDays] = useState<number[]>([])
+  const regeneratingRef = { current: false }
 
   useEffect(() => {
-    if (user) generate()
+    if (user) initialLoad()
   }, [user])
 
-  const generate = async (overrides?: SessionOverrides) => {
+  // Initial load: fetch prefs, compute profile, generate first workout
+  const initialLoad = async () => {
     if (!user) return
     setViewState('loading')
     try {
       const supabase = requireSupabase()
       const { data: prefsData } = await supabase
         .from('user_preferences')
-        .select('training_goal, session_duration_minutes')
+        .select('training_goal, session_duration_minutes, rest_days')
         .eq('user_id', user.id)
         .single()
 
@@ -51,19 +54,20 @@ export default function TodayWorkout() {
         setDefaultDuration(Number(prefsData.session_duration_minutes))
       }
 
-      const tp = cachedProfile ?? await computeTrainingProfile(user.id)
-      if (!cachedProfile) {
-        setCachedProfile(tp)
-        setWeekPreview(generateWeekPreview(tp))
-      }
+      const loadedRestDays: number[] = Array.isArray(prefsData?.rest_days) ? prefsData.rest_days : []
+      setRestDays(loadedRestDays)
+
+      const tp = await computeTrainingProfile(user.id)
+      setCachedProfile(tp)
       setProfile(tp)
+      setWeekPreview(generateWeekPreview(tp, loadedRestDays))
 
       if (tp.trainingAgeDays < 7) {
         setViewState('empty')
         return
       }
 
-      const w = await generateWorkout(tp, overrides)
+      const w = await generateWorkout(tp)
       setWorkout(w)
       setViewState('ready')
       saveGeneratedWorkout(user.id, w).catch(e => logError('Save generated workout failed (non-blocking)', e))
@@ -74,45 +78,73 @@ export default function TodayWorkout() {
     }
   }
 
-  const regenerateWithOverrides = async (
-    duration: number | null,
-    finishBy: string
-  ) => {
+  // Regeneration: reuses cached profile, only re-runs workout generation
+  const regenerate = async (duration: number | null, finishBy: string) => {
+    if (!cachedProfile || regeneratingRef.current) return
+    regeneratingRef.current = true
     setRegenerating(true)
-    const o: SessionOverrides = {}
-    if (duration != null) o.durationMinutes = duration
-    if (finishBy) o.finishByTime = finishBy
-    await generate(Object.keys(o).length > 0 ? o : undefined)
-    setRegenerating(false)
-    showToast('Workout regenerated', 'success')
+
+    try {
+      const o: SessionOverrides = {}
+      if (duration != null) o.durationMinutes = duration
+      if (finishBy) o.finishByTime = finishBy
+
+      const w = await generateWorkout(
+        cachedProfile,
+        Object.keys(o).length > 0 ? o : undefined
+      )
+      setWorkout(w)
+      showToast('Workout regenerated', 'success')
+    } catch (err) {
+      logError('Regeneration error', err)
+      showToast('Regeneration failed', 'error')
+    } finally {
+      setRegenerating(false)
+      regeneratingRef.current = false
+    }
   }
 
   const handleDurationClick = (mins: number) => {
-    const newDuration = mins === defaultDuration && durationOverride === null
-      ? null
-      : mins === durationOverride ? null : mins
+    const newDuration = mins === durationOverride ? null : mins
     setDurationOverride(newDuration)
-    regenerateWithOverrides(newDuration, finishByTime)
+    regenerate(newDuration, finishByTime)
   }
 
   const handleFinishByChange = (time: string) => {
     setFinishByTime(time)
-    if (time) regenerateWithOverrides(durationOverride, time)
+    if (time) regenerate(durationOverride, time)
   }
 
   const handleClearFinishBy = () => {
     setFinishByTime('')
-    regenerateWithOverrides(durationOverride, '')
+    regenerate(durationOverride, '')
   }
 
-  const handleRegenerate = async () => {
-    setRegenerating(true)
-    const o: SessionOverrides = {}
-    if (durationOverride != null) o.durationMinutes = durationOverride
-    if (finishByTime) o.finishByTime = finishByTime
-    await generate(Object.keys(o).length > 0 ? o : undefined)
-    setRegenerating(false)
-    showToast('Workout regenerated', 'success')
+  const handleRegenerate = () => {
+    regenerate(durationOverride, finishByTime)
+  }
+
+  const toggleRestDay = async (dow: number) => {
+    if (!user) return
+    const next = restDays.includes(dow)
+      ? restDays.filter(d => d !== dow)
+      : [...restDays, dow].sort()
+    setRestDays(next)
+
+    if (cachedProfile) {
+      setWeekPreview(generateWeekPreview(cachedProfile, next))
+    }
+
+    try {
+      const supabase = requireSupabase()
+      await supabase
+        .from('user_preferences')
+        .update({ rest_days: next.length > 0 ? next : null })
+        .eq('user_id', user.id)
+    } catch (err) {
+      logError('Failed to save rest days', err)
+      showToast('Failed to save rest days', 'error')
+    }
   }
 
   const handleStartWorkout = () => {
@@ -247,7 +279,7 @@ export default function TodayWorkout() {
         <div className={styles.emptyState}>
           <h2>Generation Failed</h2>
           <p>{errorMsg}</p>
-          <Button onClick={() => generate()}>Try Again</Button>
+          <Button onClick={initialLoad}>Try Again</Button>
         </div>
       </div>
     )
@@ -317,25 +349,35 @@ export default function TodayWorkout() {
           )}
         </div>
 
-        {/* Week Preview */}
+        {/* Week Preview — tap a day to toggle rest */}
         {weekPreview.length > 0 && (
           <div className={styles.weekPreview}>
-            <h3 className={styles.weekPreviewTitle}>This Week</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className={styles.weekPreviewTitle}>This Week</h3>
+              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Tap to set rest days</span>
+            </div>
             <div className={styles.weekDays}>
-              {weekPreview.map(day => (
-                <div
-                  key={day.dayOfWeek}
-                  className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${day.isRestDay ? styles.weekDayRest : ''}`}
-                >
-                  <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
-                  <div className={styles.weekDayFocus}>{day.focus}</div>
-                  {!day.isRestDay && (
-                    <div className={styles.weekDayMeta}>
-                      {day.estimatedExercises} ex · {day.estimatedMinutes}m
+              {weekPreview.map(day => {
+                const isUserRest = restDays.includes(day.dayOfWeek)
+                return (
+                  <div
+                    key={day.dayOfWeek}
+                    className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${day.isRestDay ? styles.weekDayRest : ''}`}
+                    onClick={() => toggleRestDay(day.dayOfWeek)}
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                  >
+                    <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
+                    <div className={styles.weekDayFocus}>
+                      {isUserRest ? 'Rest' : day.focus}
                     </div>
-                  )}
-                </div>
-              ))}
+                    {!day.isRestDay && (
+                      <div className={styles.weekDayMeta}>
+                        {day.estimatedExercises} ex · {day.estimatedMinutes}m
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

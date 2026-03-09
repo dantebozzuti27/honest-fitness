@@ -1,9 +1,8 @@
 /**
  * History Card Component
- * Liquid glass card design for workout history entries
+ * Expandable workout card with exercise-level detail
  */
 
-import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { formatDateShort, getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import Card from './ui/Card'
@@ -22,6 +21,20 @@ export type HistoryCardProps = {
   onEdit?: () => void
 }
 
+type ExerciseEntry = {
+  exercise_name?: string
+  name?: string
+  body_part?: string
+  category?: string
+  workout_sets?: Array<{
+    weight?: number | string
+    reps?: number | string
+    time?: number | string
+    is_bodyweight?: boolean
+    weight_label?: string
+  }>
+}
+
 export default function HistoryCard({
   type = 'fitness',
   date,
@@ -29,48 +42,34 @@ export default function HistoryCard({
   onView,
   onDelete,
   onEdit,
-  previousData = null, // For trend comparison
+  previousData = null,
   index = 0
 }: HistoryCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  // Format date with relative labels
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return ''
     const today = getTodayEST()
     const yesterday = getYesterdayEST()
-    
+
     if (dateStr === today) return 'Today'
     if (dateStr === yesterday) return 'Yesterday'
-    
-    const date = new Date(dateStr + 'T12:00:00')
-    const weekday = date.toLocaleDateString('en-US', { weekday: 'short' })
+
+    const d = new Date(dateStr + 'T12:00:00')
+    const weekday = d.toLocaleDateString('en-US', { weekday: 'short' })
     const formatted = formatDateShort(dateStr)
-    return `${weekday} • ${formatted}`
+    return `${weekday} \u2022 ${formatted}`
   }
 
-  // Calculate trends
   const getTrend = (current: any, previous: any, format: (v: any) => any = (v) => v) => {
     if (!previous || current == null || previous == null) return null
     const diff = current - previous
-    if (Math.abs(diff) < 0.01) return { direction: '→', value: 'Same', color: 'var(--text-secondary)' }
+    if (Math.abs(diff) < 0.01) return { direction: '\u2192', value: 'Same', color: 'var(--text-secondary)' }
     const isPositive = diff > 0
     return {
-      direction: isPositive ? '↑' : '↓',
+      direction: isPositive ? '\u2191' : '\u2193',
       value: `${isPositive ? '+' : ''}${format(Math.abs(diff))}`,
       color: isPositive ? 'var(--success)' : 'var(--danger)'
-    }
-  }
-
-  // Render based on type
-  const renderContent = () => {
-    switch (type) {
-      case 'fitness':
-        return renderFitnessCard()
-      case 'health':
-        return renderHealthCard()
-      default:
-        return null
     }
   }
 
@@ -79,31 +78,30 @@ export default function HistoryCard({
     const durationMinutes = Math.floor(duration / 60)
     const durationSeconds = duration % 60
     const durationFormatted = `${durationMinutes}:${String(durationSeconds).padStart(2, '0')}`
-    const exerciseCount = data.workout_exercises?.length || 0
+    const exercises: ExerciseEntry[] = Array.isArray(data.workout_exercises) ? data.workout_exercises : []
+    const exerciseCount = exercises.length
     const sessionType = (data.session_type || data.sessionType || 'workout').toString().toLowerCase()
     const isRecovery = sessionType === 'recovery'
     const templateName = isRecovery ? 'Recovery Session' : (data.template_name || 'Freestyle')
-    
-    // Calculate total volume (handle both workout_sets and sets)
-    const totalVolume = Array.isArray(data.workout_exercises) ? data.workout_exercises.reduce((sum: number, ex: any) => {
-      const rawSets = ex.workout_sets || ex.sets
-      const sets = Array.isArray(rawSets) ? rawSets : []
-      return sum + sets.reduce((setSum: number, set: any) => {
+
+    const totalVolume = exercises.reduce((sum, ex) => {
+      const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+      return sum + sets.reduce((setSum, set) => {
         const w = Number(set?.weight)
         const r = Number(set?.reps)
-        const weight = Number.isFinite(w) && w > 0 ? w : 0
-        const reps = Number.isFinite(r) && r > 0 ? r : 0
-        return setSum + (weight * reps)
+        return setSum + (Number.isFinite(w) && w > 0 && Number.isFinite(r) && r > 0 ? w * r : 0)
       }, 0)
-    }, 0) : 0
-    
-    // Get body parts worked
+    }, 0)
+
+    const totalSets = exercises.reduce((sum, ex) => {
+      return sum + (Array.isArray(ex.workout_sets) ? ex.workout_sets.length : 0)
+    }, 0)
+
     const bodyParts: string[] = [...new Set<string>(
-      (data.workout_exercises?.map((ex: any) => ex.body_part || ex.bodyPart).filter(Boolean) || []) as string[]
-    )].slice(0, 3)
-    
-    // Duration trend
-    const durationTrend = previousData?.duration 
+      exercises.map(ex => ex.body_part || '').filter(Boolean) as string[]
+    )].slice(0, 4)
+
+    const durationTrend = previousData?.duration
       ? getTrend(duration, previousData.duration, (v) => `${Math.floor(v / 60)}min`)
       : null
 
@@ -112,40 +110,49 @@ export default function HistoryCard({
         <div className={styles.cardHeader}>
           <div className={styles.dateSection}>
             <span className={styles.dateLabel}>{formatDate(date)}</span>
-            {isRecovery && (
-              <span className={styles.sessionPill}>Recovery</span>
-            )}
-            {durationTrend && (
-              <span className={styles.trend} style={{ color: durationTrend.color }}>
-                {durationTrend.direction} {durationTrend.value}
-              </span>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {isRecovery && <span className={styles.sessionPill}>Recovery</span>}
+              {durationTrend && (
+                <span className={styles.trend} style={{ color: durationTrend.color }}>
+                  {durationTrend.direction} {durationTrend.value}
+                </span>
+              )}
+            </div>
           </div>
           <div className={styles.primaryMetric}>
             <span className={styles.metricValue}>{durationFormatted}</span>
             <span className={styles.metricLabel}>Duration</span>
           </div>
         </div>
-        
+
         <div className={styles.cardBody}>
+          {/* Summary row */}
           <div className={styles.metricRow}>
+            <div className={styles.metricItem}>
+              <span className={styles.metricValue}>{templateName}</span>
+              <span className={styles.metricLabel}>Template</span>
+            </div>
             <div className={styles.metricItem}>
               <span className={styles.metricValue}>{exerciseCount}</span>
               <span className={styles.metricLabel}>Exercises</span>
             </div>
             <div className={styles.metricItem}>
-              <span className={styles.metricValue}>{totalVolume > 0 ? `${Math.round(totalVolume / 100) / 10}k` : '0'}</span>
-              <span className={styles.metricLabel}>Volume (lbs)</span>
-            </div>
-            <div className={styles.metricItem}>
-              <span className={styles.metricValue}>{templateName}</span>
-              <span className={styles.metricLabel}>Template</span>
+              <span className={styles.metricValue}>{totalSets}</span>
+              <span className={styles.metricLabel}>Sets</span>
             </div>
           </div>
-          
-          {/* Display wearable metrics if available */}
+
+          {totalVolume > 0 && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Volume: {totalVolume >= 10000 ? `${(totalVolume / 1000).toFixed(1)}k` : totalVolume.toLocaleString()} lbs
+              </span>
+            </div>
+          )}
+
+          {/* Wearable metrics */}
           {(data.workout_calories_burned != null || data.workout_steps != null) && (
-            <div className={styles.metricRow} style={{ marginTop: '12px' }}>
+            <div className={styles.metricRow}>
               {data.workout_calories_burned != null && (
                 <div className={styles.metricItem}>
                   <span className={styles.metricValue}>{Math.round(data.workout_calories_burned)}</span>
@@ -160,12 +167,63 @@ export default function HistoryCard({
               )}
             </div>
           )}
-          
+
           {bodyParts.length > 0 && (
             <div className={styles.tags}>
               {bodyParts.map((part, i) => (
                 <span key={i} className={styles.tag}>{part}</span>
               ))}
+            </div>
+          )}
+
+          {/* Expandable exercise detail */}
+          {exercises.length > 0 && (
+            <div className={styles.exerciseToggle} onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded) }}>
+              <span>{isExpanded ? '\u25BE' : '\u25B8'} {exercises.length} exercise{exercises.length > 1 ? 's' : ''}</span>
+            </div>
+          )}
+
+          {isExpanded && exercises.length > 0 && (
+            <div className={styles.exerciseList}>
+              {exercises.map((ex, i) => {
+                const exName = (ex.exercise_name || ex.name || 'Exercise').toString()
+                const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+                const workingSets = sets.filter(s => {
+                  const w = Number(s?.weight)
+                  const r = Number(s?.reps)
+                  return (Number.isFinite(w) && w > 0) || (Number.isFinite(r) && r > 0)
+                })
+                const isBW = sets.some(s => s?.is_bodyweight || s?.weight_label === 'BW')
+                const isCardio = (ex.category || '').toLowerCase() === 'cardio'
+
+                const bestSet = workingSets.reduce<{ weight: number; reps: number } | null>((best, s) => {
+                  const w = Number(s?.weight) || 0
+                  const r = Number(s?.reps) || 0
+                  if (!best || w * r > best.weight * best.reps) return { weight: w, reps: r }
+                  return best
+                }, null)
+
+                return (
+                  <div key={i} className={styles.exerciseRow}>
+                    <div className={styles.exerciseIndex}>{i + 1}</div>
+                    <div className={styles.exerciseInfo}>
+                      <span className={styles.exerciseName}>{exName}</span>
+                      <span className={styles.exerciseSummary}>
+                        {isCardio ? (
+                          sets[0]?.time ? `${Math.round(Number(sets[0].time) / 60)} min` : `${sets.length} set${sets.length > 1 ? 's' : ''}`
+                        ) : isBW ? (
+                          `${workingSets.length} sets${bestSet?.reps ? ` \u00b7 best: ${bestSet.reps} reps` : ''}`
+                        ) : (
+                          `${workingSets.length} sets${bestSet ? ` \u00b7 best: ${bestSet.weight}\u00d7${bestSet.reps}` : ''}`
+                        )}
+                      </span>
+                    </div>
+                    {ex.body_part && (
+                      <span className={styles.exerciseBodyPart}>{ex.body_part}</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
@@ -182,8 +240,7 @@ export default function HistoryCard({
     const sleepScore = data.sleep_score
     const restingHR = data.resting_heart_rate
     const bodyTemp = data.body_temp
-    
-    // Count active metrics
+
     const activeMetrics = [weight, steps, hrv, calories, sleepTime, sleepScore, restingHR, bodyTemp].filter(v => v != null && v !== 0).length
 
     return (
@@ -194,7 +251,7 @@ export default function HistoryCard({
             <span className={styles.metricCount}>{activeMetrics} metric{activeMetrics !== 1 ? 's' : ''}</span>
           </div>
         </div>
-        
+
         <div className={styles.cardBody}>
           <div className={styles.metricGrid}>
             {weight != null && (
@@ -244,7 +301,7 @@ export default function HistoryCard({
             {bodyTemp != null && (
               <div className={styles.metricItem}>
                 <span className={styles.metricValue}>{bodyTemp.toFixed(1)}</span>
-                <span className={styles.metricLabel}>Body Temp (°F)</span>
+                <span className={styles.metricLabel}>Body Temp (\u00b0F)</span>
               </div>
             )}
           </div>
@@ -256,31 +313,24 @@ export default function HistoryCard({
   return (
     <Card
       className={styles.historyCard}
-      style={{ 
+      style={{
         animationDelay: `${index * 0.05}s`,
         '--card-type': type
       } as React.CSSProperties}
       onClick={() => {
-        if (onView && typeof onView === 'function') {
-          onView()
-        }
-        setIsExpanded(!isExpanded)
+        if (onView && typeof onView === 'function') onView()
+        if (type === 'fitness') setIsExpanded(!isExpanded)
       }}
     >
       <div className={styles.cardContent}>
-        {renderContent()}
+        {type === 'fitness' ? renderFitnessCard() : renderHealthCard()}
       </div>
-      
+
       <div className={styles.cardActions}>
         {onEdit && (
           <button
             className={styles.actionBtn}
-            onClick={(e) => {
-              e.stopPropagation()
-              if (onEdit && typeof onEdit === 'function') {
-                onEdit()
-              }
-            }}
+            onClick={(e) => { e.stopPropagation(); onEdit() }}
             title="Edit"
           >
             Edit
@@ -289,12 +339,7 @@ export default function HistoryCard({
         {onDelete && (
           <button
             className={`${styles.actionBtn} ${styles.deleteBtn}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              if (onDelete && typeof onDelete === 'function') {
-                onDelete()
-              }
-            }}
+            onClick={(e) => { e.stopPropagation(); onDelete() }}
             title="Delete"
           >
             Delete
@@ -304,4 +349,3 @@ export default function HistoryCard({
     </Card>
   )
 }
-

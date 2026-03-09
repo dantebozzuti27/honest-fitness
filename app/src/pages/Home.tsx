@@ -7,14 +7,24 @@ import { getFitbitDaily, getMostRecentFitbitData, getAllConnectedAccounts } from
 import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import Skeleton from '../components/Skeleton'
-import EmptyState from '../components/EmptyState'
 import Button from '../components/Button'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
-import Card from '../components/ui/Card'
-import InputField from '../components/InputField'
 import styles from './Home.module.css'
+
+type WorkoutEntry = {
+  id: string
+  date?: string
+  duration?: number
+  template_name?: string
+  workout_exercises?: Array<{
+    exercise_name?: string
+    name?: string
+    body_part?: string
+    workout_sets?: Array<{ weight?: number | string; reps?: number | string }>
+  }>
+}
 
 export default function Home() {
   const navigate = useNavigate()
@@ -23,7 +33,7 @@ export default function Home() {
 
   const [loading, setLoading] = useState(true)
   const [streak, setStreak] = useState(0)
-  const [recentWorkouts, setRecentWorkouts] = useState<any[]>([])
+  const [recentWorkouts, setRecentWorkouts] = useState<WorkoutEntry[]>([])
   const [fitbitData, setFitbitData] = useState<any>(null)
   const [hasFitbit, setHasFitbit] = useState(false)
   const [weight, setWeight] = useState('')
@@ -54,7 +64,6 @@ export default function Home() {
         setSavedWeight(null)
       }
 
-      // Fitbit data
       try {
         const connected = await getAllConnectedAccounts(user.id)
         const fitbit = Array.isArray(connected) ? connected.find((a: any) => a.provider === 'fitbit') : null
@@ -78,7 +87,6 @@ export default function Home() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Refresh on visibility change
   useEffect(() => {
     const onVisible = () => { if (!document.hidden) loadData() }
     document.addEventListener('visibilitychange', onVisible)
@@ -110,7 +118,33 @@ export default function Home() {
     }
   }
 
-  const todaysWorkouts = recentWorkouts.filter((w: any) => w?.date === getTodayEST())
+  const todaysWorkouts = recentWorkouts.filter(w => w?.date === getTodayEST())
+  const pastWorkouts = recentWorkouts.filter(w => w?.date !== getTodayEST())
+
+  const getGreeting = () => {
+    const h = new Date().getHours()
+    if (h < 12) return 'Good morning'
+    if (h < 17) return 'Good afternoon'
+    return 'Good evening'
+  }
+
+  const getWorkoutVolume = (w: WorkoutEntry) => {
+    if (!Array.isArray(w.workout_exercises)) return 0
+    return w.workout_exercises.reduce((sum, ex) => {
+      const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+      return sum + sets.reduce((s, set) => {
+        const wt = Number(set?.weight)
+        const rp = Number(set?.reps)
+        return s + (Number.isFinite(wt) && wt > 0 && Number.isFinite(rp) && rp > 0 ? wt * rp : 0)
+      }, 0)
+    }, 0)
+  }
+
+  const formatVolume = (v: number) => {
+    if (v >= 10000) return `${(v / 1000).toFixed(1)}k`
+    if (v > 0) return v.toLocaleString()
+    return '—'
+  }
 
   return (
     <SafeAreaScaffold>
@@ -119,207 +153,236 @@ export default function Home() {
           <h1 className={styles.title}>Honest Fitness</h1>
         </div>
 
-        <div style={{ padding: 'var(--space-md)', display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '100px' }}>
-          {/* Quick Actions */}
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <Button onClick={() => navigate('/today')} style={{ flex: 1 }}>
-              Today's Workout
+        <div className={styles.content}>
+          {/* Hero CTA */}
+          <div className={styles.todayHero}>
+            <Button unstyled className={styles.heroPrimary} onClick={() => navigate('/today')}>
+              <span className={styles.heroPrimaryLabel}>{getGreeting()}</span>
+              <span className={styles.heroPrimaryValue}>
+                {todaysWorkouts.length > 0 ? 'Workout Complete' : "Today's Workout"}
+              </span>
+              <span className={styles.heroPrimarySub}>
+                {todaysWorkouts.length > 0
+                  ? `${todaysWorkouts.length} session${todaysWorkouts.length > 1 ? 's' : ''} logged today`
+                  : 'AI-generated, personalized to your data'}
+              </span>
+              {streak > 0 && (
+                <div className={styles.heroMeta}>
+                  <span className={styles.heroMetaItem}>{streak} day streak</span>
+                </div>
+              )}
             </Button>
-            <Button variant="secondary" onClick={() => navigate('/workout/active', { state: { mode: 'picker', sessionType: 'workout' } })} style={{ flex: 1 }}>
-              Manual Workout
-            </Button>
+
+            <div className={styles.quickGrid}>
+              <Button unstyled className={styles.quickCard} onClick={() => navigate('/workout/active', { state: { mode: 'picker', sessionType: 'workout' } })}>
+                <span className={styles.quickCardTitle}>Manual Workout</span>
+                <span className={styles.quickCardSub}>Freestyle session</span>
+              </Button>
+              <Button unstyled className={styles.quickCard} onClick={() => navigate('/workout')}>
+                <span className={styles.quickCardTitle}>History</span>
+                <span className={styles.quickCardSub}>{recentWorkouts.length} recent sessions</span>
+              </Button>
+              <Button unstyled className={styles.quickCard} onClick={() => navigate('/analytics')}>
+                <span className={styles.quickCardTitle}>Analytics</span>
+                <span className={styles.quickCardSub}>Trends & intelligence</span>
+              </Button>
+              <Button unstyled className={styles.quickCard} onClick={() => navigate('/profile')}>
+                <span className={styles.quickCardTitle}>Profile</span>
+                <span className={styles.quickCardSub}>Goals & preferences</span>
+              </Button>
+            </div>
           </div>
 
-          {/* Today's Status */}
-          <Card>
-            <div style={{ padding: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h2 style={{ margin: 0, fontSize: '18px', color: 'var(--text-primary)' }}>Today</h2>
-                {streak > 0 && (
-                  <span style={{ fontSize: '14px', color: 'var(--accent)' }}>{streak} day streak</span>
-                )}
-              </div>
+          {/* Stats Row */}
+          <div className={styles.summaryGrid}>
+            {/* Streak */}
+            <Button unstyled className={styles.summaryCard} onClick={() => navigate('/workout')}>
               {loading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <Skeleton style={{ width: '70%', height: 14 }} />
-                  <Skeleton style={{ width: '50%', height: 14 }} />
-                </div>
-              ) : todaysWorkouts.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {todaysWorkouts.map((w: any) => {
-                    const mins = Math.floor((w.duration || 0) / 60)
-                    const exCount = Array.isArray(w.workout_exercises) ? w.workout_exercises.length : 0
-                    return (
-                      <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                            {w.template_name || 'Freestyle Workout'}
-                          </div>
-                          <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                            {exCount} exercises &middot; {mins} min
-                          </div>
-                        </div>
-                        <span style={{ color: 'var(--success)', fontSize: '14px' }}>Done</span>
-                      </div>
-                    )
-                  })}
+                <Skeleton style={{ width: '60%', height: 28 }} />
+              ) : (
+                <>
+                  <span className={styles.summaryLabel}>Streak</span>
+                  <div className={styles.summaryValueRow}>
+                    <span className={styles.summaryValue}>{streak}</span>
+                    <span className={styles.summaryUnit}>days</span>
+                  </div>
+                </>
+              )}
+            </Button>
+
+            {/* Weight */}
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Weight</span>
+              {loading ? (
+                <Skeleton style={{ width: '60%', height: 28 }} />
+              ) : savedWeight ? (
+                <div className={styles.summaryValueRow}>
+                  <span className={styles.summaryValue}>{savedWeight}</span>
+                  <span className={styles.summaryUnit}>lbs</span>
                 </div>
               ) : (
-                <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>No workout logged today.</p>
+                <span className={styles.summaryEmpty}>Not logged</span>
               )}
             </div>
-          </Card>
 
-          {/* Weight Entry */}
-          <Card>
-            <div style={{ padding: '16px' }}>
-              <h2 style={{ margin: '0 0 12px', fontSize: '18px', color: 'var(--text-primary)' }}>Weight</h2>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
-                <div style={{ flex: 1 }}>
-                  <InputField
-                    label=""
-                    type="number"
-                    placeholder={savedWeight ? `Last: ${savedWeight} lbs` : 'Enter weight (lbs)'}
-                    value={weight}
-                    onChange={(e: any) => setWeight(e.target.value)}
-                    inputMode="decimal"
-                  />
+            {/* Fitbit: Steps */}
+            {hasFitbit && fitbitData?.steps != null && (
+              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
+                <span className={styles.summaryLabel}>Steps</span>
+                <div className={styles.summaryValueRow}>
+                  <span className={styles.summaryValue}>{Number(fitbitData.steps).toLocaleString()}</span>
                 </div>
+              </Button>
+            )}
+
+            {/* Fitbit: Sleep */}
+            {hasFitbit && fitbitData?.sleep_duration != null && (
+              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
+                <span className={styles.summaryLabel}>Sleep</span>
+                <div className={styles.summaryValueRow}>
+                  <span className={styles.summaryValue}>{(fitbitData.sleep_duration / 60).toFixed(1)}</span>
+                  <span className={styles.summaryUnit}>hrs</span>
+                </div>
+              </Button>
+            )}
+
+            {/* Fitbit: HRV */}
+            {hasFitbit && fitbitData?.hrv != null && (
+              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
+                <span className={styles.summaryLabel}>HRV</span>
+                <div className={styles.summaryValueRow}>
+                  <span className={styles.summaryValue}>{fitbitData.hrv}</span>
+                  <span className={styles.summaryUnit}>ms</span>
+                </div>
+              </Button>
+            )}
+
+            {/* Fitbit: Resting HR */}
+            {hasFitbit && fitbitData?.resting_heart_rate != null && (
+              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
+                <span className={styles.summaryLabel}>Resting HR</span>
+                <div className={styles.summaryValueRow}>
+                  <span className={styles.summaryValue}>{fitbitData.resting_heart_rate}</span>
+                  <span className={styles.summaryUnit}>bpm</span>
+                </div>
+              </Button>
+            )}
+          </div>
+
+          {/* Weight Entry (only if not yet saved today) */}
+          {!savedWeight && !loading && (
+            <div className={styles.primaryCtaCard}>
+              <div className={styles.primaryCtaTop}>
+                <span className={styles.summaryLabel}>Log Today's Weight</span>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  placeholder="Weight (lbs)"
+                  value={weight}
+                  onChange={e => setWeight(e.target.value)}
+                  style={{
+                    flex: 1,
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    fontSize: '16px',
+                    fontFamily: 'inherit',
+                  }}
+                />
                 <Button
                   variant="secondary"
                   onClick={handleSaveWeight}
                   loading={savingWeight}
-                  disabled={!weight.trim() || weight === savedWeight}
-                  style={{ marginBottom: '2px' }}
+                  disabled={!weight.trim()}
+                  style={{ padding: '12px 20px', flexShrink: 0 }}
                 >
                   Save
                 </Button>
               </div>
             </div>
-          </Card>
+          )}
 
-          {/* Fitbit Stats */}
-          {hasFitbit && (
-            <Card>
-              <div style={{ padding: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h2 style={{ margin: 0, fontSize: '18px', color: 'var(--text-primary)' }}>Fitbit</h2>
-                  <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Auto-synced</span>
-                </div>
-                {loading ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <Skeleton style={{ width: '60%', height: 14 }} />
-                    <Skeleton style={{ width: '80%', height: 14 }} />
-                  </div>
-                ) : fitbitData ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    {fitbitData.steps != null && (
-                      <div>
-                        <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {Number(fitbitData.steps).toLocaleString()}
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Steps</div>
-                      </div>
-                    )}
-                    {fitbitData.calories_burned != null && (
-                      <div>
-                        <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {Number(fitbitData.calories_burned).toLocaleString()}
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Calories Burned</div>
-                      </div>
-                    )}
-                    {fitbitData.resting_heart_rate != null && (
-                      <div>
-                        <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {fitbitData.resting_heart_rate}
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Resting HR</div>
-                      </div>
-                    )}
-                    {fitbitData.sleep_duration != null && (
-                      <div>
-                        <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {(fitbitData.sleep_duration / 60).toFixed(1)}h
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Sleep</div>
-                      </div>
-                    )}
-                    {fitbitData.hrv != null && (
-                      <div>
-                        <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {fitbitData.hrv}
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>HRV</div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>No Fitbit data for today yet.</p>
-                )}
-              </div>
-            </Card>
+          {/* Connect Fitbit */}
+          {!hasFitbit && !loading && (
+            <Button unstyled className={styles.quickCard} onClick={() => navigate('/profile')} style={{ padding: '16px', textAlign: 'center' }}>
+              <span className={styles.quickCardTitle}>Connect Fitbit</span>
+              <span className={styles.quickCardSub}>See steps, sleep, heart rate & HRV</span>
+            </Button>
           )}
 
           {/* Recent Workouts */}
-          <Card>
-            <div style={{ padding: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h2 style={{ margin: 0, fontSize: '18px', color: 'var(--text-primary)' }}>Recent Workouts</h2>
-                <Button variant="tertiary" onClick={() => navigate('/workout')}>
-                  See all
-                </Button>
-              </div>
-              {loading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <Skeleton style={{ height: 40 }} />
-                  <Skeleton style={{ height: 40 }} />
-                  <Skeleton style={{ height: 40 }} />
-                </div>
-              ) : recentWorkouts.length === 0 ? (
-                <EmptyState
-                  title="No workouts yet"
-                  message="Start your first workout to see history here."
-                  actionLabel="Start Workout"
-                  onAction={() => navigate('/workout/active', { state: { mode: 'picker', sessionType: 'workout' } })}
-                />
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {recentWorkouts.slice(0, 7).map((w: any) => {
-                    const mins = Math.floor((w.duration || 0) / 60)
-                    const exCount = Array.isArray(w.workout_exercises) ? w.workout_exercises.length : 0
-                    return (
-                      <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                        <div>
-                          <div style={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: '14px' }}>
-                            {w.template_name || 'Freestyle'}
-                          </div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {exCount} exercises &middot; {mins} min
-                          </div>
-                        </div>
-                        <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{w.date}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+          <div className={styles.previewCard}>
+            <div className={styles.previewTop}>
+              <span className={styles.previewTitle}>Recent Sessions</span>
+              <Button unstyled className={styles.previewLink} onClick={() => navigate('/workout')}>
+                See all
+              </Button>
             </div>
-          </Card>
 
-          {/* Connect Fitbit CTA */}
-          {!hasFitbit && !loading && (
-            <Card>
-              <div style={{ padding: '16px', textAlign: 'center' }}>
-                <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Connect Fitbit to see steps, sleep, and heart rate data.
-                </p>
-                <Button variant="secondary" onClick={() => navigate('/profile')}>
-                  Connect Fitbit
-                </Button>
+            {loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <Skeleton style={{ height: 52 }} />
+                <Skeleton style={{ height: 52 }} />
+                <Skeleton style={{ height: 52 }} />
               </div>
-            </Card>
-          )}
+            ) : recentWorkouts.length === 0 ? (
+              <div className={styles.previewEmpty}>
+                No workouts yet. Start your first session to see history here.
+              </div>
+            ) : (
+              <div className={styles.previewBody}>
+                {(todaysWorkouts.length > 0 ? recentWorkouts : pastWorkouts).slice(0, 5).map(w => {
+                  const mins = Math.floor((w.duration || 0) / 60)
+                  const exCount = Array.isArray(w.workout_exercises) ? w.workout_exercises.length : 0
+                  const vol = getWorkoutVolume(w)
+                  const bodyParts = [...new Set(
+                    (w.workout_exercises || []).map(e => e.body_part).filter(Boolean)
+                  )].slice(0, 3)
+                  const isToday = w.date === getTodayEST()
+
+                  return (
+                    <div key={w.id} className={styles.previewLine}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className={styles.previewLabel}>
+                          {isToday ? 'Today' : w.date}
+                        </span>
+                        <span className={styles.previewLabel}>{mins}m</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className={styles.previewValue}>
+                          {w.template_name || 'Freestyle'}
+                        </span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          {exCount} ex · {formatVolume(vol)} lbs
+                        </span>
+                      </div>
+                      {bodyParts.length > 0 && (
+                        <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                          {bodyParts.map((bp, i) => (
+                            <span key={i} style={{
+                              fontSize: '10px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              background: 'rgba(255,255,255,0.06)',
+                              border: '1px solid rgba(255,255,255,0.08)',
+                              color: 'var(--text-tertiary)',
+                              textTransform: 'capitalize',
+                            }}>
+                              {bp}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         {toast && <Toast message={toast.message} type={toast.type} duration={toast.duration} onClose={hideToast} />}

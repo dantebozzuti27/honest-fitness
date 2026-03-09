@@ -252,8 +252,9 @@ export default function Home() {
               <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
                 <span className={styles.summaryLabel}>Sleep</span>
                 <div className={styles.summaryValueRow}>
-                  <span className={styles.summaryValue}>{(fitbitData.sleep_duration / 60).toFixed(1)}</span>
-                  <span className={styles.summaryUnit}>hrs</span>
+                  <span className={styles.summaryValue}>
+                    {Math.floor(fitbitData.sleep_duration / 60)}h {Math.round(fitbitData.sleep_duration % 60)}m
+                  </span>
                 </div>
               </Button>
             )}
@@ -263,7 +264,7 @@ export default function Home() {
               <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
                 <span className={styles.summaryLabel}>HRV</span>
                 <div className={styles.summaryValueRow}>
-                  <span className={styles.summaryValue}>{fitbitData.hrv}</span>
+                  <span className={styles.summaryValue}>{Math.round(fitbitData.hrv)}</span>
                   <span className={styles.summaryUnit}>ms</span>
                 </div>
               </Button>

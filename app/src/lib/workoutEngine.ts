@@ -299,25 +299,62 @@ function getRirLabel(rir: number): string {
 }
 
 /**
- * Rest periods scaled by exercise role and intensity.
- * Heavier/more demanding exercises get longer rest.
+ * Rest periods based on exercise demand, not just role.
+ *
+ * Factors:
+ *   - exercise_type: compound needs more rest than isolation
+ *   - primary muscle count: more muscles = more systemic fatigue
+ *   - movement_pattern: squats/deadlifts > lunges > extensions > curls
+ *   - training goal: strength demands longer rest than hypertrophy
+ *
+ * This means a squat (compound, 5 primaries, squat pattern) gets ~180s
+ * while a calf raise (isolation, 2 primaries, extension) gets ~60s,
+ * even if both happen to be classified as the same role.
  */
-function getRestByRole(role: ExerciseRole, goal: string): number {
+function getRestByExercise(
+  exercise: EnrichedExercise,
+  role: ExerciseRole,
+  goal: string
+): number {
   if (role === 'corrective') return 45;
+  if (role === 'cardio') return 0;
+
+  const mapping = getExerciseMapping(exercise.name);
+  const exType = mapping?.exercise_type ?? exercise.ml_exercise_type ?? 'compound';
+  const primaryCount = mapping?.primary_muscles?.length ?? 1;
+  const pattern = mapping?.movement_pattern ?? '';
+
+  // Base rest by how systemically demanding the movement is
+  let base: number;
+  if (exType === 'compound' && primaryCount >= 4) {
+    base = 150; // heavy compound (squat, deadlift, bench)
+  } else if (exType === 'compound') {
+    base = 110; // lighter compound (row, lunge, OHP)
+  } else {
+    base = 60;  // isolation (curls, extensions, raises)
+  }
+
+  // Pattern-specific adjustments
+  const heavyPatterns = ['squat', 'deadlift', 'hip_hinge'];
+  const mediumPatterns = ['horizontal_press', 'vertical_press', 'lunge'];
+  const lightPatterns = ['extension', 'curl', 'fly', 'raise'];
+
+  if (heavyPatterns.includes(pattern)) {
+    base += 30;
+  } else if (mediumPatterns.includes(pattern)) {
+    base += 10;
+  } else if (lightPatterns.includes(pattern)) {
+    base -= 10;
+  }
+
+  // Goal scaling
   if (goal === 'strength') {
-    switch (role) {
-      case 'primary': return 240;
-      case 'secondary': return 150;
-      case 'isolation': return 90;
-      default: return 120;
-    }
+    base = Math.round(base * 1.5);
+  } else if (goal === 'fat_loss') {
+    base = Math.round(base * 0.75);
   }
-  switch (role) {
-    case 'primary': return 150;
-    case 'secondary': return 105;
-    case 'isolation': return 60;
-    default: return 90;
-  }
+
+  return Math.max(30, Math.min(300, base));
 }
 
 function getTempo(defaultTempo: string | null, goal: string, exerciseType: string | null): string {
@@ -1173,8 +1210,8 @@ function stepPrescribe(
       ? Math.round(pref.learnedSets)
       : tableSets;
 
-    // Rest: use learned inter-set rest, fall back to table
-    const tableRest = getRestByRole(role, goal);
+    // Rest: use learned inter-set rest, fall back to exercise-aware estimate
+    const tableRest = getRestByExercise(sel.exercise, role, goal);
     const restSeconds = hasLearnedData && pref.learnedRestSeconds != null
       ? pref.learnedRestSeconds
       : tableRest;

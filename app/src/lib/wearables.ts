@@ -476,10 +476,10 @@ export async function fetchAndSaveWorkoutFitbitMetrics(
     const { data: { session } } = await supabase.auth.getSession()
     const authToken = session?.access_token || ''
 
-    const response = await fetch(apiUrl('/api/fitbit/workout-metrics'), {
+    const response = await fetch(apiUrl('/api/fitbit/sync'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-      body: JSON.stringify({ date, startTime, endTime })
+      body: JSON.stringify({ action: 'workout-metrics', date, startTime, endTime })
     })
 
     if (!response.ok) {

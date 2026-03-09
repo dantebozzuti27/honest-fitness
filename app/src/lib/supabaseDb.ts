@@ -11,6 +11,21 @@ const supabase: any = supabaseClient ?? new Proxy({}, { get: () => { throw new E
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
 
+// Simple TTL cache for frequent Supabase reads
+const readCache = new Map<string, { data: any; ts: number }>()
+const CACHE_TTL_MS = 60_000
+
+function getCached<T>(key: string): T | undefined {
+  const entry = readCache.get(key)
+  if (entry && Date.now() - entry.ts < CACHE_TTL_MS) return entry.data as T
+  if (entry) readCache.delete(key)
+  return undefined
+}
+
+function setCache(key: string, data: any) {
+  readCache.set(key, { data, ts: Date.now() })
+}
+
 let pausedWorkoutsDisabled = false
 function disablePausedWorkouts(reason: any) {
   if (pausedWorkoutsDisabled) return
@@ -309,6 +324,21 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
 }
 
 export async function getWorkoutsFromSupabase(userId: string) {
+  // Offline fallback: read from IndexedDB when the device has no network
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    try {
+      const { getAllWorkouts } = await import('../db/index')
+      const local = await getAllWorkouts()
+      return Array.isArray(local) ? local : []
+    } catch {
+      return []
+    }
+  }
+
+  const cacheKey = `workouts_${userId}`
+  const cached = getCached<any[]>(cacheKey)
+  if (cached) return cached
+
   // Prefer a single embedded query for convenience, but be resilient:
   // some deployments have missing relationships / RLS differences that can break embeds.
   const embedded = await supabase
@@ -324,12 +354,12 @@ export async function getWorkoutsFromSupabase(userId: string) {
     .order('date', { ascending: false })
 
   if (!embedded.error) {
-    // SAFETY: Reads must NEVER delete user history.
-    return embedded.data || []
+    const result = embedded.data || []
+    setCache(cacheKey, result)
+    return result
   }
 
   // Fallback: fetch workouts without embeds so the UI can still show history rows.
-  // This prevents "missing history" when only the nested tables/relationships are misconfigured.
   safeLogDebug('getWorkoutsFromSupabase: embedded select failed; retrying without embeds', {
     code: embedded.error?.code,
     message: embedded.error?.message
@@ -343,7 +373,9 @@ export async function getWorkoutsFromSupabase(userId: string) {
 
   if (plain.error) throw plain.error
 
-  return (plain.data || []).map((w: any) => ({ ...w, workout_exercises: w.workout_exercises || [] }))
+  const result = (plain.data || []).map((w: any) => ({ ...w, workout_exercises: w.workout_exercises || [] }))
+  setCache(cacheKey, result)
+  return result
 }
 
 // Lightweight query for "last-time cues" (avoid fetching all history)
@@ -351,6 +383,11 @@ export async function getRecentWorkoutsFromSupabase(userId: string, limit = 30) 
   if (!userId) return []
   const n = Number(limit || 0)
   const safeLimit = Number.isFinite(n) ? Math.max(1, Math.min(100, Math.floor(n))) : 30
+
+  const cacheKey = `recent_workouts_${userId}_${safeLimit}`
+  const cached = getCached<any[]>(cacheKey)
+  if (cached) return cached
+
   const { data, error } = await supabase
     .from('workouts')
     .select(`
@@ -399,9 +436,13 @@ export async function getRecentWorkoutsFromSupabase(userId: string, limit = 30) 
       .order('created_at', { ascending: false })
       .limit(safeLimit)
     if (e2) throw e2
-    return Array.isArray(d2) ? d2 : []
+    const result = Array.isArray(d2) ? d2 : []
+    setCache(cacheKey, result)
+    return result
   }
-  return Array.isArray(data) ? data : []
+  const result = Array.isArray(data) ? data : []
+  setCache(cacheKey, result)
+  return result
 }
 
 export async function getWorkoutDatesFromSupabase(userId: string) {
@@ -606,24 +647,33 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
       mood_after: workout.moodAfter || null,
       notes: workout.notes || null,
       day_of_week: workout.dayOfWeek ?? null,
+      session_rpe: workout.perceivedEffort || null,
+      training_density: workout.trainingDensity != null ? Number(workout.trainingDensity) : null,
+      workout_calories_burned: workout.workoutCaloriesBurned != null ? Number(workout.workoutCaloriesBurned) : null,
+      workout_steps: workout.workoutSteps != null ? Number(workout.workoutSteps) : null,
+      generated_workout_id: workout.generatedWorkoutId || null,
       updated_at: new Date().toISOString()
     })
     .eq('id', workoutId)
-    .eq('user_id', userId) // Additional security: ensure user_id matches
+    .eq('user_id', userId)
 
   if (workoutError) throw workoutError
 
   // Delete existing exercises and sets
-  const { data: exercises } = await supabase
+  const { data: exercises, error: exFetchError } = await supabase
     .from('workout_exercises')
     .select('id')
     .eq('workout_id', workoutId)
 
+  if (exFetchError) throw exFetchError
+
   if (exercises) {
     for (const ex of exercises) {
-      await supabase.from('workout_sets').delete().eq('workout_exercise_id', ex.id)
+      const { error: delSetsErr } = await supabase.from('workout_sets').delete().eq('workout_exercise_id', ex.id)
+      if (delSetsErr) throw delSetsErr
     }
-    await supabase.from('workout_exercises').delete().eq('workout_id', workoutId)
+    const { error: delExErr } = await supabase.from('workout_exercises').delete().eq('workout_id', workoutId)
+    if (delExErr) throw delExErr
   }
 
   // Insert new exercises (only those with valid sets data)
@@ -694,7 +744,7 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
 
     if (exerciseError) throw exerciseError
 
-    const validSets2 = exSets2.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds)
+    const validSets2 = exSets2.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline)
     if (validSets2.length > 0) {
       const setsToInsert = validSets2.map((set: any, idx: number) => ({
         workout_exercise_id: exerciseData.id,
@@ -703,7 +753,7 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
         is_bodyweight: String(set?.weight || '').trim().toUpperCase() === 'BW',
         weight_label: String(set?.weight || '').trim().toUpperCase() === 'BW' ? 'BW' : null,
         reps: set.reps ? Number(set.reps) : null,
-        time: set.time || null,
+        time: set.time ?? set.time_seconds ?? null,
         speed: set.speed ? Number(set.speed) : null,
         incline: set.incline ? Number(set.incline) : null
       }))
@@ -966,6 +1016,28 @@ export async function saveMetricsToSupabase(userId: string, date: string, metric
       delete healthMetricsData[key]
     }
   })
+
+  // Merge priority: don't let manual nulls overwrite Fitbit-sourced values.
+  // Fetch existing row and prefer non-null values from either source.
+  const fitbitFields = ['sleep_score', 'sleep_duration', 'hrv', 'resting_heart_rate', 'steps', 'calories_burned', 'max_heart_rate']
+  try {
+    const { data: existing } = await supabase
+      .from('health_metrics')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .maybeSingle()
+
+    if (existing && existing.source_provider === 'fitbit') {
+      for (const field of fitbitFields) {
+        if (!(field in healthMetricsData) && existing[field] != null) {
+          healthMetricsData[field] = existing[field]
+        }
+      }
+    }
+  } catch {
+    // Non-critical; proceed with upsert without merge
+  }
   
   safeLogDebug('saveMetricsToSupabase: Prepared data for health_metrics', healthMetricsData)
   
@@ -1257,6 +1329,7 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     'recovery_speed', 'weight_goal_lbs', 'weight_goal_date',
     'primary_goal', 'secondary_goal', 'priority_muscles',
     'weekday_deadlines', 'gym_profiles', 'active_gym_profile', 'age',
+    'rest_days',
   ]
   for (const key of directFields) {
     if (prefs[key] !== undefined) {

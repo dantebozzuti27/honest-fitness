@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
-import { generateWorkout, saveGeneratedWorkout, generateWeekPreview, type GeneratedWorkout, type DecisionLogEntry, type ExerciseDecision, type MuscleGroupDecision, type ExerciseRole, type WarmupSet, type SessionOverrides, type DayPreview } from '../lib/workoutEngine'
+import { generateWorkout, saveGeneratedWorkout, generateWeekPreview, type GeneratedWorkout, type ExerciseRole, type SessionOverrides, type DayPreview } from '../lib/workoutEngine'
 import { requireSupabase } from '../lib/supabase'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -31,6 +31,8 @@ export default function TodayWorkout() {
   const [cachedProfile, setCachedProfile] = useState<TrainingProfile | null>(null)
   const [weekPreview, setWeekPreview] = useState<DayPreview[]>([])
   const [restDays, setRestDays] = useState<number[]>([])
+  const [excludedExercises, setExcludedExercises] = useState<Set<string>>(new Set())
+  const [showExclusionPicker, setShowExclusionPicker] = useState(false)
   const regeneratingRef = { current: false }
 
   useEffect(() => {
@@ -45,7 +47,7 @@ export default function TodayWorkout() {
       const supabase = requireSupabase()
       const { data: prefsData } = await supabase
         .from('user_preferences')
-        .select('training_goal, session_duration_minutes, rest_days')
+        .select('training_goal, session_duration_minutes, rest_days, weekday_deadlines')
         .eq('user_id', user.id)
         .single()
 
@@ -56,6 +58,14 @@ export default function TodayWorkout() {
 
       const loadedRestDays: number[] = Array.isArray(prefsData?.rest_days) ? prefsData.rest_days : []
       setRestDays(loadedRestDays)
+
+      // #32: Auto-populate finishByTime from saved weekday_deadlines
+      const deadlines = prefsData?.weekday_deadlines
+      if (deadlines && typeof deadlines === 'object' && !Array.isArray(deadlines)) {
+        const todayDow = String(new Date().getDay())
+        const todayDeadline = (deadlines as Record<string, string>)[todayDow]
+        if (todayDeadline) setFinishByTime(todayDeadline)
+      }
 
       const tp = await computeTrainingProfile(user.id)
       setCachedProfile(tp)
@@ -145,6 +155,45 @@ export default function TodayWorkout() {
       logError('Failed to save rest days', err)
       showToast('Failed to save rest days', 'error')
     }
+  }
+
+  // #28: Swap exercise — regenerate with the current exercise excluded
+  const handleSwapExercise = async (exerciseName: string) => {
+    if (!cachedProfile || !workout) return
+    const newExcluded = new Set(excludedExercises)
+    newExcluded.add(exerciseName.toLowerCase())
+    setExcludedExercises(newExcluded)
+
+    setRegenerating(true)
+    try {
+      const o: SessionOverrides = {}
+      if (durationOverride != null) o.durationMinutes = durationOverride
+      if (finishByTime) o.finishByTime = finishByTime
+
+      const updatedProfile = {
+        ...cachedProfile,
+        exercisePreferences: cachedProfile.exercisePreferences.filter(
+          p => !newExcluded.has(p.exerciseName)
+        ),
+      }
+      const w = await generateWorkout(updatedProfile, Object.keys(o).length > 0 ? o : undefined)
+      setWorkout(w)
+      showToast(`Swapped ${exerciseName}`, 'success')
+    } catch (err) {
+      logError('Swap exercise error', err)
+      showToast('Swap failed', 'error')
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  // #29: Toggle exercise exclusion before generation
+  const toggleExcludeExercise = (exerciseName: string) => {
+    const next = new Set(excludedExercises)
+    const key = exerciseName.toLowerCase()
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setExcludedExercises(next)
   }
 
   const handleStartWorkout = () => {
@@ -370,8 +419,8 @@ export default function TodayWorkout() {
                     <div className={styles.weekDayFocus}>
                       {isUserRest ? 'Rest' : day.focus}
                     </div>
-                    {!day.isRestDay && (
-                      <div className={styles.weekDayMeta}>
+                    {!day.isRestDay && day.muscleGroups.length > 0 && (
+                      <div className={styles.weekDayMeta} title={day.muscleGroups.map(g => g.replace(/_/g, ' ')).join(', ')}>
                         {day.estimatedExercises} ex · {day.estimatedMinutes}m
                       </div>
                     )}
@@ -626,6 +675,17 @@ export default function TodayWorkout() {
                     )}
 
                     <div className={styles.rationaleText}>{ex.rationale}</div>
+
+                    {/* #28: Exercise swap button */}
+                    {!ex.isCardio && (
+                      <button
+                        className={styles.swapBtn}
+                        onClick={(e) => { e.stopPropagation(); handleSwapExercise(ex.exerciseName) }}
+                        disabled={regenerating}
+                      >
+                        Swap Exercise
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -633,6 +693,25 @@ export default function TodayWorkout() {
             )
           })}
         </div>
+
+        {/* #30: Per-muscle recovery status */}
+        {profile && profile.muscleRecovery.length > 0 && (
+          <details className={styles.contextCard}>
+            <summary>Muscle Recovery Status</summary>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '6px', padding: '8px 0' }}>
+              {profile.muscleRecovery.map(mr => (
+                <div key={mr.muscleGroup} style={{
+                  padding: '6px 8px', borderRadius: '6px', fontSize: '12px',
+                  background: mr.readyToTrain ? 'var(--surface-success, #e8f5e9)' : 'var(--surface-warning, #fff3e0)',
+                  color: 'var(--text-primary)',
+                }}>
+                  <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>{mr.muscleGroup.replace(/_/g, ' ')}</div>
+                  <div>{mr.recoveryPercent}% — {mr.readyToTrain ? 'Ready' : `${Math.round(mr.baselineRecoveryHours - mr.hoursSinceLastTrained)}h left`}</div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         {/* Training Context — so the user can see the data feeding the model */}
         {profile && (

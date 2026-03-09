@@ -91,6 +91,7 @@ export async function saveWorkout(workout: any) {
   const db = await getDB()
   return db.add('workouts', {
     ...workout,
+    supabase_id: workout.supabase_id || null,
     date: workout.date || getTodayEST(),
     timestamp: new Date().toISOString()
   })

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { HomeIcon, AnalyticsIcon, ProfileIcon, FitnessIcon } from './Icons'
+import { HomeIcon, AnalyticsIcon, ProfileIcon, FitnessIcon, ProgressIcon } from './Icons'
 import { useAuth } from '../context/AuthContext'
 import { getOutboxPendingCount } from '../lib/syncOutbox'
 import styles from './BottomNav.module.css'
@@ -26,6 +26,7 @@ export default function BottomNav() {
   const navItems = [
     { id: 'today', label: 'Today', path: '/', icon: <HomeIcon /> },
     { id: 'workouts', label: 'Workouts', path: '/workout', icon: <FitnessIcon /> },
+    { id: 'progress', label: 'Progress', path: '/progress', icon: <ProgressIcon /> },
     { id: 'analytics', label: 'Analytics', path: '/analytics', icon: <AnalyticsIcon /> },
     { id: 'profile', label: 'Profile', path: '/profile', icon: <ProfileIcon /> },
   ]

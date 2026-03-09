@@ -6,19 +6,23 @@ export function getLocalDate(date: Date = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
-// Get today's date in user's local timezone
+/** @deprecated Misleading name — uses local timezone, not EST. Use getLocalDate() or getTodayLocal(). */
 export function getTodayEST(): string {
   return getLocalDate(new Date())
 }
 
-// Get yesterday's date in user's local timezone
+export const getTodayLocal = getTodayEST
+
+/** @deprecated Misleading name — uses local timezone, not EST. Use getYesterdayLocal(). */
 export function getYesterdayEST(): string {
   const yesterday = new Date()
   yesterday.setDate(yesterday.getDate() - 1)
   return getLocalDate(yesterday)
 }
 
-// Legacy function name - kept for compatibility, but now uses local timezone
+export const getYesterdayLocal = getYesterdayEST
+
+/** @deprecated Misleading name — uses local timezone, not EST. Use getLocalDate(). */
 export function getESTDate(date: Date = new Date()): string {
   return getLocalDate(date)
 }

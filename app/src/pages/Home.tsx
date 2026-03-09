@@ -239,7 +239,7 @@ export default function Home() {
 
             {/* Fitbit: Steps */}
             {hasFitbit && fitbitData?.steps != null && (
-              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
+              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/analytics')}>
                 <span className={styles.summaryLabel}>Steps</span>
                 <div className={styles.summaryValueRow}>
                   <span className={styles.summaryValue}>{Number(fitbitData.steps).toLocaleString()}</span>
@@ -249,7 +249,7 @@ export default function Home() {
 
             {/* Fitbit: Sleep */}
             {hasFitbit && fitbitData?.sleep_duration != null && (
-              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
+              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/analytics')}>
                 <span className={styles.summaryLabel}>Sleep</span>
                 <div className={styles.summaryValueRow}>
                   <span className={styles.summaryValue}>
@@ -261,7 +261,7 @@ export default function Home() {
 
             {/* Fitbit: HRV */}
             {hasFitbit && fitbitData?.hrv != null && (
-              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
+              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/analytics')}>
                 <span className={styles.summaryLabel}>HRV</span>
                 <div className={styles.summaryValueRow}>
                   <span className={styles.summaryValue}>{Math.round(fitbitData.hrv)}</span>
@@ -272,7 +272,7 @@ export default function Home() {
 
             {/* Fitbit: Resting HR */}
             {hasFitbit && fitbitData?.resting_heart_rate != null && (
-              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/health')}>
+              <Button unstyled className={styles.summaryCard} onClick={() => navigate('/analytics')}>
                 <span className={styles.summaryLabel}>Resting HR</span>
                 <div className={styles.summaryValueRow}>
                   <span className={styles.summaryValue}>{fitbitData.resting_heart_rate}</span>
@@ -281,6 +281,40 @@ export default function Home() {
               </Button>
             )}
           </div>
+
+          {/* #37: Streak Calendar — last 28 days */}
+          {!loading && recentWorkouts.length > 0 && (() => {
+            const today = new Date()
+            const workoutDates = new Set(recentWorkouts.map(w => w.date).filter(Boolean))
+            const days: { date: string; dayNum: number; hasWorkout: boolean; isToday: boolean }[] = []
+            for (let i = 27; i >= 0; i--) {
+              const d = new Date(today)
+              d.setDate(d.getDate() - i)
+              const dateStr = d.toISOString().split('T')[0]
+              days.push({
+                date: dateStr,
+                dayNum: d.getDate(),
+                hasWorkout: workoutDates.has(dateStr),
+                isToday: i === 0,
+              })
+            }
+            return (
+              <div className={styles.streakCalendar}>
+                <div className={styles.streakCalendarTitle}>Last 28 Days</div>
+                <div className={styles.streakGrid}>
+                  {days.map(d => (
+                    <div
+                      key={d.date}
+                      className={`${styles.streakCell} ${d.hasWorkout ? styles.streakCellActive : ''} ${d.isToday ? styles.streakCellToday : ''}`}
+                      title={d.date}
+                    >
+                      {d.dayNum}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Weight Entry (only if not yet saved today) */}
           {!savedWeight && !loading && (

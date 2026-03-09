@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import type { AuthResponse, AuthTokenResponsePassword, User } from '@supabase/supabase-js'
 import { supabase, supabaseConfigErrorMessage } from '../lib/supabase'
 import { logWarn } from '../utils/logger'
+import { trackEvent } from '../utils/analytics'
 
 export type AuthContextValue = {
   user: User | null
@@ -93,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
     })
     if (error) throw error
+    trackEvent('auth_sign_up', { userId: data.user?.id })
     return data
   }
 
@@ -103,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
     })
     if (error) throw error
+    trackEvent('auth_sign_in', { userId: data.user?.id })
     return data
   }
 
@@ -110,6 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) throw new Error(supabaseConfigErrorMessage)
     const { error } = await supabase.auth.signOut()
     if (error) throw error
+    trackEvent('auth_sign_out')
   }
 
   const value: AuthContextValue = {

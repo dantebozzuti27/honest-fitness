@@ -21,6 +21,7 @@
  */
 
 import { requireSupabase } from './supabase';
+import { DEFAULT_MODEL_CONFIG } from './modelConfig';
 import { MUSCLE_HEAD_TO_GROUP, VOLUME_GUIDELINES, SYNERGIST_FATIGUE } from './volumeGuidelines';
 import {
   computeAllRecoveryStatuses,
@@ -303,6 +304,8 @@ export interface TrainingProfile {
     exerciseName: string;
     accumulatedRepsAtWeight: number;
     breakthroughWeight: number;
+    readyForWeightJump: boolean;
+    typicalRepsBeforeJump: number;
   }>;
 
   // Structural
@@ -338,6 +341,26 @@ export interface TrainingProfile {
     shouldRotate: boolean; // true if isolation used > 4 weeks, compound > 8 weeks
     suggestedAction: string;
   }>;
+
+  // #1: Prescribed vs actual compliance (feedback loop)
+  prescribedVsActual: {
+    complianceRate: number;     // 0-1: how often user followed the prescription
+    avgWeightDeviation: number; // average % deviation from prescribed weight
+    avgRepsDeviation: number;   // average reps deviation
+    exercisesCompleted: number; // total exercises completed from prescriptions
+    exercisesSkipped: number;   // total exercises skipped
+  };
+
+  // #4: Individual muscle recovery rates (learned from performance-after-rest)
+  individualRecoveryRates: Record<string, number>;
+
+  // #20: Banister fitness-fatigue model
+  fitnessFatigueModel: {
+    fitnessLevel: number;    // accumulated fitness (slow-decaying)
+    fatigueLevel: number;    // accumulated fatigue (fast-decaying)
+    performancePrediction: number; // fitness - fatigue
+    readiness: number;       // 0-1 scale
+  };
 
   // Global
   trainingFrequency: number;
@@ -681,8 +704,8 @@ function computeSleepCoefficients(
 
   for (const d of deltas) {
     if (d.sleepDeltaFromBaseline == null || d.delta === 0) continue;
-    const bp = exerciseBodyMap.get(d.exerciseName) ?? '';
-    const isLower = ['legs'].includes(bp);
+    const bp = (exerciseBodyMap.get(d.exerciseName) ?? '').toLowerCase();
+    const isLower = ['legs', 'glutes', 'calves', 'quadriceps', 'hamstrings'].includes(bp);
     const bucket = isLower ? lower : upper;
     bucket.push({ sleep: d.sleepDeltaFromBaseline, delta: d.delta });
   }
@@ -1184,7 +1207,7 @@ function computeBestProgressionPatterns(
  */
 function computeRepWeightBreakthroughs(
   workouts: WorkoutRecord[]
-): Array<{ exerciseName: string; accumulatedRepsAtWeight: number; breakthroughWeight: number }> {
+): Array<{ exerciseName: string; accumulatedRepsAtWeight: number; breakthroughWeight: number; readyForWeightJump: boolean; typicalRepsBeforeJump: number }> {
   const exerciseSessions: Record<string, Array<{ weight: number; reps: number }>> = {};
 
   for (const w of workouts) {
@@ -1199,7 +1222,10 @@ function computeRepWeightBreakthroughs(
     }
   }
 
-  const results: Array<{ exerciseName: string; accumulatedRepsAtWeight: number; breakthroughWeight: number }> = [];
+  const results: Array<{
+    exerciseName: string; accumulatedRepsAtWeight: number; breakthroughWeight: number;
+    readyForWeightJump: boolean; typicalRepsBeforeJump: number;
+  }> = [];
 
   for (const [name, sets] of Object.entries(exerciseSessions)) {
     if (sets.length < 10) continue;
@@ -1208,11 +1234,22 @@ function computeRepWeightBreakthroughs(
     const subMaxSets = sets.filter(s => s.weight >= maxWeight * 0.9 && s.weight < maxWeight);
     const accumulatedReps = subMaxSets.reduce((sum, s) => sum + s.reps, 0);
 
+    // Estimate typical reps accumulated before a weight jump from historical patterns
+    const weightGroups = new Map<number, number>();
+    for (const s of sets) {
+      weightGroups.set(s.weight, (weightGroups.get(s.weight) ?? 0) + s.reps);
+    }
+    const typicalRepsBeforeJump = weightGroups.size > 2
+      ? mean([...weightGroups.values()].slice(0, -1))
+      : 50; // default threshold
+
     if (accumulatedReps > 0) {
       results.push({
         exerciseName: name,
         accumulatedRepsAtWeight: accumulatedReps,
         breakthroughWeight: maxWeight,
+        readyForWeightJump: accumulatedReps >= typicalRepsBeforeJump,
+        typicalRepsBeforeJump: Math.round(typicalRepsBeforeJump),
       });
     }
   }
@@ -2462,9 +2499,13 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     fetchWorkoutHistory(userId),
     fetchHealthHistory(userId),
     fetchEnrichedExercises(),
-    supabase.from('user_preferences').select('gender').eq('user_id', userId).maybeSingle(),
+    supabase.from('user_preferences').select('gender, recovery_speed, experience_level, body_weight_lbs, weight_goal_lbs').eq('user_id', userId).maybeSingle(),
   ]);
   const userGender = prefsResult?.data?.gender ?? null;
+  const userRecoverySpeed = prefsResult?.data?.recovery_speed != null ? Number(prefsResult.data.recovery_speed) : 1.0;
+  const userExperienceLevel: string | null = prefsResult?.data?.experience_level ?? null;
+  const userBodyWeightLbs = prefsResult?.data?.body_weight_lbs != null ? Number(prefsResult.data.body_weight_lbs) : null;
+  const userWeightGoalLbs = prefsResult?.data?.weight_goal_lbs != null ? Number(prefsResult.data.weight_goal_lbs) : null;
 
   const healthByDate = new Map<string, HealthRecord>();
   for (const h of health) healthByDate.set(h.date, h);
@@ -2550,9 +2591,16 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     }
   }
 
+  // #4: Compute individual recovery rates first, pass into recovery model
+  const individualRecoveryRates = computeIndividualRecoveryRates(workouts, exercises);
+
   const muscleRecovery = computeAllRecoveryStatuses(
     Array.from(latestRecords.values()),
-    recoveryCtx
+    recoveryCtx,
+    individualRecoveryRates,
+    new Date(),
+    userRecoverySpeed,
+    DEFAULT_MODEL_CONFIG.muscleReadyThreshold * 100
   );
 
   // Global stats
@@ -2618,9 +2666,166 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
 
     rolling30DayTrends: computeRolling30DayTrends(workouts, health, exercises, exerciseProgressions),
 
+    // #1: Prescribed vs actual feedback loop
+    prescribedVsActual: await computePrescribedVsActual(userId, workouts),
+
+    // #4: Individual muscle recovery rates
+    individualRecoveryRates: computeIndividualRecoveryRates(workouts, exercises),
+
+    // #20: Banister fitness-fatigue model
+    fitnessFatigueModel: computeFitnessFatigueModel(workouts),
+
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
     avgSessionDuration: Math.round(avgSessionDuration),
     trainingAgeDays: Math.round(trainingAgeDays),
     consistencyScore: Math.round(consistencyScore * 100) / 100,
+  };
+}
+
+// #1: Compute prescribed vs actual compliance from generated_workouts
+async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord[]) {
+  const defaultResult = { complianceRate: 1, avgWeightDeviation: 0, avgRepsDeviation: 0, exercisesCompleted: 0, exercisesSkipped: 0 };
+  try {
+    const supabase = requireSupabase();
+    const linkedWorkouts = workouts.filter(w => (w as any).generated_workout_id);
+    if (linkedWorkouts.length === 0) return defaultResult;
+
+    const genIds = linkedWorkouts.map(w => (w as any).generated_workout_id).filter(Boolean);
+    const { data: generated } = await supabase
+      .from('generated_workouts')
+      .select('id, exercises')
+      .in('id', genIds.slice(0, 20));
+
+    if (!generated || generated.length === 0) return defaultResult;
+
+    let totalPrescribed = 0, totalCompleted = 0, totalSkipped = 0;
+    let weightDeviations: number[] = [], repsDeviations: number[] = [];
+
+    for (const gen of generated) {
+      const actual = linkedWorkouts.find(w => (w as any).generated_workout_id === gen.id);
+      if (!actual) continue;
+      const prescribedExercises: any[] = Array.isArray(gen.exercises) ? gen.exercises : [];
+      const actualExNames = new Set(actual.workout_exercises.map(e => e.exercise_name.toLowerCase()));
+
+      for (const pe of prescribedExercises) {
+        if (!pe.exerciseName) continue;
+        totalPrescribed++;
+        if (actualExNames.has(pe.exerciseName.toLowerCase())) {
+          totalCompleted++;
+          const actualEx = actual.workout_exercises.find(
+            e => e.exercise_name.toLowerCase() === pe.exerciseName.toLowerCase()
+          );
+          if (actualEx && pe.targetWeight && pe.targetWeight > 0) {
+            const actualSets = Array.isArray(actualEx.workout_sets) ? actualEx.workout_sets : [];
+            const actualWeight = actualSets.find(s => s.weight)?.weight;
+            if (actualWeight) weightDeviations.push((actualWeight - pe.targetWeight) / pe.targetWeight);
+            const actualReps = actualSets.find(s => s.reps)?.reps;
+            if (actualReps && pe.targetReps) repsDeviations.push(actualReps - pe.targetReps);
+          }
+        } else {
+          totalSkipped++;
+        }
+      }
+    }
+
+    return {
+      complianceRate: totalPrescribed > 0 ? totalCompleted / totalPrescribed : 1,
+      avgWeightDeviation: weightDeviations.length > 0 ? mean(weightDeviations) : 0,
+      avgRepsDeviation: repsDeviations.length > 0 ? mean(repsDeviations) : 0,
+      exercisesCompleted: totalCompleted,
+      exercisesSkipped: totalSkipped,
+    };
+  } catch {
+    return defaultResult;
+  }
+}
+
+// #4: Learn individual muscle group recovery rates from performance-after-rest patterns
+function computeIndividualRecoveryRates(workouts: WorkoutRecord[], exercises: EnrichedExercise[]): Record<string, number> {
+  const rates: Record<string, number> = {};
+  if (workouts.length < 10) return rates;
+
+  const exerciseBodyMap = new Map<string, string>();
+  for (const ex of exercises) {
+    const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+      .map(m => MUSCLE_HEAD_TO_GROUP[m])
+      .filter(Boolean);
+    if (groups.length > 0) exerciseBodyMap.set(ex.name.toLowerCase(), groups[0]);
+  }
+
+  // Track rest days between sessions for each muscle group
+  const muscleLastTrained = new Map<string, string>();
+  const muscleRestPerformance = new Map<string, Array<{ restDays: number; performedWell: boolean }>>();
+
+  for (const w of workouts) {
+    const musclesThisSession = new Set<string>();
+    for (const ex of w.workout_exercises) {
+      const group = exerciseBodyMap.get(ex.exercise_name.toLowerCase());
+      if (!group) continue;
+      musclesThisSession.add(group);
+
+      const lastDate = muscleLastTrained.get(group);
+      if (lastDate) {
+        const restDays = daysBetween(lastDate, w.date);
+        if (restDays > 0 && restDays < 14) {
+          const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : [];
+          const hasGoodPerformance = sets.some(s => s.reps && s.reps >= 6);
+          if (!muscleRestPerformance.has(group)) muscleRestPerformance.set(group, []);
+          muscleRestPerformance.get(group)!.push({ restDays, performedWell: hasGoodPerformance });
+        }
+      }
+    }
+    for (const group of musclesThisSession) muscleLastTrained.set(group, w.date);
+  }
+
+  for (const [group, data] of muscleRestPerformance) {
+    if (data.length < 5) continue;
+    const goodRest = data.filter(d => d.performedWell).map(d => d.restDays);
+    const badRest = data.filter(d => !d.performedWell).map(d => d.restDays);
+    if (goodRest.length >= 3) {
+      const avgGoodRest = mean(goodRest);
+      const avgBadRest = badRest.length > 0 ? mean(badRest) : avgGoodRest;
+      // If user performs well with shorter rest, they recover faster (multiplier > 1)
+      const baselineRecoveryDays = 2; // ~48h for most groups
+      rates[group] = Math.max(0.5, Math.min(2.0, baselineRecoveryDays / Math.max(avgGoodRest, 0.5)));
+    }
+  }
+
+  return rates;
+}
+
+// #20: Banister fitness-fatigue model — dual-factor model for readiness
+function computeFitnessFatigueModel(workouts: WorkoutRecord[]) {
+  const FITNESS_TAU = 42; // fitness time constant (days) — slow decay
+  const FATIGUE_TAU = 7;  // fatigue time constant (days) — fast decay
+
+  let fitness = 0, fatigue = 0;
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  const sorted = [...workouts].sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const w of sorted) {
+    const daysAgo = daysBetween(w.date, todayStr);
+    if (daysAgo < 0) continue;
+
+    // Training impulse: duration × perceived effort (or estimate from volume)
+    const duration = w.duration ? w.duration / 60 : 45;
+    const effort = (w as any).perceived_effort ?? 6;
+    const impulse = duration * effort / 60; // normalized training load
+
+    fitness += impulse * Math.exp(-daysAgo / FITNESS_TAU);
+    fatigue += impulse * Math.exp(-daysAgo / FATIGUE_TAU);
+  }
+
+  const performance = fitness - fatigue;
+  const maxPerformance = Math.max(fitness, 1);
+  const readiness = Math.max(0, Math.min(1, 0.5 + (performance / maxPerformance) * 0.5));
+
+  return {
+    fitnessLevel: Math.round(fitness * 10) / 10,
+    fatigueLevel: Math.round(fatigue * 10) / 10,
+    performancePrediction: Math.round(performance * 10) / 10,
+    readiness: Math.round(readiness * 100) / 100,
   };
 }

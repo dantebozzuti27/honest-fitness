@@ -70,7 +70,7 @@ export function enqueueOutboxItem({ userId, kind, payload }: { userId: string; k
   })()
 
   const item = {
-    id: `${kind}_${userId}_${now}_${Math.random().toString(16).slice(2)}`,
+    id: uuidv4(),
     userId,
     kind,
     payload: normalizedPayload ?? null,

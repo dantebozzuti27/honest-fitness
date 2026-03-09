@@ -25,6 +25,7 @@ import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
 import { triggerFitbitSync } from '../lib/tokenManager'
+import { trackEvent } from '../utils/analytics'
 import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
 import Sheet from '../components/ui/Sheet'
 import IconButton from '../components/ui/IconButton'
@@ -2043,6 +2044,7 @@ export default function ActiveWorkout() {
           try {
             await saveWorkoutToSupabase(workout, user.id)
             saved = true
+            trackEvent('workout_completed', { sessionType, exerciseCount: workout.exercises?.length ?? 0, duration: workout.duration })
             showToast(sessionType === 'recovery' ? 'Recovery session saved successfully!' : 'Workout saved successfully!', 'success')
             
             // Trigger history refresh event for Fitness page

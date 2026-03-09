@@ -205,9 +205,30 @@ export function startFitbitSyncScheduler(userId: string): () => void {
 
   scheduleMidnight()
 
+  // Foreground-resume sync: if the app was in background > 1 hour, trigger sync
+  let lastHiddenAt = 0
+  const BACKGROUND_THRESHOLD_MS = 60 * 60 * 1000
+
+  function onVisibilityChange() {
+    if (cancelled) return
+    if (document.visibilityState === 'hidden') {
+      lastHiddenAt = Date.now()
+    } else if (document.visibilityState === 'visible' && lastHiddenAt > 0) {
+      const elapsed = Date.now() - lastHiddenAt
+      if (elapsed >= BACKGROUND_THRESHOLD_MS) {
+        logDebug('App foregrounded after >1h background; triggering Fitbit sync')
+        triggerFitbitSync(userId, getETDate(0))
+      }
+      lastHiddenAt = 0
+    }
+  }
+
+  document.addEventListener('visibilitychange', onVisibilityChange)
+
   return () => {
     cancelled = true
     if (midnightTimeout != null) clearTimeout(midnightTimeout)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
   }
 }
 

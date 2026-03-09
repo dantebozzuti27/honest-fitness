@@ -4,7 +4,6 @@ import { useAuth } from './context/AuthContext'
 import { lazy, Suspense } from 'react'
 import BottomNav from './components/BottomNav'
 import ErrorBoundary from './components/ErrorBoundary'
-import { logError } from './utils/logger'
 import { setTemplateSyncUserId } from './db/lazyDb'
 
 const Home = lazy(() => import('./pages/Home'))

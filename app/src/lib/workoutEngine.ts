@@ -382,7 +382,17 @@ function isInjuryConflict(exercise: EnrichedExercise, injuries: UserPreferences[
  * Time-per-set estimates for budget calculations (in minutes).
  * Includes set execution + rest period.
  */
-function estimateExerciseMinutes(sets: number, restSeconds: number, role: ExerciseRole, warmupSets: number = 0): number {
+function estimateExerciseMinutes(
+  sets: number, restSeconds: number, role: ExerciseRole, warmupSets: number = 0,
+  avgSessionDuration?: number, exerciseCount?: number
+): number {
+  // #16: If we have historical session data, derive per-exercise time from actuals
+  if (avgSessionDuration && exerciseCount && exerciseCount > 0) {
+    const perExerciseMin = avgSessionDuration / 60 / exerciseCount;
+    if (perExerciseMin > 2 && perExerciseMin < 25) {
+      return perExerciseMin * (sets / 3); // scale by set count relative to typical 3
+    }
+  }
   const setExecutionSec = role === 'primary' ? 40 : role === 'secondary' ? 35 : 30;
   const warmupRestSec = 60;
   const workingTime = sets * (setExecutionSec + restSeconds);
@@ -404,8 +414,23 @@ function classifyExerciseRole(
  * Generates warmup ramp sets for compound exercises.
  * Source: NSCA CSCS guidelines (Baechle & Earle 2008)
  */
-function generateWarmupRamp(workingWeight: number): WarmupSet[] {
+function generateWarmupRamp(workingWeight: number, warmupHistory?: { sets: number; avgPct: number } | null): WarmupSet[] {
   if (workingWeight <= 50) return [];
+
+  // #17: If user has warmup history, respect their pattern
+  if (warmupHistory && warmupHistory.sets >= 1 && warmupHistory.avgPct > 0) {
+    const n = Math.min(warmupHistory.sets, 4);
+    const startPct = Math.max(0.3, warmupHistory.avgPct * 0.5);
+    const endPct = warmupHistory.avgPct;
+    const ramp: WarmupSet[] = [];
+    for (let i = 0; i < n; i++) {
+      const pct = startPct + (endPct - startPct) * (i / Math.max(n - 1, 1));
+      const w = Math.round(workingWeight * pct / 5) * 5;
+      const r = Math.max(2, Math.round(10 - i * 2.5));
+      if (w >= 20 && w < workingWeight) ramp.push({ weight: w, reps: r });
+    }
+    return ramp;
+  }
 
   if (workingWeight <= 95) {
     return [
@@ -453,6 +478,12 @@ function computeImpactScore(
 
   if (role === 'corrective') score *= 2.0; // correctives are never cut
   if (role === 'primary') score *= 1.3;
+
+  // #14: Stimulus-to-fatigue ratio — isolation exercises deliver targeted stimulus
+  // with less systemic fatigue, prefer them during deloads or reduced capacity
+  const isIsolation = exercise.ml_exercise_type === 'isolation';
+  const sfrBonus = isIsolation ? 1.5 : 0;
+  score += sfrBonus;
 
   return Math.round(score * 10) / 10;
 }
@@ -610,7 +641,8 @@ function stepSelectMuscleGroups(
   profile: TrainingProfile,
   prefs: UserPreferences,
   recoveryAdj: RecoveryAdjustment,
-  cfg: ModelConfig
+  cfg: ModelConfig,
+  caloricPhaseScale: number = 1.0
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
@@ -650,8 +682,9 @@ function stepSelectMuscleGroups(
   // Walking: 0% interference
   const LOWER_BODY_GROUPS = new Set(['quadriceps', 'hamstrings', 'glutes', 'calves']);
   let cardioInterferencePct = 0;
+  const WEEKS_WINDOW = 4;
   const weeklyCardioMin = profile.cardioHistory.reduce((sum, c) => {
-    return sum + (c.avgDurationSeconds / 60) * c.recentSessions;
+    return sum + (c.avgDurationSeconds / 60) * c.recentSessions / WEEKS_WINDOW;
   }, 0);
   const weeklyCardioHours = weeklyCardioMin / 60;
 
@@ -664,10 +697,10 @@ function stepSelectMuscleGroups(
     );
 
     const highImpactHours = highImpactCardio.reduce((s, c) =>
-      s + (c.avgDurationSeconds / 60) * c.recentSessions / 60, 0
+      s + (c.avgDurationSeconds / 60) * c.recentSessions / WEEKS_WINDOW / 60, 0
     );
     const lowImpactHours = lowImpactCardio.reduce((s, c) =>
-      s + (c.avgDurationSeconds / 60) * c.recentSessions / 60, 0
+      s + (c.avgDurationSeconds / 60) * c.recentSessions / WEEKS_WINDOW / 60, 0
     );
 
     cardioInterferencePct = Math.min(cfg.maxCardioInterferencePct, highImpactHours * cfg.highImpactCardioInterferencePct + lowImpactHours * cfg.lowImpactCardioInterferencePct);
@@ -696,6 +729,9 @@ function stepSelectMuscleGroups(
 
     let weeklyTarget = (guideline.mavLow + guideline.mavHigh) / 2;
 
+    // #15: Caloric-phase MRV scaling
+    weeklyTarget *= caloricPhaseScale;
+
     // Apply cardio interference: reduce volume targets for lower body
     if (LOWER_BODY_GROUPS.has(vol.muscleGroup) && cardioInterferencePct > 0) {
       weeklyTarget = weeklyTarget * (1 - cardioInterferencePct / 100);
@@ -718,6 +754,28 @@ function stepSelectMuscleGroups(
 
     if (prefs.priority_muscles.some(pm => pm.toLowerCase() === vol.muscleGroup)) {
       priority += cfg.priorityMuscleBoost;
+    }
+
+    // #8: Weak-point prioritization from strength percentiles
+    const liftToMuscle: Record<string, string[]> = {
+      squat: ['quadriceps', 'glutes', 'hamstrings'],
+      bench: ['chest', 'anterior_deltoid', 'triceps'],
+      deadlift: ['back_lats', 'hamstrings', 'glutes', 'erector_spinae'],
+    };
+    for (const sp of profile.strengthPercentiles) {
+      const muscles = liftToMuscle[sp.lift] ?? [];
+      if (muscles.includes(vol.muscleGroup) && sp.percentile < 25) {
+        priority += 0.20;
+        break;
+      }
+    }
+
+    // #9: Imbalance correction — boost priority for muscles mentioned in imbalance alerts
+    const hasImbalance = profile.imbalanceAlerts.some(
+      ia => ia.description.toLowerCase().includes(vol.muscleGroup.replace(/_/g, ' '))
+    );
+    if (hasImbalance) {
+      priority += 0.25;
     }
 
     // 30-day trend: if volume for this group is declining, boost priority to recover it
@@ -967,11 +1025,16 @@ function stepSelectExercises(
 
   const pushPullRatio = pullSets > 0 ? pushSets / pullSets : pushSets > 0 ? 2.0 : 1.0;
   if (pushPullRatio > cfg.pushPullCorrectionThreshold && pullSets < pushSets) {
-    const corrective = strengthExercises.find(ex =>
-      ex.name.toLowerCase().includes('face pull') ||
-      ex.name.toLowerCase().includes('band pull apart') ||
-      ex.name.toLowerCase().includes('reverse fly')
+    // #22: Prefer corrective exercises the user actually does
+    const correctiveNames = ['face pull', 'band pull apart', 'reverse fly', 'rear delt fly', 'cable face pull', 'reverse pec deck'];
+    const userCorrectives = strengthExercises.filter(ex =>
+      correctiveNames.some(cn => ex.name.toLowerCase().includes(cn))
     );
+    const userPreferredCorrective = userCorrectives.find(ex => {
+      const p = prefMap.get(ex.name.toLowerCase());
+      return p && p.recentSessions >= 1;
+    });
+    const corrective = userPreferredCorrective ?? userCorrectives[0] ?? null;
     if (corrective && !usedExercises.has(corrective.name.toLowerCase())) {
       selections.push({
         exercise: corrective,
@@ -988,16 +1051,6 @@ function stepSelectExercises(
       });
     }
   }
-
-  // ── Unilateral work check ──
-  // Ensure some unilateral exercises are included when all current selections are bilateral
-  const hasUnilateral = selections.some(sel => {
-    const name = sel.exercise.name.toLowerCase();
-    return name.includes('single') || name.includes('one arm') || name.includes('one-arm') ||
-      name.includes('bulgarian') || name.includes('lunge') || name.includes('split squat') ||
-      name.includes('unilateral');
-  });
-  // Unilateral bias is applied during scoring — no forced insertion, just awareness logged
 
   // Add ALL cardio exercises the user regularly does — detect from multiple sources
   const isCardioExercise = (exerciseName: string): boolean => {
@@ -1077,7 +1130,8 @@ function stepPrescribe(
   profile: TrainingProfile,
   prefs: UserPreferences,
   recoveryAdj: RecoveryAdjustment,
-  cfg: ModelConfig
+  cfg: ModelConfig,
+  expProgressionScale: number = 1.0
 ): GeneratedExercise[] {
   const goal = getEffectiveGoal(prefs);
   const secondaryGoal = prefs.secondary_goal;
@@ -1255,23 +1309,55 @@ function stepPrescribe(
 
         const baseIncrement = learnedInc != null ? learnedInc : fallbackIncrement;
 
-        // Cap: never jump more than maxProgressionPct of current weight
-        const maxJump = Math.round(targetWeight * cfg.maxProgressionPct);
-        const increment = Math.min(baseIncrement, Math.max(maxJump, 2.5));
+        // #7: Scale increment by experience progression rate
+        const scaledIncrement = Math.round(baseIncrement * expProgressionScale * 10) / 10;
+
+        // Cap: never jump more than maxProgressionPct of current weight,
+        // but always allow at least the smallest practical plate increment (2.5 lbs)
+        const maxJump = Math.max(Math.round(targetWeight * cfg.maxProgressionPct), 2.5);
+        const increment = Math.min(scaledIncrement, maxJump);
 
         if (learnedInc != null) {
           adjustments.push(`Your typical increment: ${learnedInc} lbs`);
         }
 
+        // #5: Use best progression pattern if available
+        const exMapping = getExerciseMapping(sel.exercise.name);
+        const movementPat = exMapping?.movement_pattern ?? sel.exercise.movement_pattern ?? '';
+        const bestPatternType = profile.bestProgressionPatterns[movementPat] ?? null;
+
+        // #6: Check for rep-weight breakthrough readiness
+        const breakthrough = profile.repWeightBreakthroughs.find(
+          b => b.exerciseName === sel.exercise.name.toLowerCase()
+        );
+
         const lastReps = prog.bestSet.reps;
         if (lastReps >= targetReps + cfg.repsAboveTargetForProgression && prog.status === 'progressing') {
-          targetWeight = targetWeight + increment;
-          adjustments.push(`Progressive overload: +${increment} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
+          // #5: Apply progression style — double progression holds reps first
+          if (bestPatternType === 'double_progression' && breakthrough && !breakthrough.readyForWeightJump) {
+            adjustments.push(`Double progression: add reps before weight (${breakthrough.accumulatedRepsAtWeight} reps accumulated, need ${breakthrough.typicalRepsBeforeJump})`);
+          } else {
+            targetWeight = targetWeight + increment;
+            adjustments.push(`Progressive overload: +${increment} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
+          }
         } else if (prog.status === 'stalled') {
-          adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
+          // #18: Active plateau response — modify sets or suggest variation
+          const plateauInfo = profile.plateauDetections.find(
+            p => p.exerciseName === sel.exercise.name.toLowerCase() && p.isPlateaued
+          );
+          if (plateauInfo && plateauInfo.sessionsSinceProgress >= 4) {
+            adjustments.push(`Plateau (${plateauInfo.sessionsSinceProgress} sessions): drop to ${sets - 1} sets × ${targetReps + 2} reps to break through`);
+          } else {
+            adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
+          }
         } else if (prog.status === 'regressing') {
-          targetWeight = Math.round(targetWeight * cfg.regressionWeightMultiplier);
-          adjustments.push(`Regressing: reduced to ${targetWeight} lbs (${Math.round(cfg.regressionWeightMultiplier * 100)}% of ${prog.lastWeight})`);
+          // #19: Severity-aware regression — scale reduction by how bad the regression is
+          const regressionSeverity = Math.abs(prog.progressionSlope);
+          const reductionPct = regressionSeverity > 0.05
+            ? 0.88 // severe regression: drop to 88%
+            : cfg.regressionWeightMultiplier; // mild: use config (92%)
+          targetWeight = Math.round(targetWeight * reductionPct);
+          adjustments.push(`Regressing (${regressionSeverity > 0.05 ? 'severe' : 'mild'}): reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%)`);
         } else if (prog.status === 'progressing') {
           adjustments.push(`Carry forward: ${targetWeight} lbs at RIR ${rir}`);
         }
@@ -1319,7 +1405,7 @@ function stepPrescribe(
       }
     }
 
-    // Plateau strategy
+    // #18: Plateau strategy — actual prescription modifications
     const plateau = profile.plateauDetections.find(
       p => p.exerciseName === sel.exercise.name.toLowerCase() && p.isPlateaued
     );
@@ -1480,15 +1566,44 @@ function stepApplyConstraints(
     ordered.push(...scored.map(s => s.exercise));
   }
 
-  // Apply interference avoidance
+  // #13: Enhanced interference avoidance — try multiple swaps and pick best
   for (let i = 0; i < ordered.length - 1; i++) {
     const current = ordered[i].exerciseName.toLowerCase();
     const next = ordered[i + 1].exerciseName.toLowerCase();
     const interference = profile.exerciseOrderingEffects.find(
       e => e.precedingExercise === current && e.affectedExercise === next && e.interference < -0.08
     );
-    if (interference && i + 2 < ordered.length) {
-      [ordered[i + 1], ordered[i + 2]] = [ordered[i + 2], ordered[i + 1]];
+    if (interference) {
+      // Find the best swap candidate (least interference)
+      let bestSwap = -1;
+      let bestInterference = interference.interference;
+      for (let j = i + 2; j < Math.min(ordered.length, i + 4); j++) {
+        const candidateInterference = profile.exerciseOrderingEffects.find(
+          e => e.precedingExercise === current && e.affectedExercise === ordered[j].exerciseName.toLowerCase()
+        );
+        const candidateVal = candidateInterference?.interference ?? 0;
+        if (candidateVal > bestInterference) {
+          bestInterference = candidateVal;
+          bestSwap = j;
+        }
+      }
+      if (bestSwap >= 0) {
+        [ordered[i + 1], ordered[bestSwap]] = [ordered[bestSwap], ordered[i + 1]];
+      }
+    }
+  }
+
+  // #12: Session fatigue — reduce rest and/or load for exercises late in the session
+  let cumulativeMinutes = 0;
+  for (const ex of ordered) {
+    cumulativeMinutes += ex.estimatedMinutes;
+    if (cumulativeMinutes > 60 && ex.exerciseRole !== 'primary') {
+      const fatigueEffect = profile.sessionFatigueEffects.find(
+        e => e.positionBucket === '60-90min' && e.dataPoints >= 5
+      );
+      if (fatigueEffect && fatigueEffect.avgDelta < -0.03) {
+        ex.restSeconds = Math.max(30, Math.round(ex.restSeconds * 0.85));
+      }
     }
   }
 
@@ -1502,7 +1617,7 @@ function stepApplyConstraints(
   // Session fatigue: if user historically loses performance late in session,
   // tighten the time budget to keep them in productive training zones
   const lateFatigueEffect = profile.sessionFatigueEffects.find(
-    e => e.positionBucket === 'late' && e.dataPoints >= cfg.sessionFatigueMinDataPoints
+    e => e.positionBucket === '90+min' && e.dataPoints >= cfg.sessionFatigueMinDataPoints
   );
   let sessionFatigueAdj = 1.0;
   if (lateFatigueEffect && lateFatigueEffect.avgDelta < cfg.sessionFatigueThreshold) {
@@ -1863,17 +1978,44 @@ export async function generateWorkout(
 
   const cfg: ModelConfig = { ...DEFAULT_MODEL_CONFIG };
 
+  // #7: Experience-level scaling — adjust volume and progression
+  const expLevel = prefs.experience_level?.toLowerCase() ?? 'intermediate';
+  const expVolumeScale = expLevel === 'beginner' ? cfg.beginnerVolumeMultiplier
+    : expLevel === 'advanced' ? cfg.advancedVolumeMultiplier
+    : cfg.intermediateVolumeMultiplier;
+  const expProgressionScale = expLevel === 'beginner' ? cfg.beginnerProgressionRate
+    : expLevel === 'advanced' ? cfg.advancedProgressionRate
+    : 1.0;
+
   // Step 1: Recovery check
   const recoveryAdj = stepRecoveryCheck(profile, cfg);
 
+  // #7: Apply experience-level volume scaling to recovery adjustment
+  recoveryAdj.volumeMultiplier *= expVolumeScale;
+  recoveryAdj.volumeMultiplier = Math.max(cfg.volumeMultiplierFloor, recoveryAdj.volumeMultiplier);
+  if (expVolumeScale !== 1.0) {
+    recoveryAdj.adjustmentReasons.push(`Experience (${expLevel}): volume ×${expVolumeScale}`);
+  }
+
+  // #15: Caloric-phase MRV scaling — cut reduces tolerance, bulk increases
+  const weightPhase = profile.bodyWeightTrend.phase;
+  let caloricPhaseScale = 1.0;
+  if (weightPhase === 'cutting') {
+    caloricPhaseScale = 0.90;
+    recoveryAdj.adjustmentReasons.push('Cutting phase: MRV reduced 10% (caloric deficit limits recovery)');
+  } else if (weightPhase === 'bulking') {
+    caloricPhaseScale = 1.08;
+    recoveryAdj.adjustmentReasons.push('Bulking phase: MRV increased 8% (caloric surplus supports recovery)');
+  }
+
   // Step 2: Select muscle groups
-  const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg);
+  const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg, caloricPhaseScale);
 
   // Step 3: Select exercises
   const { selections: exerciseSelections, decisions: exerciseDecisions } = stepSelectExercises(muscleGroups, allExercises, profile, prefs, cfg);
 
   // Step 4: Prescribe sets/reps/weight/tempo
-  const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg);
+  const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg, expProgressionScale);
 
   // Step 5: Apply session constraints
   const constrained = stepApplyConstraints(prescribed, prefs, profile, cfg);

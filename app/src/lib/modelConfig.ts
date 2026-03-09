@@ -135,6 +135,18 @@ export interface ModelConfig {
   frequencyTrendVolumeReduction: number;
   /** Minimum data points for trends to be actionable */
   trendMinDataPoints: number;
+
+  // ── Experience Level Scaling ─────────────────────────────────────────
+  /** Volume multiplier for beginners (fewer sets, focus on form) */
+  beginnerVolumeMultiplier: number;
+  /** Volume multiplier for intermediate lifters */
+  intermediateVolumeMultiplier: number;
+  /** Volume multiplier for advanced lifters (can tolerate more) */
+  advancedVolumeMultiplier: number;
+  /** Progression rate multiplier for beginners (faster gains) */
+  beginnerProgressionRate: number;
+  /** Progression rate for advanced (slower, smaller increments) */
+  advancedProgressionRate: number;
 }
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
@@ -212,4 +224,11 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   frequencyTrendUpThreshold: 15,     // frequency up > 15% per week
   frequencyTrendVolumeReduction: 0.05,
   trendMinDataPoints: 7,
+
+  // Experience level scaling
+  beginnerVolumeMultiplier: 0.80,
+  intermediateVolumeMultiplier: 1.0,
+  advancedVolumeMultiplier: 1.15,
+  beginnerProgressionRate: 1.5,
+  advancedProgressionRate: 0.7,
 };

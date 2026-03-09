@@ -138,7 +138,8 @@ export function computeAllRecoveryStatuses(
   recoveryCtx: RecoveryContext,
   individualMods: Record<string, number> = {},
   now: Date = new Date(),
-  recoverySpeedMultiplier: number = 1.0
+  recoverySpeedMultiplier: number = 1.0,
+  muscleReadyThreshold: number = 85
 ): MuscleRecoveryStatus[] {
   const nowMs = now.getTime();
   const globalModifier = computeRecoveryModifier(recoveryCtx);
@@ -188,7 +189,7 @@ export function computeAllRecoveryStatuses(
       synergistFatiguePenalty: Math.round(synergistPenalty * 10) / 10,
       recoveryModifier: Math.round(globalModifier * 100) / 100,
       recoveryPercent: Math.round(recoveryPercent),
-      readyToTrain: recoveryPercent >= 85,
+      readyToTrain: recoveryPercent >= muscleReadyThreshold,
     };
   });
 }

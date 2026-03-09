@@ -4,6 +4,7 @@ import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug } from '../utils/logger'
 import { checkRateLimit, getRemainingRequests } from './rateLimiter'
 import { apiUrl } from './urlConfig'
+import { trackEvent } from '../utils/analytics'
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -333,6 +334,8 @@ export async function syncFitbitData(userId: string, date: string | null = null)
       await mergeWearableDataToMetrics(userId, targetDate)
     }
     
+    trackEvent('fitbit_sync', { date: targetDate, hasData: !!result.data })
+
     return {
       synced: true,
       date: targetDate,
@@ -348,186 +351,6 @@ export async function syncFitbitData(userId: string, date: string | null = null)
     }
     
     throw new Error(`Failed to sync Fitbit data: ${errorMsg}`)
-  }
-}
-
-// Legacy function - kept for backwards compatibility but now uses serverless function
-async function syncFitbitDataDirect(userId: string, date: string | null = null) {
-  const targetDate = date || getTodayEST()
-  const account = await getConnectedAccount(userId, 'fitbit')
-  
-  if (!account) {
-    throw new Error('Fitbit account not connected')
-  }
-  
-  // Refresh token if needed
-  const accessToken = await refreshFitbitToken(userId, account)
-  
-  try {
-    // Fetch sleep data
-    const sleepResponse = await fetch(
-      `https://api.fitbit.com/1.2/user/-/sleep/date/${targetDate}.json`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      }
-    )
-    
-    let sleepData = null
-    if (sleepResponse.ok) {
-      const sleepJson = await sleepResponse.json()
-      if (sleepJson.sleep && sleepJson.sleep.length > 0) {
-        const sleep = sleepJson.sleep[0]
-        sleepData = {
-          sleep_duration: sleep.minutesAsleep || null,
-          sleep_efficiency: sleep.efficiency || null
-        }
-      }
-    }
-    
-    // Fetch heart rate data (for resting heart rate and HRV)
-    const hrResponse = await fetch(
-      `https://api.fitbit.com/1/user/-/activities/heart/date/${targetDate}/1d.json`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      }
-    )
-    
-    let hrData = null
-    if (hrResponse.ok) {
-      const hrJson = await hrResponse.json()
-      if (hrJson['activities-heart'] && hrJson['activities-heart'].length > 0) {
-        const heartData = hrJson['activities-heart'][0].value
-        hrData = {
-          resting_heart_rate: heartData?.restingHeartRate || null,
-          hr_zones_minutes: heartData?.heartRateZones ? {
-            out_of_range: heartData.heartRateZones.find((z: any) => z.name === 'Out of Range')?.minutes ?? null,
-            fat_burn: heartData.heartRateZones.find((z: any) => z.name === 'Fat Burn')?.minutes ?? null,
-            cardio: heartData.heartRateZones.find((z: any) => z.name === 'Cardio')?.minutes ?? null,
-            peak: heartData.heartRateZones.find((z: any) => z.name === 'Peak')?.minutes ?? null,
-          } : null,
-          max_heart_rate: heartData?.heartRateZones
-            ? Math.max(...heartData.heartRateZones.map((z: any) => z.max ?? 0))
-            : null,
-        }
-      }
-    }
-    
-    // Fetch HRV data (Heart Rate Variability)
-    // HRV is typically available in the heart rate intraday data or sleep data
-    let hrvData = null
-    try {
-      // Try to get HRV from heart rate intraday endpoint
-      const hrvResponse = await fetch(
-        `https://api.fitbit.com/1/user/-/hrv/date/${targetDate}.json`,
-        {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`
-          }
-        }
-      )
-      
-      if (hrvResponse.ok) {
-        const hrvJson = await hrvResponse.json()
-        // Fitbit HRV endpoint returns data in different formats
-        // Check for daily summary or intraday data
-        if (hrvJson.hrv && hrvJson.hrv.length > 0) {
-          // Get average HRV for the day
-          const hrvValues = hrvJson.hrv
-            .map((entry: any) => entry.value?.dailyRmssd || entry.value?.rmssd)
-            .filter((v: any) => v != null)
-          
-          if (hrvValues.length > 0) {
-            const avgHRV = hrvValues.reduce((a: number, b: number) => a + b, 0) / hrvValues.length
-            hrvData = { hrv: avgHRV }
-          }
-        }
-      }
-    } catch (hrvError) {
-      // HRV endpoint might not be available for all devices
-      safeLogDebug('HRV data not available', hrvError)
-    }
-    
-    // Also check sleep data for HRV (some Fitbit devices include HRV in sleep)
-    if (!hrvData && sleepData) {
-      try {
-        const sleepDetailResponse = await fetch(
-          `https://api.fitbit.com/1.2/user/-/sleep/date/${targetDate}.json`,
-          {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`
-            }
-          }
-        )
-        
-        if (sleepDetailResponse.ok) {
-          const sleepDetailJson = await sleepDetailResponse.json()
-          if (sleepDetailJson.sleep && sleepDetailJson.sleep.length > 0) {
-            const sleep = sleepDetailJson.sleep[0]
-            // Some Fitbit devices include HRV in sleep data
-            if (sleep.levels?.summary?.rem?.hrv) {
-              hrvData = { hrv: sleep.levels.summary.rem.hrv }
-            }
-          }
-        }
-      } catch (sleepHrvError) {
-        // Continue if HRV not in sleep data
-      }
-    }
-    
-    // Fetch activity summary
-    const activityResponse = await fetch(
-      `https://api.fitbit.com/1/user/-/activities/date/${targetDate}.json`,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      }
-    )
-    
-    let activityData = null
-    if (activityResponse.ok) {
-      const activityJson = await activityResponse.json()
-      const summary = activityJson.summary || {}
-      activityData = {
-        steps: toInteger(summary.steps),
-        calories: summary.caloriesOut || null,
-        active_calories: summary.activityCalories || null,
-        distance: summary.distances && summary.distances.length > 0 
-          ? summary.distances[0].distance || null 
-          : null
-      }
-    }
-    
-    // Combine all data
-    const fitbitData = {
-      ...sleepData,
-      ...hrData,
-      ...hrvData,
-      ...activityData
-    }
-    
-    // Save to database
-    await saveFitbitDaily(userId, targetDate, fitbitData)
-    
-    return { 
-      synced: true, 
-      date: targetDate,
-      data: fitbitData
-    }
-    
-  } catch (error: any) {
-    logError('Error syncing Fitbit data', error)
-    
-    // If 401, token might be invalid
-    if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
-      throw new Error('Fitbit authorization expired. Please reconnect your account.')
-    }
-    
-    throw new Error(`Failed to sync Fitbit data: ${error.message}`)
   }
 }
 
@@ -548,33 +371,49 @@ export async function mergeWearableDataToMetrics(userId: string, date: string | 
   
   const fitbitData = await getFitbitDaily(userId, targetDate)
   
-  const merged = {
+  const sd = fitbitData?.source_data || {} as Record<string, any>
+
+  const merged: Record<string, any> = {
     user_id: userId,
     date: targetDate,
     resting_heart_rate: toNumber(fitbitData?.resting_heart_rate) ?? existingMetrics?.resting_heart_rate ?? null,
     hrv: toNumber(fitbitData?.hrv) ?? existingMetrics?.hrv ?? null,
     body_temp: toNumber(fitbitData?.body_temp) ?? existingMetrics?.body_temp ?? null,
     sleep_score: (() => {
-      const eff = fitbitData?.source_data?.sleep_efficiency != null ? toNumber(fitbitData.source_data.sleep_efficiency) : null
+      const eff = sd.sleep_efficiency != null ? toNumber(sd.sleep_efficiency) : null
       if (eff != null) return Math.round(eff)
       return existingMetrics?.sleep_score ?? null
     })(),
     sleep_duration: toNumber(fitbitData?.sleep_duration) ?? existingMetrics?.sleep_duration ?? null,
-    deep_sleep: existingMetrics?.deep_sleep ?? null,
-    rem_sleep: existingMetrics?.rem_sleep ?? null,
-    light_sleep: existingMetrics?.light_sleep ?? null,
+    deep_sleep: toNumber(sd.deep_sleep) ?? existingMetrics?.deep_sleep ?? null,
+    rem_sleep: toNumber(sd.rem_sleep) ?? existingMetrics?.rem_sleep ?? null,
+    light_sleep: toNumber(sd.light_sleep) ?? existingMetrics?.light_sleep ?? null,
     calories_burned: toNumber(fitbitData?.calories_burned) ?? existingMetrics?.calories_burned ?? null,
     steps: toInteger(fitbitData?.steps) ?? existingMetrics?.steps ?? null,
     hr_zones_minutes: fitbitData?.hr_zones_minutes ?? existingMetrics?.hr_zones_minutes ?? null,
     max_heart_rate: toNumber(fitbitData?.max_heart_rate) ?? existingMetrics?.max_heart_rate ?? null,
-    weight: existingMetrics?.weight ?? toNumber(fitbitData?.source_data?.weight) ?? null,
-    body_fat_percentage: existingMetrics?.body_fat_percentage ?? toNumber(fitbitData?.source_data?.fat) ?? null,
+    average_heart_rate: toNumber(sd.average_heart_rate) ?? existingMetrics?.average_heart_rate ?? null,
+    active_minutes_fairly: toInteger(sd.fairly_active_minutes) ?? existingMetrics?.active_minutes_fairly ?? null,
+    active_minutes_very: toInteger(sd.very_active_minutes) ?? existingMetrics?.active_minutes_very ?? null,
+    active_minutes_lightly: toInteger(sd.lightly_active_minutes) ?? existingMetrics?.active_minutes_lightly ?? null,
+    sedentary_minutes: toInteger(sd.sedentary_minutes) ?? existingMetrics?.sedentary_minutes ?? null,
+    floors: toInteger(sd.floors) ?? existingMetrics?.floors ?? null,
+    distance: toNumber(sd.distance) ?? existingMetrics?.distance ?? null,
+    weight: existingMetrics?.weight ?? toNumber(sd.weight) ?? null,
+    body_fat_percentage: existingMetrics?.body_fat_percentage ?? toNumber(sd.fat) ?? null,
     source_provider: fitbitData ? 'fitbit' : existingMetrics?.source_provider ?? 'manual',
     source_data: {
-      ...(fitbitData?.source_data || {}),
+      ...(sd),
       ...(existingMetrics?.source_data || {})
     },
     updated_at: new Date().toISOString()
+  }
+
+  // Strip null top-level values to avoid creating columns that don't exist yet
+  for (const key of Object.keys(merged)) {
+    if (merged[key] === null && key !== 'user_id' && key !== 'date' && key !== 'source_provider' && key !== 'updated_at' && key !== 'source_data') {
+      delete merged[key]
+    }
   }
   
   if (merged.hrv || merged.sleep_duration || merged.steps || merged.calories_burned || merged.resting_heart_rate) {

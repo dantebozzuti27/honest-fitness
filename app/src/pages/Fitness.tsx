@@ -398,6 +398,9 @@ export default function Fitness() {
                     <>
                       <h3>Choose Workout Type</h3>
                       <div className={styles.workoutTypeOptions}>
+                        <Button unstyled className={styles.workoutTypeBtn} onClick={() => { setShowWorkoutStartModal(false); navigate('/today-workout') }}>
+                          AI Generated
+                        </Button>
                         <Button unstyled className={styles.workoutTypeBtn} onClick={() => setShowTemplateSelection(true)}>
                           Choose Template
                         </Button>

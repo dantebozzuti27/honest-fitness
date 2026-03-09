@@ -1597,3 +1597,42 @@
     text-align: center;
   }
 }
+
+/* #37: Streak Calendar */
+.streakCalendar {
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+.streakCalendarTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.streakGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.streakCell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-tertiary);
+}
+.streakCellActive {
+  background: var(--accent, #4caf50);
+  color: #fff;
+  font-weight: 700;
+}
+.streakCellToday {
+  outline: 2px solid var(--accent, #4caf50);
+  outline-offset: -1px;
+}

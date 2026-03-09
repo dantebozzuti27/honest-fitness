@@ -203,6 +203,29 @@ export default function HistoryCard({
                   return best
                 }, null)
 
+                // #33: Compare to same exercise in previous session
+                const prevExercises: ExerciseEntry[] = Array.isArray(previousData?.workout_exercises) ? previousData.workout_exercises : []
+                const prevEx = prevExercises.find(pe => (pe.exercise_name || pe.name || '').toString().toLowerCase() === exName.toLowerCase())
+                let comparison: { label: string; color: string } | null = null
+                if (prevEx && bestSet && !isCardio) {
+                  const prevSets = Array.isArray(prevEx.workout_sets) ? prevEx.workout_sets : []
+                  const prevBest = prevSets.reduce<{ weight: number; reps: number } | null>((b, s) => {
+                    const w = Number(s?.weight) || 0
+                    const r = Number(s?.reps) || 0
+                    if (!b || w * r > b.weight * b.reps) return { weight: w, reps: r }
+                    return b
+                  }, null)
+                  if (prevBest && prevBest.weight > 0) {
+                    const volDiff = (bestSet.weight * bestSet.reps) - (prevBest.weight * prevBest.reps)
+                    if (Math.abs(volDiff) > 0) {
+                      comparison = {
+                        label: `${volDiff > 0 ? '+' : ''}${Math.round(volDiff)} lbs vol`,
+                        color: volDiff > 0 ? 'var(--success, #4caf50)' : 'var(--danger, #f44336)',
+                      }
+                    }
+                  }
+                }
+
                 return (
                   <div key={i} className={styles.exerciseRow}>
                     <div className={styles.exerciseIndex}>{i + 1}</div>
@@ -215,6 +238,11 @@ export default function HistoryCard({
                           `${workingSets.length} sets${bestSet?.reps ? ` \u00b7 best: ${bestSet.reps} reps` : ''}`
                         ) : (
                           `${workingSets.length} sets${bestSet ? ` \u00b7 best: ${bestSet.weight}\u00d7${bestSet.reps}` : ''}`
+                        )}
+                        {comparison && (
+                          <span style={{ marginLeft: '6px', fontSize: '10px', fontWeight: 600, color: comparison.color }}>
+                            {comparison.label}
+                          </span>
                         )}
                       </span>
                     </div>

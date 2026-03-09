@@ -59,6 +59,7 @@ interface TrainingProfileData {
   age: string;
   gym_profiles: GymProfile[];
   active_gym_profile: string;
+  rest_days: number[];
 }
 
 const GOAL_OPTIONS = [
@@ -292,6 +293,7 @@ export default function Profile() {
     age: '',
     gym_profiles: [],
     active_gym_profile: '',
+    rest_days: [],
   })
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
@@ -385,6 +387,7 @@ export default function Profile() {
           age: prefs.age != null ? String(prefs.age) : '',
           gym_profiles: Array.isArray(prefs.gym_profiles) ? prefs.gym_profiles : [],
           active_gym_profile: prefs.active_gym_profile || '',
+          rest_days: Array.isArray(prefs.rest_days) ? prefs.rest_days : [],
         })
       }
       setProfileLoaded(true)
@@ -426,6 +429,7 @@ export default function Profile() {
         age: trainingProfile.age ? Number(trainingProfile.age) : null,
         gym_profiles: trainingProfile.gym_profiles.length > 0 ? trainingProfile.gym_profiles : null,
         active_gym_profile: trainingProfile.active_gym_profile || null,
+        rest_days: trainingProfile.rest_days.length > 0 ? trainingProfile.rest_days : null,
       }
       await saveUserPreferences(user.id, payload)
       showToast('Training profile saved', 'success')
@@ -646,6 +650,52 @@ export default function Profile() {
                   onChange={e => setTrainingProfile(p => ({ ...p, available_days_per_week: e.target.value }))}
                   options={DAYS_OPTIONS}
                 />
+                <div>
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                    Rest Days
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {[
+                      { value: 0, label: 'Sun' },
+                      { value: 1, label: 'Mon' },
+                      { value: 2, label: 'Tue' },
+                      { value: 3, label: 'Wed' },
+                      { value: 4, label: 'Thu' },
+                      { value: 5, label: 'Fri' },
+                      { value: 6, label: 'Sat' },
+                    ].map(day => {
+                      const selected = trainingProfile.rest_days.includes(day.value)
+                      return (
+                        <button
+                          key={day.value}
+                          type="button"
+                          onClick={() => {
+                            if (selected) {
+                              setTrainingProfile(p => ({ ...p, rest_days: p.rest_days.filter(d => d !== day.value) }))
+                            } else {
+                              setTrainingProfile(p => ({ ...p, rest_days: [...p.rest_days, day.value].sort() }))
+                            }
+                          }}
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: '16px',
+                            border: selected ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
+                            background: selected ? 'var(--accent, #3b82f6)' : 'var(--bg-tertiary)',
+                            color: selected ? '#fff' : 'var(--text-primary)',
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            fontWeight: selected ? 600 : 400,
+                          }}
+                        >
+                          {day.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                    No workouts will be generated on selected days
+                  </p>
+                </div>
                 <SelectField
                   label="Session Duration"
                   value={trainingProfile.session_duration_minutes}

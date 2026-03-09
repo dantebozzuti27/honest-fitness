@@ -2,7 +2,6 @@
  * Fitbit OAuth Helper Functions
  */
 
-import { getConnectedAccount } from './wearables'
 import { requireSupabase } from './supabase'
 import { logDebug } from '../utils/logger'
 import { apiUrl, getPublicSiteUrl } from './urlConfig'
@@ -16,31 +15,6 @@ const FITBIT_REDIRECT_URI = import.meta.env.VITE_FITBIT_REDIRECT_URI ||
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
   logDebug('[Fitbit Auth] Client ID configured', { configured: Boolean(FITBIT_CLIENT_ID) })
   logDebug('[Fitbit Auth] Redirect URI', { redirectUri: FITBIT_REDIRECT_URI })
-}
-
-/**
- * Get Fitbit OAuth authorization URL
- */
-export function getFitbitAuthUrl(userId: string) {
-  const scopes = [
-    'activity',
-    'heartrate',
-    'sleep',
-    'weight',
-    'profile',
-    'settings'
-  ].join(' ')
-  
-  const params = new URLSearchParams({
-    client_id: FITBIT_CLIENT_ID,
-    response_type: 'code',
-    redirect_uri: FITBIT_REDIRECT_URI,
-    scope: scopes,
-    state: userId, // Pass user ID in state for security
-    expires_in: '604800' // 7 days
-  })
-  
-  return `https://www.fitbit.com/oauth2/authorize?${params.toString()}`
 }
 
 /**
@@ -81,13 +55,5 @@ export function connectFitbit(userId: string) {
       throw e
     }, 0)
   })
-}
-
-/**
- * Check if Fitbit is connected
- */
-export async function isFitbitConnected(userId: string) {
-  const account = await getConnectedAccount(userId, 'fitbit')
-  return !!account
 }
 

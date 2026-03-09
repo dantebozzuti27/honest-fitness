@@ -272,10 +272,3 @@ export function getGuidelineForGroup(muscleGroup: string): VolumeGuideline | und
   return VOLUME_GUIDELINES.find(g => g.muscleGroup === muscleGroup);
 }
 
-export function getMuscleGroup(muscleHead: string): string | undefined {
-  return MUSCLE_HEAD_TO_GROUP[muscleHead];
-}
-
-export function getSynergistFatigue(sourceGroup: string): Record<string, number> {
-  return SYNERGIST_FATIGUE[sourceGroup] ?? {};
-}

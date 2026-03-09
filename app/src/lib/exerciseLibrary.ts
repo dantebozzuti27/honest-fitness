@@ -63,19 +63,26 @@ export async function getCustomExercises(userId: string) {
  * Create a custom exercise
  */
 export async function createCustomExercise(userId: string, exercise: any) {
+  const insertPayload: Record<string, any> = {
+    name: exercise.name,
+    category: exercise.category || 'strength',
+    body_part: exercise.bodyPart || 'Other',
+    sub_body_parts: exercise.subBodyParts || [],
+    equipment: exercise.equipment || [],
+    is_custom: true,
+    created_by_user_id: userId,
+    description: exercise.description || null,
+    instructions: exercise.instructions || null
+  }
+
+  if (exercise.primary_muscles) insertPayload.primary_muscles = exercise.primary_muscles
+  if (exercise.secondary_muscles) insertPayload.secondary_muscles = exercise.secondary_muscles
+  if (exercise.movement_pattern) insertPayload.movement_pattern = exercise.movement_pattern
+  if (exercise.ml_exercise_type) insertPayload.ml_exercise_type = exercise.ml_exercise_type
+
   const { data, error } = await supabase
     .from('exercise_library')
-    .insert({
-      name: exercise.name,
-      category: exercise.category || 'strength',
-      body_part: exercise.bodyPart || 'Other',
-      sub_body_parts: exercise.subBodyParts || [],
-      equipment: exercise.equipment || [],
-      is_custom: true,
-      created_by_user_id: userId,
-      description: exercise.description || null,
-      instructions: exercise.instructions || null
-    })
+    .insert(insertPayload)
     .select()
     .single()
   

@@ -1904,9 +1904,19 @@ function computeHealthPercentiles(
 
 // ─── Athlete Profile Synthesis ───────────────────────────────────────────────
 
+// Major body regions for coverage analysis.
+// Each region maps to the muscle groups from VOLUME_GUIDELINES that represent it.
+const BODY_REGIONS: { region: string; groups: string[] }[] = [
+  { region: 'Upper Push', groups: ['chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'] },
+  { region: 'Upper Pull', groups: ['back_lats', 'back_upper', 'posterior_deltoid', 'biceps'] },
+  { region: 'Lower Body', groups: ['quads', 'hamstrings', 'glutes', 'calves', 'hip_adductors'] },
+  { region: 'Core', groups: ['abs', 'obliques', 'erector_spinae'] },
+];
+
 function computeAthleteProfile(
   strengthPercentiles: StrengthPercentile[],
   healthPercentiles: HealthPercentile[],
+  muscleVolumeStatuses: MuscleVolumeStatus[],
   profile: {
     consistencyScore: number;
     trainingFrequency: number;
@@ -2134,6 +2144,38 @@ function computeAthleteProfile(
     }
   }
 
+  // ── Body coverage: are you training all major regions? ───────────
+  const trainedGroups = new Set(
+    muscleVolumeStatuses
+      .filter(v => v.weeklyDirectSets + v.weeklyIndirectSets > 0)
+      .map(v => v.muscleGroup)
+  );
+
+  const regionCoverage: { region: string; trained: boolean; trainedCount: number; totalCount: number }[] = [];
+  for (const { region, groups } of BODY_REGIONS) {
+    const trainedCount = groups.filter(g => trainedGroups.has(g)).length;
+    regionCoverage.push({ region, trained: trainedCount > 0, trainedCount, totalCount: groups.length });
+  }
+  const trainedRegions = regionCoverage.filter(r => r.trained).length;
+  const totalRegions = regionCoverage.length;
+  const coverageRatio = trainedRegions / totalRegions; // 0.0 - 1.0
+
+  const untrained = regionCoverage.filter(r => !r.trained);
+  if (untrained.length > 0) {
+    const regionNames = untrained.map(r => r.region).join(', ');
+    items.push({
+      category: 'weakness', area: 'Body Coverage', priority: 9,
+      detail: `No training detected for ${regionNames} — this creates long-term imbalance and injury risk`,
+      dataPoints: `${trainedRegions}/${totalRegions} body regions trained (missing: ${regionNames})`,
+    });
+  } else {
+    items.push({
+      category: 'strength', area: 'Body Coverage', priority: 6,
+      detail: 'Training covers all major body regions — full-body development reduces injury risk',
+      dataPoints: `${totalRegions}/${totalRegions} body regions trained`,
+    });
+  }
+
   // Sort: highest priority first within each category
   items.sort((a, b) => b.priority - a.priority);
 
@@ -2148,19 +2190,21 @@ function computeAthleteProfile(
   const totalTracked = profile.exerciseProgressions.length || 1;
   const progressionRate = progressing.length / totalTracked;
 
-  // Balance component: how tight are your lift percentiles? (lower spread = higher score)
+  // Balance: lift percentile spread (lower = better) AND body coverage
   const liftSpread = sPcts.length >= 2
     ? Math.max(...sPcts) - Math.min(...sPcts)
     : 0;
-  const balanceScore = Math.max(0, 100 - liftSpread); // 100 = perfectly balanced, 0 = huge gap
+  const liftBalanceScore = Math.max(0, 100 - liftSpread);
+  const coverageScore = coverageRatio * 100;
+  const balanceScore = liftBalanceScore * 0.4 + coverageScore * 0.6;
 
   const overallScore = Math.min(99, Math.max(1, Math.round(
-    avgStrengthPct * 0.20 +
-    avgHealthPct * 0.20 +
+    avgStrengthPct * 0.15 +
+    avgHealthPct * 0.15 +
     profile.consistencyScore * 20 +
     profile.fitnessFatigueModel.readiness * 10 +
     progressionRate * 15 +
-    balanceScore * 0.15
+    balanceScore * 0.25
   )));
 
   // ── Summary ───────────────────────────────────────────────────────
@@ -3296,7 +3340,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const fitnessFatigueResult = computeFitnessFatigueModel(workouts);
   const plateauDetections = computePlateauDetections(workouts);
 
-  const athleteProfileResult = computeAthleteProfile(spResults, hpResults, {
+  const athleteProfileResult = computeAthleteProfile(spResults, hpResults, muscleVolumeStatuses, {
     consistencyScore,
     trainingFrequency,
     avgSessionDuration,

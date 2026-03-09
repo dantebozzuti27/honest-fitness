@@ -1607,15 +1607,10 @@ function stepApplyConstraints(
     }
   }
 
-  // Time budget: compute available minutes, reserve cardio time
+  // Time budget: hard ceiling for entire session (strength + cardio)
   const availableMinutes = computeAvailableMinutes(prefs);
-  const cardioMinutes = cardio.reduce(
-    (sum, ex) => sum + ex.estimatedMinutes, 0
-  );
-  const strengthBudget = Math.max(availableMinutes - cardioMinutes - 5, cfg.minStrengthBudgetMinutes);
 
-  // Session fatigue: if user historically loses performance late in session,
-  // tighten the time budget to keep them in productive training zones
+  // Session fatigue adjustment
   const lateFatigueEffect = profile.sessionFatigueEffects.find(
     e => e.positionBucket === '90+min' && e.dataPoints >= cfg.sessionFatigueMinDataPoints
   );
@@ -1624,17 +1619,52 @@ function stepApplyConstraints(
     sessionFatigueAdj = 0.90;
   }
 
-  // Pareto trimming: if over budget, remove lowest-impact exercises first
-  let totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
-  const effectiveStrengthBudget = Math.round(strengthBudget * sessionFatigueAdj);
+  const effectiveBudget = Math.round(availableMinutes * sessionFatigueAdj);
+  const transitionBuffer = 5; // warmup, water breaks, transitions
 
-  if (totalStrengthMin > effectiveStrengthBudget) {
+  // ── Cardio time enforcement ───────────────────────────────────────────
+  // Cardio must fit within the budget alongside strength, not ignore it.
+  let totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+  const strengthFloor = Math.min(totalStrengthMin, cfg.minStrengthBudgetMinutes);
+  const maxCardioMinutes = Math.max(0, effectiveBudget - strengthFloor - transitionBuffer);
+  let totalCardioMin = cardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+  const keptCardio: GeneratedExercise[] = [];
+
+  if (totalCardioMin > maxCardioMinutes && maxCardioMinutes > 0) {
+    // Scale all cardio durations proportionally to fit the budget
+    const scale = maxCardioMinutes / totalCardioMin;
+    const minCardioSeconds = 10 * 60; // never prescribe less than 10 min of cardio
+    for (const ex of cardio) {
+      const originalSec = ex.cardioDurationSeconds ?? ex.estimatedMinutes * 60;
+      const scaledSec = Math.round(originalSec * scale);
+      if (scaledSec >= minCardioSeconds) {
+        ex.cardioDurationSeconds = scaledSec;
+        ex.estimatedMinutes = scaledSec / 60;
+        ex.adjustments.push(`Duration capped to ${Math.round(scaledSec / 60)} min (session budget: ${effectiveBudget} min)`);
+        keptCardio.push(ex);
+      } else {
+        // Too short to be useful — drop this cardio exercise
+        ex.adjustments.push(`Dropped: ${Math.round(originalSec / 60)} min → ${Math.round(scaledSec / 60)} min would be too short`);
+      }
+    }
+    totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+  } else if (totalCardioMin > maxCardioMinutes) {
+    // No room for cardio at all — drop it
+    totalCardioMin = 0;
+  } else {
+    keptCardio.push(...cardio);
+  }
+
+  // ── Strength time enforcement ─────────────────────────────────────────
+  const strengthBudget = Math.max(effectiveBudget - totalCardioMin - transitionBuffer, cfg.minStrengthBudgetMinutes);
+
+  if (totalStrengthMin > strengthBudget) {
     const sortedByImpact = [...ordered].sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
     const keepSet = new Set(ordered.map(e => e.exerciseName));
 
     for (const ex of sortedByImpact) {
-      if (totalStrengthMin <= effectiveStrengthBudget) break;
-      if (ex.exerciseRole === 'corrective') continue; // never cut correctives
+      if (totalStrengthMin <= strengthBudget) break;
+      if (ex.exerciseRole === 'corrective') continue;
       if (keepSet.size <= cfg.minExercisesUnderTimePressure) break;
       keepSet.delete(ex.exerciseName);
       totalStrengthMin -= ex.estimatedMinutes;
@@ -1670,7 +1700,7 @@ function stepApplyConstraints(
   }
 
   // Cardio always after weights
-  return [...ordered, ...cardio];
+  return [...ordered, ...keptCardio];
 }
 
 // ─── Step 6: Generate Rationale ─────────────────────────────────────────────

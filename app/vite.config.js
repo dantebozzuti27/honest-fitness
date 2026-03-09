@@ -11,7 +11,6 @@ export default defineConfig({
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           supabase: ['@supabase/supabase-js'],
           idb: ['idb'],
-          html2canvas: ['html2canvas']
         }
       }
     }

@@ -5,6 +5,7 @@ import { exportUserDataJSON, exportWorkoutsCSV, exportHealthMetricsCSV, download
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
 import { connectFitbit } from '../lib/fitbitAuth'
 import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferencesDb'
+import { ageRecoveryFactor } from '../lib/recoveryModel'
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
 import { getTodayEST } from '../utils/dateUtils'
@@ -18,6 +19,7 @@ import SelectField from '../components/SelectField'
 import Button from '../components/Button'
 import { logError } from '../utils/logger'
 import styles from './Profile.module.css'
+import s from '../styles/shared.module.css'
 
 interface PerformanceGoal {
   exercise: string;
@@ -817,6 +819,49 @@ export default function Profile() {
                     inputMode="numeric"
                   />
                 )}
+
+                {/* Age impact summary */}
+                {(() => {
+                  let derivedAge: number | null = null;
+                  if (trainingProfile.date_of_birth) {
+                    const dob = new Date(trainingProfile.date_of_birth);
+                    if (!isNaN(dob.getTime())) {
+                      derivedAge = Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+                    }
+                  } else if (trainingProfile.age) {
+                    derivedAge = Number(trainingProfile.age);
+                  }
+                  if (derivedAge == null || derivedAge <= 0) return null;
+
+                  const recoveryFactor = ageRecoveryFactor(derivedAge);
+                  const volumeScale = derivedAge <= 25 ? 1.05 : derivedAge > 30 ? Math.max(0.80, 1.0 - (derivedAge - 30) * 0.005) : 1.0;
+                  const progressionScale = derivedAge <= 25 ? 1.08 : derivedAge > 30 ? Math.max(0.75, 1.0 - (derivedAge - 30) * 0.008) : 1.0;
+                  const maxHr = 220 - derivedAge;
+
+                  const fmt = (v: number) => v >= 1 ? `+${((v - 1) * 100).toFixed(0)}%` : `${((v - 1) * 100).toFixed(0)}%`;
+                  const items = [
+                    { label: 'Max Heart Rate', value: `${maxHr} bpm` },
+                    { label: 'Recovery Speed', value: fmt(recoveryFactor) },
+                    { label: 'Volume Tolerance', value: fmt(volumeScale) },
+                    { label: 'Progression Rate', value: fmt(progressionScale) },
+                  ];
+
+                  return (
+                    <div className={s.cardCompact} style={{ marginTop: '4px', marginBottom: '4px' }}>
+                      <div className={s.sectionLabel}>Age Impact (age {derivedAge})</div>
+                      <table className={s.dataTable}>
+                        <tbody>
+                          {items.map(item => (
+                            <tr key={item.label}>
+                              <td>{item.label}</td>
+                              <td>{item.value}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
 
                 <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '-4px', marginTop: '4px' }}>
                   Weight Goal

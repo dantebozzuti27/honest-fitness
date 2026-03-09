@@ -127,11 +127,26 @@ export function computeSynergistPenalty(
  *                     (1.0 = average, <1.0 = slower recovery, >1.0 = faster recovery)
  */
 /**
+ * Age-based recovery scaling.
+ * Research: ~1% slower recovery per year past 30 (Fell & Williams, 2008;
+ * Lavender & Nosaka, 2006). Capped at ±20% to avoid extreme swings.
+ * Returns a multiplier on recovery *speed* (lower = slower recovery).
+ */
+export function ageRecoveryFactor(age: number | null): number {
+  if (age == null || age <= 0) return 1.0;
+  if (age <= 30) return Math.min(1.10, 1.0 + (30 - age) * 0.005); // slight bonus for youth
+  const yearsOver30 = age - 30;
+  return Math.max(0.80, 1.0 - yearsOver30 * 0.008);
+}
+
+/**
  * recoverySpeedMultiplier scales all baseline recovery windows.
  * 1.0 = population default, 2.0 = recovers 2x faster (halves recovery hours),
  * 0.5 = recovers 2x slower.
  * An elite D1 athlete who recovers upper body in ~20h and legs in ~40h
  * would use ~2.0 (48h→24h upper, 72h→36h legs).
+ *
+ * age: optional age for automatic recovery rate adjustment.
  */
 export function computeAllRecoveryStatuses(
   recentTraining: MuscleGroupTrainingRecord[],
@@ -139,11 +154,13 @@ export function computeAllRecoveryStatuses(
   individualMods: Record<string, number> = {},
   now: Date = new Date(),
   recoverySpeedMultiplier: number = 1.0,
-  muscleReadyThreshold: number = 85
+  muscleReadyThreshold: number = 85,
+  age: number | null = null,
 ): MuscleRecoveryStatus[] {
   const nowMs = now.getTime();
   const globalModifier = computeRecoveryModifier(recoveryCtx);
-  const speedMult = Math.max(0.25, Math.min(4.0, recoverySpeedMultiplier));
+  const ageFactor = ageRecoveryFactor(age);
+  const speedMult = Math.max(0.25, Math.min(4.0, recoverySpeedMultiplier * ageFactor));
 
   return VOLUME_GUIDELINES.map(guideline => {
     const record = recentTraining.find(r => r.muscleGroup === guideline.muscleGroup);

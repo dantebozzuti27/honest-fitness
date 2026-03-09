@@ -10,6 +10,7 @@ import BackButton from '../components/BackButton'
 import Button from '../components/Button'
 import { logError } from '../utils/logger'
 import styles from './TodayWorkout.module.css'
+import s from '../styles/shared.module.css'
 
 type ViewState = 'loading' | 'ready' | 'error' | 'empty'
 
@@ -765,12 +766,18 @@ export default function TodayWorkout() {
               <div style={{ marginTop: '12px', padding: '0 4px' }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px', opacity: 0.8 }}>Strength Level (vs. population)</div>
                 <div className={styles.contextGrid}>
-                  {profile.strengthPercentiles.map(sp => (
-                    <div key={sp.lift} className={styles.contextItem}>
-                      <span className="label">{sp.lift.charAt(0).toUpperCase() + sp.lift.slice(1)} e1RM</span>
-                      <span className="value">{sp.estimated1RM} lbs — {sp.percentile}th %ile</span>
-                    </div>
-                  ))}
+                  {profile.strengthPercentiles.map(sp => {
+                    const hasAgeAdj = sp.ageAdjustedPercentile != null && sp.ageAdjustedPercentile !== sp.percentile;
+                    return (
+                      <div key={sp.lift} className={styles.contextItem}>
+                        <span className="label">{sp.lift.charAt(0).toUpperCase() + sp.lift.slice(1)} e1RM</span>
+                        <span className="value">
+                          {sp.estimated1RM} lbs — {sp.percentile}th %ile
+                          {hasAgeAdj && <span style={{ opacity: 0.7 }}> ({sp.ageAdjustedPercentile}th age-adj)</span>}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -785,6 +792,40 @@ export default function TodayWorkout() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+            {profile.athleteProfile && profile.athleteProfile.items.length > 0 && (
+              <div style={{ marginTop: '12px', padding: '0 4px' }}>
+                <div className={s.rowBetween} style={{ marginBottom: '6px' }}>
+                  <div className={s.sectionLabel} style={{ margin: 0 }}>Athlete Profile</div>
+                  <div className={s.scoreDisplay} style={{ padding: '3px 8px', minWidth: 'auto' }}>
+                    <span className={s.scoreValue} style={{
+                      fontSize: 16,
+                      color: profile.athleteProfile.overallScore >= 70 ? 'var(--success)' : profile.athleteProfile.overallScore >= 45 ? '#e6a800' : '#ef4444'
+                    }}>
+                      {profile.athleteProfile.overallScore}
+                    </span>
+                  </div>
+                </div>
+                <div className={s.sectionSubtitle}>{profile.athleteProfile.summary}</div>
+                {(['strength', 'weakness', 'opportunity', 'watch'] as const).map(cat => {
+                  const catItems = profile.athleteProfile.items.filter(i => i.category === cat);
+                  if (catItems.length === 0) return null;
+                  const clsMap = { strength: s.profileItemStrength, weakness: s.profileItemWeakness, opportunity: s.profileItemOpportunity, watch: s.profileItemWatch };
+                  const labelMap = { strength: 'Strengths', weakness: 'Focus Areas', opportunity: 'Opportunities', watch: 'Watch' };
+                  return (
+                    <div key={cat} style={{ marginBottom: '6px' }}>
+                      <div className={s.sectionLabel}>{labelMap[cat]}</div>
+                      {catItems.map((item, idx) => (
+                        <div key={idx} className={clsMap[cat]}>
+                          <div className={s.profileItemTitle}>{item.area}</div>
+                          <div className={s.profileItemDetail}>{item.detail}</div>
+                          <div className={s.profileItemData}>{item.dataPoints}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </details>

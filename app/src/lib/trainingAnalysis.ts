@@ -315,6 +315,8 @@ export interface TrainingProfile {
   strengthPercentiles: StrengthPercentile[];
   // Health Percentiles (population norms for HRV, RHR, sleep, steps)
   healthPercentiles: HealthPercentile[];
+  // Synthesized athlete profile
+  athleteProfile: AthleteProfile;
   gender: string | null;
 
   // Split Detection & Scheduling
@@ -372,9 +374,10 @@ export interface TrainingProfile {
 }
 
 export interface StrengthPercentile {
-  lift: 'squat' | 'bench' | 'deadlift';
+  lift: string;
   estimated1RM: number;
   percentile: number;
+  ageAdjustedPercentile: number | null; // percentile adjusted for age (higher for older lifters)
   bodyWeightClass: string;
 }
 
@@ -385,7 +388,21 @@ export interface HealthPercentile {
   unit: string;
   percentile: number;
   ageGroup: string;
-  interpretation: string; // 'excellent' | 'good' | 'average' | 'below_average' | 'poor'
+  interpretation: string;
+}
+
+export interface AthleteProfileItem {
+  category: 'strength' | 'weakness' | 'opportunity' | 'watch';
+  area: string;        // e.g., "Upper Body Pushing", "Sleep Quality", "Training Consistency"
+  detail: string;      // human-readable explanation
+  dataPoints: string;  // supporting evidence
+  priority: number;    // 1-10, higher = more important
+}
+
+export interface AthleteProfile {
+  summary: string;
+  overallScore: number; // 0-100 composite
+  items: AthleteProfileItem[];
 }
 
 export type SplitType = 'push_pull_legs' | 'upper_lower' | 'bro_split' | 'full_body' | 'custom';
@@ -1453,10 +1470,32 @@ function computeExerciseProgressions(workouts: WorkoutRecord[], userBodyWeight?:
  * Maps the user's best estimated 1RM for squat, bench, and deadlift against
  * their body weight class to produce a percentile ranking.
  */
+/**
+ * Age adjustment for strength percentiles.
+ * OpenPowerlifting data is dominated by 20-35 year olds. A 50-year-old at the
+ * raw 50th percentile is actually stronger relative to age peers.
+ * Strength peaks at ~27 and declines ~0.5-1% per year after 35 (Meltzer, 1994;
+ * Rana et al., 2008). We boost the percentile for older lifters accordingly.
+ */
+function ageStrengthAdjustment(rawPct: number, age: number | null): number | null {
+  if (age == null || age <= 0) return null;
+  if (age >= 25 && age <= 35) return rawPct; // peak years, no adjustment
+  if (age < 25) {
+    // Slightly reduce — hasn't reached peak yet, so same percentile is less impressive
+    const yearsToReach = 25 - age;
+    return Math.max(1, Math.round(rawPct - yearsToReach * 0.3));
+  }
+  // Over 35: boost because the reference population skews younger
+  const yearsOver35 = age - 35;
+  const boost = Math.min(15, yearsOver35 * 0.5);
+  return Math.min(99, Math.round(rawPct + boost));
+}
+
 function computeStrengthPercentiles(
   exerciseProgressions: ExerciseProgression[],
   bodyWeight: number | null | undefined,
-  gender: string | null | undefined
+  gender: string | null | undefined,
+  age: number | null = null,
 ): StrengthPercentile[] {
   if (!bodyWeight || bodyWeight <= 0) return [];
 
@@ -1475,59 +1514,183 @@ function computeStrengthPercentiles(
   const classData = standards[String(bestClass)];
   if (!classData) return [];
 
-  const liftMappings: { lift: 'squat' | 'bench' | 'deadlift'; patterns: string[] }[] = [
+  // ── Big 3 from OpenPowerlifting data ────────────────────────────────
+  const big3Mappings: { lift: string; patterns: string[] }[] = [
     { lift: 'squat', patterns: ['squat', 'back squat', 'front squat'] },
     { lift: 'bench', patterns: ['bench press', 'barbell bench press'] },
     { lift: 'deadlift', patterns: ['deadlift', 'conventional deadlift', 'sumo deadlift'] },
   ];
 
   const results: StrengthPercentile[] = [];
-  for (const { lift, patterns } of liftMappings) {
-    const liftData = classData[lift];
-    if (!liftData) continue;
 
-    // Find best e1RM across matching exercise names
-    let best1RM = 0;
+  const findBest1RM = (patterns: string[]): number => {
+    let best = 0;
     for (const prog of exerciseProgressions) {
       const name = prog.exerciseName.toLowerCase();
-      if (patterns.some(p => name.includes(p)) && prog.estimated1RM > best1RM) {
-        best1RM = prog.estimated1RM;
+      if (patterns.some(p => name.includes(p)) && prog.estimated1RM > best) {
+        best = prog.estimated1RM;
       }
     }
-    if (best1RM <= 0) continue;
+    return best;
+  };
 
-    // Interpolate percentile
-    const percentiles = [
-      { pct: 25, val: liftData.p25 },
-      { pct: 50, val: liftData.p50 },
-      { pct: 75, val: liftData.p75 },
-      { pct: 90, val: liftData.p90 },
-      { pct: 95, val: liftData.p95 },
+  const interpolateFromTable = (
+    value: number,
+    table: { p25: number; p50: number; p75: number; p90: number; p95: number }
+  ): number => {
+    const pts = [
+      { pct: 25, val: table.p25 }, { pct: 50, val: table.p50 },
+      { pct: 75, val: table.p75 }, { pct: 90, val: table.p90 }, { pct: 95, val: table.p95 },
     ];
-
-    let pct = 10;
-    if (best1RM >= percentiles[percentiles.length - 1].val) {
-      pct = 97;
-    } else if (best1RM <= percentiles[0].val) {
-      pct = Math.round((best1RM / percentiles[0].val) * 25);
-    } else {
-      for (let i = 0; i < percentiles.length - 1; i++) {
-        if (best1RM >= percentiles[i].val && best1RM < percentiles[i + 1].val) {
-          const range = percentiles[i + 1].val - percentiles[i].val;
-          const t = range > 0 ? (best1RM - percentiles[i].val) / range : 0;
-          pct = Math.round(percentiles[i].pct + t * (percentiles[i + 1].pct - percentiles[i].pct));
-          break;
-        }
+    if (value >= pts[pts.length - 1].val) return 97;
+    if (value <= pts[0].val) return Math.max(1, Math.round((value / pts[0].val) * 25));
+    for (let i = 0; i < pts.length - 1; i++) {
+      if (value >= pts[i].val && value < pts[i + 1].val) {
+        const range = pts[i + 1].val - pts[i].val;
+        const t = range > 0 ? (value - pts[i].val) / range : 0;
+        return Math.round(pts[i].pct + t * (pts[i + 1].pct - pts[i].pct));
       }
     }
+    return 50;
+  };
 
+  for (const { lift, patterns } of big3Mappings) {
+    const liftData = classData[lift];
+    if (!liftData) continue;
+    const best1RM = findBest1RM(patterns);
+    if (best1RM <= 0) continue;
+    const rawPct = interpolateFromTable(best1RM, liftData);
     results.push({
-      lift,
-      estimated1RM: Math.round(best1RM),
-      percentile: pct,
+      lift, estimated1RM: Math.round(best1RM),
+      percentile: rawPct,
+      ageAdjustedPercentile: ageStrengthAdjustment(rawPct, age),
       bodyWeightClass: `${bestClass} lbs`,
     });
   }
+
+  // ── Additional lifts via body-weight ratio standards ───────────────
+  // Source: ExRx strength standards, Symmetric Strength, and published
+  // strength ratios. Percentile cutoffs expressed as multipliers of body
+  // weight for the given lift. Gender-adjusted.
+  const ratioStandards: {
+    lift: string;
+    patterns: string[];
+    ratios: { M: { p25: number; p50: number; p75: number; p90: number; p95: number };
+              F: { p25: number; p50: number; p75: number; p90: number; p95: number } };
+  }[] = [
+    {
+      lift: 'overhead press',
+      patterns: ['overhead press', 'ohp', 'military press', 'barbell shoulder press', 'standing press'],
+      ratios: {
+        M: { p25: 0.40, p50: 0.55, p75: 0.72, p90: 0.88, p95: 1.0 },
+        F: { p25: 0.22, p50: 0.33, p75: 0.45, p90: 0.58, p95: 0.65 },
+      },
+    },
+    {
+      lift: 'barbell row',
+      patterns: ['barbell row', 'bent over row', 'pendlay row', 'bb row'],
+      ratios: {
+        M: { p25: 0.50, p50: 0.70, p75: 0.90, p90: 1.10, p95: 1.25 },
+        F: { p25: 0.30, p50: 0.45, p75: 0.60, p90: 0.75, p95: 0.85 },
+      },
+    },
+    {
+      lift: 'pull-up',
+      patterns: ['pull-up', 'pullup', 'pull up', 'chin-up', 'chinup', 'chin up', 'weighted pull'],
+      ratios: {
+        M: { p25: 0.85, p50: 1.0, p75: 1.20, p90: 1.45, p95: 1.60 },
+        F: { p25: 0.50, p50: 0.70, p75: 0.90, p90: 1.10, p95: 1.25 },
+      },
+    },
+    {
+      lift: 'dip',
+      patterns: ['dip', 'weighted dip', 'chest dip', 'tricep dip'],
+      ratios: {
+        M: { p25: 0.90, p50: 1.05, p75: 1.30, p90: 1.55, p95: 1.70 },
+        F: { p25: 0.50, p50: 0.70, p75: 0.90, p90: 1.10, p95: 1.25 },
+      },
+    },
+    {
+      lift: 'barbell curl',
+      patterns: ['barbell curl', 'bb curl', 'ez bar curl', 'ez curl', 'standing curl'],
+      ratios: {
+        M: { p25: 0.25, p50: 0.38, p75: 0.50, p90: 0.62, p95: 0.70 },
+        F: { p25: 0.15, p50: 0.23, p75: 0.32, p90: 0.40, p95: 0.45 },
+      },
+    },
+    {
+      lift: 'romanian deadlift',
+      patterns: ['romanian deadlift', 'rdl', 'stiff leg deadlift', 'stiff-leg'],
+      ratios: {
+        M: { p25: 0.65, p50: 0.90, p75: 1.15, p90: 1.40, p95: 1.55 },
+        F: { p25: 0.45, p50: 0.65, p75: 0.85, p90: 1.05, p95: 1.20 },
+      },
+    },
+    {
+      lift: 'leg press',
+      patterns: ['leg press'],
+      ratios: {
+        M: { p25: 1.50, p50: 2.10, p75: 2.80, p90: 3.50, p95: 4.00 },
+        F: { p25: 1.00, p50: 1.50, p75: 2.10, p90: 2.70, p95: 3.10 },
+      },
+    },
+    {
+      lift: 'lat pulldown',
+      patterns: ['lat pulldown', 'lat pull down', 'cable pulldown'],
+      ratios: {
+        M: { p25: 0.50, p50: 0.70, p75: 0.88, p90: 1.05, p95: 1.15 },
+        F: { p25: 0.30, p50: 0.45, p75: 0.60, p90: 0.75, p95: 0.85 },
+      },
+    },
+    {
+      lift: 'incline bench',
+      patterns: ['incline bench', 'incline press', 'incline barbell', 'incline dumbbell press'],
+      ratios: {
+        M: { p25: 0.45, p50: 0.62, p75: 0.80, p90: 0.98, p95: 1.10 },
+        F: { p25: 0.22, p50: 0.35, p75: 0.48, p90: 0.60, p95: 0.68 },
+      },
+    },
+    {
+      lift: 'hip thrust',
+      patterns: ['hip thrust', 'barbell hip thrust', 'glute bridge'],
+      ratios: {
+        M: { p25: 0.80, p50: 1.10, p75: 1.50, p90: 1.90, p95: 2.20 },
+        F: { p25: 0.70, p50: 1.00, p75: 1.40, p90: 1.80, p95: 2.10 },
+      },
+    },
+  ];
+
+  for (const std of ratioStandards) {
+    const best1RM = findBest1RM(std.patterns);
+    if (best1RM <= 0) continue;
+
+    const genderRatios = std.ratios[sex as 'M' | 'F'];
+    const table = {
+      p25: genderRatios.p25 * bodyWeight,
+      p50: genderRatios.p50 * bodyWeight,
+      p75: genderRatios.p75 * bodyWeight,
+      p90: genderRatios.p90 * bodyWeight,
+      p95: genderRatios.p95 * bodyWeight,
+    };
+
+    const rawPct = interpolateFromTable(best1RM, table);
+    results.push({
+      lift: std.lift,
+      estimated1RM: Math.round(best1RM),
+      percentile: rawPct,
+      ageAdjustedPercentile: ageStrengthAdjustment(rawPct, age),
+      bodyWeightClass: `${bestClass} lbs`,
+    });
+  }
+
+  // Sort: big 3 first, then by percentile descending
+  const big3Order: Record<string, number> = { squat: 0, bench: 1, deadlift: 2 };
+  results.sort((a, b) => {
+    const aOrder = big3Order[a.lift] ?? 10;
+    const bOrder = big3Order[b.lift] ?? 10;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return b.percentile - a.percentile;
+  });
 
   return results;
 }
@@ -1744,6 +1907,264 @@ function computeHealthPercentiles(
   }
 
   return results;
+}
+
+// ─── Athlete Profile Synthesis ───────────────────────────────────────────────
+
+function computeAthleteProfile(
+  strengthPercentiles: StrengthPercentile[],
+  healthPercentiles: HealthPercentile[],
+  profile: {
+    consistencyScore: number;
+    trainingFrequency: number;
+    avgSessionDuration: number;
+    trainingAgeDays: number;
+    imbalanceAlerts: ImbalanceAlert[];
+    exerciseProgressions: ExerciseProgression[];
+    rolling30DayTrends: Rolling30DayTrends;
+    bodyWeightTrend: { phase: string; slope: number };
+    cumulativeSleepDebt: { sleepDebt7d: number | null; recoveryModifier: number };
+    fitnessFatigueModel: { readiness: number; fitnessLevel: number; fatigueLevel: number };
+    plateauDetections: Array<{ exerciseName: string; isPlateaued: boolean; sessionsSinceProgress: number }>;
+    age: number | null;
+  }
+): AthleteProfile {
+  const items: AthleteProfileItem[] = [];
+  const sleepDebtHours = profile.cumulativeSleepDebt.sleepDebt7d;
+  const age = profile.age;
+
+  const big3Lifts = strengthPercentiles.filter(s => ['squat', 'bench', 'deadlift'].includes(s.lift));
+
+  for (const sp of strengthPercentiles) {
+    const label = sp.lift.charAt(0).toUpperCase() + sp.lift.slice(1);
+    const effectivePct = sp.ageAdjustedPercentile ?? sp.percentile;
+    const ageNote = (sp.ageAdjustedPercentile != null && sp.ageAdjustedPercentile !== sp.percentile)
+      ? ` (age-adjusted: ${sp.ageAdjustedPercentile}th)` : '';
+    if (effectivePct >= 75) {
+      items.push({
+        category: 'strength', area: label, priority: effectivePct >= 90 ? 9 : 7,
+        detail: `${label} is well above average for your weight class${age && age > 35 ? ' — especially strong for your age' : ''}`,
+        dataPoints: `e1RM: ${sp.estimated1RM} lbs — ${sp.percentile}th percentile${ageNote}`,
+      });
+    } else if (effectivePct < 25) {
+      items.push({
+        category: 'weakness', area: label, priority: 8,
+        detail: `${label} is significantly below population average — high ROI from focused training`,
+        dataPoints: `e1RM: ${sp.estimated1RM} lbs — ${sp.percentile}th percentile${ageNote}`,
+      });
+    } else if (effectivePct < 50) {
+      items.push({
+        category: 'opportunity', area: label, priority: 5,
+        detail: `${label} has room to grow — you're below the median for your weight class`,
+        dataPoints: `e1RM: ${sp.estimated1RM} lbs — ${sp.percentile}th percentile${ageNote}`,
+      });
+    }
+  }
+
+  // Lift balance: compare big 3 percentiles for imbalances
+  if (big3Lifts.length >= 2) {
+    const sorted = [...big3Lifts].sort((a, b) => b.percentile - a.percentile);
+    const gap = sorted[0].percentile - sorted[sorted.length - 1].percentile;
+    if (gap > 30) {
+      items.push({
+        category: 'weakness', area: 'Lift Balance',
+        detail: `Large gap between strongest (${sorted[0].lift}: ${sorted[0].percentile}th) and weakest (${sorted[sorted.length - 1].lift}: ${sorted[sorted.length - 1].percentile}th) — focus on lagging lift`,
+        dataPoints: `${gap} percentile point spread across big 3`,
+        priority: 7,
+      });
+    }
+  }
+
+  // ── Health metric analysis ────────────────────────────────────────
+  for (const hp of healthPercentiles) {
+    if (hp.percentile >= 75) {
+      items.push({
+        category: 'strength', area: hp.label, priority: hp.percentile >= 90 ? 8 : 6,
+        detail: `${hp.label} is well above average for your age group`,
+        dataPoints: `${hp.value} ${hp.unit} — ${hp.percentile}th percentile (age ${hp.ageGroup})`,
+      });
+    } else if (hp.percentile < 25) {
+      items.push({
+        category: 'weakness', area: hp.label, priority: hp.metric === 'sleep' ? 9 : 7,
+        detail: hp.metric === 'sleep'
+          ? 'Sleep is well below average — this directly limits recovery and strength gains'
+          : hp.metric === 'hrv'
+          ? 'HRV indicates high autonomic stress — recovery may be compromised'
+          : `${hp.label} is below average for your age group`,
+        dataPoints: `${hp.value} ${hp.unit} — ${hp.percentile}th percentile`,
+      });
+    } else if (hp.percentile < 50) {
+      items.push({
+        category: 'opportunity', area: hp.label, priority: 4,
+        detail: `${hp.label} is below the median — small improvements here compound across training`,
+        dataPoints: `${hp.value} ${hp.unit} — ${hp.percentile}th percentile`,
+      });
+    }
+  }
+
+  // ── Training behavior analysis ────────────────────────────────────
+  if (profile.consistencyScore >= 0.85) {
+    items.push({
+      category: 'strength', area: 'Consistency', priority: 8,
+      detail: 'Highly consistent training schedule — the single best predictor of long-term progress',
+      dataPoints: `${Math.round(profile.consistencyScore * 100)}% consistency score, ${profile.trainingFrequency} days/week`,
+    });
+  } else if (profile.consistencyScore < 0.5) {
+    items.push({
+      category: 'weakness', area: 'Consistency', priority: 10,
+      detail: 'Inconsistent training is the #1 limiter — even a perfect program fails without adherence',
+      dataPoints: `${Math.round(profile.consistencyScore * 100)}% consistency score`,
+    });
+  }
+
+  // Sleep debt
+  if (sleepDebtHours != null && sleepDebtHours > 5) {
+    items.push({
+      category: 'watch', area: 'Sleep Debt', priority: 8,
+      detail: `Accumulated ${Math.round(sleepDebtHours)}h of sleep debt — recovery is compromised until this is repaid`,
+      dataPoints: `${Math.round(sleepDebtHours)}h below 7h baseline over recent days`,
+    });
+  }
+
+  // Readiness
+  if (profile.fitnessFatigueModel.readiness < 0.4) {
+    items.push({
+      category: 'watch', area: 'Accumulated Fatigue', priority: 7,
+      detail: 'Fatigue is outpacing fitness — a deload or lighter week would accelerate long-term gains',
+      dataPoints: `Readiness: ${Math.round(profile.fitnessFatigueModel.readiness * 100)}% (fitness: ${profile.fitnessFatigueModel.fitnessLevel}, fatigue: ${profile.fitnessFatigueModel.fatigueLevel})`,
+    });
+  } else if (profile.fitnessFatigueModel.readiness > 0.7) {
+    items.push({
+      category: 'strength', area: 'Recovery State', priority: 6,
+      detail: 'Well-recovered — good position to push intensity or volume',
+      dataPoints: `Readiness: ${Math.round(profile.fitnessFatigueModel.readiness * 100)}%`,
+    });
+  }
+
+  // Plateaus
+  const plateaued = profile.plateauDetections.filter(p => p.isPlateaued && p.sessionsSinceProgress >= 4);
+  if (plateaued.length > 0) {
+    const names = plateaued.slice(0, 3).map(p => p.exerciseName).join(', ');
+    items.push({
+      category: 'opportunity', area: 'Plateau Breaking', priority: 7,
+      detail: `${plateaued.length} exercise${plateaued.length > 1 ? 's' : ''} plateaued — variation, rep scheme changes, or deload may break through`,
+      dataPoints: names + (plateaued.length > 3 ? ` + ${plateaued.length - 3} more` : ''),
+    });
+  }
+
+  // Progression rate across exercises
+  const progressing = profile.exerciseProgressions.filter(p => p.status === 'progressing');
+  const regressing = profile.exerciseProgressions.filter(p => p.status === 'regressing');
+  if (progressing.length > regressing.length * 3 && progressing.length >= 3) {
+    items.push({
+      category: 'strength', area: 'Progressive Overload', priority: 7,
+      detail: `${progressing.length} exercises actively progressing — your training stimulus is productive`,
+      dataPoints: `${progressing.length} progressing, ${regressing.length} regressing, ${profile.exerciseProgressions.length - progressing.length - regressing.length} maintaining`,
+    });
+  } else if (regressing.length >= 3 && regressing.length > progressing.length) {
+    items.push({
+      category: 'watch', area: 'Regression', priority: 8,
+      detail: `More exercises regressing than progressing — may need recovery focus, volume adjustment, or nutrition review`,
+      dataPoints: `${regressing.length} regressing vs ${progressing.length} progressing`,
+    });
+  }
+
+  // Imbalances
+  if (profile.imbalanceAlerts.length > 0) {
+    for (const alert of profile.imbalanceAlerts.slice(0, 2)) {
+      items.push({
+        category: 'opportunity', area: 'Muscle Balance', priority: 6,
+        detail: alert.description,
+        dataPoints: `Ratio: ${alert.ratio}:1 (target: ${alert.targetRatio}:1)`,
+      });
+    }
+  }
+
+  // Body composition phase
+  const phase = profile.bodyWeightTrend.phase;
+  if (phase === 'cutting' && regressing.length >= 2) {
+    items.push({
+      category: 'watch', area: 'Cut + Regression', priority: 7,
+      detail: 'Weight is trending down while strength is regressing — may be cutting too aggressively',
+      dataPoints: `Weight: ${profile.bodyWeightTrend.slope > 0 ? '+' : ''}${profile.bodyWeightTrend.slope} lbs/wk, ${regressing.length} exercises regressing`,
+    });
+  }
+
+  // Training volume trends
+  const t = profile.rolling30DayTrends;
+  if (t.totalVolumeLoad.direction === 'up' && t.totalVolumeLoad.slopePct > 5) {
+    items.push({
+      category: 'strength', area: 'Volume Progression', priority: 5,
+      detail: `Training volume is trending up ${t.totalVolumeLoad.slopePct.toFixed(1)}%/week — progressive overload is working`,
+      dataPoints: `Current weekly volume: ${t.totalVolumeLoad.current?.toLocaleString() ?? 'N/A'} lbs`,
+    });
+  }
+
+  // Training age opportunity
+  if (profile.trainingAgeDays < 365) {
+    items.push({
+      category: 'opportunity', area: 'Novice Gains', priority: 6,
+      detail: `Less than a year of tracked training — you have significant untapped potential for rapid progress`,
+      dataPoints: `Training age: ${Math.round(profile.trainingAgeDays)} days`,
+    });
+  }
+
+  // Age-specific insights
+  if (age != null && age > 0) {
+    if (age <= 25) {
+      items.push({
+        category: 'opportunity', area: 'Youth Advantage', priority: 5,
+        detail: 'Under 25 — recovery capacity and hormonal environment favor aggressive progression',
+        dataPoints: `Age: ${age}. Volume and progression rates automatically boosted.`,
+      });
+    } else if (age >= 40 && age < 55) {
+      if (profile.trainingFrequency > 5) {
+        items.push({
+          category: 'watch', area: 'Training Frequency', priority: 6,
+          detail: `Training ${profile.trainingFrequency} days/week at age ${age} — recovery needs increase with age; consider 4-5 days`,
+          dataPoints: `Recovery rate automatically scaled down. Volume and progression adjusted.`,
+        });
+      }
+      if (profile.consistencyScore >= 0.7) {
+        items.push({
+          category: 'strength', area: 'Masters Consistency', priority: 5,
+          detail: `Consistent training at ${age} — the biggest advantage for lifters over 40`,
+          dataPoints: `${Math.round(profile.consistencyScore * 100)}% consistency, ${profile.trainingFrequency} days/week`,
+        });
+      }
+    } else if (age >= 55) {
+      items.push({
+        category: 'watch', area: 'Recovery Priority', priority: 7,
+        detail: `At ${age}, recovery is the primary limiter — sleep quality and training frequency matter more than volume`,
+        dataPoints: `Recovery, volume, and progression rates automatically adjusted for age`,
+      });
+    }
+  }
+
+  // Sort: highest priority first within each category
+  items.sort((a, b) => b.priority - a.priority);
+
+  // ── Overall composite score ───────────────────────────────────────
+  const allPcts = [
+    ...strengthPercentiles.map(s => s.percentile),
+    ...healthPercentiles.map(h => h.percentile),
+  ];
+  const avgPct = allPcts.length > 0 ? allPcts.reduce((s, v) => s + v, 0) / allPcts.length : 50;
+  const consistencyBonus = profile.consistencyScore * 10;
+  const readinessBonus = profile.fitnessFatigueModel.readiness * 5;
+  const overallScore = Math.min(99, Math.max(1, Math.round(avgPct * 0.7 + consistencyBonus + readinessBonus)));
+
+  // ── Summary ───────────────────────────────────────────────────────
+  const strengths = items.filter(i => i.category === 'strength');
+  const weaknesses = items.filter(i => i.category === 'weakness');
+  const topStrength = strengths[0]?.area ?? 'consistency';
+  const topWeakness = weaknesses[0]?.area ?? null;
+  const summaryParts = [`Overall score: ${overallScore}/100.`];
+  if (topStrength) summaryParts.push(`Top strength: ${topStrength}.`);
+  if (topWeakness) summaryParts.push(`Biggest opportunity: ${topWeakness}.`);
+  if (plateaued.length > 0) summaryParts.push(`${plateaued.length} exercise${plateaued.length > 1 ? 's' : ''} plateaued.`);
+
+  return { summary: summaryParts.join(' '), overallScore, items };
 }
 
 /**
@@ -2834,7 +3255,8 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     individualRecoveryRates,
     new Date(),
     userRecoverySpeed,
-    DEFAULT_MODEL_CONFIG.muscleReadyThreshold * 100
+    DEFAULT_MODEL_CONFIG.muscleReadyThreshold * 100,
+    userAge,
   );
 
   // Global stats
@@ -2864,6 +3286,30 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const weeksWithWorkouts = last12Weeks.filter(Boolean).length;
   const consistencyScore = weeksWithWorkouts / 12;
 
+  // Pre-compute values needed by athlete profile
+  const imbalanceAlerts = computeImbalanceAlerts(muscleVolumeStatuses);
+  const spResults = computeStrengthPercentiles(exerciseProgressions, userBodyWeight, userGender, userAge);
+  const hpResults = computeHealthPercentiles(health, userAge, userGender);
+  const cumulativeSleepDebt = computeCumulativeSleepDebt(health);
+  const rolling30DayTrends = computeRolling30DayTrends(workouts, health, exercises, exerciseProgressions);
+  const fitnessFatigueResult = computeFitnessFatigueModel(workouts);
+  const plateauDetections = computePlateauDetections(workouts);
+
+  const athleteProfileResult = computeAthleteProfile(spResults, hpResults, {
+    consistencyScore,
+    trainingFrequency,
+    avgSessionDuration,
+    trainingAgeDays,
+    imbalanceAlerts,
+    exerciseProgressions,
+    rolling30DayTrends,
+    bodyWeightTrend: computeBodyWeightTrend(health),
+    cumulativeSleepDebt,
+    fitnessFatigueModel: fitnessFatigueResult,
+    plateauDetections,
+    age: userAge,
+  });
+
   return {
     userId,
     computedAt: new Date().toISOString(),
@@ -2881,13 +3327,14 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     exerciseOrderingEffects: computeExerciseOrderingEffects(workouts, userBodyWeight),
     bodyWeightTrend: computeBodyWeightTrend(health),
     deloadRecommendation: computeDeloadRecommendation(exerciseProgressions, health),
-    plateauDetections: computePlateauDetections(workouts),
+    plateauDetections,
     individualMrvEstimates,
     bestProgressionPatterns: computeBestProgressionPatterns(workouts, exercises),
     repWeightBreakthroughs: computeRepWeightBreakthroughs(workouts),
-    imbalanceAlerts: computeImbalanceAlerts(muscleVolumeStatuses),
-    strengthPercentiles: computeStrengthPercentiles(exerciseProgressions, userBodyWeight, userGender),
-    healthPercentiles: computeHealthPercentiles(health, userAge, userGender),
+    imbalanceAlerts: imbalanceAlerts,
+    strengthPercentiles: spResults,
+    healthPercentiles: hpResults,
+    athleteProfile: athleteProfileResult,
     gender: userGender,
 
     detectedSplit: detectTrainingSplit(workouts, exercises),
@@ -2896,10 +3343,10 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     cardioHistory: computeCardioHistory(workouts, exercises),
     exerciseOrderProfiles: computeExerciseOrderProfiles(workouts, exercises),
 
-    cumulativeSleepDebt: computeCumulativeSleepDebt(health),
+    cumulativeSleepDebt,
     exerciseRotation: computeExerciseRotation(workouts, exercises),
 
-    rolling30DayTrends: computeRolling30DayTrends(workouts, health, exercises, exerciseProgressions),
+    rolling30DayTrends,
 
     // #1: Prescribed vs actual feedback loop
     prescribedVsActual: await computePrescribedVsActual(userId, workouts),
@@ -2908,7 +3355,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     individualRecoveryRates: computeIndividualRecoveryRates(workouts, exercises),
 
     // #20: Banister fitness-fatigue model
-    fitnessFatigueModel: computeFitnessFatigueModel(workouts),
+    fitnessFatigueModel: fitnessFatigueResult,
 
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
     avgSessionDuration: Math.round(avgSessionDuration),

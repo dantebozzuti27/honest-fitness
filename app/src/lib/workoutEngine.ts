@@ -2064,14 +2064,34 @@ export async function generateWorkout(
     : expLevel === 'advanced' ? cfg.advancedProgressionRate
     : 1.0;
 
+  // Age-based volume and progression adjustment
+  // MRV decreases ~0.5% per year past 30 (Häkkinen et al., 2001; Ahtiainen et al., 2016)
+  // Progression rate slows ~1% per year past 30 (recovery-limited)
+  const userAge = prefs.age;
+  let ageVolumeScale = 1.0;
+  let ageProgressionScale = 1.0;
+  if (userAge != null && userAge > 0) {
+    if (userAge <= 25) {
+      ageVolumeScale = 1.05;      // youth tolerance bonus
+      ageProgressionScale = 1.08;  // faster novice adaptation
+    } else if (userAge > 30) {
+      const yearsOver30 = userAge - 30;
+      ageVolumeScale = Math.max(0.80, 1.0 - yearsOver30 * 0.005);
+      ageProgressionScale = Math.max(0.75, 1.0 - yearsOver30 * 0.008);
+    }
+  }
+
   // Step 1: Recovery check
   const recoveryAdj = stepRecoveryCheck(profile, cfg);
 
   // #7: Apply experience-level volume scaling to recovery adjustment
-  recoveryAdj.volumeMultiplier *= expVolumeScale;
+  recoveryAdj.volumeMultiplier *= expVolumeScale * ageVolumeScale;
   recoveryAdj.volumeMultiplier = Math.max(cfg.volumeMultiplierFloor, recoveryAdj.volumeMultiplier);
   if (expVolumeScale !== 1.0) {
     recoveryAdj.adjustmentReasons.push(`Experience (${expLevel}): volume ×${expVolumeScale}`);
+  }
+  if (ageVolumeScale !== 1.0 && userAge != null) {
+    recoveryAdj.adjustmentReasons.push(`Age (${userAge}): volume ×${ageVolumeScale.toFixed(2)}, progression ×${ageProgressionScale.toFixed(2)}`);
   }
 
   // #15: Caloric-phase MRV scaling — cut reduces tolerance, bulk increases
@@ -2092,7 +2112,7 @@ export async function generateWorkout(
   const { selections: exerciseSelections, decisions: exerciseDecisions } = stepSelectExercises(muscleGroups, allExercises, profile, prefs, cfg);
 
   // Step 4: Prescribe sets/reps/weight/tempo
-  const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg, expProgressionScale);
+  const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg, expProgressionScale * ageProgressionScale);
 
   // Step 5: Apply session constraints
   const constrained = stepApplyConstraints(prescribed, prefs, profile, cfg);

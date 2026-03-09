@@ -1148,22 +1148,54 @@ function stepPrescribe(
     const role = classifyExerciseRole(sel.exercise, idxInGroup);
     const isPriority = prioritySet.has(sel.muscleGroup);
 
-    const repRange = getRepRangeByRole(role, goal, secondaryGoal);
-    const sets = getTieredSets(role, goal, isPriority, recoveryAdj.isDeload);
-    const rir = getRirTarget(role, goal, recoveryAdj.isDeload);
-    const restSeconds = getRestByRole(role, goal);
-    const tempo = getTempo(sel.exercise.default_tempo, goal, sel.exercise.ml_exercise_type);
-
     const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
     const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
 
-    // Weight determination: progression data > lift ratios > strength standards > null
+    // ── Learned-first prescription ──
+    // Your actual training data is the primary source.
+    // Textbook tables are ONLY used when you have no history for this exercise.
+    const pref = profile.exercisePreferences.find(
+      p => p.exerciseName === sel.exercise.name.toLowerCase()
+    );
+    const hasLearnedData = pref && pref.recentSessions >= 2;
+
+    // Reps: use what you actually do, fall back to table
+    const tableRange = getRepRangeByRole(role, goal, secondaryGoal);
+    const targetReps = hasLearnedData && pref.learnedReps != null
+      ? Math.round(pref.learnedReps)
+      : tableRange.target;
+
+    // Sets: use what you actually do, fall back to table
+    const tableSets = getTieredSets(role, goal, isPriority, recoveryAdj.isDeload);
+    const sets = hasLearnedData && pref.learnedSets != null
+      ? Math.round(pref.learnedSets)
+      : tableSets;
+
+    // Rest: use learned inter-set rest, fall back to table
+    const tableRest = getRestByRole(role, goal);
+    const restSeconds = hasLearnedData && pref.learnedRestSeconds != null
+      ? pref.learnedRestSeconds
+      : tableRest;
+
+    const rir = getRirTarget(role, goal, recoveryAdj.isDeload);
+    const tempo = getTempo(sel.exercise.default_tempo, goal, sel.exercise.ml_exercise_type);
+
+    // Weight determination: progression data > learned weight > lift ratios > null
     const prog = profile.exerciseProgressions.find(
       p => p.exerciseName === sel.exercise.name.toLowerCase()
     );
 
     let targetWeight: number | null = null;
     const adjustments: string[] = [];
+
+    // Source annotation: tell user where each prescription value came from
+    if (hasLearnedData) {
+      const sources: string[] = [];
+      if (pref.learnedReps != null) sources.push(`reps=${Math.round(pref.learnedReps)}`);
+      if (pref.learnedSets != null) sources.push(`sets=${Math.round(pref.learnedSets)}`);
+      if (pref.learnedRestSeconds != null) sources.push(`rest=${pref.learnedRestSeconds}s`);
+      adjustments.push(`Learned from your last ${pref.recentSessions} sessions: ${sources.join(', ')}`);
+    }
 
     if (prog) {
       targetWeight = prog.lastWeight;
@@ -1172,8 +1204,9 @@ function stepPrescribe(
         targetWeight = Math.round(targetWeight * cfg.deloadWeightMultiplier);
         adjustments.push(`Deload: weight at ${Math.round(cfg.deloadWeightMultiplier * 100)}% (${targetWeight} lbs)`);
       } else {
-        // Equipment-appropriate increment: barbell > dumbbell > machine > isolation
-        const baseIncrement = role === 'isolation' || role === 'corrective'
+        // Increment: use YOUR observed increment pattern, fall back to equipment-based default
+        const learnedInc = hasLearnedData ? pref.learnedIncrement : null;
+        const fallbackIncrement = role === 'isolation' || role === 'corrective'
           ? cfg.isolationIncrement
           : equipment.includes('barbell')
             ? cfg.barbellIncrement
@@ -1181,21 +1214,27 @@ function stepPrescribe(
               ? cfg.dumbbellIncrement
               : cfg.machineIncrement;
 
+        const baseIncrement = learnedInc != null ? learnedInc : fallbackIncrement;
+
         // Cap: never jump more than maxProgressionPct of current weight
         const maxJump = Math.round(targetWeight * cfg.maxProgressionPct);
         const increment = Math.min(baseIncrement, Math.max(maxJump, 2.5));
 
+        if (learnedInc != null) {
+          adjustments.push(`Your typical increment: ${learnedInc} lbs`);
+        }
+
         const lastReps = prog.bestSet.reps;
-        if (lastReps >= repRange.target + cfg.repsAboveTargetForProgression && prog.status === 'progressing') {
+        if (lastReps >= targetReps + cfg.repsAboveTargetForProgression && prog.status === 'progressing') {
           targetWeight = targetWeight + increment;
-          adjustments.push(`Progressive overload: +${increment} lbs (last session: ${lastReps} reps vs ${repRange.target} target)`);
+          adjustments.push(`Progressive overload: +${increment} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
         } else if (prog.status === 'stalled') {
           adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
         } else if (prog.status === 'regressing') {
           targetWeight = Math.round(targetWeight * cfg.regressionWeightMultiplier);
           adjustments.push(`Regressing: reduced to ${targetWeight} lbs (${Math.round(cfg.regressionWeightMultiplier * 100)}% of ${prog.lastWeight})`);
         } else if (prog.status === 'progressing') {
-          adjustments.push(`Carry forward: ${targetWeight} lbs at RIR ${rir} (progressing)`);
+          adjustments.push(`Carry forward: ${targetWeight} lbs at RIR ${rir}`);
         }
       }
 
@@ -1218,8 +1257,12 @@ function stepPrescribe(
       if (profile.bodyWeightTrend.phase === 'cutting' && prog.status !== 'regressing') {
         adjustments.push('Cutting phase: maintaining weight is success');
       }
+    } else if (hasLearnedData && pref.learnedWeight != null) {
+      // No progression data (< 3 sessions) but learned weight exists
+      targetWeight = Math.round(pref.learnedWeight);
+      adjustments.push(`Weight from your recent sessions: ${targetWeight} lbs`);
     } else if (!isBodyweight) {
-      // No progression data — estimate from lift ratios + strength standards
+      // No data at all — estimate from lift ratios + strength standards
       const knownLifts = {
         bench: profile.exerciseProgressions.find(p => p.exerciseName.includes('bench press'))?.lastWeight ?? null,
         squat: profile.exerciseProgressions.find(p => p.exerciseName.includes('squat') && !p.exerciseName.includes('front'))?.lastWeight ?? null,
@@ -1233,7 +1276,7 @@ function stepPrescribe(
       );
       if (estimated != null) {
         targetWeight = estimated;
-        adjustments.push(`Estimated from lift ratios (P90 standards) — adjust after first session`);
+        adjustments.push(`Estimated from lift ratios — adjust after first session`);
       }
     }
 
@@ -1263,7 +1306,7 @@ function stepPrescribe(
       targetMuscleGroup: sel.muscleGroup,
       exerciseRole: role,
       sets,
-      targetReps: repRange.target,
+      targetReps,
       targetWeight: isBodyweight ? null : (targetWeight ? Math.round(targetWeight) : null),
       targetRir: rir,
       rirLabel: getRirLabel(rir),

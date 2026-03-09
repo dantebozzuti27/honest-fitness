@@ -380,6 +380,12 @@ export interface ExercisePreference {
   lastUsedDaysAgo: number;
   avgSetsPerSession: number;
   isStaple: boolean;
+  // Learned prescription patterns (from actual training data)
+  learnedReps: number | null;       // median reps across recent sessions
+  learnedSets: number | null;       // median working sets across recent sessions
+  learnedWeight: number | null;     // most recent working weight
+  learnedIncrement: number | null;  // median session-to-session weight change (when it changes)
+  learnedRestSeconds: number | null; // median inter-set rest derived from set timestamps
 }
 
 export interface CardioHistory {
@@ -1724,13 +1730,21 @@ function computeExercisePreferences(workouts: WorkoutRecord[]): ExercisePreferen
   const HALF_LIFE_MS = 14 * 24 * 60 * 60 * 1000;
   const LN2 = Math.log(2);
 
+  interface SessionSnapshot {
+    date: string;
+    reps: number[];
+    weights: number[];
+    setCount: number;
+    setTimestamps: number[];
+  }
+
   const exerciseData: Record<string, {
     totalSessions: number;
     recentSessions: number;
     recencySum: number;
     lastUsed: number;
     totalSets: number;
-    groupSessions: number;
+    sessions: SessionSnapshot[];
   }> = {};
 
   const fourWeeksAgo = now - 28 * 24 * 60 * 60 * 1000;
@@ -1743,7 +1757,7 @@ function computeExercisePreferences(workouts: WorkoutRecord[]): ExercisePreferen
     for (const ex of w.workout_exercises) {
       const key = ex.exercise_name.toLowerCase();
       if (!exerciseData[key]) {
-        exerciseData[key] = { totalSessions: 0, recentSessions: 0, recencySum: 0, lastUsed: 0, totalSets: 0, groupSessions: 0 };
+        exerciseData[key] = { totalSessions: 0, recentSessions: 0, recencySum: 0, lastUsed: 0, totalSets: 0, sessions: [] };
       }
       const d = exerciseData[key];
       d.totalSessions++;
@@ -1751,20 +1765,101 @@ function computeExercisePreferences(workouts: WorkoutRecord[]): ExercisePreferen
       d.totalSets += ex.workout_sets.length;
       if (isRecent) d.recentSessions++;
       if (wDate > d.lastUsed) d.lastUsed = wDate;
+
+      const reps: number[] = [];
+      const weights: number[] = [];
+      const setTimestamps: number[] = [];
+      let workingSets = 0;
+
+      for (const s of ex.workout_sets) {
+        if (s.reps != null && s.reps > 0) reps.push(s.reps);
+        if (s.weight != null && s.weight > 0) weights.push(s.weight);
+        if (s.logged_at) setTimestamps.push(new Date(s.logged_at).getTime());
+        if ((s.weight != null && s.weight > 0) || (s.reps != null && s.reps > 0)) workingSets++;
+      }
+
+      d.sessions.push({ date: w.date, reps, weights, setCount: workingSets, setTimestamps });
     }
   }
 
   return Object.entries(exerciseData)
-    .map(([name, d]) => ({
-      exerciseName: name,
-      totalSessions: d.totalSessions,
-      recentSessions: d.recentSessions,
-      recencyScore: Math.round(d.recencySum * 100) / 100,
-      lastUsedDaysAgo: Math.round((now - d.lastUsed) / (24 * 60 * 60 * 1000)),
-      avgSetsPerSession: Math.round((d.totalSets / d.totalSessions) * 10) / 10,
-      isStaple: d.recentSessions >= 2,
-    }))
+    .map(([name, d]) => {
+      // Sort sessions chronologically for increment calculation
+      const sorted = [...d.sessions].sort((a, b) => a.date.localeCompare(b.date));
+      const recent = sorted.slice(-6); // last 6 sessions for learning
+
+      // Learned reps: median of all reps across recent sessions
+      const allRecentReps = recent.flatMap(s => s.reps);
+      const learnedReps = allRecentReps.length >= 3
+        ? median(allRecentReps)
+        : null;
+
+      // Learned sets: median working set count across recent sessions
+      const recentSetCounts = recent.map(s => s.setCount).filter(c => c > 0);
+      const learnedSets = recentSetCounts.length >= 2
+        ? median(recentSetCounts)
+        : null;
+
+      // Learned weight: most recent session's median working weight
+      const lastSession = recent[recent.length - 1];
+      const learnedWeight = lastSession && lastSession.weights.length > 0
+        ? median(lastSession.weights)
+        : null;
+
+      // Learned increment: median of non-zero weight changes between consecutive sessions
+      const increments: number[] = [];
+      for (let i = 1; i < sorted.length; i++) {
+        const prevW = sorted[i - 1].weights;
+        const currW = sorted[i].weights;
+        if (prevW.length > 0 && currW.length > 0) {
+          const prevMax = Math.max(...prevW);
+          const currMax = Math.max(...currW);
+          const diff = currMax - prevMax;
+          if (diff !== 0) increments.push(Math.abs(diff));
+        }
+      }
+      const learnedIncrement = increments.length >= 2
+        ? median(increments)
+        : null;
+
+      // Learned rest: median inter-set gap from timestamps
+      const allRestGaps: number[] = [];
+      for (const s of recent) {
+        const ts = s.setTimestamps.sort((a, b) => a - b);
+        for (let i = 1; i < ts.length; i++) {
+          const gap = (ts[i] - ts[i - 1]) / 1000;
+          if (gap > 15 && gap < 600) allRestGaps.push(gap);
+        }
+      }
+      const learnedRestSeconds = allRestGaps.length >= 3
+        ? Math.round(median(allRestGaps))
+        : null;
+
+      return {
+        exerciseName: name,
+        totalSessions: d.totalSessions,
+        recentSessions: d.recentSessions,
+        recencyScore: Math.round(d.recencySum * 100) / 100,
+        lastUsedDaysAgo: Math.round((now - d.lastUsed) / (24 * 60 * 60 * 1000)),
+        avgSetsPerSession: Math.round((d.totalSets / d.totalSessions) * 10) / 10,
+        isStaple: d.recentSessions >= 2,
+        learnedReps,
+        learnedSets,
+        learnedWeight,
+        learnedIncrement,
+        learnedRestSeconds,
+      };
+    })
     .sort((a, b) => b.recencyScore - a.recencyScore);
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
 }
 
 /**

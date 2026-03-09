@@ -434,3 +434,98 @@ export async function mergeWearableDataToMetrics(userId: string, date: string | 
   return existingMetrics || merged
 }
 
+export interface WorkoutFitbitMetrics {
+  avgHr: number | null
+  peakHr: number | null
+  totalSteps: number | null
+  totalCalories: number | null
+  activeMinutes: number | null
+  hrZones: { rest: number; fatBurn: number; cardio: number; peak: number } | null
+  hrTimeline: Array<{ time: string; hr: number }> | null
+  durationMinutes: number | null
+}
+
+/**
+ * Fetch intraday Fitbit metrics for a specific workout time window,
+ * then patch the workout record in Supabase. Fire-and-forget safe.
+ */
+export async function fetchAndSaveWorkoutFitbitMetrics(
+  workoutId: string,
+  userId: string,
+  startTimeISO: string,
+  endTimeISO: string
+): Promise<WorkoutFitbitMetrics | null> {
+  try {
+    const startDt = new Date(startTimeISO)
+    const endDt = new Date(endTimeISO)
+
+    const toET = (d: Date) => {
+      const parts = d.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).split(', ')
+      return parts
+    }
+
+    const etStart = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(startDt)
+    const etEnd = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(endDt)
+
+    const getPart = (parts: Intl.DateTimeFormatPart[], type: string) => parts.find(p => p.type === type)?.value || ''
+
+    const date = `${getPart(etStart, 'year')}-${getPart(etStart, 'month')}-${getPart(etStart, 'day')}`
+    const startTime = `${getPart(etStart, 'hour')}:${getPart(etStart, 'minute')}`
+    const endTime = `${getPart(etEnd, 'hour')}:${getPart(etEnd, 'minute')}`
+
+    const { data: { session } } = await supabase.auth.getSession()
+    const authToken = session?.access_token || ''
+
+    const response = await fetch(apiUrl('/api/fitbit/workout-metrics'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+      body: JSON.stringify({ date, startTime, endTime })
+    })
+
+    if (!response.ok) {
+      logError('Workout Fitbit metrics fetch failed', { status: response.status })
+      return null
+    }
+
+    const result = await response.json()
+    if (!result.success || !result.metrics) return null
+
+    const m: WorkoutFitbitMetrics = result.metrics
+
+    const patch: Record<string, any> = { updated_at: new Date().toISOString() }
+    if (m.avgHr != null) patch.workout_avg_hr = m.avgHr
+    if (m.peakHr != null) patch.workout_peak_hr = m.peakHr
+    if (m.totalSteps != null) patch.workout_steps = m.totalSteps
+    if (m.totalCalories != null) patch.workout_calories_burned = m.totalCalories
+    if (m.activeMinutes != null) patch.workout_active_minutes = m.activeMinutes
+    if (m.hrZones != null) patch.workout_hr_zones = m.hrZones
+    if (m.hrTimeline != null) patch.workout_hr_timeline = m.hrTimeline
+
+    if (Object.keys(patch).length > 1) {
+      const { error } = await supabase
+        .from('workouts')
+        .update(patch)
+        .eq('id', workoutId)
+        .eq('user_id', userId)
+
+      if (error) {
+        if (error.code === '42703') {
+          const colMatch = (error.message || '').match(/column "([^"]+)"/)
+          if (colMatch) {
+            delete patch[colMatch[1]]
+            await supabase.from('workouts').update(patch).eq('id', workoutId).eq('user_id', userId)
+          }
+        } else {
+          logError('Error patching workout with Fitbit metrics', error)
+        }
+      }
+    }
+
+    trackEvent('workout_fitbit_metrics', { workoutId, hasHr: m.avgHr != null, hasSteps: m.totalSteps != null })
+    return m
+  } catch (err: any) {
+    logError('fetchAndSaveWorkoutFitbitMetrics failed (non-fatal)', { message: err?.message })
+    return null
+  }
+}
+

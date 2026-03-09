@@ -176,17 +176,46 @@ export async function triggerFitbitSync(userId: string, date?: string): Promise<
   }
 }
 
+const BACKFILL_DAYS = 7
+const BACKFILL_DELAY_MS = 300
+
+/**
+ * Backfill the last N days of Fitbit data.
+ * Completed days (before today) get replaced with full 24-hour data,
+ * fixing any partial snapshots that were saved mid-day.
+ * Missing days get filled in entirely.
+ */
+async function backfillFitbitSync(userId: string, days: number = BACKFILL_DAYS): Promise<void> {
+  if (!(await isFitbitConnected(userId))) return
+
+  for (let offset = -(days - 1); offset <= 0; offset++) {
+    const date = getETDate(offset)
+    try {
+      await syncFitbitData(userId, date)
+      logDebug('Fitbit backfill synced', { date })
+    } catch (err: any) {
+      logError('Fitbit backfill failed for date (non-fatal)', { date, message: err?.message })
+    }
+    if (offset < 0) {
+      await new Promise(r => setTimeout(r, BACKFILL_DELAY_MS))
+    }
+  }
+}
+
 /**
  * Schedule Fitbit syncs:
- *   1. Immediately on app load (today)
- *   2. At midnight ET every night (syncs completed day + new day)
+ *   1. Immediately on app load — backfill the last 7 days to fix partial data
+ *      and fill missed days, then sync today.
+ *   2. At midnight ET every night (syncs completed day + new day).
+ *   3. On foreground resume after >1h — sync yesterday (may have been partial)
+ *      + today.
  * Returns cleanup function.
  */
 export function startFitbitSyncScheduler(userId: string): () => void {
   let midnightTimeout: ReturnType<typeof setTimeout> | null = null
   let cancelled = false
 
-  triggerFitbitSync(userId, getETDate(0))
+  backfillFitbitSync(userId, BACKFILL_DAYS)
 
   function scheduleMidnight() {
     if (cancelled) return
@@ -205,7 +234,6 @@ export function startFitbitSyncScheduler(userId: string): () => void {
 
   scheduleMidnight()
 
-  // Foreground-resume sync: if the app was in background > 1 hour, trigger sync
   let lastHiddenAt = 0
   const BACKGROUND_THRESHOLD_MS = 60 * 60 * 1000
 
@@ -216,7 +244,8 @@ export function startFitbitSyncScheduler(userId: string): () => void {
     } else if (document.visibilityState === 'visible' && lastHiddenAt > 0) {
       const elapsed = Date.now() - lastHiddenAt
       if (elapsed >= BACKGROUND_THRESHOLD_MS) {
-        logDebug('App foregrounded after >1h background; triggering Fitbit sync')
+        logDebug('App foregrounded after >1h background; syncing yesterday + today')
+        triggerFitbitSync(userId, getETDate(-1))
         triggerFitbitSync(userId, getETDate(0))
       }
       lastHiddenAt = 0

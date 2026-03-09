@@ -119,7 +119,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   // - Otherwise generate one (and use it for this write).
   const workoutId = isUuidV4(workoutToSave?.id) ? workoutToSave.id : uuidv4()
 
-  const upsertPayload = {
+  const upsertPayload: Record<string, any> = {
     id: workoutId,
     user_id: userId,
     date: workoutToSave.date,
@@ -136,6 +136,9 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     generated_workout_id: workoutToSave.generatedWorkoutId || null,
     updated_at: new Date().toISOString()
   }
+
+  if (workoutToSave.workoutStartTime) upsertPayload.workout_start_time = workoutToSave.workoutStartTime
+  if (workoutToSave.workoutEndTime) upsertPayload.workout_end_time = workoutToSave.workoutEndTime
 
   let workoutData = null
   let workoutError = null

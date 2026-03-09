@@ -23,7 +23,7 @@ import SearchField from '../components/SearchField'
 import { enqueueOutboxItem } from '../lib/syncOutbox'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
-import { getFitbitDaily, getMostRecentFitbitData } from '../lib/wearables'
+import { getFitbitDaily, getMostRecentFitbitData, fetchAndSaveWorkoutFitbitMetrics } from '../lib/wearables'
 import { triggerFitbitSync } from '../lib/tokenManager'
 import { trackEvent } from '../utils/analytics'
 import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
@@ -1989,10 +1989,15 @@ export default function ActiveWorkout() {
     }, 0);
     const trainingDensity = workoutTime > 0 ? Math.round(totalVolumeLoad / workoutTime) : null;
 
+    const workoutEndMs = Date.now()
+    const workoutStartMs = workoutStartTimeRef.current || (workoutEndMs - workoutTime * 1000)
+
     const workout = {
       id: uuidv4(),
       date: getTodayEST(),
       duration: workoutTime,
+      workoutStartTime: new Date(workoutStartMs).toISOString(),
+      workoutEndTime: new Date(workoutEndMs).toISOString(),
       templateName: sessionType === 'recovery' ? 'Recovery Session' : (templateId || 'Freestyle'),
       sessionType: sessionType,
       perceivedEffort: feedback.rpe,
@@ -2067,8 +2072,13 @@ export default function ActiveWorkout() {
         showToast(sessionType === 'recovery' ? 'Recovery session saved locally!' : 'Workout saved locally!', 'success')
       }
       
-      // Sync Fitbit after workout completes to capture activity data
-      if (userId) triggerFitbitSync(userId)
+      // Sync Fitbit after workout completes, then fetch intraday metrics for this workout window
+      if (userId) {
+        triggerFitbitSync(userId)
+        if (workout.workoutStartTime && workout.workoutEndTime) {
+          fetchAndSaveWorkoutFitbitMetrics(workout.id, userId, workout.workoutStartTime, workout.workoutEndTime)
+        }
+      }
 
       setShowSummary(false)
       setShowControlsSheet(false)

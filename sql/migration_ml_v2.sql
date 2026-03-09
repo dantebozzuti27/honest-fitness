@@ -447,6 +447,20 @@ BEGIN
     ALTER TABLE workouts ADD COLUMN workout_hr_zones JSONB;
   END IF;
 
+  -- Workout timestamps for intraday Fitbit slicing
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_start_time') THEN
+    ALTER TABLE workouts ADD COLUMN workout_start_time TIMESTAMPTZ;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_end_time') THEN
+    ALTER TABLE workouts ADD COLUMN workout_end_time TIMESTAMPTZ;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_active_minutes') THEN
+    ALTER TABLE workouts ADD COLUMN workout_active_minutes INTEGER;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_hr_timeline') THEN
+    ALTER TABLE workouts ADD COLUMN workout_hr_timeline JSONB;
+  END IF;
+
   -- Intraday HR storage on health_metrics
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'hr_zones_minutes') THEN
     ALTER TABLE health_metrics ADD COLUMN hr_zones_minutes JSONB;

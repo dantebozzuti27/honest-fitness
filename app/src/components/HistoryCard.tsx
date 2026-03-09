@@ -150,8 +150,8 @@ export default function HistoryCard({
             </div>
           )}
 
-          {/* Wearable metrics */}
-          {(data.workout_calories_burned != null || data.workout_steps != null) && (
+          {/* Wearable / Fitbit workout metrics */}
+          {(data.workout_calories_burned != null || data.workout_steps != null || data.workout_avg_hr != null) && (
             <div className={styles.metricRow}>
               {data.workout_calories_burned != null && (
                 <div className={styles.metricItem}>
@@ -165,6 +165,47 @@ export default function HistoryCard({
                   <span className={styles.metricLabel}>Steps</span>
                 </div>
               )}
+              {data.workout_avg_hr != null && (
+                <div className={styles.metricItem}>
+                  <span className={styles.metricValue}>{Math.round(data.workout_avg_hr)}</span>
+                  <span className={styles.metricLabel}>Avg HR</span>
+                </div>
+              )}
+              {data.workout_peak_hr != null && (
+                <div className={styles.metricItem}>
+                  <span className={styles.metricValue}>{Math.round(data.workout_peak_hr)}</span>
+                  <span className={styles.metricLabel}>Peak HR</span>
+                </div>
+              )}
+              {data.workout_active_minutes != null && (
+                <div className={styles.metricItem}>
+                  <span className={styles.metricValue}>{data.workout_active_minutes}</span>
+                  <span className={styles.metricLabel}>Active Min</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* HR Zone breakdown */}
+          {data.workout_hr_zones && typeof data.workout_hr_zones === 'object' && (
+            <div className={styles.hrZones}>
+              {(['rest', 'fatBurn', 'cardio', 'peak'] as const).map(zone => {
+                const mins = (data.workout_hr_zones as Record<string, number>)[zone]
+                if (!mins) return null
+                const labels: Record<string, string> = { rest: 'Rest', fatBurn: 'Fat Burn', cardio: 'Cardio', peak: 'Peak' }
+                const colors: Record<string, string> = { rest: '#8884d8', fatBurn: '#82ca9d', cardio: '#ffc658', peak: '#ff7043' }
+                const totalZone = Object.values(data.workout_hr_zones as Record<string, number>).reduce((a, b) => a + b, 0)
+                const pct = totalZone > 0 ? Math.round((mins / totalZone) * 100) : 0
+                return (
+                  <div key={zone} className={styles.hrZoneBar}>
+                    <span className={styles.hrZoneLabel}>{labels[zone]}</span>
+                    <div className={styles.hrZoneTrack}>
+                      <div className={styles.hrZoneFill} style={{ width: `${pct}%`, background: colors[zone] }} />
+                    </div>
+                    <span className={styles.hrZonePct}>{mins}m</span>
+                  </div>
+                )
+              })}
             </div>
           )}
 

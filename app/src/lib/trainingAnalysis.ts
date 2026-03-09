@@ -42,7 +42,11 @@ export interface WorkoutRecord {
   duration: number | null;
   template_name: string | null;
   perceived_effort: number | null;
+  session_rpe: number | null;
   session_type: string;
+  workout_avg_hr: number | null;
+  workout_peak_hr: number | null;
+  workout_hr_zones: Record<string, number> | null;
   workout_exercises: ExerciseRecord[];
 }
 
@@ -78,6 +82,7 @@ export interface HealthRecord {
   steps: number | null;
   calories_burned: number | null;
   body_fat_percentage: number | null;
+  source_data?: Record<string, any> | null;
 }
 
 export interface EnrichedExercise {
@@ -366,6 +371,62 @@ export interface TrainingProfile {
     readiness: number;       // 0-1 scale
   };
 
+  // ML v2: Exercise Swap Learning
+  exerciseSwapHistory: Array<{
+    exerciseName: string;
+    swapCount: number;
+    lastSwapDate: string;
+  }>;
+
+  // ML v2: HRV-Gated Intensity
+  hrvIntensityModifier: {
+    todayHrv: number | null;
+    rolling7dHrv: number | null;
+    zScore: number;
+    intensityMultiplier: number;
+    recommendation: string;
+  };
+
+  // ML v2: Progression Forecasting
+  progressionForecasts: Array<{
+    exerciseName: string;
+    currentE1RM: number;
+    predictedNextE1RM: number;
+    predictedTargetWeight: number;
+    confidence: number;
+    sessionsUntilMilestone: number | null;
+  }>;
+
+  // ML v2: HR Intensity Scoring
+  workoutIntensityScores: Array<{
+    workoutId: string;
+    date: string;
+    avgHr: number | null;
+    peakHr: number | null;
+    hrBasedIntensity: number;
+    subjectiveRpe: number | null;
+    rpeCalibration: number;
+  }>;
+  rpeCalibrationFactor: number;
+
+  // ML v2: Movement Pattern Fatigue
+  movementPatternFatigue: Array<{
+    pattern: string;
+    lastTrainedDate: string | null;
+    hoursSinceLastTrained: number | null;
+    weeklySessionCount: number;
+    fatigueLevel: 'fresh' | 'moderate' | 'high';
+  }>;
+
+  // ML v2: Sleep Quality → Volume Modifier
+  sleepVolumeModifier: {
+    lastNightSleepHours: number | null;
+    lastNightSleepQuality: 'poor' | 'fair' | 'good' | 'excellent' | null;
+    volumeMultiplier: number;
+    restTimeMultiplier: number;
+    reason: string;
+  };
+
   // Global
   trainingFrequency: number;
   avgSessionDuration: number;
@@ -474,7 +535,8 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
   const { data, error } = await supabase
     .from('workouts')
     .select(`
-      id, date, created_at, duration, template_name, perceived_effort, session_type,
+      id, date, created_at, duration, template_name, perceived_effort, session_rpe, session_type,
+      workout_avg_hr, workout_peak_hr, workout_hr_zones,
       workout_exercises (
         exercise_name, body_part, exercise_library_id,
         workout_sets ( set_number, weight, reps, time, is_bodyweight, logged_at,
@@ -555,6 +617,12 @@ function linearRegressionSlope(values: number[]): number {
 function mean(arr: number[]): number {
   if (arr.length === 0) return 0;
   return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function stddev(arr: number[]): number {
+  if (arr.length < 2) return 0;
+  const m = mean(arr);
+  return Math.sqrt(arr.reduce((sum, v) => sum + (v - m) ** 2, 0) / (arr.length - 1));
 }
 
 function epley1RM(weight: number, reps: number): number {
@@ -3340,6 +3408,8 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const fitnessFatigueResult = computeFitnessFatigueModel(workouts);
   const plateauDetections = computePlateauDetections(workouts);
 
+  const exerciseSwapHistoryResult = await computeExerciseSwapHistory(userId);
+
   const athleteProfileResult = computeAthleteProfile(spResults, hpResults, muscleVolumeStatuses, {
     consistencyScore,
     trainingFrequency,
@@ -3402,10 +3472,408 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     // #20: Banister fitness-fatigue model
     fitnessFatigueModel: fitnessFatigueResult,
 
+    // ML v2 features
+    exerciseSwapHistory: exerciseSwapHistoryResult,
+    hrvIntensityModifier: computeHrvIntensityModifier(health),
+    progressionForecasts: computeProgressionForecasts(exerciseProgressions, workouts),
+    ...computeWorkoutIntensityScores(workouts, userAge),
+    movementPatternFatigue: computeMovementPatternFatigue(workouts, exercises),
+    sleepVolumeModifier: computeSleepVolumeModifier(health),
+
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
     avgSessionDuration: Math.round(avgSessionDuration),
     trainingAgeDays: Math.round(trainingAgeDays),
     consistencyScore: Math.round(consistencyScore * 100) / 100,
+  };
+}
+
+// ─── ML v2 Feature Functions ────────────────────────────────────────────────
+
+// Feature #1: Exercise Swap Learning
+async function computeExerciseSwapHistory(userId: string): Promise<TrainingProfile['exerciseSwapHistory']> {
+  try {
+    const supabase = requireSupabase();
+    const { data, error } = await supabase
+      .from('exercise_swaps')
+      .select('exercise_name, swap_date')
+      .eq('user_id', userId);
+
+    if (error) {
+      if (error.code === '42P01' || error.code === '42703' || error.message?.includes('does not exist')) {
+        return [];
+      }
+      return [];
+    }
+    if (!data || data.length === 0) return [];
+
+    const grouped = new Map<string, { count: number; lastDate: string }>();
+    for (const row of data) {
+      const name: string = row.exercise_name;
+      const date: string = row.swap_date;
+      const existing = grouped.get(name);
+      if (existing) {
+        existing.count++;
+        if (date > existing.lastDate) existing.lastDate = date;
+      } else {
+        grouped.set(name, { count: 1, lastDate: date });
+      }
+    }
+
+    return Array.from(grouped.entries())
+      .map(([exerciseName, { count, lastDate }]) => ({
+        exerciseName,
+        swapCount: count,
+        lastSwapDate: lastDate,
+      }))
+      .sort((a, b) => b.swapCount - a.swapCount);
+  } catch {
+    return [];
+  }
+}
+
+// Feature #3: HRV-Gated Intensity
+function computeHrvIntensityModifier(health: HealthRecord[]): TrainingProfile['hrvIntensityModifier'] {
+  const defaultResult: TrainingProfile['hrvIntensityModifier'] = {
+    todayHrv: null,
+    rolling7dHrv: null,
+    zScore: 0,
+    intensityMultiplier: 1.0,
+    recommendation: 'Insufficient HRV data',
+  };
+
+  const hrvRecords = health.filter(h => h.hrv != null).sort((a, b) => a.date.localeCompare(b.date));
+  if (hrvRecords.length < 5) return defaultResult;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const last7 = hrvRecords.filter(h => daysBetween(h.date, todayStr) <= 7);
+  if (last7.length < 5) {
+    // Fall back to the last 5 HRV readings regardless of date
+    const tail = hrvRecords.slice(-5);
+    const vals = tail.map(h => h.hrv!);
+    const m = mean(vals);
+    const sd = stddev(vals);
+    const todayHrv = hrvRecords[hrvRecords.length - 1].hrv!;
+    const z = sd > 0 ? (todayHrv - m) / sd : 0;
+    return buildHrvResult(todayHrv, m, z);
+  }
+
+  const vals7d = last7.map(h => h.hrv!);
+  const m = mean(vals7d);
+  const sd = stddev(vals7d);
+  const todayHrv = last7[last7.length - 1].hrv!;
+  const z = sd > 0 ? (todayHrv - m) / sd : 0;
+  return buildHrvResult(todayHrv, m, z);
+}
+
+function buildHrvResult(todayHrv: number, rolling7dHrv: number, zScore: number): TrainingProfile['hrvIntensityModifier'] {
+  let intensityMultiplier: number;
+  let recommendation: string;
+
+  if (zScore < -1.5) {
+    intensityMultiplier = 0.85;
+    recommendation = 'Significantly below baseline — reduce intensity';
+  } else if (zScore < -0.75) {
+    intensityMultiplier = 0.92;
+    recommendation = 'Below baseline — moderate intensity';
+  } else if (zScore > 1.0) {
+    intensityMultiplier = 1.08;
+    recommendation = 'Above baseline — push harder';
+  } else if (zScore > 0.5) {
+    intensityMultiplier = 1.04;
+    recommendation = 'Slightly above — normal or slightly higher intensity';
+  } else {
+    intensityMultiplier = 1.0;
+    recommendation = 'At baseline — normal intensity';
+  }
+
+  return {
+    todayHrv,
+    rolling7dHrv: Math.round(rolling7dHrv * 10) / 10,
+    zScore: Math.round(zScore * 100) / 100,
+    intensityMultiplier,
+    recommendation,
+  };
+}
+
+// Feature #5: Progression Forecasting
+function computeProgressionForecasts(
+  exerciseProgressions: ExerciseProgression[],
+  workouts: WorkoutRecord[],
+): TrainingProfile['progressionForecasts'] {
+  const forecasts: TrainingProfile['progressionForecasts'] = [];
+
+  // Build per-exercise e1RM time series from workouts
+  const exerciseE1rmSeries = new Map<string, number[]>();
+  for (const w of workouts) {
+    for (const ex of w.workout_exercises) {
+      const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : [];
+      let bestE1rm = 0;
+      for (const s of sets) {
+        if (s.weight && s.weight > 0 && s.reps && s.reps > 0) {
+          bestE1rm = Math.max(bestE1rm, epley1RM(s.weight, s.reps));
+        }
+      }
+      if (bestE1rm > 0) {
+        const key = ex.exercise_name.toLowerCase();
+        if (!exerciseE1rmSeries.has(key)) exerciseE1rmSeries.set(key, []);
+        exerciseE1rmSeries.get(key)!.push(bestE1rm);
+      }
+    }
+  }
+
+  for (const prog of exerciseProgressions) {
+    if (prog.sessionsTracked < 4) continue;
+
+    const key = prog.exerciseName.toLowerCase();
+    const series = exerciseE1rmSeries.get(key);
+    if (!series || series.length < 4) continue;
+
+    const { slope, intercept, rSquared } = linearRegression(series);
+    if (rSquared < 0.3 || slope <= 0) continue;
+
+    const n = series.length;
+    const predictedNextE1RM = intercept + slope * (n + 1);
+    const predictedTargetWeight = Math.round(predictedNextE1RM / 5) * 5;
+
+    // Sessions until next plate milestone (next multiple of 45 above current)
+    const currentE1RM = prog.estimated1RM;
+    const nextMilestone = Math.ceil(currentE1RM / 45) * 45;
+    let sessionsUntilMilestone: number | null = null;
+    if (nextMilestone > currentE1RM && slope > 0) {
+      sessionsUntilMilestone = Math.ceil((nextMilestone - currentE1RM) / slope);
+    }
+
+    forecasts.push({
+      exerciseName: prog.exerciseName,
+      currentE1RM: Math.round(currentE1RM * 10) / 10,
+      predictedNextE1RM: Math.round(predictedNextE1RM * 10) / 10,
+      predictedTargetWeight,
+      confidence: Math.round(rSquared * 100) / 100,
+      sessionsUntilMilestone,
+    });
+  }
+
+  return forecasts.sort((a, b) => b.confidence - a.confidence);
+}
+
+function linearRegression(y: number[]): { slope: number; intercept: number; rSquared: number } {
+  const n = y.length;
+  const x = Array.from({ length: n }, (_, i) => i + 1);
+  const xMean = mean(x);
+  const yMean = mean(y);
+
+  let ssXY = 0, ssXX = 0, ssTot = 0, ssRes = 0;
+  for (let i = 0; i < n; i++) {
+    ssXY += (x[i] - xMean) * (y[i] - yMean);
+    ssXX += (x[i] - xMean) ** 2;
+  }
+
+  const slope = ssXX > 0 ? ssXY / ssXX : 0;
+  const intercept = yMean - slope * xMean;
+
+  for (let i = 0; i < n; i++) {
+    const predicted = intercept + slope * x[i];
+    ssRes += (y[i] - predicted) ** 2;
+    ssTot += (y[i] - yMean) ** 2;
+  }
+
+  const rSquared = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  return { slope, intercept, rSquared: Math.max(0, rSquared) };
+}
+
+// Feature #6: HR Intensity Scoring
+function computeWorkoutIntensityScores(
+  workouts: WorkoutRecord[],
+  userAge: number | null,
+): { workoutIntensityScores: TrainingProfile['workoutIntensityScores']; rpeCalibrationFactor: number } {
+  const estimatedMaxHr = userAge != null && userAge > 0 ? 220 - userAge : 190;
+  const scores: TrainingProfile['workoutIntensityScores'] = [];
+  const calibrations: number[] = [];
+
+  for (const w of workouts) {
+    const avgHr = w.workout_avg_hr;
+    const peakHr = w.workout_peak_hr;
+    if (avgHr == null) continue;
+
+    const hrBasedIntensity = Math.min(100, (avgHr / estimatedMaxHr) * 100);
+    const effort = w.session_rpe ?? w.perceived_effort;
+    const subjectiveRpe = effort != null ? effort * 10 : null;
+    const rpeCalibration = subjectiveRpe != null ? subjectiveRpe - hrBasedIntensity : 0;
+
+    if (subjectiveRpe != null) calibrations.push(rpeCalibration);
+
+    scores.push({
+      workoutId: w.id,
+      date: w.date,
+      avgHr,
+      peakHr,
+      hrBasedIntensity: Math.round(hrBasedIntensity * 10) / 10,
+      subjectiveRpe: subjectiveRpe != null ? Math.round(subjectiveRpe * 10) / 10 : null,
+      rpeCalibration: Math.round(rpeCalibration * 10) / 10,
+    });
+  }
+
+  return {
+    workoutIntensityScores: scores,
+    rpeCalibrationFactor: calibrations.length > 0 ? Math.round(mean(calibrations) * 10) / 10 : 0,
+  };
+}
+
+// Feature #7: Movement Pattern Fatigue
+const MOVEMENT_PATTERN_MAP: Record<string, string[]> = {
+  horizontal_push: ['chest', 'pectoralis major', 'pectoralis'],
+  horizontal_pull: ['upper back', 'rhomboids', 'mid back'],
+  vertical_push: ['shoulders', 'deltoids', 'anterior deltoid', 'front delts'],
+  vertical_pull: ['lats', 'latissimus dorsi'],
+  hip_hinge: ['glutes', 'gluteus maximus', 'hamstrings', 'lower back', 'erector spinae'],
+  knee_dominant: ['quadriceps', 'quads'],
+  isolation_upper: ['biceps', 'triceps', 'forearms', 'lateral deltoid', 'rear deltoid', 'side delts', 'rear delts'],
+  isolation_lower: ['calves', 'adductors', 'abductors', 'hip flexors'],
+};
+
+const EXERCISE_NAME_PATTERN_HINTS: Array<{ keywords: string[]; pattern: string }> = [
+  { keywords: ['bench press', 'push-up', 'chest press', 'chest fly', 'dumbbell press', 'floor press'], pattern: 'horizontal_push' },
+  { keywords: ['row', 'seated row', 'cable row', 'barbell row', 'dumbbell row'], pattern: 'horizontal_pull' },
+  { keywords: ['overhead press', 'shoulder press', 'ohp', 'military press', 'arnold press'], pattern: 'vertical_push' },
+  { keywords: ['pull-up', 'chin-up', 'pulldown', 'lat pulldown', 'pull up'], pattern: 'vertical_pull' },
+  { keywords: ['deadlift', 'rdl', 'romanian', 'hip thrust', 'good morning', 'back extension', 'glute bridge'], pattern: 'hip_hinge' },
+  { keywords: ['squat', 'leg press', 'lunge', 'split squat', 'hack squat', 'goblet squat', 'step up'], pattern: 'knee_dominant' },
+  { keywords: ['curl', 'tricep', 'extension', 'lateral raise', 'front raise', 'face pull', 'shrug', 'hammer curl', 'skullcrusher'], pattern: 'isolation_upper' },
+  { keywords: ['leg extension', 'leg curl', 'calf raise', 'hip adduction', 'hip abduction', 'seated calf'], pattern: 'isolation_lower' },
+];
+
+function classifyMovementPattern(exercise: { exercise_name: string }, enriched?: EnrichedExercise): string | null {
+  // Try enriched data first: match primary muscles to pattern
+  if (enriched?.primary_muscles) {
+    for (const [pattern, muscles] of Object.entries(MOVEMENT_PATTERN_MAP)) {
+      for (const muscle of enriched.primary_muscles) {
+        if (muscles.some(m => muscle.toLowerCase().includes(m))) return pattern;
+      }
+    }
+  }
+  if (enriched?.movement_pattern) {
+    const mp = enriched.movement_pattern.toLowerCase();
+    if (mp.includes('push') && mp.includes('horizontal')) return 'horizontal_push';
+    if (mp.includes('pull') && mp.includes('horizontal')) return 'horizontal_pull';
+    if (mp.includes('push') && mp.includes('vertical')) return 'vertical_push';
+    if (mp.includes('pull') && mp.includes('vertical')) return 'vertical_pull';
+    if (mp.includes('hinge')) return 'hip_hinge';
+    if (mp.includes('squat')) return 'knee_dominant';
+  }
+
+  // Fall back to exercise name keyword matching
+  const lower = exercise.exercise_name.toLowerCase();
+  for (const hint of EXERCISE_NAME_PATTERN_HINTS) {
+    if (hint.keywords.some(k => lower.includes(k))) return hint.pattern;
+  }
+  return null;
+}
+
+function computeMovementPatternFatigue(
+  workouts: WorkoutRecord[],
+  exercises: EnrichedExercise[],
+): TrainingProfile['movementPatternFatigue'] {
+  const now = Date.now();
+  const todayStr = new Date().toISOString().split('T')[0];
+  const oneWeekAgoStr = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const allPatterns = Object.keys(MOVEMENT_PATTERN_MAP);
+  const patternLastTrained = new Map<string, string>();
+  const patternWeeklyCount = new Map<string, Set<string>>();
+
+  for (const p of allPatterns) {
+    patternWeeklyCount.set(p, new Set());
+  }
+
+  const enrichedMap = new Map<string, EnrichedExercise>();
+  for (const e of exercises) enrichedMap.set(e.name.toLowerCase(), e);
+
+  for (const w of workouts) {
+    for (const ex of w.workout_exercises) {
+      const enriched = enrichedMap.get(ex.exercise_name.toLowerCase());
+      const pattern = classifyMovementPattern(ex, enriched);
+      if (!pattern) continue;
+
+      const existing = patternLastTrained.get(pattern);
+      if (!existing || w.date > existing) patternLastTrained.set(pattern, w.date);
+
+      if (w.date >= oneWeekAgoStr && w.date <= todayStr) {
+        patternWeeklyCount.get(pattern)!.add(w.date);
+      }
+    }
+  }
+
+  return allPatterns.map(pattern => {
+    const lastDate = patternLastTrained.get(pattern) ?? null;
+    let hoursSince: number | null = null;
+    let fatigueLevel: 'fresh' | 'moderate' | 'high' = 'fresh';
+
+    if (lastDate) {
+      hoursSince = (now - new Date(lastDate).getTime()) / (1000 * 60 * 60);
+      if (hoursSince < 24) fatigueLevel = 'high';
+      else if (hoursSince < 48) fatigueLevel = 'moderate';
+    }
+
+    return {
+      pattern,
+      lastTrainedDate: lastDate,
+      hoursSinceLastTrained: hoursSince != null ? Math.round(hoursSince * 10) / 10 : null,
+      weeklySessionCount: patternWeeklyCount.get(pattern)!.size,
+      fatigueLevel,
+    };
+  });
+}
+
+// Feature #8: Sleep Quality → Volume Modifier
+function computeSleepVolumeModifier(health: HealthRecord[]): TrainingProfile['sleepVolumeModifier'] {
+  const defaultResult: TrainingProfile['sleepVolumeModifier'] = {
+    lastNightSleepHours: null,
+    lastNightSleepQuality: null,
+    volumeMultiplier: 1.0,
+    restTimeMultiplier: 1.0,
+    reason: 'No sleep data available',
+  };
+
+  const sleepRecords = health.filter(h => h.sleep_duration != null).sort((a, b) => a.date.localeCompare(b.date));
+  if (sleepRecords.length === 0) return defaultResult;
+
+  const latest = sleepRecords[sleepRecords.length - 1];
+  const hours = latest.sleep_duration!;
+
+  let quality: 'poor' | 'fair' | 'good' | 'excellent';
+  let volumeMultiplier: number;
+  let restTimeMultiplier: number;
+
+  if (hours < 5) {
+    quality = 'poor';
+    volumeMultiplier = 0.80;
+    restTimeMultiplier = 1.25;
+  } else if (hours < 6) {
+    quality = 'fair';
+    volumeMultiplier = 0.90;
+    restTimeMultiplier = 1.15;
+  } else if (hours < 7.5) {
+    quality = 'good';
+    volumeMultiplier = 1.0;
+    restTimeMultiplier = 1.0;
+  } else {
+    quality = 'excellent';
+    volumeMultiplier = 1.05;
+    restTimeMultiplier = 1.0;
+  }
+
+  // Adjust for sleep efficiency if available from source_data
+  const efficiency = latest.source_data?.sleep_efficiency;
+  if (typeof efficiency === 'number' && efficiency < 75) {
+    volumeMultiplier = Math.max(0.75, volumeMultiplier - 0.05);
+  }
+
+  return {
+    lastNightSleepHours: Math.round(hours * 10) / 10,
+    lastNightSleepQuality: quality,
+    volumeMultiplier: Math.round(volumeMultiplier * 100) / 100,
+    restTimeMultiplier: Math.round(restTimeMultiplier * 100) / 100,
+    reason: `${quality} sleep (${hours.toFixed(1)}h)${efficiency != null && efficiency < 75 ? ' with low efficiency' : ''}`,
   };
 }
 

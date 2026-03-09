@@ -171,6 +171,17 @@ export default function TodayWorkout() {
     newExcluded.add(exerciseName.toLowerCase())
     setExcludedExercises(newExcluded)
 
+    // Persist swap for ML swap learning
+    if (user?.id) {
+      try {
+        const supabase = requireSupabase()
+        await supabase.from('exercise_swaps').insert({
+          user_id: user.id,
+          exercise_name: exerciseName.toLowerCase(),
+        })
+      } catch { /* non-fatal */ }
+    }
+
     setRegenerating(true)
     try {
       const o: SessionOverrides = {}

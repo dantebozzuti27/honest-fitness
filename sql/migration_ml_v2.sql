@@ -497,3 +497,21 @@ BEGIN
     ALTER TABLE health_metrics ADD COLUMN average_heart_rate INTEGER;
   END IF;
 END $$;
+
+-- Exercise swap tracking for ML swap learning
+CREATE TABLE IF NOT EXISTS exercise_swaps (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  exercise_name TEXT NOT NULL,
+  swap_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_exercise_swaps_user ON exercise_swaps(user_id);
+CREATE INDEX IF NOT EXISTS idx_exercise_swaps_exercise ON exercise_swaps(user_id, exercise_name);
+
+ALTER TABLE exercise_swaps ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "users_own_swaps" ON exercise_swaps;
+CREATE POLICY "users_own_swaps" ON exercise_swaps
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);

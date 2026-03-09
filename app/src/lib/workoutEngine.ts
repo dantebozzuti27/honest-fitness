@@ -615,6 +615,24 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
     reasons.push(`Relative strength improving ${trends.relativeStrength.slopePct.toFixed(1)}%/wk — effective progression`);
   }
 
+  // #8: Sleep → Volume Adjustment (ML-computed modifier)
+  if (profile.sleepVolumeModifier) {
+    const svm = profile.sleepVolumeModifier;
+    if (svm.volumeMultiplier !== 1.0) {
+      volumeMultiplier *= svm.volumeMultiplier;
+      reasons.push(`Sleep quality (${svm.lastNightSleepQuality}): volume ×${svm.volumeMultiplier.toFixed(2)}, rest ×${svm.restTimeMultiplier.toFixed(2)}`);
+    }
+  }
+
+  // #3: HRV-Gated Intensity (ML-computed modifier)
+  if (profile.hrvIntensityModifier) {
+    const hrvm = profile.hrvIntensityModifier;
+    if (hrvm.intensityMultiplier !== 1.0) {
+      volumeMultiplier *= hrvm.intensityMultiplier;
+      reasons.push(`HRV intensity gate: ${hrvm.recommendation} (×${hrvm.intensityMultiplier})`);
+    }
+  }
+
   return { volumeMultiplier: Math.max(cfg.volumeMultiplierFloor, volumeMultiplier), adjustmentReasons: reasons, isDeload: false };
 }
 
@@ -714,8 +732,17 @@ function stepSelectMuscleGroups(
 
     const recovery = profile.muscleRecovery.find(r => r.muscleGroup === vol.muscleGroup);
     if (recovery && !recovery.readyToTrain) {
-      skipped.push({ muscleGroup: vol.muscleGroup, reason: `Still recovering (${recovery.recoveryPercent}% recovered)` });
-      continue;
+      const individualRate = profile.individualRecoveryRates?.[vol.muscleGroup];
+      if (individualRate && individualRate > 1.2 && recovery.recoveryPercent >= 70) {
+        // Fast recoverer at 70%+ can override default recovery window
+        // (kept in candidate pool — not skipped)
+      } else {
+        const rateNote = individualRate && individualRate > 1.2
+          ? ` even with fast rate (${individualRate.toFixed(1)}x)`
+          : '';
+        skipped.push({ muscleGroup: vol.muscleGroup, reason: `Still recovering (${recovery.recoveryPercent}% recovered)${rateNote}` });
+        continue;
+      }
     }
 
     const hasInjury = prefs.injuries.some(inj =>
@@ -912,14 +939,22 @@ function stepSelectExercises(
         factors.push(`Never used in your training history (${cfg.neverUsedPenalty})`);
       }
 
-      // Exercise rotation: penalize stale exercises that have been used too many consecutive weeks
-      if (cfg.enforceRotation && profile.exerciseRotation) {
+      // #9: Exercise Novelty Cycling — stronger rotation penalties
+      if (profile.exerciseRotation) {
         const rot = profile.exerciseRotation.find(
           r => r.exerciseName === ex.name.toLowerCase()
         );
-        if (rot && rot.shouldRotate) {
-          score += cfg.rotationPenalty;
-          factors.push(`Rotation suggested: ${rot.consecutiveWeeksUsed} consecutive weeks (${cfg.rotationPenalty})`);
+        if (rot) {
+          if (rot.consecutiveWeeksUsed >= 6) {
+            score -= 10;
+            factors.push(`Stale exercise: ${rot.consecutiveWeeksUsed} weeks (forced rotation, -10)`);
+          } else if (rot.consecutiveWeeksUsed >= 4) {
+            score -= 5;
+            factors.push(`Exercise rotation suggested: ${rot.consecutiveWeeksUsed} weeks (-5)`);
+          } else if (cfg.enforceRotation && rot.shouldRotate) {
+            score += cfg.rotationPenalty;
+            factors.push(`Rotation suggested: ${rot.consecutiveWeeksUsed} consecutive weeks (${cfg.rotationPenalty})`);
+          }
         }
       }
 
@@ -961,6 +996,43 @@ function stepSelectExercises(
         }
       }
 
+      // #1: Exercise Swap Learning — penalize exercises the user consistently rejects
+      if (profile.exerciseSwapHistory) {
+        const swapEntry = profile.exerciseSwapHistory.find(
+          s => s.exerciseName === ex.name.toLowerCase()
+        );
+        if (swapEntry) {
+          if (swapEntry.swapCount >= 3) {
+            score -= 15;
+            factors.push(`Frequently swapped out (${swapEntry.swapCount}x, -15)`);
+          } else if (swapEntry.swapCount >= 1) {
+            score -= 5 * swapEntry.swapCount;
+            factors.push(`Previously swapped (${swapEntry.swapCount}x, -${5 * swapEntry.swapCount})`);
+          }
+        }
+      }
+
+      // #7: Movement Pattern Fatigue — penalize patterns with accumulated fatigue
+      if (profile.movementPatternFatigue) {
+        const patternFatigue = profile.movementPatternFatigue.find(p => {
+          const exMp = (ex.movement_pattern || '').toLowerCase();
+          const exPrimary = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : []).map(m => m.toLowerCase());
+          if (p.pattern === 'horizontal_push' && (exMp.includes('press') || exPrimary.includes('chest'))) return true;
+          if (p.pattern === 'vertical_pull' && (exMp.includes('pull') || exPrimary.includes('back_lats'))) return true;
+          if (p.pattern === 'hip_hinge' && (exMp.includes('hinge') || exPrimary.includes('hamstrings'))) return true;
+          if (p.pattern === 'knee_dominant' && (exMp.includes('squat') || exPrimary.includes('quads'))) return true;
+          return false;
+        });
+
+        if (patternFatigue?.fatigueLevel === 'high') {
+          score -= 6;
+          factors.push(`Movement pattern fatigue: ${patternFatigue.pattern} high (-6)`);
+        } else if (patternFatigue?.fatigueLevel === 'moderate') {
+          score -= 2;
+          factors.push(`Movement pattern fatigue: ${patternFatigue.pattern} moderate (-2)`);
+        }
+      }
+
       return { exercise: ex, score, factors };
     });
 
@@ -983,9 +1055,16 @@ function stepSelectExercises(
       return p && p.recentSessions >= 1;
     }).length;
     const defaultMax = remainingSets <= 4 ? 1 : remainingSets <= 8 ? 2 : 3;
-    const maxExercises = userExercisesForGroup > 0
+    let maxExercisesPerGroup = userExercisesForGroup > 0
       ? Math.min(userExercisesForGroup, 4)
       : defaultMax;
+
+    // #4: Compliance Feedback — reduce exercises if user frequently skips last ones
+    if (profile.prescribedVsActual && profile.prescribedVsActual.complianceRate < 0.6) {
+      maxExercisesPerGroup = Math.max(1, maxExercisesPerGroup - 1);
+    }
+
+    const maxExercises = maxExercisesPerGroup;
 
     // Sort by overall score — user preferences already dominate
     const ordered = [...scored].sort((a, b) => b.score - a.score);
@@ -1256,21 +1335,36 @@ function stepPrescribe(
 
     // Reps: use what you actually do, fall back to table
     const tableRange = getRepRangeByRole(role, goal, secondaryGoal);
-    const targetReps = hasLearnedData && pref.learnedReps != null
+    let targetReps = hasLearnedData && pref.learnedReps != null
       ? Math.round(pref.learnedReps)
       : tableRange.target;
 
     // Sets: use what you actually do, fall back to table
     const tableSets = getTieredSets(role, goal, isPriority, recoveryAdj.isDeload);
-    const sets = hasLearnedData && pref.learnedSets != null
+    let sets = hasLearnedData && pref.learnedSets != null
       ? Math.round(pref.learnedSets)
       : tableSets;
 
-    // Rest: use learned inter-set rest, fall back to exercise-aware estimate
+    // #4: Compliance Feedback — adjust reps if user consistently exceeds prescription
+    if (profile.prescribedVsActual) {
+      const compliance = profile.prescribedVsActual;
+      if (compliance.avgRepsDeviation > 2 && compliance.complianceRate > 0.7) {
+        targetReps = Math.min(targetReps + 1, 15);
+      }
+    }
+
+    // #2: Rest: prefer learned rest, with movement-pattern-aware fallback
     const tableRest = getRestByExercise(sel.exercise, role, goal);
-    const restSeconds = hasLearnedData && pref.learnedRestSeconds != null
-      ? pref.learnedRestSeconds
-      : tableRest;
+    const learnedRest = pref?.learnedRestSeconds;
+    let restSeconds: number;
+    if (learnedRest != null && learnedRest > 0) {
+      restSeconds = learnedRest;
+    } else {
+      restSeconds = tableRest;
+    }
+    if (profile.sleepVolumeModifier?.restTimeMultiplier) {
+      restSeconds = Math.round(restSeconds * profile.sleepVolumeModifier.restTimeMultiplier);
+    }
 
     const rir = getRirTarget(role, goal, recoveryAdj.isDeload);
     const tempo = getTempo(sel.exercise.default_tempo, goal, sel.exercise.ml_exercise_type);
@@ -1377,6 +1471,20 @@ function stepPrescribe(
               targetWeight = (targetWeight ?? 0) + weightAdj;
               adjustments.push(`Sleep-performance: ${weightAdj} lbs (learned from your data)`);
             }
+          }
+        }
+      }
+
+      // #5: Progression Forecasting — use ML-predicted target if confident
+      if (profile.progressionForecasts) {
+        const forecast = profile.progressionForecasts.find(
+          f => f.exerciseName === sel.exercise.name.toLowerCase()
+        );
+        if (forecast && forecast.confidence >= 0.5 && forecast.predictedTargetWeight > 0 && targetWeight != null) {
+          const forecastWeight = forecast.predictedTargetWeight;
+          if (forecastWeight <= targetWeight * 1.10 && forecastWeight >= targetWeight * 0.90) {
+            targetWeight = forecastWeight;
+            adjustments.push(`Forecast: ${forecastWeight}lbs (R²=${forecast.confidence.toFixed(2)})`);
           }
         }
       }
@@ -1993,6 +2101,31 @@ function stepGenerateRationale(
     label: '30-Day Trends',
     details: trendDetails.length > 0 ? trendDetails : ['Insufficient data for trend analysis'],
   });
+
+  // ML Intelligence summary
+  const mlDetails: string[] = ['— ML Intelligence —'];
+  if (profile.hrvIntensityModifier && profile.hrvIntensityModifier.intensityMultiplier !== 1.0) {
+    mlDetails.push(`HRV Gate: ${profile.hrvIntensityModifier.recommendation} (×${profile.hrvIntensityModifier.intensityMultiplier})`);
+  }
+  if (profile.sleepVolumeModifier?.lastNightSleepQuality) {
+    mlDetails.push(`Sleep: ${profile.sleepVolumeModifier.lastNightSleepQuality} — vol ×${profile.sleepVolumeModifier.volumeMultiplier}, rest ×${profile.sleepVolumeModifier.restTimeMultiplier}`);
+  }
+  if (profile.exerciseSwapHistory && profile.exerciseSwapHistory.length > 0) {
+    const rejected = profile.exerciseSwapHistory.filter(s => s.swapCount >= 3);
+    if (rejected.length > 0) {
+      mlDetails.push(`Swap learning: ${rejected.map(r => r.exerciseName).join(', ')} excluded (≥3 swaps)`);
+    }
+  }
+  if (profile.prescribedVsActual && profile.prescribedVsActual.complianceRate < 1) {
+    mlDetails.push(`Compliance: ${Math.round(profile.prescribedVsActual.complianceRate * 100)}% exercises completed`);
+  }
+  if (mlDetails.length > 1) {
+    decisionLog.push({
+      step: '8',
+      label: 'ML Intelligence',
+      details: mlDetails,
+    });
+  }
 
   const muscleGroupDecisions: MuscleGroupDecision[] = muscleGroups.map(g => ({
     muscleGroup: g.muscleGroup,

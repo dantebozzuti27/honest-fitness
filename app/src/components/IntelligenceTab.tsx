@@ -43,7 +43,7 @@ function TrendRow({ label, mt, unit, goodDir }: { label: string; mt: { current: 
   )
 }
 
-type SectionId = 'trends' | 'percentiles' | 'profile' | 'training' | 'recovery' | 'flags'
+type SectionId = 'trends' | 'percentiles' | 'profile' | 'training' | 'recovery' | 'flags' | 'ml' | 'forecasts' | 'fatigue'
 
 export default function IntelligenceTab({ trainingProfile, profileLoading, onAnalyze }: Props) {
   const [expanded, setExpanded] = useState<Set<SectionId>>(new Set(['trends', 'percentiles', 'profile']))
@@ -493,6 +493,217 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
             )}
           </div>
         </div>
+      )}
+
+      {/* ── ML Intelligence Dashboard ─────────────────────────── */}
+      <SectionHeader title="ML Intelligence" id="ml" expanded={expanded} onToggle={toggle} />
+      {expanded.has('ml') && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* HRV Intensity Gate */}
+          {tp.hrvIntensityModifier && (
+            <div className={s.cardCompact}>
+              <div className={s.sectionLabel}>HRV Intensity Gate</div>
+              <div className={s.statsGrid}>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Today's HRV</span>
+                  <span className={s.statValue}>{tp.hrvIntensityModifier.todayHrv != null ? Math.round(tp.hrvIntensityModifier.todayHrv) : '—'}</span>
+                  <span className={s.statUnit}>ms</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>7d Average</span>
+                  <span className={s.statValue}>{tp.hrvIntensityModifier.rolling7dHrv != null ? Math.round(tp.hrvIntensityModifier.rolling7dHrv) : '—'}</span>
+                  <span className={s.statUnit}>ms</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Z-Score</span>
+                  <span className={s.statValue} style={{ color: tp.hrvIntensityModifier.zScore < -1 ? 'var(--danger)' : tp.hrvIntensityModifier.zScore > 0.5 ? 'var(--success)' : 'var(--text-primary)' }}>
+                    {tp.hrvIntensityModifier.zScore.toFixed(2)}
+                  </span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Intensity</span>
+                  <span className={s.statValue}>×{tp.hrvIntensityModifier.intensityMultiplier.toFixed(2)}</span>
+                </div>
+              </div>
+              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>{tp.hrvIntensityModifier.recommendation}</p>
+            </div>
+          )}
+
+          {/* Sleep Volume Modifier */}
+          {tp.sleepVolumeModifier && (
+            <div className={s.cardCompact}>
+              <div className={s.sectionLabel}>Sleep → Training Adjustment</div>
+              <div className={s.statsGrid}>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Last Night</span>
+                  <span className={s.statValue}>{tp.sleepVolumeModifier.lastNightSleepHours != null ? tp.sleepVolumeModifier.lastNightSleepHours.toFixed(1) : '—'}</span>
+                  <span className={s.statUnit}>hrs</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Quality</span>
+                  <span className={s.statValue} style={{ fontSize: 16, color: tp.sleepVolumeModifier.lastNightSleepQuality === 'poor' ? 'var(--danger)' : tp.sleepVolumeModifier.lastNightSleepQuality === 'excellent' ? 'var(--success)' : 'var(--text-primary)' }}>
+                    {tp.sleepVolumeModifier.lastNightSleepQuality ?? '—'}
+                  </span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Volume</span>
+                  <span className={s.statValue}>×{tp.sleepVolumeModifier.volumeMultiplier.toFixed(2)}</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Rest</span>
+                  <span className={s.statValue}>×{tp.sleepVolumeModifier.restTimeMultiplier.toFixed(2)}</span>
+                </div>
+              </div>
+              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>{tp.sleepVolumeModifier.reason}</p>
+            </div>
+          )}
+
+          {/* Compliance */}
+          {tp.prescribedVsActual && tp.prescribedVsActual.exercisesCompleted + tp.prescribedVsActual.exercisesSkipped > 0 && (
+            <div className={s.cardCompact}>
+              <div className={s.sectionLabel}>Workout Compliance</div>
+              <div className={s.statsGrid}>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Compliance</span>
+                  <span className={s.statValue} style={{ color: tp.prescribedVsActual.complianceRate >= 0.8 ? 'var(--success)' : tp.prescribedVsActual.complianceRate >= 0.6 ? '#e6a800' : 'var(--danger)' }}>
+                    {Math.round(tp.prescribedVsActual.complianceRate * 100)}%
+                  </span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Completed</span>
+                  <span className={s.statValue}>{tp.prescribedVsActual.exercisesCompleted}</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Skipped</span>
+                  <span className={s.statValue}>{tp.prescribedVsActual.exercisesSkipped}</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Weight Dev</span>
+                  <span className={s.statValue}>{tp.prescribedVsActual.avgWeightDeviation > 0 ? '+' : ''}{tp.prescribedVsActual.avgWeightDeviation.toFixed(1)}%</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* RPE Calibration */}
+          {tp.rpeCalibrationFactor != null && tp.workoutIntensityScores && tp.workoutIntensityScores.length > 0 && (
+            <div className={s.cardCompact}>
+              <div className={s.sectionLabel}>RPE Calibration (HR vs Self-Report)</div>
+              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
+                {tp.rpeCalibrationFactor > 5 ? 'You tend to overestimate effort vs heart rate data' :
+                 tp.rpeCalibrationFactor < -5 ? 'You tend to underestimate effort vs heart rate data' :
+                 'Your RPE is well-calibrated with heart rate data'}
+                {' '}(avg offset: {tp.rpeCalibrationFactor > 0 ? '+' : ''}{Math.round(tp.rpeCalibrationFactor)} points)
+              </p>
+              <table className={s.dataTable}>
+                <thead><tr><th>Date</th><th>Avg HR</th><th>HR Intensity</th><th>RPE</th><th>Offset</th></tr></thead>
+                <tbody>
+                  {tp.workoutIntensityScores.slice(0, 8).map(w => (
+                    <tr key={w.workoutId}>
+                      <td>{w.date}</td>
+                      <td>{w.avgHr ?? '—'}</td>
+                      <td>{Math.round(w.hrBasedIntensity)}</td>
+                      <td>{w.subjectiveRpe != null ? Math.round(w.subjectiveRpe) : '—'}</td>
+                      <td style={{ color: Math.abs(w.rpeCalibration) > 10 ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                        {w.rpeCalibration > 0 ? '+' : ''}{Math.round(w.rpeCalibration)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Exercise Swap Learning */}
+          {tp.exerciseSwapHistory && tp.exerciseSwapHistory.length > 0 && (
+            <div className={s.cardCompact}>
+              <div className={s.sectionLabel}>Exercise Swap History</div>
+              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>Exercises you've swapped out. ≥3 swaps = effectively excluded from prescriptions.</p>
+              <table className={s.dataTable}>
+                <thead><tr><th>Exercise</th><th>Swaps</th><th>Status</th></tr></thead>
+                <tbody>
+                  {tp.exerciseSwapHistory.map(sw => (
+                    <tr key={sw.exerciseName}>
+                      <td>{sw.exerciseName}</td>
+                      <td>{sw.swapCount}</td>
+                      <td>
+                        <span className={sw.swapCount >= 3 ? s.badgeDanger : sw.swapCount >= 1 ? s.badgeWarning : s.badgeNeutral}>
+                          {sw.swapCount >= 3 ? 'Excluded' : sw.swapCount >= 1 ? 'Deprioritized' : 'Active'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Progression Forecasts ─────────────────────────── */}
+      {tp.progressionForecasts && tp.progressionForecasts.length > 0 && (
+        <>
+          <SectionHeader title="Progression Forecasts" id="forecasts" expanded={expanded} onToggle={toggle} />
+          {expanded.has('forecasts') && (
+            <div className={s.cardCompact}>
+              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
+                Predicted next-session targets based on your progression trend (linear regression on e1RM history).
+              </p>
+              <table className={s.dataTable}>
+                <thead><tr><th>Exercise</th><th>Current e1RM</th><th>Predicted</th><th>Target Weight</th><th>Confidence</th><th>Next Milestone</th></tr></thead>
+                <tbody>
+                  {tp.progressionForecasts.map(f => (
+                    <tr key={f.exerciseName}>
+                      <td>{f.exerciseName}</td>
+                      <td>{f.currentE1RM} lbs</td>
+                      <td style={{ color: f.predictedNextE1RM > f.currentE1RM ? 'var(--success)' : 'var(--text-secondary)' }}>
+                        {f.predictedNextE1RM} lbs
+                      </td>
+                      <td style={{ fontWeight: 600 }}>{f.predictedTargetWeight} lbs</td>
+                      <td>
+                        <span className={s.pctBar} style={{ backgroundColor: f.confidence >= 0.7 ? 'rgba(34,197,94,0.15)' : f.confidence >= 0.5 ? 'rgba(230,168,0,0.15)' : 'rgba(255,255,255,0.06)' }}>
+                          <span className={s.pctBarFill} style={{ width: `${f.confidence * 100}%`, backgroundColor: f.confidence >= 0.7 ? 'rgba(34,197,94,0.3)' : 'rgba(230,168,0,0.3)' }} />
+                          R²={f.confidence.toFixed(2)}
+                        </span>
+                      </td>
+                      <td>{f.sessionsUntilMilestone != null ? `~${f.sessionsUntilMilestone} sessions` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Movement Pattern Fatigue ─────────────────────────── */}
+      {tp.movementPatternFatigue && tp.movementPatternFatigue.length > 0 && (
+        <>
+          <SectionHeader title="Movement Pattern Fatigue" id="fatigue" expanded={expanded} onToggle={toggle} />
+          {expanded.has('fatigue') && (
+            <div className={s.cardCompact}>
+              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
+                Systemic fatigue tracked by movement pattern, not just individual muscles.
+              </p>
+              <div className={s.statsGrid}>
+                {tp.movementPatternFatigue.map(mp => {
+                  const fColor = mp.fatigueLevel === 'high' ? 'var(--danger)' : mp.fatigueLevel === 'moderate' ? '#e6a800' : 'var(--success)'
+                  const fLabel = mp.fatigueLevel === 'high' ? 'HIGH' : mp.fatigueLevel === 'moderate' ? 'MOD' : 'FRESH'
+                  return (
+                    <div key={mp.pattern} className={s.statCard}>
+                      <span className={s.statLabel}>{mp.pattern.replace(/_/g, ' ')}</span>
+                      <span className={s.statValue} style={{ color: fColor, fontSize: 14 }}>{fLabel}</span>
+                      <span className={s.statUnit}>
+                        {mp.hoursSinceLastTrained != null ? `${Math.round(mp.hoursSinceLastTrained)}h ago` : 'No data'}
+                        {mp.weeklySessionCount > 0 ? ` · ${mp.weeklySessionCount}/wk` : ''}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

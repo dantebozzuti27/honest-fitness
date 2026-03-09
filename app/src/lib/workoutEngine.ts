@@ -1845,6 +1845,106 @@ export async function generateWorkout(
   return workout;
 }
 
+// ─── Week Preview ────────────────────────────────────────────────────────
+
+export interface DayPreview {
+  dayOfWeek: number;        // 0=Sun
+  dayName: string;
+  isRestDay: boolean;
+  focus: string;            // e.g. "Push" or "Upper" or "Chest, Triceps"
+  muscleGroups: string[];
+  estimatedExercises: number;
+  estimatedMinutes: number;
+  isToday: boolean;
+}
+
+export function generateWeekPreview(profile: TrainingProfile): DayPreview[] {
+  const todayDow = new Date().getDay();
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const { dayOfWeekPatterns, detectedSplit } = profile;
+
+  const splitLabels: Record<string, string> = {
+    push: 'Push', pull: 'Pull', legs: 'Legs',
+    upper: 'Upper', lower: 'Lower', full: 'Full Body',
+  };
+
+  // Build rotation sequence from detected split
+  const rotation = detectedSplit.typicalRotation.length > 0
+    ? detectedSplit.typicalRotation
+    : [];
+
+  // Figure out where in the rotation we are based on most recent training day
+  let rotationIdx = 0;
+  if (rotation.length > 0) {
+    for (let daysBack = 0; daysBack < 7; daysBack++) {
+      const checkDow = (todayDow - daysBack + 7) % 7;
+      const pattern = dayOfWeekPatterns[checkDow];
+      if (pattern && !pattern.isRestDay && daysBack > 0) {
+        // This was the last training day — find which rotation slot it was
+        const lastFocus = pattern.muscleGroupsTypical;
+        for (let r = 0; r < rotation.length; r++) {
+          const rotGroups = SPLIT_MUSCLE_MAPPING[rotation[r]];
+          if (rotGroups && lastFocus.some(mg => rotGroups.includes(mg))) {
+            rotationIdx = (r + 1) % rotation.length;
+            break;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  const previews: DayPreview[] = [];
+  let usedRotationSlots = 0;
+
+  for (let offset = 0; offset < 7; offset++) {
+    const dow = (todayDow + offset) % 7;
+    const pattern = dayOfWeekPatterns[dow];
+    const isToday = offset === 0;
+
+    if (!pattern || pattern.isRestDay || pattern.frequency < 0.3) {
+      previews.push({
+        dayOfWeek: dow,
+        dayName: dayNames[dow],
+        isRestDay: true,
+        focus: 'Rest',
+        muscleGroups: [],
+        estimatedExercises: 0,
+        estimatedMinutes: 0,
+        isToday,
+      });
+      continue;
+    }
+
+    // Determine focus from rotation or day pattern
+    let focus = '';
+    let muscleGroups: string[] = [];
+
+    if (rotation.length > 0 && usedRotationSlots < rotation.length) {
+      const slot = rotation[(rotationIdx + usedRotationSlots) % rotation.length];
+      focus = splitLabels[slot] || slot;
+      muscleGroups = SPLIT_MUSCLE_MAPPING[slot] || pattern.muscleGroupsTypical;
+      usedRotationSlots++;
+    } else {
+      muscleGroups = pattern.muscleGroupsTypical.slice(0, 4);
+      focus = muscleGroups.slice(0, 3).map(g => g.replace(/_/g, ' ')).join(', ');
+    }
+
+    previews.push({
+      dayOfWeek: dow,
+      dayName: dayNames[dow],
+      isRestDay: false,
+      focus,
+      muscleGroups,
+      estimatedExercises: Math.round(pattern.avgExerciseCount),
+      estimatedMinutes: Math.round(pattern.avgExerciseCount * 7 + 10),
+      isToday,
+    });
+  }
+
+  return previews;
+}
+
 /**
  * Saves a generated workout to the database for future comparison with actuals.
  */

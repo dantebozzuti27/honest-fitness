@@ -597,6 +597,75 @@ export default function Analytics() {
                       )
                     })()}
 
+                    {/* Strength Percentiles */}
+                    {trainingProfile.strengthPercentiles.length > 0 && (() => {
+                      const sp = trainingProfile.strengthPercentiles
+                      const bodyWeightClass = sp[0]?.bodyWeightClass ?? ''
+                      const gender = trainingProfile.gender
+                      const genderLabel = gender ? (gender.toUpperCase().startsWith('F') ? 'F' : 'M') : ''
+                      const levelFromPercentile = (p: number) =>
+                        p > 90 ? 'World Class' : p > 75 ? 'Elite' : p > 50 ? 'Advanced' : p >= 25 ? 'Intermediate' : 'Beginner'
+                      const percentileColor = (p: number) =>
+                        p > 75 ? 'var(--success)' : p > 50 ? '#e6a800' : 'var(--text-primary)'
+                      const percentileBarBg = (p: number) =>
+                        p > 75 ? 'rgba(34, 197, 94, 0.2)' : p > 50 ? 'rgba(230, 168, 0, 0.2)' : 'rgba(255,255,255,0.06)'
+                      const percentileBarFill = (p: number) =>
+                        p > 75 ? 'rgba(34, 197, 94, 0.4)' : p > 50 ? 'rgba(230, 168, 0, 0.4)' : 'rgba(255,255,255,0.12)'
+                      return (
+                        <div style={cardStyle}>
+                          <h3 style={{ margin: '0 0 4px', fontSize: 16, color: 'var(--text-primary)' }}>Strength Percentiles</h3>
+                          <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-secondary)' }}>
+                            Your weight class: {bodyWeightClass}{genderLabel ? ` (${genderLabel})` : ''}
+                          </p>
+                          <table style={tableStyle}>
+                            <thead>
+                              <tr>
+                                <th style={thStyle}>Lift</th>
+                                <th style={thRight}>Your e1RM</th>
+                                <th style={thRight}>Percentile</th>
+                                <th style={thRight}>Level</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sp.map(s => (
+                                <tr key={s.lift}>
+                                  <td style={tdStyle}>{s.lift.charAt(0).toUpperCase() + s.lift.slice(1)}</td>
+                                  <td style={tdRight}>{s.estimated1RM} lbs</td>
+                                    <td style={tdRight}>
+                                    <span style={{
+                                      display: 'inline-block',
+                                      position: 'relative',
+                                      minWidth: 48,
+                                      padding: '2px 6px',
+                                      borderRadius: 4,
+                                      backgroundColor: percentileBarBg(s.percentile),
+                                      color: percentileColor(s.percentile),
+                                      fontWeight: 600,
+                                      zIndex: 1,
+                                      overflow: 'hidden',
+                                    }}>
+                                      <span style={{
+                                        position: 'absolute',
+                                        left: 0,
+                                        top: 0,
+                                        bottom: 0,
+                                        width: `${Math.min(s.percentile, 100)}%`,
+                                        backgroundColor: percentileBarFill(s.percentile),
+                                        borderRadius: 4,
+                                        zIndex: -1,
+                                      }} />
+                                      {s.percentile}th
+                                    </span>
+                                  </td>
+                                  <td style={tdRight}>{levelFromPercentile(s.percentile)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    })()}
+
                     {/* Global Stats */}
                     <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', padding: 16 }}>
                       <h3 style={{ margin: '0 0 12px', fontSize: 16, color: 'var(--text-primary)' }}>Global Stats</h3>

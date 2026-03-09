@@ -310,6 +310,7 @@ export interface TrainingProfile {
 
   // Strength Percentiles (from OpenPowerlifting data)
   strengthPercentiles: StrengthPercentile[];
+  gender: string | null;
 
   // Split Detection & Scheduling
   detectedSplit: DetectedSplit;
@@ -2604,6 +2605,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     repWeightBreakthroughs: computeRepWeightBreakthroughs(workouts),
     imbalanceAlerts: computeImbalanceAlerts(muscleVolumeStatuses),
     strengthPercentiles: computeStrengthPercentiles(exerciseProgressions, userBodyWeight, userGender),
+    gender: userGender,
 
     detectedSplit: detectTrainingSplit(workouts, exercises),
     dayOfWeekPatterns: computeDayOfWeekPatterns(workouts, exercises),

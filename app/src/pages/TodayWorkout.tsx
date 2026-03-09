@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
-import { generateWorkout, saveGeneratedWorkout, type GeneratedWorkout, type DecisionLogEntry, type ExerciseDecision, type MuscleGroupDecision, type ExerciseRole, type WarmupSet, type SessionOverrides } from '../lib/workoutEngine'
+import { generateWorkout, saveGeneratedWorkout, generateWeekPreview, type GeneratedWorkout, type DecisionLogEntry, type ExerciseDecision, type MuscleGroupDecision, type ExerciseRole, type WarmupSet, type SessionOverrides, type DayPreview } from '../lib/workoutEngine'
 import { requireSupabase } from '../lib/supabase'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -29,6 +29,7 @@ export default function TodayWorkout() {
   const [durationOverride, setDurationOverride] = useState<number | null>(null)
   const [finishByTime, setFinishByTime] = useState('')
   const [cachedProfile, setCachedProfile] = useState<TrainingProfile | null>(null)
+  const [weekPreview, setWeekPreview] = useState<DayPreview[]>([])
 
   useEffect(() => {
     if (user) generate()
@@ -51,7 +52,10 @@ export default function TodayWorkout() {
       }
 
       const tp = cachedProfile ?? await computeTrainingProfile(user.id)
-      if (!cachedProfile) setCachedProfile(tp)
+      if (!cachedProfile) {
+        setCachedProfile(tp)
+        setWeekPreview(generateWeekPreview(tp))
+      }
       setProfile(tp)
 
       if (tp.trainingAgeDays < 7) {
@@ -312,6 +316,29 @@ export default function TodayWorkout() {
             </Button>
           )}
         </div>
+
+        {/* Week Preview */}
+        {weekPreview.length > 0 && (
+          <div className={styles.weekPreview}>
+            <h3 className={styles.weekPreviewTitle}>This Week</h3>
+            <div className={styles.weekDays}>
+              {weekPreview.map(day => (
+                <div
+                  key={day.dayOfWeek}
+                  className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${day.isRestDay ? styles.weekDayRest : ''}`}
+                >
+                  <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
+                  <div className={styles.weekDayFocus}>{day.focus}</div>
+                  {!day.isRestDay && (
+                    <div className={styles.weekDayMeta}>
+                      {day.estimatedExercises} ex · {day.estimatedMinutes}m
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Detected Split + Session Summary */}
         {profile?.detectedSplit && profile.detectedSplit.confidence >= 0.5 && (

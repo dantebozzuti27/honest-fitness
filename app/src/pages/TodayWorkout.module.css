@@ -755,6 +755,79 @@
   padding: 4px;
 }
 
+/* Week Preview */
+.weekPreview {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.weekPreviewTitle {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.weekDays {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.weekDay {
+  flex: 1;
+  min-width: 72px;
+  padding: 8px 6px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-primary);
+  text-align: center;
+  transition: background 0.15s;
+}
+
+.weekDayToday {
+  background: var(--accent, #6366f1);
+  color: #fff;
+}
+
+.weekDayToday .weekDayName,
+.weekDayToday .weekDayFocus,
+.weekDayToday .weekDayMeta {
+  color: #fff;
+}
+
+.weekDayRest {
+  opacity: 0.5;
+}
+
+.weekDayName {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.weekDayFocus {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.weekDayMeta {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
 /* Actions */
 .actions {
   display: flex;

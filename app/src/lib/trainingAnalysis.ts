@@ -236,7 +236,7 @@ export interface Rolling30DayTrends {
 
   // Overall strength progress
   totalStrengthIndex: MetricTrend;  // sum of e1RM across all tracked lifts per session
-  big3Total: MetricTrend;           // bench + squat + deadlift e1RM
+  big3Total: MetricTrend;           // sum of top 3 exercise e1RMs per session (any lifts)
   relativeStrength: MetricTrend;    // total strength / body weight (Wilks-like normalization)
   totalVolumeLoad: MetricTrend;     // total weight × reps per week across all exercises
 
@@ -1683,14 +1683,7 @@ function computeStrengthPercentiles(
     });
   }
 
-  // Sort: big 3 first, then by percentile descending
-  const big3Order: Record<string, number> = { squat: 0, bench: 1, deadlift: 2 };
-  results.sort((a, b) => {
-    const aOrder = big3Order[a.lift] ?? 10;
-    const bOrder = big3Order[b.lift] ?? 10;
-    if (aOrder !== bOrder) return aOrder - bOrder;
-    return b.percentile - a.percentile;
-  });
+  results.sort((a, b) => b.percentile - a.percentile);
 
   return results;
 }
@@ -1933,8 +1926,6 @@ function computeAthleteProfile(
   const sleepDebtHours = profile.cumulativeSleepDebt.sleepDebt7d;
   const age = profile.age;
 
-  const big3Lifts = strengthPercentiles.filter(s => ['squat', 'bench', 'deadlift'].includes(s.lift));
-
   for (const sp of strengthPercentiles) {
     const label = sp.lift.charAt(0).toUpperCase() + sp.lift.slice(1);
     const effectivePct = sp.ageAdjustedPercentile ?? sp.percentile;
@@ -1961,16 +1952,18 @@ function computeAthleteProfile(
     }
   }
 
-  // Lift balance: compare big 3 percentiles for imbalances
-  if (big3Lifts.length >= 2) {
-    const sorted = [...big3Lifts].sort((a, b) => b.percentile - a.percentile);
-    const gap = sorted[0].percentile - sorted[sorted.length - 1].percentile;
+  // Lift balance: compare across ALL percentiled lifts the user actually trains
+  if (strengthPercentiles.length >= 2) {
+    const sorted = [...strengthPercentiles].sort((a, b) => b.percentile - a.percentile);
+    const strongest = sorted[0];
+    const weakest = sorted[sorted.length - 1];
+    const gap = strongest.percentile - weakest.percentile;
     if (gap > 30) {
       items.push({
-        category: 'weakness', area: 'Lift Balance',
-        detail: `Large gap between strongest (${sorted[0].lift}: ${sorted[0].percentile}th) and weakest (${sorted[sorted.length - 1].lift}: ${sorted[sorted.length - 1].percentile}th) — focus on lagging lift`,
-        dataPoints: `${gap} percentile point spread across big 3`,
-        priority: 7,
+        category: 'opportunity', area: 'Lift Balance',
+        detail: `Large gap between strongest (${strongest.lift}: ${strongest.percentile}th) and weakest (${weakest.lift}: ${weakest.percentile}th) — prioritizing weaker lifts would raise your floor`,
+        dataPoints: `${gap} percentile point spread across ${strengthPercentiles.length} tracked lifts`,
+        priority: 6,
       });
     }
   }
@@ -2145,14 +2138,30 @@ function computeAthleteProfile(
   items.sort((a, b) => b.priority - a.priority);
 
   // ── Overall composite score ───────────────────────────────────────
-  const allPcts = [
-    ...strengthPercentiles.map(s => s.percentile),
-    ...healthPercentiles.map(h => h.percentile),
-  ];
-  const avgPct = allPcts.length > 0 ? allPcts.reduce((s, v) => s + v, 0) / allPcts.length : 50;
-  const consistencyBonus = profile.consistencyScore * 10;
-  const readinessBonus = profile.fitnessFatigueModel.readiness * 5;
-  const overallScore = Math.min(99, Math.max(1, Math.round(avgPct * 0.7 + consistencyBonus + readinessBonus)));
+  // Balanced across multiple dimensions — not dominated by raw strength.
+  const sPcts = strengthPercentiles.map(s => s.percentile);
+  const hPcts = healthPercentiles.map(h => h.percentile);
+  const avgStrengthPct = sPcts.length > 0 ? sPcts.reduce((s, v) => s + v, 0) / sPcts.length : 50;
+  const avgHealthPct = hPcts.length > 0 ? hPcts.reduce((s, v) => s + v, 0) / hPcts.length : 50;
+
+  // Progression component: ratio of progressing exercises to total
+  const totalTracked = profile.exerciseProgressions.length || 1;
+  const progressionRate = progressing.length / totalTracked;
+
+  // Balance component: how tight are your lift percentiles? (lower spread = higher score)
+  const liftSpread = sPcts.length >= 2
+    ? Math.max(...sPcts) - Math.min(...sPcts)
+    : 0;
+  const balanceScore = Math.max(0, 100 - liftSpread); // 100 = perfectly balanced, 0 = huge gap
+
+  const overallScore = Math.min(99, Math.max(1, Math.round(
+    avgStrengthPct * 0.20 +
+    avgHealthPct * 0.20 +
+    profile.consistencyScore * 20 +
+    profile.fitnessFatigueModel.readiness * 10 +
+    progressionRate * 15 +
+    balanceScore * 0.15
+  )));
 
   // ── Summary ───────────────────────────────────────────────────────
   const strengths = items.filter(i => i.category === 'strength');
@@ -2820,13 +2829,9 @@ function computeRolling30DayTrends(
   const sessionStrengthIndices: number[] = [];
   const weeklyVolumeLoad: number[] = [0, 0, 0, 0];
 
-  // Big 3 tracking
-  const big3Patterns = {
-    bench: /\bbench press\b/i,
-    squat: /\b(?:back |barbell )?squat\b(?!.*front)/i,
-    deadlift: /\b(?:conventional |barbell )?deadlift\b(?!.*romanian|.*rdl|.*sumo)/i,
-  };
-  const big3SessionValues: number[] = [];
+  // Top compound lifts: per session, take the best e1RM from each distinct exercise
+  // and sum the top 3 — regardless of which lifts they are
+  const topCompoundSessionValues: number[] = [];
 
   const exerciseTrends: ExerciseTrend[] = topExercises.map(prog => {
     const exWorkouts = recentWorkouts.filter(w =>
@@ -2865,12 +2870,12 @@ function computeRolling30DayTrends(
     };
   });
 
-  // Overall strength index + big 3 total + volume load — computed per session
+  // Overall strength index + top compound total + volume load — computed per session
   for (const w of recentWorkouts) {
     let sessionTotalE1RM = 0;
     let exerciseCount = 0;
     let sessionVolLoad = 0;
-    const big3: Record<string, number> = {};
+    const exerciseE1RMs: number[] = [];
 
     for (const ex of w.workout_exercises) {
       if (!Array.isArray(ex.workout_sets)) continue;
@@ -2887,13 +2892,7 @@ function computeRolling30DayTrends(
       if (bestE1RM > 0) {
         sessionTotalE1RM += bestE1RM;
         exerciseCount++;
-      }
-
-      const exName = ex.exercise_name.toLowerCase();
-      for (const [lift, pattern] of Object.entries(big3Patterns)) {
-        if (pattern.test(exName) && bestE1RM > (big3[lift] ?? 0)) {
-          big3[lift] = bestE1RM;
-        }
+        exerciseE1RMs.push(bestE1RM);
       }
     }
 
@@ -2901,8 +2900,10 @@ function computeRolling30DayTrends(
       sessionStrengthIndices.push(sessionTotalE1RM);
     }
 
-    if (Object.keys(big3).length === 3) {
-      big3SessionValues.push(big3.bench + big3.squat + big3.deadlift);
+    // Sum the top 3 e1RMs from this session (whatever exercises they are)
+    if (exerciseE1RMs.length >= 2) {
+      exerciseE1RMs.sort((a, b) => b - a);
+      topCompoundSessionValues.push(exerciseE1RMs.slice(0, 3).reduce((s, v) => s + v, 0));
     }
 
     const daysAgo = daysBetween(w.date, today);
@@ -2957,7 +2958,7 @@ function computeRolling30DayTrends(
     bodyFat: buildMetricTrend(bfValues),
     estimatedLeanMass: buildMetricTrend(leanMassValues),
     totalStrengthIndex: buildMetricTrend(sessionStrengthIndices),
-    big3Total: buildMetricTrend(big3SessionValues),
+    big3Total: buildMetricTrend(topCompoundSessionValues),
     relativeStrength: buildMetricTrend(relativeStrengthValues),
     totalVolumeLoad: buildMetricTrend(weeklyVolumeLoad),
     trainingFrequency: buildMetricTrend(weekBuckets),

@@ -186,7 +186,7 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
               <thead><tr><th>Metric</th><th>Current</th><th>30d Avg</th><th>Trend</th></tr></thead>
               <tbody>
                 <TrendRow label="Strength Index" mt={t.totalStrengthIndex} unit="" goodDir="up" />
-                <TrendRow label="Big 3 Total" mt={t.big3Total} unit="lbs" goodDir="up" />
+                <TrendRow label="Top Lifts Total" mt={t.big3Total} unit="lbs" goodDir="up" />
                 <TrendRow label="Relative Strength" mt={t.relativeStrength} unit="" goodDir="up" />
                 <TrendRow label="Volume Load" mt={t.totalVolumeLoad} unit="lbs" goodDir="up" />
               </tbody>

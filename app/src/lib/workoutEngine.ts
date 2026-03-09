@@ -1962,7 +1962,7 @@ function stepGenerateRationale(
   trendDetails.push('— Overall Strength —');
   const strengthLines = [
     trendLine('Strength Index', t.totalStrengthIndex, 'lbs'),
-    trendLine('Big 3 Total', t.big3Total, 'lbs'),
+    trendLine('Top Lifts Total', t.big3Total, 'lbs'),
     trendLine('Relative Strength', t.relativeStrength),
     trendLine('Volume Load', t.totalVolumeLoad, 'lbs'),
   ].filter((l): l is string => l != null);

@@ -2499,7 +2499,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     fetchWorkoutHistory(userId),
     fetchHealthHistory(userId),
     fetchEnrichedExercises(),
-    supabase.from('user_preferences').select('gender, recovery_speed, experience_level, body_weight_lbs, weight_goal_lbs').eq('user_id', userId).maybeSingle(),
+    supabase.from('user_preferences').select('*').eq('user_id', userId).maybeSingle(),
   ]);
   const userGender = prefsResult?.data?.gender ?? null;
   const userRecoverySpeed = prefsResult?.data?.recovery_speed != null ? Number(prefsResult.data.recovery_speed) : 1.0;

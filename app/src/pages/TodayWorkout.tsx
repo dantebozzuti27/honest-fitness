@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
@@ -33,7 +33,7 @@ export default function TodayWorkout() {
   const [restDays, setRestDays] = useState<number[]>([])
   const [excludedExercises, setExcludedExercises] = useState<Set<string>>(new Set())
   const [showExclusionPicker, setShowExclusionPicker] = useState(false)
-  const regeneratingRef = { current: false }
+  const regeneratingRef = useRef(false)
 
   useEffect(() => {
     if (user) initialLoad()
@@ -45,13 +45,19 @@ export default function TodayWorkout() {
     setViewState('loading')
     try {
       const supabase = requireSupabase()
-      const { data: prefsData } = await supabase
+      // Use select('*') to avoid errors when specific columns don't exist in the schema
+      const { data: prefsData, error: prefsError } = await supabase
         .from('user_preferences')
-        .select('training_goal, session_duration_minutes, rest_days, weekday_deadlines')
+        .select('*')
         .eq('user_id', user.id)
-        .single()
+        .maybeSingle()
 
-      setPrefsSet(!!(prefsData?.training_goal && prefsData?.session_duration_minutes))
+      // Only update prefsSet if we actually got a result; don't flip to false on query errors
+      if (prefsData && !prefsError) {
+        setPrefsSet(!!(prefsData.training_goal && prefsData.session_duration_minutes))
+      } else if (!prefsError && !prefsData) {
+        setPrefsSet(false)
+      }
       if (prefsData?.session_duration_minutes) {
         setDefaultDuration(Number(prefsData.session_duration_minutes))
       }
@@ -59,7 +65,7 @@ export default function TodayWorkout() {
       const loadedRestDays: number[] = Array.isArray(prefsData?.rest_days) ? prefsData.rest_days : []
       setRestDays(loadedRestDays)
 
-      // #32: Auto-populate finishByTime from saved weekday_deadlines
+      // Auto-populate finishByTime from saved weekday_deadlines
       const deadlines = prefsData?.weekday_deadlines
       if (deadlines && typeof deadlines === 'object' && !Array.isArray(deadlines)) {
         const todayDow = String(new Date().getDay())

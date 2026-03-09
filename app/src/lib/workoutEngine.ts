@@ -61,6 +61,7 @@ export interface UserPreferences {
   gym_profiles: Array<{ name: string; equipment: string[] }>;
   active_gym_profile: string | null;
   age: number | null;
+  rest_days: number[]; // 0=Sun, 1=Mon, ... 6=Sat
 }
 
 export type ExerciseRole = 'primary' | 'secondary' | 'isolation' | 'corrective' | 'cardio';
@@ -203,6 +204,7 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     gym_profiles: Array.isArray(rawGymProfiles) ? rawGymProfiles : [],
     active_gym_profile: data?.active_gym_profile ?? null,
     age: computedAge,
+    rest_days: Array.isArray(data?.rest_days) ? data.rest_days : [],
   };
 }
 
@@ -1858,10 +1860,11 @@ export interface DayPreview {
   isToday: boolean;
 }
 
-export function generateWeekPreview(profile: TrainingProfile): DayPreview[] {
+export function generateWeekPreview(profile: TrainingProfile, userRestDays: number[] = []): DayPreview[] {
   const todayDow = new Date().getDay();
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const { dayOfWeekPatterns, detectedSplit } = profile;
+  const restDaySet = new Set(userRestDays);
 
   const splitLabels: Record<string, string> = {
     push: 'Push', pull: 'Pull', legs: 'Legs',
@@ -1902,7 +1905,12 @@ export function generateWeekPreview(profile: TrainingProfile): DayPreview[] {
     const pattern = dayOfWeekPatterns[dow];
     const isToday = offset === 0;
 
-    if (!pattern || pattern.isRestDay || pattern.frequency < 0.3) {
+    const isUserRestDay = restDaySet.has(dow);
+    const hasExplicitRestConfig = restDaySet.size > 0;
+    const isPatternRest = !pattern || pattern.isRestDay || pattern.frequency < 0.3;
+    const shouldRest = hasExplicitRestConfig ? isUserRestDay : isPatternRest;
+
+    if (shouldRest) {
       previews.push({
         dayOfWeek: dow,
         dayName: dayNames[dow],

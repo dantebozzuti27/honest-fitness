@@ -161,11 +161,23 @@ export default function Home() {
               <span className={styles.heroPrimaryValue}>
                 {todaysWorkouts.length > 0 ? 'Workout Complete' : "Today's Workout"}
               </span>
-              <span className={styles.heroPrimarySub}>
-                {todaysWorkouts.length > 0
-                  ? `${todaysWorkouts.length} session${todaysWorkouts.length > 1 ? 's' : ''} logged today`
-                  : 'AI-generated, personalized to your data'}
-              </span>
+              {todaysWorkouts.length > 0 ? (
+                <>
+                  {todaysWorkouts.map((w, i) => {
+                    const mins = Math.floor((w.duration || 0) / 60)
+                    const exCount = Array.isArray(w.workout_exercises) ? w.workout_exercises.length : 0
+                    return (
+                      <span key={w.id || i} className={styles.heroPrimarySub}>
+                        {w.template_name || 'Freestyle'} — {exCount} exercises, {mins} min
+                      </span>
+                    )
+                  })}
+                </>
+              ) : (
+                <span className={styles.heroPrimarySub}>
+                  AI-generated, personalized to your data
+                </span>
+              )}
               {streak > 0 && (
                 <div className={styles.heroMeta}>
                   <span className={styles.heroMetaItem}>{streak} day streak</span>

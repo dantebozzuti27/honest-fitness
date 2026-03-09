@@ -403,23 +403,23 @@ export default function TodayWorkout() {
           <div className={styles.weekPreview}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 className={styles.weekPreviewTitle}>This Week</h3>
-              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Tap to set rest days</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Tap to toggle rest/workout</span>
             </div>
             <div className={styles.weekDays}>
               {weekPreview.map(day => {
-                const isUserRest = restDays.includes(day.dayOfWeek)
+                const isRest = restDays.includes(day.dayOfWeek) || (restDays.length === 0 && day.isRestDay)
                 return (
                   <div
                     key={day.dayOfWeek}
-                    className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${day.isRestDay ? styles.weekDayRest : ''}`}
+                    className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${isRest ? styles.weekDayRest : ''}`}
                     onClick={() => toggleRestDay(day.dayOfWeek)}
                     style={{ cursor: 'pointer', userSelect: 'none' }}
                   >
                     <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
                     <div className={styles.weekDayFocus}>
-                      {isUserRest ? 'Rest' : day.focus}
+                      {isRest ? 'Rest' : day.focus || 'Workout'}
                     </div>
-                    {!day.isRestDay && day.muscleGroups.length > 0 && (
+                    {!isRest && day.muscleGroups.length > 0 && (
                       <div className={styles.weekDayMeta} title={day.muscleGroups.map(g => g.replace(/_/g, ' ')).join(', ')}>
                         {day.estimatedExercises} ex · {day.estimatedMinutes}m
                       </div>

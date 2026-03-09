@@ -1365,13 +1365,17 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     .select()
 
   if (error && error.code === '42703') {
-    // Column doesn't exist — strip optional fields and retry
+    // Column doesn't exist — strip all optional/newer fields and retry
     const optionalCols = [
       'username', 'profile_picture', 'default_visibility',
       'training_split', 'progression_model', 'weekly_sets_targets',
       'body_weight_lbs', 'experience_level',
       'cardio_preference', 'cardio_frequency_per_week', 'cardio_duration_minutes',
       'preferred_exercises',
+      'recovery_speed', 'weight_goal_lbs', 'weight_goal_date',
+      'primary_goal', 'secondary_goal', 'priority_muscles',
+      'weekday_deadlines', 'gym_profiles', 'active_gym_profile', 'age',
+      'rest_days',
     ]
     for (const col of optionalCols) delete upsertData[col]
 

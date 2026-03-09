@@ -47,6 +47,16 @@ export interface ModelConfig {
   sleepCoefficientMinimum: number;
   /** Sleep delta threshold below which sleep-performance adjustment kicks in */
   sleepDeltaThreshold: number;
+  /** Barbell compound increment (lbs) */
+  barbellIncrement: number;
+  /** Dumbbell increment (lbs per hand) */
+  dumbbellIncrement: number;
+  /** Machine/cable increment (lbs) */
+  machineIncrement: number;
+  /** Isolation exercise increment (lbs) — smaller to avoid big % jumps on light weights */
+  isolationIncrement: number;
+  /** Maximum % jump allowed per session (caps absolute increment) */
+  maxProgressionPct: number;
 
   // ── Exercise Selection ───────────────────────────────────────────────
   /** Score penalty for exercises never used */
@@ -150,6 +160,11 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   regressionWeightMultiplier: 0.92,
   sleepCoefficientMinimum: 0.10,
   sleepDeltaThreshold: -0.10,
+  barbellIncrement: 5,
+  dumbbellIncrement: 5,
+  machineIncrement: 5,
+  isolationIncrement: 2.5,
+  maxProgressionPct: 0.10,
 
   // Exercise selection
   neverUsedPenalty: -8,

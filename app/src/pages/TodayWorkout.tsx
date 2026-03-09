@@ -28,19 +28,13 @@ export default function TodayWorkout() {
   const [defaultDuration, setDefaultDuration] = useState(75)
   const [durationOverride, setDurationOverride] = useState<number | null>(null)
   const [finishByTime, setFinishByTime] = useState('')
+  const [cachedProfile, setCachedProfile] = useState<TrainingProfile | null>(null)
 
   useEffect(() => {
     if (user) generate()
   }, [user])
 
-  const buildOverrides = (): SessionOverrides | undefined => {
-    const o: SessionOverrides = {}
-    if (durationOverride != null) o.durationMinutes = durationOverride
-    if (finishByTime) o.finishByTime = finishByTime
-    return Object.keys(o).length > 0 ? o : undefined
-  }
-
-  const generate = async () => {
+  const generate = async (overrides?: SessionOverrides) => {
     if (!user) return
     setViewState('loading')
     try {
@@ -56,7 +50,8 @@ export default function TodayWorkout() {
         setDefaultDuration(Number(prefsData.session_duration_minutes))
       }
 
-      const tp = await computeTrainingProfile(user.id)
+      const tp = cachedProfile ?? await computeTrainingProfile(user.id)
+      if (!cachedProfile) setCachedProfile(tp)
       setProfile(tp)
 
       if (tp.trainingAgeDays < 7) {
@@ -64,7 +59,7 @@ export default function TodayWorkout() {
         return
       }
 
-      const w = await generateWorkout(tp, buildOverrides())
+      const w = await generateWorkout(tp, overrides)
       setWorkout(w)
       setViewState('ready')
       saveGeneratedWorkout(user.id, w).catch(e => logError('Save generated workout failed (non-blocking)', e))
@@ -75,9 +70,43 @@ export default function TodayWorkout() {
     }
   }
 
+  const regenerateWithOverrides = async (
+    duration: number | null,
+    finishBy: string
+  ) => {
+    setRegenerating(true)
+    const o: SessionOverrides = {}
+    if (duration != null) o.durationMinutes = duration
+    if (finishBy) o.finishByTime = finishBy
+    await generate(Object.keys(o).length > 0 ? o : undefined)
+    setRegenerating(false)
+    showToast('Workout regenerated', 'success')
+  }
+
+  const handleDurationClick = (mins: number) => {
+    const newDuration = mins === defaultDuration && durationOverride === null
+      ? null
+      : mins === durationOverride ? null : mins
+    setDurationOverride(newDuration)
+    regenerateWithOverrides(newDuration, finishByTime)
+  }
+
+  const handleFinishByChange = (time: string) => {
+    setFinishByTime(time)
+    if (time) regenerateWithOverrides(durationOverride, time)
+  }
+
+  const handleClearFinishBy = () => {
+    setFinishByTime('')
+    regenerateWithOverrides(durationOverride, '')
+  }
+
   const handleRegenerate = async () => {
     setRegenerating(true)
-    await generate()
+    const o: SessionOverrides = {}
+    if (durationOverride != null) o.durationMinutes = durationOverride
+    if (finishByTime) o.finishByTime = finishByTime
+    await generate(Object.keys(o).length > 0 ? o : undefined)
     setRegenerating(false)
     showToast('Workout regenerated', 'success')
   }
@@ -214,7 +243,7 @@ export default function TodayWorkout() {
         <div className={styles.emptyState}>
           <h2>Generation Failed</h2>
           <p>{errorMsg}</p>
-          <Button onClick={generate}>Try Again</Button>
+          <Button onClick={() => generate()}>Try Again</Button>
         </div>
       </div>
     )
@@ -255,7 +284,8 @@ export default function TodayWorkout() {
                   className={`${styles.durationBtn} ${
                     (durationOverride ?? defaultDuration) === mins ? styles.durationBtnActive : ''
                   }`}
-                  onClick={() => setDurationOverride(mins === defaultDuration ? null : mins)}
+                  onClick={() => handleDurationClick(mins)}
+                  disabled={regenerating}
                 >
                   {mins}m
                 </button>
@@ -268,11 +298,12 @@ export default function TodayWorkout() {
               type="time"
               className={styles.finishByInput}
               value={finishByTime}
-              onChange={e => setFinishByTime(e.target.value)}
+              onChange={e => handleFinishByChange(e.target.value)}
               placeholder="No deadline"
+              disabled={regenerating}
             />
             {finishByTime && (
-              <button className={styles.clearBtn} onClick={() => setFinishByTime('')}>Clear</button>
+              <button className={styles.clearBtn} onClick={handleClearFinishBy} disabled={regenerating}>Clear</button>
             )}
           </div>
           {(durationOverride != null || finishByTime) && (

@@ -1172,21 +1172,30 @@ function stepPrescribe(
         targetWeight = Math.round(targetWeight * cfg.deloadWeightMultiplier);
         adjustments.push(`Deload: weight at ${Math.round(cfg.deloadWeightMultiplier * 100)}% (${targetWeight} lbs)`);
       } else {
-        // RIR-driven progression: infer from last session
-        // If user hit more reps than prescribed target -> was too easy -> bump weight
+        // Equipment-appropriate increment: barbell > dumbbell > machine > isolation
+        const baseIncrement = role === 'isolation' || role === 'corrective'
+          ? cfg.isolationIncrement
+          : equipment.includes('barbell')
+            ? cfg.barbellIncrement
+            : equipment.includes('dumbbell')
+              ? cfg.dumbbellIncrement
+              : cfg.machineIncrement;
+
+        // Cap: never jump more than maxProgressionPct of current weight
+        const maxJump = Math.round(targetWeight * cfg.maxProgressionPct);
+        const increment = Math.min(baseIncrement, Math.max(maxJump, 2.5));
+
         const lastReps = prog.bestSet.reps;
         if (lastReps >= repRange.target + cfg.repsAboveTargetForProgression && prog.status === 'progressing') {
-          const increment = equipment.includes('barbell') ? 5 :
-                           equipment.includes('dumbbell') ? 5 : 5;
           targetWeight = targetWeight + increment;
-          adjustments.push(`RIR progression: +${increment} lbs — you exceeded target reps last session (${lastReps} vs ${repRange.target})`);
+          adjustments.push(`Progressive overload: +${increment} lbs (last session: ${lastReps} reps vs ${repRange.target} target)`);
         } else if (prog.status === 'stalled') {
           adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
         } else if (prog.status === 'regressing') {
           targetWeight = Math.round(targetWeight * cfg.regressionWeightMultiplier);
           adjustments.push(`Regressing: reduced to ${targetWeight} lbs (${Math.round(cfg.regressionWeightMultiplier * 100)}% of ${prog.lastWeight})`);
         } else if (prog.status === 'progressing') {
-          adjustments.push(`Progressing — maintain ${targetWeight} lbs at RIR ${rir}`);
+          adjustments.push(`Carry forward: ${targetWeight} lbs at RIR ${rir} (progressing)`);
         }
       }
 

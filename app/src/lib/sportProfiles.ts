@@ -109,44 +109,34 @@ const GOLF: SportProfile = {
   ],
 
   muscleGroupPriorities: [
-    { muscleGroup: 'core', volumeMultiplier: 1.20, reason: 'Rotational power and stability are the foundation of the golf swing' },
-    { muscleGroup: 'glutes', volumeMultiplier: 1.15, reason: 'Hip drive generates swing speed from the ground up' },
-    { muscleGroup: 'posterior_deltoid', volumeMultiplier: 1.10, reason: 'Shoulder stability and rotator cuff health protect the swing' },
-    { muscleGroup: 'forearms', volumeMultiplier: 1.10, reason: 'Grip and wrist control at impact' },
-    { muscleGroup: 'back_lats', volumeMultiplier: 1.05, reason: 'Lat engagement stabilises the downswing' },
+    { muscleGroup: 'core', volumeMultiplier: 1.0, reason: 'Rotational power and stability help the golf swing' },
+    { muscleGroup: 'glutes', volumeMultiplier: 1.0, reason: 'Hip drive generates swing speed' },
+    { muscleGroup: 'posterior_deltoid', volumeMultiplier: 1.0, reason: 'Shoulder stability protects the swing' },
+    { muscleGroup: 'forearms', volumeMultiplier: 1.0, reason: 'Grip and wrist control at impact' },
   ],
 
-  exerciseLimits: [
-    { exerciseName: 'behind the neck press', penalty: -4, reason: 'High impingement risk — restricts thoracic rotation' },
-    { exerciseName: 'upright row', penalty: -3, reason: 'Internal rotation under load — shoulder impingement risk' },
-  ],
+  exerciseLimits: [],
 
-  prehabExercises: [
-    { exerciseName: 'dead bug', sets: 2, reps: 8, restSec: 30, reason: 'Core stability — prevents early extension' },
-    { exerciseName: 'pallof press', sets: 2, reps: 10, restSec: 30, reason: 'Anti-rotation — consistent swing plane' },
-    { exerciseName: 'face pull', sets: 2, reps: 15, restSec: 30, reason: 'Shoulder health — external rotation balance' },
-    { exerciseName: 'bird dog', sets: 2, reps: 8, restSec: 30, reason: 'Spinal stability — low back protection' },
-    { exerciseName: 'band pull apart', sets: 2, reps: 15, restSec: 30, reason: 'Scapular control' },
-  ],
+  prehabExercises: [],
 
   seasonModifiers: {
     off_season: {
       volumeMultiplier: 1.0,
       intensityMultiplier: 1.0,
-      prehabFrequency: 0.5,
-      description: 'Build phase — normal gym volume, moderate prehab',
+      prehabFrequency: 0,
+      description: 'Normal training — golf-transfer exercises get a slight scoring boost',
     },
     pre_season: {
-      volumeMultiplier: 0.95,
+      volumeMultiplier: 1.0,
       intensityMultiplier: 1.0,
-      prehabFrequency: 0.7,
-      description: 'Ramp phase — slightly less volume, more prehab as rounds increase',
+      prehabFrequency: 0,
+      description: 'Normal training — golf-transfer exercises get a slight scoring boost',
     },
     in_season: {
-      volumeMultiplier: 0.85,
-      intensityMultiplier: 0.95,
-      prehabFrequency: 0.8,
-      description: 'Maintain phase — reduce gym volume to stay fresh for the course, prioritise prehab',
+      volumeMultiplier: 1.0,
+      intensityMultiplier: 1.0,
+      prehabFrequency: 0,
+      description: 'Normal training — golf-transfer exercises get a slight scoring boost',
     },
   },
 }

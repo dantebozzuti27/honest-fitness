@@ -10,6 +10,7 @@ import { personalizationRouter } from './personalization.js'
 import { outputRouter } from './output.js'
 import { pipelineRouter } from './pipeline.js'
 import { chatRouter } from './chat.js'
+import { insightsRouter } from './insights.js'
 import { authenticate } from '../middleware/auth.js'
 
 export const apiRouter = express.Router()
@@ -34,4 +35,7 @@ apiRouter.use('/pipeline', pipelineRouter)
 
 // Chat (frontend /api/chat)
 apiRouter.use('/chat', chatRouter)
+
+// LLM insights (frontend /api/insights)
+apiRouter.use('/insights', insightsRouter)
 

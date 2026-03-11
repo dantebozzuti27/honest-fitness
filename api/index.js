@@ -10,19 +10,29 @@ const app = express()
 // Request ID (observability)
 app.use(requestId)
 
-// CORS configuration - only allow explicitly configured origins
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
-  : ['http://localhost:5173', 'http://localhost:3000']
+// CORS configuration
+const allowedOrigins = (() => {
+  const origins = new Set(['http://localhost:5173', 'http://localhost:3000'])
+  if (process.env.ALLOWED_ORIGINS) {
+    process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean).forEach(o => origins.add(o))
+  }
+  // Auto-detect Vercel deployment URL so CORS works without manual ALLOWED_ORIGINS config
+  if (process.env.VERCEL_URL) origins.add(`https://${process.env.VERCEL_URL}`)
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) origins.add(`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`)
+  // Common Vercel production patterns
+  const publicSite = process.env.VITE_PUBLIC_SITE_URL
+  if (publicSite) origins.add(publicSite.replace(/\/$/, ''))
+  return [...origins]
+})()
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, Capacitor)
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true)
-    } else {
-      callback(new Error('Not allowed by CORS'))
-    }
+    if (!origin) return callback(null, true)
+    // Allow same-project Vercel preview deployments
+    if (origin.endsWith('.vercel.app') && origin.includes('honest-fitness')) return callback(null, true)
+    if (allowedOrigins.includes(origin)) return callback(null, true)
+    callback(new Error('Not allowed by CORS'))
   },
   credentials: true
 }))

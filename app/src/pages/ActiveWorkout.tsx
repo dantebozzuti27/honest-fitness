@@ -422,7 +422,7 @@ export default function ActiveWorkout() {
             // If saveActiveWorkoutSession returns null, table/column doesn't exist - that's okay, use localStorage
             lastSavedExercisesRef.current = exercisesStr
 
-            // Also save to localStorage as backup
+            // Also save to localStorage as backup (include generated workout name/id for restore)
             localStorage.setItem(`activeWorkout_${userId}`, JSON.stringify({
               exercises,
               workoutTime,
@@ -431,6 +431,8 @@ export default function ActiveWorkout() {
               sessionType,
               sessionTypeMode,
               templateId,
+              generatedWorkoutName: generatedWorkoutNameRef.current,
+              generatedWorkoutId: generatedWorkoutIdRef.current,
               date: getTodayEST(),
               timestamp: Date.now()
             }))
@@ -957,6 +959,14 @@ export default function ActiveWorkout() {
               // Restore if it's recent (within last 2 hours - reduced from 24 hours)
               const workoutAge = workoutData.timestamp ? (Date.now() - workoutData.timestamp) : Infinity
               const isRecent = workoutAge < 7200000 // 2 hours
+
+              // Restore generated workout name/id refs from backup so they survive remounts
+              if (workoutData.generatedWorkoutName && !generatedWorkoutNameRef.current) {
+                generatedWorkoutNameRef.current = workoutData.generatedWorkoutName
+              }
+              if (workoutData.generatedWorkoutId && !generatedWorkoutIdRef.current) {
+                generatedWorkoutIdRef.current = workoutData.generatedWorkoutId
+              }
               
               if (workoutData.timestamp && workoutAge < 86400000) { // Still check up to 24 hours for prompt
                 if (workoutData.exercises && Array.isArray(workoutData.exercises) && workoutData.exercises.length > 0) {
@@ -1132,6 +1142,40 @@ export default function ActiveWorkout() {
           // Don't persist an empty session to the DB — the auto-save will
           // create the DB record once the first exercise is added.
         }
+
+        // ALWAYS restore generated workout name/id from any available source.
+        // This covers the case where exercises were restored from the DB session
+        // (which doesn't store the name), or after a component remount where the
+        // sessionStorage was already consumed on the first mount.
+        if (!generatedWorkoutNameRef.current) {
+          // Try 1: localStorage persist key (most reliable, set on first mount)
+          if (generatedWorkoutNamePersistKey) {
+            try {
+              const persistedName = localStorage.getItem(generatedWorkoutNamePersistKey)
+              if (persistedName) {
+                generatedWorkoutNameRef.current = persistedName
+              }
+            } catch { /* localStorage unavailable */ }
+          }
+          // Try 2: localStorage backup (from auto-save)
+          if (!generatedWorkoutNameRef.current) {
+            try {
+              const saved = localStorage.getItem(`activeWorkout_${userId}`)
+              if (saved) {
+                const backup = JSON.parse(saved)
+                if (backup.generatedWorkoutName) {
+                  generatedWorkoutNameRef.current = backup.generatedWorkoutName
+                  if (generatedWorkoutNamePersistKey) {
+                    localStorage.setItem(generatedWorkoutNamePersistKey, backup.generatedWorkoutName)
+                  }
+                }
+                if (backup.generatedWorkoutId && !generatedWorkoutIdRef.current) {
+                  generatedWorkoutIdRef.current = backup.generatedWorkoutId
+                }
+              }
+            } catch { /* localStorage unavailable */ }
+          }
+        }
       } catch (error) {
         logError('Error loading workout session', error)
         
@@ -1142,6 +1186,14 @@ export default function ActiveWorkout() {
             const workoutData = JSON.parse(saved)
             const workoutAge = workoutData.timestamp ? (Date.now() - workoutData.timestamp) : Infinity
             const isRecent = workoutAge < 7200000 // 2 hours
+
+            // Restore generated workout name/id refs from backup
+            if (workoutData.generatedWorkoutName && !generatedWorkoutNameRef.current) {
+              generatedWorkoutNameRef.current = workoutData.generatedWorkoutName
+            }
+            if (workoutData.generatedWorkoutId && !generatedWorkoutIdRef.current) {
+              generatedWorkoutIdRef.current = workoutData.generatedWorkoutId
+            }
             
             if (workoutData.timestamp && workoutAge < 86400000) {
               if (workoutData.exercises && Array.isArray(workoutData.exercises) && workoutData.exercises.length > 0) {
@@ -1305,6 +1357,8 @@ export default function ActiveWorkout() {
               sessionType: sessionTypeRef.current,
               sessionTypeMode: sessionTypeModeRef.current,
               templateId,
+              generatedWorkoutName: generatedWorkoutNameRef.current,
+              generatedWorkoutId: generatedWorkoutIdRef.current,
               date: getTodayEST(),
               timestamp: Date.now()
             }))
@@ -1320,6 +1374,8 @@ export default function ActiveWorkout() {
                 sessionType: sessionTypeRef.current,
                 sessionTypeMode: sessionTypeModeRef.current,
                 templateId,
+                generatedWorkoutName: generatedWorkoutNameRef.current,
+                generatedWorkoutId: generatedWorkoutIdRef.current,
                 date: getTodayEST(),
                 timestamp: Date.now()
               }))
@@ -2026,12 +2082,27 @@ export default function ActiveWorkout() {
       duration: workoutTime,
       workoutStartTime: new Date(workoutStartMs).toISOString(),
       workoutEndTime: new Date(workoutEndMs).toISOString(),
-      templateName: sessionType === 'recovery' ? 'Recovery Session' : (
-        templateId
-        || generatedWorkoutNameRef.current
-        || (generatedWorkoutNamePersistKey ? (() => { try { return localStorage.getItem(generatedWorkoutNamePersistKey) } catch { return null } })() : null)
-        || 'Freestyle'
-      ),
+      templateName: (() => {
+        if (sessionType === 'recovery') return 'Recovery Session'
+        if (templateId) return templateId
+        if (generatedWorkoutNameRef.current) return generatedWorkoutNameRef.current
+        // Persist key fallback
+        if (generatedWorkoutNamePersistKey) {
+          try {
+            const persisted = localStorage.getItem(generatedWorkoutNamePersistKey)
+            if (persisted) return persisted
+          } catch { /* localStorage unavailable */ }
+        }
+        // localStorage backup fallback
+        try {
+          const saved = localStorage.getItem(`activeWorkout_${userId}`)
+          if (saved) {
+            const backup = JSON.parse(saved)
+            if (backup.generatedWorkoutName) return backup.generatedWorkoutName
+          }
+        } catch { /* localStorage unavailable */ }
+        return 'Freestyle'
+      })(),
       sessionType: sessionType,
       perceivedEffort: feedback.rpe,
       moodAfter: feedback.moodAfter,
@@ -2040,7 +2111,16 @@ export default function ActiveWorkout() {
       workoutCaloriesBurned: workoutCaloriesBurned,
       workoutSteps: workoutSteps,
       trainingDensity: trainingDensity,
-      generatedWorkoutId: generatedWorkoutIdRef.current || null,
+      generatedWorkoutId: generatedWorkoutIdRef.current || (() => {
+        try {
+          const saved = localStorage.getItem(`activeWorkout_${userId}`)
+          if (saved) {
+            const backup = JSON.parse(saved)
+            if (backup.generatedWorkoutId) return backup.generatedWorkoutId
+          }
+        } catch { /* localStorage unavailable */ }
+        return null
+      })(),
       // IMPORTANT: Include ALL exercises from the workout, don't filter any out
       // Only filter sets to show valid ones, but keep all exercises
       exercises: exercises.map((ex: any) => ({

@@ -124,10 +124,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   // - Otherwise generate one (and use it for this write).
   const workoutId = isUuidV4(workoutToSave?.id) ? workoutToSave.id : uuidv4()
 
-  // #13: Mark AI-generated workouts via template_name when generated_workout_id is present
-  const templateName = workoutToSave.generatedWorkoutId
-    ? `${workoutToSave.templateName || 'Generated'} (AI)`
-    : workoutToSave.templateName || null
+  const templateName = workoutToSave.templateName || null
 
   const upsertPayload: Record<string, any> = {
     id: workoutId,

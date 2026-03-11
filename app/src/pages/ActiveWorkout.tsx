@@ -186,6 +186,7 @@ export default function ActiveWorkout() {
   const didQuickAddRef = useRef(false)
   const generatedWorkoutIdRef = useRef<string | null>(null)
   const generatedWorkoutNameRef = useRef<string | null>(null)
+  const generatedWorkoutNamePersistKey = userId ? `generatedWorkoutName_${userId}` : null
 
   // Keep refs in sync with the latest state so event listeners always read fresh values.
   useEffect(() => { exercisesRef.current = Array.isArray(exercises) ? exercises : [] }, [exercises])
@@ -1099,6 +1100,9 @@ export default function ActiveWorkout() {
                 setExercises(prePopulated)
                 generatedWorkoutIdRef.current = generated.generated_workout_id || null
                 generatedWorkoutNameRef.current = generated.templateName || null
+                if (generated.templateName && generatedWorkoutNamePersistKey) {
+                  try { localStorage.setItem(generatedWorkoutNamePersistKey, generated.templateName) } catch {}
+                }
               }
             }
           } catch (_) {}
@@ -2000,7 +2004,12 @@ export default function ActiveWorkout() {
       duration: workoutTime,
       workoutStartTime: new Date(workoutStartMs).toISOString(),
       workoutEndTime: new Date(workoutEndMs).toISOString(),
-      templateName: sessionType === 'recovery' ? 'Recovery Session' : (templateId || generatedWorkoutNameRef.current || 'Freestyle'),
+      templateName: sessionType === 'recovery' ? 'Recovery Session' : (
+        templateId
+        || generatedWorkoutNameRef.current
+        || (generatedWorkoutNamePersistKey ? (() => { try { return localStorage.getItem(generatedWorkoutNamePersistKey) } catch { return null } })() : null)
+        || 'Freestyle'
+      ),
       sessionType: sessionType,
       perceivedEffort: feedback.rpe,
       moodAfter: feedback.moodAfter,
@@ -2074,11 +2083,25 @@ export default function ActiveWorkout() {
         showToast(sessionType === 'recovery' ? 'Recovery session saved locally!' : 'Workout saved locally!', 'success')
       }
       
-      // Sync Fitbit after workout completes, then fetch intraday metrics for this workout window
+      // Sync Fitbit and fetch intraday workout metrics (HR, calories, steps)
+      // Await this so the data is saved before the user navigates away
       if (userId) {
         triggerFitbitSync(userId)
         if (workout.workoutStartTime && workout.workoutEndTime) {
-          fetchAndSaveWorkoutFitbitMetrics(workout.id, userId, workout.workoutStartTime, workout.workoutEndTime)
+          try {
+            const intradayMetrics = await fetchAndSaveWorkoutFitbitMetrics(
+              workout.id, userId, workout.workoutStartTime, workout.workoutEndTime
+            )
+            // Update displayed metrics with server-side intraday data (more accurate than client diff)
+            if (intradayMetrics) {
+              if (intradayMetrics.totalCalories != null || intradayMetrics.avgHr != null) {
+                setCalculatedWorkoutMetrics(prev => ({
+                  calories: intradayMetrics.totalCalories ?? prev.calories,
+                  steps: intradayMetrics.totalSteps ?? prev.steps,
+                }))
+              }
+            }
+          } catch { /* non-fatal — client-side metrics are already saved */ }
         }
       }
 
@@ -2097,6 +2120,9 @@ export default function ActiveWorkout() {
       restStartTimeRef.current = null
       restDurationRef.current = 0
       lastSavedExercisesRef.current = null
+      if (generatedWorkoutNamePersistKey) {
+        try { localStorage.removeItem(generatedWorkoutNamePersistKey) } catch {}
+      }
 
       const dest = navigateTo || '/fitness'
       navigate(dest)
@@ -2436,6 +2462,9 @@ export default function ActiveWorkout() {
                   setRestTime(0)
                   workoutStartMetricsRef.current = null
                   pausedMetricsRef.current = []
+                  if (generatedWorkoutNamePersistKey) {
+                    try { localStorage.removeItem(generatedWorkoutNamePersistKey) } catch {}
+                  }
                   
                   // Clear from database and localStorage
                   if (userId) {

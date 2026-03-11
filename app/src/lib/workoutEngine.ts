@@ -2679,7 +2679,6 @@ export function generateWeekPreview(profile: TrainingProfile, userRestDays: numb
       const checkDow = (todayDow - daysBack + 7) % 7;
       const pattern = dayOfWeekPatterns[checkDow];
       if (pattern && !pattern.isRestDay && daysBack > 0) {
-        // This was the last training day — find which rotation slot it was
         const lastFocus = pattern.muscleGroupsTypical;
         for (let r = 0; r < rotation.length; r++) {
           const rotGroups = SPLIT_MUSCLE_MAPPING[rotation[r]];
@@ -2691,6 +2690,18 @@ export function generateWeekPreview(profile: TrainingProfile, userRestDays: numb
         break;
       }
     }
+  }
+
+  // First pass: count how many workout days we have
+  const workoutDays: number[] = [];
+  for (let offset = 0; offset < 7; offset++) {
+    const dow = (todayDow + offset) % 7;
+    const hasExplicitRestConfig = restDaySet.size > 0;
+    const isUserRestDay = restDaySet.has(dow);
+    const pattern = dayOfWeekPatterns[dow];
+    const isPatternRest = !pattern || pattern.isRestDay || pattern.frequency < 0.3;
+    const shouldRest = hasExplicitRestConfig ? isUserRestDay : isPatternRest;
+    if (!shouldRest) workoutDays.push(dow);
   }
 
   const previews: DayPreview[] = [];
@@ -2720,18 +2731,36 @@ export function generateWeekPreview(profile: TrainingProfile, userRestDays: numb
       continue;
     }
 
-    // Determine focus from rotation or day pattern
     let focus = '';
     let muscleGroups: string[] = [];
 
-    if (rotation.length > 0 && usedRotationSlots < rotation.length) {
+    if (rotation.length > 0) {
+      // Always assign the next rotation slot to each workout day, wrapping around
       const slot = rotation[(rotationIdx + usedRotationSlots) % rotation.length];
       focus = splitLabels[slot] || slot;
-      muscleGroups = SPLIT_MUSCLE_MAPPING[slot] || pattern.muscleGroupsTypical;
+      muscleGroups = SPLIT_MUSCLE_MAPPING[slot] || [];
       usedRotationSlots++;
-    } else {
+    }
+
+    // If rotation didn't produce muscle groups (no detected split or exhausted rotation),
+    // fall back to the day's historical pattern
+    if (muscleGroups.length === 0 && pattern && pattern.muscleGroupsTypical.length > 0) {
       muscleGroups = pattern.muscleGroupsTypical.slice(0, 4);
-      focus = muscleGroups.slice(0, 3).map(g => g.replace(/_/g, ' ')).join(', ');
+      if (!focus) focus = muscleGroups.slice(0, 3).map(g => g.replace(/_/g, ' ')).join(', ');
+    }
+
+    // If STILL no muscle groups (user toggled a historically-rest day to workout),
+    // assign from rotation wrap or use a generic label based on total workout days
+    if (muscleGroups.length === 0 && !focus) {
+      if (rotation.length > 0) {
+        // Wrap the rotation — keep cycling
+        const slot = rotation[(rotationIdx + usedRotationSlots - 1) % rotation.length];
+        focus = splitLabels[slot] || slot;
+        muscleGroups = SPLIT_MUSCLE_MAPPING[slot] || [];
+      } else {
+        focus = 'Full Body';
+        muscleGroups = [];
+      }
     }
 
     previews.push({

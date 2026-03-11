@@ -48,6 +48,7 @@ export interface WorkoutRecord {
   workout_avg_hr: number | null;
   workout_peak_hr: number | null;
   workout_hr_zones: Record<string, number> | null;
+  workout_calories_burned: number | null;
   workout_exercises: ExerciseRecord[];
 }
 
@@ -83,6 +84,10 @@ export interface HealthRecord {
   steps: number | null;
   calories_burned: number | null;
   body_fat_percentage: number | null;
+  active_minutes_fairly: number | null;
+  active_minutes_very: number | null;
+  active_minutes_lightly: number | null;
+  hr_zones_minutes: Record<string, number> | null;
   source_data?: Record<string, any> | null;
 }
 
@@ -239,6 +244,10 @@ export interface Rolling30DayTrends {
   bodyWeight: MetricTrend;
   bodyFat: MetricTrend;
   estimatedLeanMass: MetricTrend;   // weight × (1 - bf%) when bf% available
+
+  // Energy expenditure (from wearables)
+  caloriesBurned: MetricTrend;      // total daily calories (Fitbit TDEE)
+  activeMinutes: MetricTrend;       // fairly + very active minutes combined
 
   // Overall strength progress
   totalStrengthIndex: MetricTrend;  // sum of e1RM across all tracked lifts per session
@@ -563,7 +572,7 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
     .from('workouts')
     .select(`
       id, date, created_at, duration, template_name, perceived_effort, session_rpe, session_type,
-      workout_avg_hr, workout_peak_hr, workout_hr_zones,
+      workout_avg_hr, workout_peak_hr, workout_hr_zones, workout_calories_burned,
       workout_exercises (
         exercise_name, body_part, exercise_library_id,
         workout_sets ( set_number, weight, reps, time, is_bodyweight, logged_at,
@@ -596,7 +605,7 @@ async function fetchHealthHistory(userId: string, days: number = 120): Promise<H
 
   const { data, error } = await supabase
     .from('health_metrics')
-    .select('date, weight, sleep_duration, sleep_score, hrv, resting_heart_rate, steps, calories_burned, body_fat_percentage')
+    .select('date, weight, sleep_duration, sleep_score, hrv, resting_heart_rate, steps, calories_burned, body_fat_percentage, active_minutes_fairly, active_minutes_very, active_minutes_lightly, hr_zones_minutes')
     .eq('user_id', userId)
     .gte('date', sinceStr)
     .order('date', { ascending: true });
@@ -2927,6 +2936,10 @@ function computeRolling30DayTrends(
   const rhrValues = recentHealth.filter(h => h.resting_heart_rate != null).map(h => h.resting_heart_rate!);
   const stepsValues = recentHealth.filter(h => h.steps != null).map(h => h.steps!);
   const weightValues = recentHealth.filter(h => h.weight != null).map(h => h.weight!);
+  const caloriesValues = recentHealth.filter(h => h.calories_burned != null).map(h => h.calories_burned!);
+  const activeMinValues = recentHealth
+    .filter(h => h.active_minutes_fairly != null || h.active_minutes_very != null)
+    .map(h => (h.active_minutes_fairly || 0) + (h.active_minutes_very || 0));
 
   // Training frequency: sessions per week (bucket into 4 weeks)
   const weekBuckets: number[] = [0, 0, 0, 0];
@@ -3097,6 +3110,8 @@ function computeRolling30DayTrends(
     bodyWeight: buildMetricTrend(weightValues),
     bodyFat: buildMetricTrend(bfValues),
     estimatedLeanMass: buildMetricTrend(leanMassValues),
+    caloriesBurned: buildMetricTrend(caloriesValues),
+    activeMinutes: buildMetricTrend(activeMinValues),
     totalStrengthIndex: buildMetricTrend(sessionStrengthIndices),
     big3Total: buildMetricTrend(topCompoundSessionValues),
     relativeStrength: buildMetricTrend(relativeStrengthValues),
@@ -3516,6 +3531,8 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
       muscleVolumeStatuses,
       { trainingFrequency, avgSessionDuration, consistencyScore, trainingAgeDays },
       fitnessFatigueResult,
+      workouts,
+      health,
     ),
 
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
@@ -3535,6 +3552,8 @@ function computeGoalProgress(
   volumeStatuses: MuscleVolumeStatus[],
   global: { trainingFrequency: number; avgSessionDuration: number; consistencyScore: number; trainingAgeDays: number },
   ffm: { readiness: number; fitnessLevel: number; fatigueLevel: number },
+  workouts: WorkoutRecord[],
+  health: HealthRecord[],
 ): GoalProgress | null {
   const goal: string = prefs?.primary_goal ?? prefs?.training_goal ?? null;
   if (!goal) return null;
@@ -3546,78 +3565,88 @@ function computeGoalProgress(
 
   const signals: GoalSignal[] = [];
   const alignment: WorkoutAlignmentItem[] = [];
+
+  // Scoring: each signal contributes (trendScore * weight).
+  // trendScore: positive=1, neutral=0.5, negative=0.
+  // But we also support an "outcomeMultiplier" that caps the final score
+  // when the primary outcome metric is failing.
   let scoreSum = 0;
   let weightSum = 0;
+  let outcomeCap = 100; // Primary outcome metric can cap the total score
 
-  const addSignal = (s: GoalSignal) => { signals.push(s); scoreSum += (s.trend === 'positive' ? 1 : s.trend === 'negative' ? 0 : 0.5) * s.weight * 100; weightSum += s.weight; };
+  const addSignal = (s: GoalSignal) => {
+    signals.push(s);
+    const trendScore = s.trend === 'positive' ? 1 : s.trend === 'negative' ? 0 : 0.5;
+    scoreSum += trendScore * s.weight * 100;
+    weightSum += s.weight;
+  };
 
   const progressing = progressions.filter(p => p.status === 'progressing').length;
   const regressing = progressions.filter(p => p.status === 'regressing').length;
   const total = progressions.length;
 
-  // -- Consistency (all goals) --
+  // ─── CONSISTENCY (all goals, reduced weight for fat_loss) ──────────
+  const consistencyWeight = goal === 'fat_loss' ? 0.1 : 0.15;
   addSignal({
     label: 'Consistency', value: `${Math.round(global.consistencyScore * 100)}%`,
     trend: global.consistencyScore >= 0.7 ? 'positive' : global.consistencyScore >= 0.4 ? 'neutral' : 'negative',
-    detail: global.consistencyScore >= 0.7 ? 'Training consistently — this is the #1 factor for any goal' : 'Inconsistent training slows progress toward any goal',
-    weight: 0.2,
+    detail: global.consistencyScore >= 0.7 ? 'Training consistently — necessary but not sufficient for any goal' : 'Inconsistent training slows progress toward any goal',
+    weight: consistencyWeight,
   });
 
-  // -- Frequency (all goals) --
+  // ─── FREQUENCY (all goals, reduced weight for fat_loss) ────────────
   const freqTarget = goal === 'strength' || goal === 'hypertrophy' ? 4 : 3;
+  const freqWeight = goal === 'fat_loss' ? 0.05 : 0.1;
   addSignal({
     label: 'Training Frequency', value: `${global.trainingFrequency.toFixed(1)} days/wk`,
     trend: global.trainingFrequency >= freqTarget ? 'positive' : global.trainingFrequency >= freqTarget - 1 ? 'neutral' : 'negative',
-    detail: global.trainingFrequency >= freqTarget ? `Hitting ${freqTarget}+ sessions/week supports your ${goalLabels[goal] || goal} goal` : `${goal === 'hypertrophy' ? 'Muscle growth' : 'Strength gains'} benefit from ${freqTarget}+ sessions/week`,
-    weight: 0.15,
+    detail: global.trainingFrequency >= freqTarget ? `Hitting ${freqTarget}+ sessions/week` : `Below ${freqTarget} sessions/week target`,
+    weight: freqWeight,
   });
 
   if (goal === 'strength') {
-    // Strength Index trend
     if (trends.totalStrengthIndex.dataPoints >= 3) {
+      const trend = trends.totalStrengthIndex.direction;
       addSignal({
         label: 'Strength Index', value: `${trends.totalStrengthIndex.current?.toFixed(0) ?? '—'}`,
-        trend: trends.totalStrengthIndex.direction === 'up' ? 'positive' : trends.totalStrengthIndex.direction === 'down' ? 'negative' : 'neutral',
-        detail: trends.totalStrengthIndex.direction === 'up' ? `Strength index rising ${Math.abs(trends.totalStrengthIndex.slopePct).toFixed(1)}%/wk — compound lifts are progressing` : 'Strength stalling — consider deload or nutrition adjustment',
-        weight: 0.25,
+        trend: trend === 'up' ? 'positive' : trend === 'down' ? 'negative' : 'neutral',
+        detail: trend === 'up' ? `Strength index rising ${Math.abs(trends.totalStrengthIndex.slopePct).toFixed(1)}%/wk` : 'Strength stalling — consider deload or nutrition adjustment',
+        weight: 0.30,
       });
+      if (trend !== 'up') outcomeCap = 55;
     }
-    // Progression rate
     if (total > 0) {
-      const pctProgressing = progressing / total;
+      const pctProg = progressing / total;
       addSignal({
         label: 'Lift Progression', value: `${progressing}/${total} lifts progressing`,
-        trend: pctProgressing >= 0.5 ? 'positive' : pctProgressing >= 0.3 ? 'neutral' : 'negative',
-        detail: pctProgressing >= 0.5 ? 'Majority of lifts are progressing — strong signal for strength gains' : `${regressing} lifts regressing — may need intensity cycling or deload`,
-        weight: 0.2,
+        trend: pctProg >= 0.5 ? 'positive' : pctProg >= 0.3 ? 'neutral' : 'negative',
+        detail: pctProg >= 0.5 ? 'Majority of lifts progressing' : `${regressing} lifts regressing`,
+        weight: 0.20,
       });
     }
-    // Volume load trend
     if (trends.totalVolumeLoad.dataPoints >= 3) {
       addSignal({
-        label: 'Volume Load', value: `${trends.totalVolumeLoad.direction === 'up' ? '↑' : trends.totalVolumeLoad.direction === 'down' ? '↓' : '→'} ${Math.abs(trends.totalVolumeLoad.slopePct).toFixed(1)}%/wk`,
+        label: 'Volume Load', value: `${Math.abs(trends.totalVolumeLoad.slopePct).toFixed(1)}%/wk ${trends.totalVolumeLoad.direction === 'up' ? '↑' : trends.totalVolumeLoad.direction === 'down' ? '↓' : '→'}`,
         trend: trends.totalVolumeLoad.direction === 'up' ? 'positive' : trends.totalVolumeLoad.direction === 'down' ? 'negative' : 'neutral',
-        detail: 'Progressive overload through volume is key for strength adaptation',
+        detail: 'Progressive overload through volume drives strength adaptation',
         weight: 0.15,
       });
     }
-    // Alignment
     const avgDur = global.avgSessionDuration / 60;
-    alignment.push({ factor: 'Session Duration', status: avgDur >= 45 ? 'aligned' : 'partial', detail: avgDur >= 45 ? `${Math.round(avgDur)} min avg — enough time for heavy compounds + rest` : `${Math.round(avgDur)} min avg — strength needs 45+ min for adequate rest between heavy sets` });
+    alignment.push({ factor: 'Session Duration', status: avgDur >= 45 ? 'aligned' : 'partial', detail: avgDur >= 45 ? `${Math.round(avgDur)} min avg — adequate for heavy compounds + rest` : `${Math.round(avgDur)} min avg — strength needs 45+ min for rest between heavy sets` });
     const compoundPct = progressions.filter(p => p.exerciseName.match(/squat|bench|deadlift|press|row/i)).length / Math.max(total, 1);
-    alignment.push({ factor: 'Compound Focus', status: compoundPct >= 0.3 ? 'aligned' : 'partial', detail: compoundPct >= 0.3 ? 'Training includes compound movements — core of strength development' : 'Add more compound lifts (squat, bench, deadlift, OHP, rows) for faster strength gains' });
+    alignment.push({ factor: 'Compound Focus', status: compoundPct >= 0.3 ? 'aligned' : 'partial', detail: compoundPct >= 0.3 ? 'Training includes compound movements' : 'More compound lifts needed for faster strength gains' });
 
   } else if (goal === 'hypertrophy') {
-    // Volume trend
     if (trends.totalWeeklyVolume.dataPoints >= 3) {
       addSignal({
         label: 'Weekly Volume', value: `${trends.totalWeeklyVolume.current?.toFixed(0) ?? '—'} sets/wk`,
         trend: trends.totalWeeklyVolume.direction === 'up' ? 'positive' : trends.totalWeeklyVolume.direction === 'down' ? 'negative' : 'neutral',
-        detail: trends.totalWeeklyVolume.direction === 'up' ? 'Volume is increasing — progressive overload drives hypertrophy' : 'Volume stalling — muscle growth requires progressive volume increases',
-        weight: 0.2,
+        detail: trends.totalWeeklyVolume.direction === 'up' ? 'Volume increasing — progressive overload drives hypertrophy' : 'Volume stalling — growth requires progressive volume increases',
+        weight: 0.25,
       });
+      if (trends.totalWeeklyVolume.direction === 'down') outcomeCap = 60;
     }
-    // Muscle volume coverage
     const inMav = volumeStatuses.filter(v => v.status === 'in_mav').length;
     const belowMev = volumeStatuses.filter(v => v.status === 'below_mev').length;
     const totalMuscles = volumeStatuses.length;
@@ -3625,76 +3654,203 @@ function computeGoalProgress(
       addSignal({
         label: 'Volume Coverage', value: `${inMav}/${totalMuscles} in growth range`,
         trend: inMav >= totalMuscles * 0.5 ? 'positive' : belowMev >= totalMuscles * 0.5 ? 'negative' : 'neutral',
-        detail: inMav >= totalMuscles * 0.5 ? 'Most muscle groups are in the effective volume range for hypertrophy' : `${belowMev} muscle groups below minimum effective volume — not enough stimulus for growth`,
-        weight: 0.2,
+        detail: inMav >= totalMuscles * 0.5 ? 'Most muscle groups in effective volume range' : `${belowMev} muscle groups below minimum effective volume`,
+        weight: 0.20,
       });
     }
-    // Weight trend (lean bulk = slight gain)
     if (bwt.currentWeight != null) {
-      const weightGoal = prefs?.weight_goal_lbs;
       addSignal({
         label: 'Body Weight', value: `${bwt.currentWeight} lbs (${bwt.slope > 0 ? '+' : ''}${bwt.slope} lbs/wk)`,
         trend: bwt.slope >= 0.1 && bwt.slope <= 1.0 ? 'positive' : bwt.slope > 1.0 ? 'neutral' : bwt.slope < -0.3 ? 'negative' : 'neutral',
-        detail: bwt.slope >= 0.1 && bwt.slope <= 1.0 ? 'Slow weight gain supports lean muscle growth' : bwt.slope > 1.0 ? 'Gaining fast — surplus may be too aggressive, more fat than muscle' : bwt.slope < -0.3 ? 'Losing weight makes muscle gain much harder — consider eating more' : `Maintaining${weightGoal ? ` (goal: ${weightGoal} lbs)` : ''}`,
-        weight: 0.15,
+        detail: bwt.slope >= 0.1 && bwt.slope <= 1.0 ? 'Slow weight gain supports lean muscle growth' : bwt.slope > 1.0 ? 'Surplus may be too aggressive' : bwt.slope < -0.3 ? 'Losing weight makes muscle gain harder' : 'Maintaining weight',
+        weight: 0.10,
       });
     }
-    // Progression rate
     if (total > 0) {
-      const pctProgressing = progressing / total;
+      const pctProg = progressing / total;
       addSignal({
         label: 'Lift Progression', value: `${progressing}/${total} progressing`,
-        trend: pctProgressing >= 0.4 ? 'positive' : pctProgressing >= 0.2 ? 'neutral' : 'negative',
-        detail: pctProgressing >= 0.4 ? 'Progressive overload intact — muscles getting stronger stimulus each session' : 'Stalling lifts reduce hypertrophy stimulus — vary rep ranges or exercises',
+        trend: pctProg >= 0.4 ? 'positive' : pctProg >= 0.2 ? 'neutral' : 'negative',
+        detail: pctProg >= 0.4 ? 'Progressive overload intact' : 'Stalling lifts reduce hypertrophy stimulus',
         weight: 0.15,
       });
     }
-    // Alignment
-    alignment.push({ factor: 'Rep Ranges', status: 'aligned', detail: 'Engine prescribes 8-15 rep ranges optimized for hypertrophy when this is your goal' });
-    alignment.push({ factor: 'Volume per Muscle', status: inMav >= totalMuscles * 0.5 ? 'aligned' : 'misaligned', detail: inMav >= totalMuscles * 0.5 ? `${inMav} muscle groups at effective volume for growth` : `${belowMev} groups below minimum — workouts should add more sets` });
+    alignment.push({ factor: 'Rep Ranges', status: 'aligned', detail: 'Engine prescribes 8-15 rep ranges for hypertrophy' });
+    alignment.push({ factor: 'Volume per Muscle', status: inMav >= totalMuscles * 0.5 ? 'aligned' : 'misaligned', detail: inMav >= totalMuscles * 0.5 ? `${inMav} groups at effective volume` : `${belowMev} groups below minimum — needs more sets` });
 
   } else if (goal === 'fat_loss') {
-    // Weight trend
+    // ════════════════════════════════════════════════════════════════════
+    //  FAT LOSS: Outcome = weight trend. Everything else is supporting.
+    //
+    //  Research basis:
+    //  - Fat loss requires a sustained caloric deficit (Henselmans, 2020)
+    //  - 0.5-1% body weight/wk is evidence-based safe rate (Helms et al. 2014)
+    //  - NEAT (steps) accounts for more daily expenditure than exercise (Levine, 2004)
+    //  - Resistance training preserves lean mass during deficit (Longland et al. 2016)
+    //  - Higher active minutes / HR zone time correlates with greater TDEE
+    //  - If weight isn't moving, everything else is noise
+    // ════════════════════════════════════════════════════════════════════
+
+    // PRIMARY OUTCOME: Weight trend (heaviest weight — if this is flat, score is capped)
     if (bwt.currentWeight != null) {
       const weightGoal = prefs?.weight_goal_lbs;
-      const onTrack = bwt.slope < -0.3 && bwt.slope >= -1.5;
+      const slopePerWeek = bwt.slope; // lbs/week, negative = losing
+      const sustainableRate = bwt.currentWeight * 0.005; // 0.5% BW/wk
+      const aggressiveRate = bwt.currentWeight * 0.01;   // 1% BW/wk
+
+      let trend: 'positive' | 'neutral' | 'negative';
+      let detail: string;
+
+      if (slopePerWeek <= -sustainableRate && slopePerWeek >= -aggressiveRate) {
+        trend = 'positive';
+        detail = `Losing ${Math.abs(slopePerWeek).toFixed(1)} lbs/wk (${(Math.abs(slopePerWeek) / bwt.currentWeight * 100).toFixed(1)}% BW/wk) — evidence-based sustainable rate${weightGoal ? `. Goal: ${weightGoal} lbs` : ''}`;
+      } else if (slopePerWeek < -aggressiveRate) {
+        trend = 'neutral';
+        detail = `Losing ${Math.abs(slopePerWeek).toFixed(1)} lbs/wk — faster than 1% BW/wk risks muscle loss (Helms et al.)`;
+        outcomeCap = 70;
+      } else if (slopePerWeek < 0 && slopePerWeek > -sustainableRate) {
+        trend = 'neutral';
+        detail = `Losing ${Math.abs(slopePerWeek).toFixed(1)} lbs/wk — slow but moving. Consider increasing deficit slightly`;
+        outcomeCap = 65;
+      } else {
+        // NOT LOSING — this is the critical failure case
+        trend = 'negative';
+        detail = slopePerWeek > 0
+          ? `Gaining ${slopePerWeek.toFixed(1)} lbs/wk — no caloric deficit present. You are not in a cut.`
+          : 'Weight flat — no measurable fat loss occurring. Caloric deficit is insufficient.';
+        outcomeCap = 35; // Hard cap: can't score above 35 if not losing weight
+      }
+
       addSignal({
-        label: 'Weight Trend', value: `${bwt.currentWeight} lbs (${bwt.slope > 0 ? '+' : ''}${bwt.slope} lbs/wk)`,
-        trend: onTrack ? 'positive' : bwt.slope >= 0 ? 'negative' : bwt.slope < -1.5 ? 'neutral' : 'neutral',
-        detail: onTrack ? `Losing ${Math.abs(bwt.slope).toFixed(1)} lbs/wk — sustainable fat loss rate${weightGoal ? `. Goal: ${weightGoal} lbs` : ''}` : bwt.slope >= 0 ? 'Not losing weight — caloric deficit may be insufficient or inconsistent' : `Losing ${Math.abs(bwt.slope).toFixed(1)} lbs/wk — rapid loss risks muscle loss`,
-        weight: 0.25,
+        label: 'Weight Trend', value: `${bwt.currentWeight} lbs (${slopePerWeek > 0 ? '+' : ''}${slopePerWeek.toFixed(1)} lbs/wk)`,
+        trend, detail, weight: 0.35,
       });
-      if (weightGoal && bwt.currentWeight > weightGoal && bwt.slope < 0) {
+
+      if (weightGoal && bwt.currentWeight > weightGoal && slopePerWeek < 0) {
         const lbsToGo = bwt.currentWeight - weightGoal;
-        const weeksToGoal = Math.round(lbsToGo / Math.abs(bwt.slope));
+        const weeksToGoal = Math.round(lbsToGo / Math.abs(slopePerWeek));
         addSignal({
           label: 'Weight Goal', value: `${lbsToGo.toFixed(1)} lbs to go`,
-          trend: 'positive', detail: `At current rate, ~${weeksToGoal} weeks to reach ${weightGoal} lbs`,
-          weight: 0.1,
+          trend: 'positive', detail: `At current rate, ~${weeksToGoal} weeks to ${weightGoal} lbs`,
+          weight: 0.05,
         });
       }
-    }
-    // Strength preservation
-    if (total > 0) {
+    } else {
+      // No weight data — can't assess fat loss at all
+      outcomeCap = 30;
       addSignal({
-        label: 'Strength Retention', value: `${regressing}/${total} regressing`,
-        trend: regressing <= Math.ceil(total * 0.2) ? 'positive' : regressing <= Math.ceil(total * 0.4) ? 'neutral' : 'negative',
-        detail: regressing <= Math.ceil(total * 0.2) ? 'Maintaining strength during cut — muscle preservation is on track' : 'Significant strength loss — cut may be too aggressive or protein too low',
-        weight: 0.2,
+        label: 'Weight Trend', value: 'No data',
+        trend: 'negative', detail: 'No body weight data available — cannot assess fat loss progress. Log your weight.',
+        weight: 0.35,
       });
     }
-    // Activity level
-    if (trends.steps.dataPoints >= 3 && trends.steps.current != null) {
+
+    // CALORIES BURNED (from Fitbit TDEE)
+    if (trends.caloriesBurned.dataPoints >= 3 && trends.caloriesBurned.current != null) {
+      const cal = trends.caloriesBurned.current;
+      const calTrend = trends.caloriesBurned.direction;
       addSignal({
-        label: 'Daily Activity', value: `${Math.round(trends.steps.current).toLocaleString()} steps`,
-        trend: trends.steps.current >= 8000 ? 'positive' : trends.steps.current >= 5000 ? 'neutral' : 'negative',
-        detail: trends.steps.current >= 8000 ? 'High NEAT — daily activity amplifies fat loss beyond workouts' : 'Low daily movement — increasing steps is a low-effort way to boost calorie burn',
+        label: 'Daily Calories Burned', value: `${Math.round(cal).toLocaleString()} kcal`,
+        trend: calTrend === 'up' || cal >= 2200 ? 'positive' : cal >= 1800 ? 'neutral' : 'negative',
+        detail: `Fitbit TDEE averaging ${Math.round(cal)} kcal/day (${calTrend === 'up' ? 'trending up' : calTrend === 'down' ? 'trending down' : 'stable'}). ${cal < 2000 ? 'Low expenditure limits the deficit you can create without extreme restriction.' : 'Adequate expenditure — a moderate caloric intake should create a deficit.'}`,
         weight: 0.15,
       });
     }
-    // Alignment
-    alignment.push({ factor: 'Training Intensity', status: regressing <= Math.ceil(total * 0.3) ? 'aligned' : 'misaligned', detail: regressing <= Math.ceil(total * 0.3) ? 'Workouts maintain intensity to preserve muscle during the cut' : 'Too much regression — workouts should prioritize intensity over volume during a cut' });
-    alignment.push({ factor: 'Cardio Component', status: 'aligned', detail: 'Engine includes cardio scaled to your fat loss goal (up to 40% of session time)' });
+
+    // ACTIVE MINUTES (fairly + very active from Fitbit — proxy for exercise intensity)
+    if (trends.activeMinutes.dataPoints >= 3 && trends.activeMinutes.current != null) {
+      const am = trends.activeMinutes.current;
+      // CDC recommends 150 min/wk moderate or 75 min/wk vigorous = ~21-30 min/day
+      addSignal({
+        label: 'Active Minutes', value: `${Math.round(am)} min/day`,
+        trend: am >= 30 ? 'positive' : am >= 15 ? 'neutral' : 'negative',
+        detail: am >= 30 ? `${Math.round(am)} active min/day exceeds CDC recommendations — strong calorie burn contribution` : am >= 15 ? `${Math.round(am)} active min/day — room to increase activity for greater expenditure` : `Only ${Math.round(am)} active min/day — low activity limits caloric deficit`,
+        weight: 0.10,
+      });
+    }
+
+    // DAILY STEPS (NEAT is the largest variable component of TDEE — Levine 2004)
+    if (trends.steps.dataPoints >= 3 && trends.steps.current != null) {
+      const steps = trends.steps.current;
+      addSignal({
+        label: 'Daily Steps (NEAT)', value: `${Math.round(steps).toLocaleString()}`,
+        trend: steps >= 8000 ? 'positive' : steps >= 5000 ? 'neutral' : 'negative',
+        detail: steps >= 8000 ? `${Math.round(steps).toLocaleString()} steps/day — high NEAT is the #1 variable in daily expenditure` : `${Math.round(steps).toLocaleString()} steps/day — NEAT is the largest controllable component of TDEE. More daily movement has higher ROI than extra gym sessions.`,
+        weight: 0.10,
+      });
+    }
+
+    // WORKOUT CALORIE BURN (per-session from Fitbit)
+    const recentWorkoutsWithCal = workouts
+      .filter(w => w.workout_calories_burned != null && w.workout_calories_burned > 0)
+      .slice(-10);
+    if (recentWorkoutsWithCal.length >= 2) {
+      const avgWkCal = recentWorkoutsWithCal.reduce((s, w) => s + (w.workout_calories_burned || 0), 0) / recentWorkoutsWithCal.length;
+      addSignal({
+        label: 'Workout Calorie Burn', value: `~${Math.round(avgWkCal)} kcal/session`,
+        trend: avgWkCal >= 300 ? 'positive' : avgWkCal >= 150 ? 'neutral' : 'negative',
+        detail: `Averaging ${Math.round(avgWkCal)} kcal per workout session over last ${recentWorkoutsWithCal.length} sessions. ${avgWkCal >= 300 ? 'Meaningful contribution to deficit.' : 'Low per-session burn — consider adding cardio or higher-intensity work.'}`,
+        weight: 0.05,
+      });
+    }
+
+    // STRENGTH RETENTION (critical during a cut — Longland et al. 2016)
+    if (total > 0) {
+      const pctRegressing = regressing / total;
+      addSignal({
+        label: 'Strength Retention', value: `${regressing}/${total} lifts regressing`,
+        trend: pctRegressing <= 0.2 ? 'positive' : pctRegressing <= 0.4 ? 'neutral' : 'negative',
+        detail: pctRegressing <= 0.2 ? 'Maintaining strength — strong signal for muscle preservation during cut' : `${regressing} lifts declining — deficit may be too aggressive or protein intake too low`,
+        weight: 0.10,
+      });
+    }
+
+    // WORKOUT HR ZONES — time in fat-burn and cardio zones
+    const recentWorkoutsWithHR = workouts
+      .filter(w => w.workout_hr_zones != null && typeof w.workout_hr_zones === 'object')
+      .slice(-10);
+    if (recentWorkoutsWithHR.length >= 2) {
+      let totalFatBurn = 0;
+      let totalCardio = 0;
+      let totalPeak = 0;
+      for (const w of recentWorkoutsWithHR) {
+        const zones = w.workout_hr_zones as Record<string, number>;
+        totalFatBurn += zones['Fat Burn'] || zones['fat_burn'] || 0;
+        totalCardio += zones['Cardio'] || zones['cardio'] || 0;
+        totalPeak += zones['Peak'] || zones['peak'] || 0;
+      }
+      const avgElevatedMin = (totalFatBurn + totalCardio + totalPeak) / recentWorkoutsWithHR.length;
+      const avgHighIntensity = (totalCardio + totalPeak) / recentWorkoutsWithHR.length;
+      addSignal({
+        label: 'Workout HR Zones', value: `${Math.round(avgElevatedMin)} min elevated/session`,
+        trend: avgHighIntensity >= 15 ? 'positive' : avgHighIntensity >= 5 ? 'neutral' : 'negative',
+        detail: `Avg ${Math.round(avgHighIntensity)} min in cardio/peak zones per session. ${avgHighIntensity >= 15 ? 'Strong cardiovascular stimulus driving calorie burn.' : 'Low time in higher HR zones — more intense cardio or circuit-style training would increase burn.'}`,
+        weight: 0.05,
+      });
+    }
+
+    // ALIGNMENT
+    alignment.push({
+      factor: 'Caloric Deficit',
+      status: bwt.slope < -0.3 ? 'aligned' : 'misaligned',
+      detail: bwt.slope < -0.3
+        ? 'Weight loss confirms a caloric deficit is present'
+        : 'No weight loss = no deficit. Training alone cannot overcome excess calories. This is the single most important factor.',
+    });
+    alignment.push({
+      factor: 'Strength Preservation',
+      status: regressing <= Math.ceil(total * 0.3) ? 'aligned' : 'misaligned',
+      detail: regressing <= Math.ceil(total * 0.3)
+        ? 'Workouts maintain intensity to preserve muscle during the cut'
+        : 'Too many lifts declining — prioritize intensity over volume during a cut',
+    });
+    alignment.push({
+      factor: 'Cardio Component',
+      status: (trends.activeMinutes.current ?? 0) >= 20 ? 'aligned' : 'partial',
+      detail: (trends.activeMinutes.current ?? 0) >= 20
+        ? 'Active minutes support additional calorie burn beyond resistance training'
+        : 'Low active minutes — adding cardio or increasing NEAT would accelerate fat loss',
+    });
 
   } else {
     // General fitness / endurance
@@ -3703,7 +3859,7 @@ function computeGoalProgress(
         label: 'Overall Fitness', value: ffm.fitnessLevel.toFixed(0),
         trend: ffm.readiness >= 0.6 ? 'positive' : ffm.readiness >= 0.4 ? 'neutral' : 'negative',
         detail: `Fitness-fatigue model readiness: ${Math.round(ffm.readiness * 100)}%`,
-        weight: 0.2,
+        weight: 0.25,
       });
     }
     if (total > 0) {
@@ -3711,27 +3867,34 @@ function computeGoalProgress(
         label: 'Progression', value: `${progressing}/${total} exercises improving`,
         trend: progressing >= total * 0.4 ? 'positive' : 'neutral',
         detail: progressing >= total * 0.4 ? 'Steady improvement across exercises' : 'Some exercises stalling — consider varying stimulus',
-        weight: 0.2,
+        weight: 0.20,
       });
     }
-    alignment.push({ factor: 'Balanced Programming', status: 'aligned', detail: 'Workouts blend strength, conditioning, and mobility for well-rounded fitness' });
+    alignment.push({ factor: 'Balanced Programming', status: 'aligned', detail: 'Workouts blend strength, conditioning, and mobility' });
   }
 
-  // -- Readiness (all goals) --
+  // ─── READINESS (all goals, low weight) ──────────────────────────────
   addSignal({
     label: 'Readiness', value: `${Math.round(ffm.readiness * 100)}%`,
     trend: ffm.readiness >= 0.6 ? 'positive' : ffm.readiness >= 0.4 ? 'neutral' : 'negative',
-    detail: ffm.readiness >= 0.6 ? 'Recovery on track — body is adapting well to training load' : 'Fatigue is elevated — workouts are auto-adjusted to manage recovery',
-    weight: 0.1,
+    detail: ffm.readiness >= 0.6 ? 'Recovery on track — body adapting well to training load' : 'Fatigue elevated — workouts auto-adjusted for recovery',
+    weight: 0.05,
   });
 
-  const overallScore = weightSum > 0 ? Math.round(scoreSum / weightSum) : 50;
+  // ─── FINAL SCORE with outcome cap ──────────────────────────────────
+  const rawScore = weightSum > 0 ? Math.round(scoreSum / weightSum) : 50;
+  const overallScore = Math.min(rawScore, outcomeCap);
 
   const posCount = signals.filter(s => s.trend === 'positive').length;
   const negCount = signals.filter(s => s.trend === 'negative').length;
   const summaryParts: string[] = [];
-  if (posCount > 0) summaryParts.push(`${posCount} indicator${posCount > 1 ? 's' : ''} trending positively`);
-  if (negCount > 0) summaryParts.push(`${negCount} need${negCount > 1 ? '' : 's'} attention`);
+
+  if (goal === 'fat_loss' && outcomeCap <= 35) {
+    summaryParts.push('No weight loss detected — caloric deficit is the missing piece');
+  } else {
+    if (posCount > 0) summaryParts.push(`${posCount} indicator${posCount > 1 ? 's' : ''} trending positively`);
+    if (negCount > 0) summaryParts.push(`${negCount} need${negCount > 1 ? '' : 's'} attention`);
+  }
 
   return {
     primaryGoal: goal,

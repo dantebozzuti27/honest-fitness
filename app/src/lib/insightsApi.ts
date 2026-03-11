@@ -49,14 +49,16 @@ function sanitizeProfile(profile: any): any {
     strengthIndex, relativeStrength, readinessScore, readinessZone,
     detectedSplit: detectedSplit ? { type: detectedSplit.type, typicalRotation: detectedSplit.typicalRotation } : null,
     rolling30DayTrends,
-    exerciseProgressions: exerciseProgressions
-      ? Object.entries(exerciseProgressions).slice(0, 15).map(([name, p]: [string, any]) => ({
-          name, trend: p.trend, pctChange: p.percentageChange, sets: p.totalSets
+    exerciseProgressions: Array.isArray(exerciseProgressions)
+      ? exerciseProgressions.slice(0, 15).map((p: any) => ({
+          name: p.exerciseName, status: p.status, slope: p.progressionSlope,
+          sessions: p.sessionsTracked, pattern: p.progressionPattern,
+          lastWeight: p.lastWeight, estimated1RM: p.estimated1RM,
         }))
       : null,
-    muscleVolumeStatuses: muscleVolumeStatuses
-      ? Object.entries(muscleVolumeStatuses).map(([mg, s]: [string, any]) => ({
-          group: mg, status: s.status, weeklyVolume: s.weeklyVolume
+    muscleVolumeStatuses: Array.isArray(muscleVolumeStatuses)
+      ? muscleVolumeStatuses.map((s: any) => ({
+          group: s.muscleGroup, status: s.status, weeklyVolume: s.weeklyDirectSets
         }))
       : null,
     goalProgress: goalProgress ? {
@@ -64,9 +66,11 @@ function sanitizeProfile(profile: any): any {
       summary: goalProgress.summary
     } : null,
     athleteProfile: athleteProfile ? {
-      overallTier: athleteProfile.overallTier,
-      strengthScore: athleteProfile.strengthScore,
-      consistencyScore: athleteProfile.consistencyScore
+      summary: athleteProfile.summary,
+      overallScore: athleteProfile.overallScore,
+      items: (athleteProfile.items || []).slice(0, 10).map((item: any) => ({
+        category: item.category, area: item.area, detail: item.detail, priority: item.priority,
+      })),
     } : null,
     fitnessFatigueModel: fitnessFatigueModel ? {
       fitness: fitnessFatigueModel.fitness, fatigue: fitnessFatigueModel.fatigue,
@@ -103,23 +107,25 @@ export async function fetchWorkoutReview(trainingProfile: any, workoutData: any)
   const token = await getAuthToken()
   const sanitized = sanitizeProfile(trainingProfile)
 
+  const exercises = workoutData.exercises || []
+  const muscleGroups = [...new Set(exercises.map((ex: any) => ex.bodyPart).filter(Boolean))]
   const workoutSummary = {
-    name: workoutData.name,
+    name: workoutData.name || muscleGroups.slice(0, 3).join(', ') || 'Generated Workout',
     estimatedDurationMinutes: workoutData.estimatedDurationMinutes,
     trainingGoal: workoutData.trainingGoal,
     recoveryStatus: workoutData.recoveryStatus,
     deloadActive: workoutData.deloadActive,
-    exercises: (workoutData.exercises || []).map((ex: any) => ({
+    exercises: exercises.map((ex: any) => ({
       exerciseName: ex.exerciseName,
       bodyPart: ex.bodyPart,
-      role: ex.role,
+      role: ex.exerciseRole || ex.role,
       isCardio: ex.isCardio,
-      sets: ex.sets?.length || 0,
-      prescription: ex.sets?.[0] ? {
-        reps: ex.sets[0].targetReps,
-        weight: ex.sets[0].targetWeight,
-        rir: ex.sets[0].targetRIR,
-      } : null,
+      sets: typeof ex.sets === 'number' ? ex.sets : (Array.isArray(ex.sets) ? ex.sets.length : 0),
+      prescription: {
+        reps: ex.targetReps ?? null,
+        weight: ex.targetWeight ?? null,
+        rir: ex.targetRir ?? null,
+      },
     })),
   }
 

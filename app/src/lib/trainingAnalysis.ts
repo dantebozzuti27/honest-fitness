@@ -66,6 +66,7 @@ export interface SetRecord {
   reps: number | null;
   time: number | null;
   is_bodyweight: boolean;
+  is_warmup?: boolean;
   logged_at: string | null;
   tempo_eccentric_sec: number | null;
   tempo_pause_sec: number | null;
@@ -568,6 +569,8 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
   since.setDate(since.getDate() - days);
   const sinceStr = since.toISOString().split('T')[0];
 
+  const isColumnError = (e: any) => e?.code === 'PGRST204' || (e && e.message?.includes('column'));
+
   let { data, error } = await supabase
     .from('workouts')
     .select(`
@@ -584,9 +587,8 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
     .eq('session_type', 'workout')
     .order('date', { ascending: true });
 
-  // Fall back if workout_calories_burned column doesn't exist yet
-  if (error?.code === 'PGRST204' || (error && error.message?.includes('column'))) {
-    const retry = await supabase
+  if (isColumnError(error)) {
+    const retry1 = await supabase
       .from('workouts')
       .select(`
         id, date, created_at, duration, template_name, perceived_effort, session_rpe, session_type,
@@ -601,8 +603,31 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
       .gte('date', sinceStr)
       .eq('session_type', 'workout')
       .order('date', { ascending: true });
-    data = (retry.data || []).map((w: any) => ({ ...w, workout_calories_burned: null })) as any;
-    error = retry.error;
+
+    if (isColumnError(retry1.error)) {
+      // session_type or other migration columns don't exist — drop ALL migration columns AND the session_type filter
+      const retry2 = await supabase
+        .from('workouts')
+        .select(`
+          id, date, created_at, duration, template_name, perceived_effort,
+          workout_exercises (
+            exercise_name, body_part, exercise_library_id,
+            workout_sets ( set_number, weight, reps, time, is_bodyweight, logged_at )
+          )
+        `)
+        .eq('user_id', userId)
+        .gte('date', sinceStr)
+        .order('date', { ascending: true });
+      data = (retry2.data || []).map((w: any) => ({
+        ...w,
+        session_rpe: null, session_type: 'workout',
+        workout_avg_hr: null, workout_peak_hr: null, workout_hr_zones: null, workout_calories_burned: null,
+      })) as any;
+      error = retry2.error;
+    } else {
+      data = (retry1.data || []).map((w: any) => ({ ...w, workout_calories_burned: null })) as any;
+      error = retry1.error;
+    }
   }
 
   if (error) throw error;
@@ -692,6 +717,73 @@ function linearRegressionSlope(values: number[]): number {
   return (n * sumXY - sumX * sumY) / denom;
 }
 
+/**
+ * Date-aware linear regression: uses actual calendar days as X-axis instead of array indices.
+ * Returns slope in units-per-day, which is correct regardless of data sparsity.
+ *
+ * The index-based version (`linearRegressionSlope`) treats each data point as 1 day apart.
+ * If a user logs weight every 3 days, 30 points span 90 days but the index version
+ * treats them as 30 days, producing a slope 3x too steep.
+ */
+/**
+ * Heuristic warmup filter: within a single exercise, sets below 65% of the session's
+ * peak weight are likely warmups. Returns only working sets.
+ */
+function filterWorkingSets<T extends { weight: number | null; reps: number | null; is_warmup?: boolean }>(sets: T[]): T[] {
+  // If explicit warmup flags exist, use them
+  if (sets.some(s => s.is_warmup === true)) {
+    return sets.filter(s => s.is_warmup !== true);
+  }
+  // Heuristic fallback: sets below 65% of peak weight are likely warmups
+  const withWeight = sets.filter(s => s.weight != null && s.weight > 0);
+  if (withWeight.length <= 1) return sets;
+  const maxWeight = Math.max(...withWeight.map(s => s.weight!));
+  if (maxWeight <= 0) return sets;
+  const threshold = maxWeight * 0.65;
+  return sets.filter(s => {
+    if (s.weight == null || s.weight <= 0) return true;
+    return s.weight >= threshold;
+  });
+}
+
+/**
+ * Build a date→weight lookup from health records for per-date BW exercise calculation.
+ * For dates without a direct weight entry, uses the most recent prior measurement.
+ */
+function buildWeightByDate(health: HealthRecord[]): Map<string, number> {
+  const map = new Map<string, number>();
+  const sorted = health.filter(h => h.weight != null).sort((a, b) => a.date.localeCompare(b.date));
+  for (const h of sorted) map.set(h.date, h.weight!);
+  return map;
+}
+
+function getWeightForDate(weightMap: Map<string, number>, targetDate: string, fallback: number | null): number | null {
+  if (weightMap.has(targetDate)) return weightMap.get(targetDate)!;
+  let closest: number | null = fallback;
+  for (const [date, weight] of weightMap) {
+    if (date <= targetDate) closest = weight;
+    else break;
+  }
+  return closest;
+}
+
+function dateAwareSlopePerDay(entries: { date: string; value: number }[]): number {
+  if (entries.length < 2) return 0;
+  const t0 = new Date(entries[0].date + 'T12:00:00').getTime();
+  const n = entries.length;
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  for (let i = 0; i < n; i++) {
+    const daysSinceFirst = (new Date(entries[i].date + 'T12:00:00').getTime() - t0) / 86_400_000;
+    sumX += daysSinceFirst;
+    sumY += entries[i].value;
+    sumXY += daysSinceFirst * entries[i].value;
+    sumXX += daysSinceFirst * daysSinceFirst;
+  }
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return 0;
+  return (n * sumXY - sumX * sumY) / denom;
+}
+
 function mean(arr: number[]): number {
   if (arr.length === 0) return 0;
   return arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -760,7 +852,7 @@ function daysBetween(a: string, b: string): number {
 function computePerformanceDeltas(
   workouts: WorkoutRecord[],
   healthByDate: Map<string, HealthRecord>,
-  healthBaselines: { sleep: number; hrv: number; rhr: number; steps: number }
+  healthBaselines: Record<string, number>
 ): PerformanceDelta[] {
   const exerciseHistory: Record<string, number[]> = {};
   const deltas: PerformanceDelta[] = [];
@@ -878,7 +970,7 @@ function computeSleepCoefficients(
   const lower: Array<{ sleep: number; delta: number }> = [];
 
   for (const d of deltas) {
-    if (d.sleepDeltaFromBaseline == null || d.delta === 0) continue;
+    if (d.sleepDeltaFromBaseline == null) continue;
     const bp = (exerciseBodyMap.get(d.exerciseName) ?? '').toLowerCase();
     const isLower = ['legs', 'glutes', 'calves', 'quadriceps', 'hamstrings'].includes(bp);
     const bucket = isLower ? lower : upper;
@@ -1071,7 +1163,7 @@ function computeExerciseOrderingEffects(workouts: WorkoutRecord[], userBodyWeigh
  * Feature 7: Body weight trend.
  */
 function computeBodyWeightTrend(health: HealthRecord[]): BodyWeightTrend {
-  const withWeight = health.filter(h => h.weight != null).slice(-30);
+  const withWeight = health.filter(h => h.weight != null && h.date != null).slice(-60);
   if (withWeight.length === 0) {
     return { currentWeight: null, sevenDayAvg: null, slope: 0, phase: 'maintaining' };
   }
@@ -1080,16 +1172,32 @@ function computeBodyWeightTrend(health: HealthRecord[]): BodyWeightTrend {
   const sevenDayAvg = mean(last7.map(h => h.weight!));
   const currentWeight = withWeight[withWeight.length - 1].weight;
 
-  const weights = withWeight.map(h => h.weight!);
-  const slopePerDay = linearRegressionSlope(weights);
+  // Date-aware regression: uses actual calendar days, not array indices.
+  const entries = withWeight.map(h => ({ date: h.date, value: h.weight! }));
+  const slopePerDay = dateAwareSlopePerDay(entries);
   const slopePerWeek = slopePerDay * 7;
 
+  // Cross-check: simple first-half vs second-half average comparison
+  const half = Math.floor(withWeight.length / 2);
+  const firstHalfAvg = mean(withWeight.slice(0, half).map(h => h.weight!));
+  const secondHalfAvg = mean(withWeight.slice(half).map(h => h.weight!));
+  const simpleDelta = secondHalfAvg - firstHalfAvg;
+
+  // If regression and simple comparison disagree on direction, trust the simple comparison
+  let effectiveSlope = slopePerWeek;
+  if ((slopePerWeek > 0 && simpleDelta < -1) || (slopePerWeek < 0 && simpleDelta > 1)) {
+    const firstDate = new Date(withWeight[0].date + 'T12:00:00');
+    const lastDate = new Date(withWeight[withWeight.length - 1].date + 'T12:00:00');
+    const weeks = Math.max(1, (lastDate.getTime() - firstDate.getTime()) / (7 * 86_400_000));
+    effectiveSlope = simpleDelta / weeks;
+  }
+
   let phase: 'cutting' | 'maintaining' | 'bulking';
-  if (slopePerWeek < -0.5) phase = 'cutting';
-  else if (slopePerWeek > 0.5) phase = 'bulking';
+  if (effectiveSlope < -0.3) phase = 'cutting';
+  else if (effectiveSlope > 0.3) phase = 'bulking';
   else phase = 'maintaining';
 
-  return { currentWeight, sevenDayAvg, slope: Math.round(slopePerWeek * 100) / 100, phase };
+  return { currentWeight, sevenDayAvg, slope: Math.round(effectiveSlope * 100) / 100, phase };
 }
 
 /**
@@ -1151,19 +1259,32 @@ function computeDeloadRecommendation(
  * Feature 9: Plateau detection per exercise.
  */
 function computePlateauDetections(
-  workouts: WorkoutRecord[]
+  workouts: WorkoutRecord[],
+  userBodyWeight?: number | null,
+  weightByDate?: Map<string, number>
 ): PlateauDetection[] {
   const exerciseSessions: Record<string, Array<{ date: string; best1RM: number }>> = {};
 
   for (const w of workouts) {
+    // Per-date BW for bodyweight exercise plateau tracking
+    const bwForDate = weightByDate
+      ? getWeightForDate(weightByDate, w.date, userBodyWeight ?? null)
+      : userBodyWeight ?? null;
+
     for (const ex of w.workout_exercises) {
       const key = ex.exercise_name.toLowerCase();
       if (!exerciseSessions[key]) exerciseSessions[key] = [];
 
+      const workingSets = filterWorkingSets(ex.workout_sets);
       let best = 0;
-      for (const s of ex.workout_sets) {
-        if (s.weight != null && s.reps != null) {
-          best = Math.max(best, epley1RM(s.weight, s.reps));
+      for (const s of workingSets) {
+        let effectiveWeight = s.weight;
+        // Handle bodyweight exercises
+        if ((s.is_bodyweight || effectiveWeight == null) && s.reps != null && s.reps > 0 && bwForDate && bwForDate > 0) {
+          effectiveWeight = Math.round(bwForDate * getBWFraction(ex.exercise_name));
+        }
+        if (effectiveWeight != null && s.reps != null && effectiveWeight > 0) {
+          best = Math.max(best, epley1RM(effectiveWeight, s.reps));
         }
       }
       if (best > 0) {
@@ -1472,7 +1593,8 @@ function computeMuscleVolumeStatuses(
       // They DO count toward recovery fatigue (handled separately below).
       if (muscles.mlType === 'cardio' || muscles.mlType === 'recovery') continue;
 
-      const sets = ex.workout_sets.length;
+      // Only count working sets (exclude warmups) for hypertrophy volume tracking
+      const sets = filterWorkingSets(ex.workout_sets).length;
 
       for (const m of muscles.primary) {
         const group = MUSCLE_HEAD_TO_GROUP[m];
@@ -1488,7 +1610,7 @@ function computeMuscleVolumeStatuses(
       for (const m of muscles.secondary) {
         const group = MUSCLE_HEAD_TO_GROUP[m];
         if (!group) continue;
-        groupIndirectSets[group] = (groupIndirectSets[group] ?? 0) + sets * 0.5;
+        groupIndirectSets[group] = (groupIndirectSets[group] ?? 0) + sets * 0.5; // sets already warmup-filtered
       }
     }
   }
@@ -1509,9 +1631,13 @@ function computeMuscleVolumeStatuses(
     else if (weeklyDirect <= mrv) status = 'approaching_mrv';
     else status = 'above_mrv';
 
-    const trendValues = Object.entries(weekData)
-      .sort(([a], [b]) => Number(a) - Number(b))
-      .map(([, v]) => v);
+    // Ensure all weeks are represented (fill gaps with 0) so regression sees actual spacing
+    const weekIndices = Object.keys(weekData).map(Number).sort((a, b) => a - b);
+    const maxWeek = weekIndices.length > 0 ? Math.max(...weekIndices) : 0;
+    const trendValues: number[] = [];
+    for (let wi = 0; wi <= maxWeek; wi++) {
+      trendValues.push(weekData[wi] ?? 0);
+    }
     const trendSlope = linearRegressionSlope(trendValues);
     let volumeTrend: 'increasing' | 'stable' | 'decreasing';
     if (trendSlope > 0.5) volumeTrend = 'increasing';
@@ -1540,7 +1666,11 @@ function computeMuscleVolumeStatuses(
 /**
  * Compute exercise progression metrics.
  */
-function computeExerciseProgressions(workouts: WorkoutRecord[], userBodyWeight?: number | null): ExerciseProgression[] {
+function computeExerciseProgressions(
+  workouts: WorkoutRecord[],
+  userBodyWeight?: number | null,
+  weightByDate?: Map<string, number>
+): ExerciseProgression[] {
   const exerciseSessions: Record<string, Array<{
     date: string;
     best1RM: number;
@@ -1554,17 +1684,24 @@ function computeExerciseProgressions(workouts: WorkoutRecord[], userBodyWeight?:
       const key = ex.exercise_name.toLowerCase();
       if (!exerciseSessions[key]) exerciseSessions[key] = [];
 
+      // Filter warmup sets before computing progressions
+      const workingSets = filterWorkingSets(ex.workout_sets);
+
       let best1RM = 0;
       let bestWeight = 0;
       let bestReps = 0;
       let lastWeight = 0;
 
-      for (const s of ex.workout_sets) {
+      // Per-date BW for historical accuracy
+      const bwForDate = weightByDate
+        ? getWeightForDate(weightByDate, w.date, userBodyWeight ?? null)
+        : userBodyWeight ?? null;
+
+      for (const s of workingSets) {
         let effectiveWeight = s.weight;
 
-        // For bodyweight exercises, estimate load from user's body weight
-        if (s.is_bodyweight && userBodyWeight && userBodyWeight > 0) {
-          effectiveWeight = Math.round(userBodyWeight * getBWFraction(ex.exercise_name));
+        if (s.is_bodyweight && bwForDate && bwForDate > 0) {
+          effectiveWeight = Math.round(bwForDate * getBWFraction(ex.exercise_name));
         }
 
         if (effectiveWeight != null && s.reps != null && effectiveWeight > 0) {
@@ -2656,7 +2793,9 @@ function computeExercisePreferences(workouts: WorkoutRecord[]): ExercisePreferen
       const setTimestamps: number[] = [];
       let workingSets = 0;
 
-      for (const s of ex.workout_sets) {
+      // Filter warmup sets so learned weight/reps/sets reflect actual working data
+      const filtered = filterWorkingSets(ex.workout_sets);
+      for (const s of filtered) {
         if (s.reps != null && s.reps > 0) reps.push(s.reps);
         if (s.weight != null && s.weight > 0) weights.push(s.weight);
         if (s.logged_at) setTimestamps.push(new Date(s.logged_at).getTime());
@@ -2939,14 +3078,22 @@ function classifyTrend(slopePct: number): TrendDirection {
   return 'flat';
 }
 
-function buildMetricTrend(dailyValues: number[]): MetricTrend {
+function buildMetricTrend(dailyValues: number[], dates?: string[]): MetricTrend {
   if (dailyValues.length === 0) {
     return { current: null, avg30d: null, slope: 0, slopePct: 0, direction: 'flat', dataPoints: 0 };
   }
   const current = dailyValues[dailyValues.length - 1];
   const avg = mean(dailyValues);
-  const slope = linearRegressionSlope(dailyValues);
-  const slopePerWeek = slope * 7;
+
+  let slopePerDay: number;
+  if (dates && dates.length === dailyValues.length) {
+    const entries = dailyValues.map((v, i) => ({ date: dates[i], value: v }));
+    slopePerDay = dateAwareSlopePerDay(entries);
+  } else {
+    slopePerDay = linearRegressionSlope(dailyValues);
+  }
+
+  const slopePerWeek = slopePerDay * 7;
   const slopePct = avg !== 0 ? (slopePerWeek / avg) * 100 : 0;
   return {
     current,
@@ -2972,16 +3119,28 @@ function computeRolling30DayTrends(
   const recentWorkouts = workouts.filter(w => w.date >= thirtyDaysAgo && w.date <= today)
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Health metric trends
-  const sleepValues = recentHealth.filter(h => h.sleep_duration != null).map(h => h.sleep_duration!);
-  const hrvValues = recentHealth.filter(h => h.hrv != null).map(h => h.hrv!);
-  const rhrValues = recentHealth.filter(h => h.resting_heart_rate != null).map(h => h.resting_heart_rate!);
-  const stepsValues = recentHealth.filter(h => h.steps != null).map(h => h.steps!);
-  const weightValues = recentHealth.filter(h => h.weight != null).map(h => h.weight!);
-  const caloriesValues = recentHealth.filter(h => h.calories_burned != null).map(h => h.calories_burned!);
-  const activeMinValues = recentHealth
-    .filter(h => h.active_minutes_fairly != null || h.active_minutes_very != null)
-    .map(h => (h.active_minutes_fairly || 0) + (h.active_minutes_very || 0));
+  // Health metric trends — extract dates alongside values for date-aware regression
+  const sleepEntries = recentHealth.filter(h => h.sleep_duration != null);
+  const sleepValues = sleepEntries.map(h => h.sleep_duration!);
+  const sleepDates = sleepEntries.map(h => h.date);
+  const hrvEntries = recentHealth.filter(h => h.hrv != null);
+  const hrvValues = hrvEntries.map(h => h.hrv!);
+  const hrvDates = hrvEntries.map(h => h.date);
+  const rhrEntries = recentHealth.filter(h => h.resting_heart_rate != null);
+  const rhrValues = rhrEntries.map(h => h.resting_heart_rate!);
+  const rhrDates = rhrEntries.map(h => h.date);
+  const stepsEntries = recentHealth.filter(h => h.steps != null);
+  const stepsValues = stepsEntries.map(h => h.steps!);
+  const stepsDates = stepsEntries.map(h => h.date);
+  const weightEntries = recentHealth.filter(h => h.weight != null);
+  const weightValues = weightEntries.map(h => h.weight!);
+  const weightDates = weightEntries.map(h => h.date);
+  const caloriesEntries = recentHealth.filter(h => h.calories_burned != null);
+  const caloriesValues = caloriesEntries.map(h => h.calories_burned!);
+  const caloriesDates = caloriesEntries.map(h => h.date);
+  const activeMinEntries = recentHealth.filter(h => h.active_minutes_fairly != null || h.active_minutes_very != null);
+  const activeMinValues = activeMinEntries.map(h => (h.active_minutes_fairly || 0) + (h.active_minutes_very || 0));
+  const activeMinDates = activeMinEntries.map(h => h.date);
 
   // Training frequency: sessions per week (bucket into 4 weeks)
   const weekBuckets: number[] = [0, 0, 0, 0];
@@ -3145,15 +3304,15 @@ function computeRolling30DayTrends(
     .sort((a, b) => (b.weeklySetsTrend.avg30d ?? 0) - (a.weeklySetsTrend.avg30d ?? 0));
 
   return {
-    sleep: buildMetricTrend(sleepValues),
-    hrv: buildMetricTrend(hrvValues),
-    rhr: buildMetricTrend(rhrValues),
-    steps: buildMetricTrend(stepsValues),
-    bodyWeight: buildMetricTrend(weightValues),
+    sleep: buildMetricTrend(sleepValues, sleepDates),
+    hrv: buildMetricTrend(hrvValues, hrvDates),
+    rhr: buildMetricTrend(rhrValues, rhrDates),
+    steps: buildMetricTrend(stepsValues, stepsDates),
+    bodyWeight: buildMetricTrend(weightValues, weightDates),
     bodyFat: buildMetricTrend(bfValues),
     estimatedLeanMass: buildMetricTrend(leanMassValues),
-    caloriesBurned: buildMetricTrend(caloriesValues),
-    activeMinutes: buildMetricTrend(activeMinValues),
+    caloriesBurned: buildMetricTrend(caloriesValues, caloriesDates),
+    activeMinutes: buildMetricTrend(activeMinValues, activeMinDates),
     totalStrengthIndex: buildMetricTrend(sessionStrengthIndices),
     big3Total: buildMetricTrend(topCompoundSessionValues),
     relativeStrength: buildMetricTrend(relativeStrengthValues),
@@ -3370,11 +3529,18 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const rhrVals = last30.filter(h => h.resting_heart_rate != null).map(h => h.resting_heart_rate!);
   const stepsVals = last30.filter(h => h.steps != null).map(h => h.steps!);
 
-  const baselines = {
+  const calBurnedVals = last30.filter(h => h.calories_burned != null).map(h => h.calories_burned!);
+  const activeMinVals = last30.filter(h =>
+    (h.active_minutes_fairly ?? 0) + (h.active_minutes_very ?? 0) > 0
+  ).map(h => (h.active_minutes_fairly ?? 0) + (h.active_minutes_very ?? 0));
+
+  const baselines: Record<string, number> = {
     sleep: mean(sleepVals),
     hrv: mean(hrvVals),
     rhr: mean(rhrVals),
     steps: mean(stepsVals),
+    caloriesBurned: mean(calBurnedVals),
+    activeMinutes: mean(activeMinVals),
   };
 
   // Recovery context from most recent data
@@ -3390,15 +3556,16 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     stepsBaseline30d: baselines.steps || null,
   };
 
-  // User's body weight for bodyweight exercise calculations
+  // User's body weight: per-date lookup for historical accuracy, latest for current
+  const weightByDate = buildWeightByDate(health);
   const weightRecords = health.filter(h => h.weight != null).sort((a, b) => a.date.localeCompare(b.date));
   const userBodyWeight = weightRecords.length > 0 ? weightRecords[weightRecords.length - 1].weight : null;
 
   // Performance deltas (foundation for features 1-7)
   const deltas = computePerformanceDeltas(workouts, healthByDate, baselines);
 
-  // Exercise progressions
-  const exerciseProgressions = computeExerciseProgressions(workouts, userBodyWeight);
+  // Exercise progressions (warmup-filtered, per-date BW)
+  const exerciseProgressions = computeExerciseProgressions(workouts, userBodyWeight, weightByDate);
 
   // Individual MRV
   const individualMrvEstimates = computeIndividualMRV(workouts, exercises, userBodyWeight);
@@ -3491,7 +3658,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const cumulativeSleepDebt = computeCumulativeSleepDebt(health);
   const rolling30DayTrends = computeRolling30DayTrends(workouts, health, exercises, exerciseProgressions);
   const fitnessFatigueResult = computeFitnessFatigueModel(workouts);
-  const plateauDetections = computePlateauDetections(workouts);
+  const plateauDetections = computePlateauDetections(workouts, userBodyWeight, weightByDate);
 
   const exerciseSwapHistoryResult = await computeExerciseSwapHistory(userId);
 
@@ -3575,6 +3742,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
       fitnessFatigueResult,
       workouts,
       health,
+      baselines,
     ),
 
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
@@ -3596,6 +3764,7 @@ function computeGoalProgress(
   ffm: { readiness: number; fitnessLevel: number; fatigueLevel: number },
   workouts: WorkoutRecord[],
   health: HealthRecord[],
+  baselines?: Record<string, number>,
 ): GoalProgress | null {
   const goal: string = prefs?.primary_goal ?? prefs?.training_goal ?? null;
   if (!goal) return null;
@@ -3626,6 +3795,8 @@ function computeGoalProgress(
   const progressing = progressions.filter(p => p.status === 'progressing').length;
   const regressing = progressions.filter(p => p.status === 'regressing').length;
   const total = progressions.length;
+
+  const bl: Record<string, number> = baselines ?? {};
 
   // ─── CONSISTENCY (all goals, reduced weight for fat_loss) ──────────
   const consistencyWeight = goal === 'fat_loss' ? 0.1 : 0.15;
@@ -3787,51 +3958,64 @@ function computeGoalProgress(
       });
     }
 
-    // CALORIES BURNED (from Fitbit TDEE)
+    // CALORIES BURNED (personalized thresholds based on user's 30-day baseline)
     if (trends.caloriesBurned.dataPoints >= 3 && trends.caloriesBurned.current != null) {
       const cal = trends.caloriesBurned.current;
       const calTrend = trends.caloriesBurned.direction;
+      const calBaseline = bl.caloriesBurned ?? cal;
+      // Positive if above baseline (user is more active than their own norm)
+      const aboveBaseline = cal >= calBaseline * 1.05;
+      const belowBaseline = cal < calBaseline * 0.9;
       addSignal({
         label: 'Daily Calories Burned', value: `${Math.round(cal).toLocaleString()} kcal`,
-        trend: calTrend === 'up' || cal >= 2200 ? 'positive' : cal >= 1800 ? 'neutral' : 'negative',
-        detail: `Fitbit TDEE averaging ${Math.round(cal)} kcal/day (${calTrend === 'up' ? 'trending up' : calTrend === 'down' ? 'trending down' : 'stable'}). ${cal < 2000 ? 'Low expenditure limits the deficit you can create without extreme restriction.' : 'Adequate expenditure — a moderate caloric intake should create a deficit.'}`,
+        trend: aboveBaseline || calTrend === 'up' ? 'positive' : belowBaseline ? 'negative' : 'neutral',
+        detail: `Fitbit TDEE averaging ${Math.round(cal)} kcal/day (baseline: ~${Math.round(calBaseline)}). ${aboveBaseline ? 'Above your personal baseline — increased expenditure supports a deficit.' : belowBaseline ? 'Below your own baseline — daily activity has dropped, limiting your deficit.' : 'Near your baseline — maintaining expenditure.'}`,
         weight: 0.15,
       });
     }
 
-    // ACTIVE MINUTES (fairly + very active from Fitbit — proxy for exercise intensity)
+    // ACTIVE MINUTES (personalized: compare to user's own average, not fixed population threshold)
     if (trends.activeMinutes.dataPoints >= 3 && trends.activeMinutes.current != null) {
       const am = trends.activeMinutes.current;
-      // CDC recommends 150 min/wk moderate or 75 min/wk vigorous = ~21-30 min/day
+      const amBaseline = bl.activeMinutes ?? am;
+      const aboveAm = am >= amBaseline * 1.1;
+      const belowAm = am < amBaseline * 0.8;
       addSignal({
         label: 'Active Minutes', value: `${Math.round(am)} min/day`,
-        trend: am >= 30 ? 'positive' : am >= 15 ? 'neutral' : 'negative',
-        detail: am >= 30 ? `${Math.round(am)} active min/day exceeds CDC recommendations — strong calorie burn contribution` : am >= 15 ? `${Math.round(am)} active min/day — room to increase activity for greater expenditure` : `Only ${Math.round(am)} active min/day — low activity limits caloric deficit`,
+        trend: aboveAm || am >= 30 ? 'positive' : belowAm || am < 10 ? 'negative' : 'neutral',
+        detail: aboveAm ? `${Math.round(am)} active min/day — above your baseline (${Math.round(amBaseline)}), strong calorie burn contribution` : belowAm ? `${Math.round(am)} active min/day — below your baseline (${Math.round(amBaseline)}), room to increase activity` : `${Math.round(am)} active min/day — near your norm (${Math.round(amBaseline)})`,
         weight: 0.10,
       });
     }
 
-    // DAILY STEPS (NEAT is the largest variable component of TDEE — Levine 2004)
+    // DAILY STEPS (personalized: user's own step baseline, not fixed 8000/5000)
     if (trends.steps.dataPoints >= 3 && trends.steps.current != null) {
       const steps = trends.steps.current;
+      const stepsBaseline = bl.steps ?? steps;
+      const aboveSteps = steps >= stepsBaseline * 1.1;
+      const belowSteps = steps < stepsBaseline * 0.8;
       addSignal({
         label: 'Daily Steps (NEAT)', value: `${Math.round(steps).toLocaleString()}`,
-        trend: steps >= 8000 ? 'positive' : steps >= 5000 ? 'neutral' : 'negative',
-        detail: steps >= 8000 ? `${Math.round(steps).toLocaleString()} steps/day — high NEAT is the #1 variable in daily expenditure` : `${Math.round(steps).toLocaleString()} steps/day — NEAT is the largest controllable component of TDEE. More daily movement has higher ROI than extra gym sessions.`,
+        trend: aboveSteps || steps >= 10000 ? 'positive' : belowSteps || steps < 4000 ? 'negative' : 'neutral',
+        detail: aboveSteps ? `${Math.round(steps).toLocaleString()} steps/day — above your baseline (${Math.round(stepsBaseline).toLocaleString()}). NEAT is the #1 variable in daily expenditure.` : belowSteps ? `${Math.round(steps).toLocaleString()} steps/day — below your norm (${Math.round(stepsBaseline).toLocaleString()}). Increasing daily movement has higher ROI than extra gym sessions.` : `${Math.round(steps).toLocaleString()} steps/day — near your baseline. NEAT is the largest controllable TDEE component.`,
         weight: 0.10,
       });
     }
 
-    // WORKOUT CALORIE BURN (per-session from Fitbit)
+    // WORKOUT CALORIE BURN (personalized: compare to user's own workout calorie baseline)
     const recentWorkoutsWithCal = workouts
       .filter(w => w.workout_calories_burned != null && w.workout_calories_burned > 0)
       .slice(-10);
     if (recentWorkoutsWithCal.length >= 2) {
       const avgWkCal = recentWorkoutsWithCal.reduce((s, w) => s + (w.workout_calories_burned || 0), 0) / recentWorkoutsWithCal.length;
+      // Scale thresholds to body weight: heavier individuals burn more per session
+      const bw = bwt.currentWeight ?? 170;
+      const calHighThreshold = bw * 1.6;   // ~272 kcal for 170lb, ~368 for 230lb
+      const calLowThreshold = bw * 0.85;   // ~144 kcal for 170lb, ~196 for 230lb
       addSignal({
         label: 'Workout Calorie Burn', value: `~${Math.round(avgWkCal)} kcal/session`,
-        trend: avgWkCal >= 300 ? 'positive' : avgWkCal >= 150 ? 'neutral' : 'negative',
-        detail: `Averaging ${Math.round(avgWkCal)} kcal per workout session over last ${recentWorkoutsWithCal.length} sessions. ${avgWkCal >= 300 ? 'Meaningful contribution to deficit.' : 'Low per-session burn — consider adding cardio or higher-intensity work.'}`,
+        trend: avgWkCal >= calHighThreshold ? 'positive' : avgWkCal >= calLowThreshold ? 'neutral' : 'negative',
+        detail: `Averaging ${Math.round(avgWkCal)} kcal per workout session over last ${recentWorkoutsWithCal.length} sessions. ${avgWkCal >= calHighThreshold ? 'Meaningful contribution to deficit.' : 'Low per-session burn — consider adding cardio or higher-intensity work.'}`,
         weight: 0.05,
       });
     }
@@ -3894,25 +4078,223 @@ function computeGoalProgress(
         : 'Low active minutes — adding cardio or increasing NEAT would accelerate fat loss',
     });
 
-  } else {
-    // General fitness / endurance
-    if (trends.totalStrengthIndex.dataPoints >= 3) {
+  } else if (goal === 'endurance') {
+    // ════════════════════════════════════════════════════════════════════
+    //  ENDURANCE: Outcome = cardio volume + HR adaptation. Strength secondary.
+    // ════════════════════════════════════════════════════════════════════
+
+    // Cardio volume: how much time is spent on cardio exercises
+    const cardioKeywords = ['treadmill', 'bike', 'elliptical', 'stairmaster', 'rowing', 'run', 'jog', 'walk', 'cycling', 'swim'];
+    const recentCardioExercises = workouts.flatMap(w => w.workout_exercises.filter(e =>
+      cardioKeywords.some(k => e.exercise_name.toLowerCase().includes(k))
+    ));
+    const cardioSessionCount = new Set(workouts.filter(w =>
+      w.workout_exercises.some(e => cardioKeywords.some(k => e.exercise_name.toLowerCase().includes(k)))
+    ).map(w => w.date)).size;
+    const totalWeeksTracked = Math.max(1, global.trainingAgeDays / 7);
+    const cardioSessionsPerWeek = cardioSessionCount / Math.min(totalWeeksTracked, 4);
+
+    if (cardioSessionsPerWeek < 2) outcomeCap = 55;
+    addSignal({
+      label: 'Cardio Volume', value: `${cardioSessionsPerWeek.toFixed(1)} sessions/wk`,
+      trend: cardioSessionsPerWeek >= 3 ? 'positive' : cardioSessionsPerWeek >= 1.5 ? 'neutral' : 'negative',
+      detail: cardioSessionsPerWeek >= 3 ? `${recentCardioExercises.length} cardio exercises across recent workouts — strong endurance stimulus` : 'Insufficient cardio frequency. Endurance demands ≥3 cardio sessions/week for meaningful VO2 adaptation.',
+      weight: 0.25,
+    });
+
+    // Resting HR trend (lower = better aerobic adaptation)
+    if (trends.rhr.dataPoints >= 5 && trends.rhr.current != null) {
+      const rhrDir = trends.rhr.direction;
       addSignal({
-        label: 'Overall Fitness', value: ffm.fitnessLevel.toFixed(0),
-        trend: ffm.readiness >= 0.6 ? 'positive' : ffm.readiness >= 0.4 ? 'neutral' : 'negative',
-        detail: `Fitness-fatigue model readiness: ${Math.round(ffm.readiness * 100)}%`,
-        weight: 0.25,
-      });
-    }
-    if (total > 0) {
-      addSignal({
-        label: 'Progression', value: `${progressing}/${total} exercises improving`,
-        trend: progressing >= total * 0.4 ? 'positive' : 'neutral',
-        detail: progressing >= total * 0.4 ? 'Steady improvement across exercises' : 'Some exercises stalling — consider varying stimulus',
+        label: 'Resting Heart Rate', value: `${Math.round(trends.rhr.current)} bpm`,
+        trend: rhrDir === 'down' ? 'positive' : rhrDir === 'up' ? 'negative' : 'neutral',
+        detail: rhrDir === 'down' ? 'RHR declining — cardiovascular efficiency improving' : rhrDir === 'up' ? 'RHR rising — potential detraining, overtraining, or insufficient cardio' : 'RHR stable — maintain current cardio volume for continued adaptation',
         weight: 0.20,
       });
     }
-    alignment.push({ factor: 'Balanced Programming', status: 'aligned', detail: 'Workouts blend strength, conditioning, and mobility' });
+
+    // Active minutes (personalized)
+    if (trends.activeMinutes.dataPoints >= 3 && trends.activeMinutes.current != null) {
+      const am = trends.activeMinutes.current;
+      const amBase = bl.activeMinutes ?? am;
+      const aboveAm = am >= amBase * 1.1;
+      const belowAm = am < amBase * 0.8;
+      addSignal({
+        label: 'Active Minutes', value: `${Math.round(am)} min/day`,
+        trend: aboveAm || am >= 45 ? 'positive' : belowAm || am < 20 ? 'negative' : 'neutral',
+        detail: aboveAm ? `Active minutes above your baseline (${Math.round(amBase)}) — endurance capacity building` : `Active minutes at or below baseline — increase moderate-vigorous activity`,
+        weight: 0.15,
+      });
+    }
+
+    // HRV (higher = better recovery, better aerobic base)
+    if (trends.hrv.dataPoints >= 3 && trends.hrv.current != null) {
+      const hrvDir = trends.hrv.direction;
+      addSignal({
+        label: 'HRV Trend', value: `${Math.round(trends.hrv.current)} ms`,
+        trend: hrvDir === 'up' ? 'positive' : hrvDir === 'down' ? 'negative' : 'neutral',
+        detail: hrvDir === 'up' ? 'HRV improving — parasympathetic tone increasing, strong aerobic adaptation marker' : hrvDir === 'down' ? 'HRV declining — possible overtraining or recovery deficit' : 'HRV stable',
+        weight: 0.10,
+      });
+    }
+
+    // Strength maintenance
+    if (total > 0) {
+      addSignal({
+        label: 'Strength Maintenance', value: `${regressing}/${total} lifts regressing`,
+        trend: regressing <= Math.ceil(total * 0.3) ? 'positive' : regressing <= Math.ceil(total * 0.5) ? 'neutral' : 'negative',
+        detail: regressing <= Math.ceil(total * 0.3) ? 'Maintaining strength while building endurance — good programming balance' : 'Excessive strength loss — may need more resistance training alongside cardio',
+        weight: 0.10,
+      });
+    }
+
+    // Sleep
+    if (trends.sleep.dataPoints >= 3 && trends.sleep.current != null) {
+      addSignal({
+        label: 'Sleep', value: `${trends.sleep.current.toFixed(1)} hrs`,
+        trend: trends.sleep.current >= 7 ? 'positive' : trends.sleep.current >= 6 ? 'neutral' : 'negative',
+        detail: trends.sleep.current >= 7 ? 'Adequate sleep supports aerobic adaptation and glycogen replenishment' : 'Insufficient sleep impairs endurance performance and recovery',
+        weight: 0.10,
+      });
+    }
+
+    // Alignment
+    alignment.push({
+      factor: 'Cardio Programming',
+      status: cardioSessionsPerWeek >= 2 ? 'aligned' : 'misaligned',
+      detail: cardioSessionsPerWeek >= 2 ? 'Regular cardio sessions drive cardiovascular adaptation' : 'Insufficient cardio frequency for endurance goals',
+    });
+    alignment.push({
+      factor: 'Recovery Balance',
+      status: ffm.readiness >= 0.5 ? 'aligned' : 'misaligned',
+      detail: ffm.readiness >= 0.5 ? 'Training load is manageable' : 'Accumulated fatigue — reduce volume or intensity',
+    });
+
+  } else {
+    // ════════════════════════════════════════════════════════════════════
+    //  GENERAL FITNESS: Balanced scoring across multiple domains.
+    // ════════════════════════════════════════════════════════════════════
+
+    addSignal({
+      label: 'Fitness Level', value: ffm.fitnessLevel.toFixed(0),
+      trend: ffm.readiness >= 0.6 ? 'positive' : ffm.readiness >= 0.4 ? 'neutral' : 'negative',
+      detail: `Banister fitness-fatigue readiness: ${Math.round(ffm.readiness * 100)}%. ${ffm.readiness >= 0.6 ? 'Well recovered and adapting.' : ffm.readiness >= 0.4 ? 'Moderate fatigue — manageable.' : 'High fatigue — consider a lighter week.'}`,
+      weight: 0.12,
+    });
+
+    if (total > 0) {
+      addSignal({
+        label: 'Strength Progression', value: `${progressing}/${total} exercises improving`,
+        trend: progressing >= total * 0.5 ? 'positive' : progressing >= total * 0.25 ? 'neutral' : 'negative',
+        detail: progressing >= total * 0.5 ? 'Strong improvement across exercises' : progressing >= total * 0.25 ? 'Some exercises stalling — consider varying stimulus' : 'Most lifts stalled — periodization change recommended',
+        weight: 0.12,
+      });
+    }
+
+    // Training consistency
+    const consistencyPct = Math.round(global.consistencyScore * 100);
+    addSignal({
+      label: 'Training Consistency', value: `${consistencyPct}%`,
+      trend: consistencyPct >= 75 ? 'positive' : consistencyPct >= 50 ? 'neutral' : 'negative',
+      detail: consistencyPct >= 75 ? `${consistencyPct}% adherence — consistency is the #1 driver of long-term fitness` : `${consistencyPct}% adherence — improving frequency would have the biggest ROI`,
+      weight: 0.12,
+    });
+
+    // Cardiovascular health — personalized baselines
+    if (trends.steps.dataPoints >= 3 && trends.steps.current != null) {
+      const steps = trends.steps.current;
+      const stepsBase = bl.steps ?? steps;
+      const aboveSteps = steps >= stepsBase * 1.1;
+      const belowSteps = steps < stepsBase * 0.8;
+      addSignal({
+        label: 'Daily Movement', value: `${Math.round(steps).toLocaleString()} steps`,
+        trend: aboveSteps || steps >= 10000 ? 'positive' : belowSteps || steps < 4000 ? 'negative' : 'neutral',
+        detail: aboveSteps ? `Above your baseline of ${Math.round(stepsBase).toLocaleString()} steps — good daily activity` : 'Daily movement supports cardiovascular health and recovery between sessions',
+        weight: 0.10,
+      });
+    }
+
+    if (trends.activeMinutes.dataPoints >= 3 && trends.activeMinutes.current != null) {
+      const am = trends.activeMinutes.current;
+      const amBase = bl.activeMinutes ?? am;
+      const aboveAm = am >= amBase * 1.1;
+      const belowAm = am < amBase * 0.8;
+      addSignal({
+        label: 'Active Minutes', value: `${Math.round(am)} min/day`,
+        trend: aboveAm || am >= 30 ? 'positive' : belowAm || am < 10 ? 'negative' : 'neutral',
+        detail: aboveAm ? `Above your baseline (${Math.round(amBase)} min) — meeting activity guidelines` : 'Increasing moderate-to-vigorous activity would improve general fitness',
+        weight: 0.10,
+      });
+    }
+
+    // Sleep quality
+    if (trends.sleep.dataPoints >= 3 && trends.sleep.current != null) {
+      const sleepHrs = trends.sleep.current;
+      addSignal({
+        label: 'Sleep Quality', value: `${sleepHrs.toFixed(1)} hrs`,
+        trend: sleepHrs >= 7 ? 'positive' : sleepHrs >= 6 ? 'neutral' : 'negative',
+        detail: sleepHrs >= 7 ? 'Adequate sleep supports recovery, hormone balance, and adaptation' : 'Insufficient sleep limits recovery and blunts training adaptations',
+        weight: 0.10,
+      });
+    }
+
+    // HRV trend
+    if (trends.hrv.dataPoints >= 3 && trends.hrv.current != null) {
+      const hrvDir = trends.hrv.direction;
+      addSignal({
+        label: 'HRV Trend', value: `${Math.round(trends.hrv.current)} ms`,
+        trend: hrvDir === 'up' ? 'positive' : hrvDir === 'down' ? 'negative' : 'neutral',
+        detail: hrvDir === 'up' ? 'HRV improving — autonomic nervous system adapting well to training load' : hrvDir === 'down' ? 'HRV declining — potential overreaching or accumulated stress' : 'HRV stable — maintaining current training load',
+        weight: 0.10,
+      });
+    }
+
+    // Volume coverage
+    const groupsInMav = volumeStatuses.filter(v => v.status === 'in_mav' || v.status === 'approaching_mrv').length;
+    const totalGroups = volumeStatuses.length;
+    if (totalGroups > 0) {
+      const coveragePct = Math.round((groupsInMav / totalGroups) * 100);
+      addSignal({
+        label: 'Volume Coverage', value: `${groupsInMav}/${totalGroups} groups in MAV`,
+        trend: coveragePct >= 50 ? 'positive' : coveragePct >= 25 ? 'neutral' : 'negative',
+        detail: coveragePct >= 50 ? 'Most muscle groups receiving productive training volume' : 'Many muscle groups under-trained — diversify programming',
+        weight: 0.08,
+      });
+    }
+
+    // Training variety
+    const uniqueExercises = new Set(workouts.flatMap(w => w.workout_exercises.map(e => e.exercise_name.toLowerCase()))).size;
+    addSignal({
+      label: 'Training Variety', value: `${uniqueExercises} exercises`,
+      trend: uniqueExercises >= 15 ? 'positive' : uniqueExercises >= 8 ? 'neutral' : 'negative',
+      detail: uniqueExercises >= 15 ? 'Good exercise variety — training multiple movement patterns and muscle groups' : 'Limited exercise variety — adding diverse movements would improve general fitness',
+      weight: 0.06,
+    });
+
+    // Session duration
+    if (global.avgSessionDuration > 0) {
+      addSignal({
+        label: 'Session Duration', value: `${Math.round(global.avgSessionDuration)} min avg`,
+        trend: global.avgSessionDuration >= 45 ? 'positive' : global.avgSessionDuration >= 25 ? 'neutral' : 'negative',
+        detail: global.avgSessionDuration >= 45 ? 'Sessions are long enough to accumulate meaningful training volume' : 'Short sessions — consider extending to allow adequate volume and warm-up',
+        weight: 0.10,
+      });
+    }
+
+    // Alignment
+    const hasCardio = workouts.some(w => w.workout_exercises.some(e =>
+      (e as any).exercise_type === 'cardio' || e.exercise_name.toLowerCase().includes('treadmill') || e.exercise_name.toLowerCase().includes('bike') || e.exercise_name.toLowerCase().includes('elliptical')
+    ));
+    alignment.push({
+      factor: 'Balanced Programming',
+      status: hasCardio && total > 3 ? 'aligned' : 'partial',
+      detail: hasCardio && total > 3 ? 'Workouts blend strength and conditioning — well-rounded fitness approach' : !hasCardio ? 'No cardio detected — adding cardiovascular work would improve general fitness' : 'Limited exercise variety in recent workouts',
+    });
+    alignment.push({
+      factor: 'Recovery Management',
+      status: ffm.readiness >= 0.5 ? 'aligned' : 'misaligned',
+      detail: ffm.readiness >= 0.5 ? 'Training load is manageable relative to recovery capacity' : 'Fatigue accumulating faster than recovery — consider a deload',
+    });
   }
 
   // ─── READINESS (all goals, low weight) ──────────────────────────────
@@ -4465,18 +4847,26 @@ function computeFitnessFatigueModel(workouts: WorkoutRecord[]) {
     const daysAgo = daysBetween(w.date, todayStr);
     if (daysAgo < 0) continue;
 
-    // Training impulse: duration × perceived effort (or estimate from volume)
-    const duration = w.duration ? w.duration / 60 : 45;
-    const effort = (w as any).perceived_effort ?? 6;
-    const impulse = duration * effort / 60; // normalized training load
+    // Training impulse: duration × perceived effort
+    // When effort is unknown, estimate conservatively from exercise count + duration
+    const durationMin = w.duration ?? 0;
+    const duration = durationMin > 0 ? durationMin / 60 : 0.5;
+    const totalSets = w.workout_exercises.reduce((s, e) => s + (e.workout_sets?.length || 0), 0);
+    const estimatedEffort = durationMin > 60 ? 5 : durationMin > 30 ? 4 : totalSets > 15 ? 5 : 3;
+    const effort = (w as any).perceived_effort ?? (w as any).session_rpe ?? estimatedEffort;
+    const impulse = duration * effort / 60;
 
     fitness += impulse * Math.exp(-daysAgo / FITNESS_TAU);
     fatigue += impulse * Math.exp(-daysAgo / FATIGUE_TAU);
   }
 
   const performance = fitness - fatigue;
-  const maxPerformance = Math.max(fitness, 1);
-  const readiness = Math.max(0, Math.min(1, 0.5 + (performance / maxPerformance) * 0.5));
+  // Standard Banister readiness: 1 - (fatigue / fitness)
+  // When fatigue = 0: readiness = 1. When fatigue = fitness: readiness = 0.
+  // After months of training, fitness grows large but fatigue spikes are relative.
+  const readiness = fitness > 0
+    ? Math.max(0, Math.min(1, 1 - (fatigue / fitness) * 0.7))
+    : 0.5;
 
   return {
     fitnessLevel: Math.round(fitness * 10) / 10,

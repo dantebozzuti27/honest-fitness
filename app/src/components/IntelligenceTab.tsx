@@ -490,7 +490,7 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                   {tp.exerciseProgressions.slice(0, 20).map(p => (
                     <tr key={p.exerciseName}>
                       <td>{p.exerciseName}</td>
-                      <td>{p.estimated1RM.toFixed(0)} lbs</td>
+                      <td>{(p.estimated1RM ?? 0).toFixed(0)} lbs</td>
                       <td style={{ color: p.status === 'progressing' ? 'var(--success)' : p.status === 'regressing' ? 'var(--danger)' : 'var(--text-secondary)' }}>
                         {p.status}
                       </td>
@@ -535,15 +535,15 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
               <tbody>
                 <tr>
                   <td>Upper Body</td>
-                  <td style={{ color: tp.sleepCoefficients.upperBody > 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {tp.sleepCoefficients.upperBody > 0 ? '+' : ''}{(tp.sleepCoefficients.upperBody * 100).toFixed(0)}%
+                  <td style={{ color: (tp.sleepCoefficients.upperBody ?? 0) > 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    {(tp.sleepCoefficients.upperBody ?? 0) > 0 ? '+' : ''}{((tp.sleepCoefficients.upperBody ?? 0) * 100).toFixed(0)}%
                   </td>
                   <td>{tp.sleepCoefficients.confidence} ({tp.sleepCoefficients.dataPoints} pts)</td>
                 </tr>
                 <tr>
                   <td>Lower Body</td>
-                  <td style={{ color: tp.sleepCoefficients.lowerBody > 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {tp.sleepCoefficients.lowerBody > 0 ? '+' : ''}{(tp.sleepCoefficients.lowerBody * 100).toFixed(0)}%
+                  <td style={{ color: (tp.sleepCoefficients.lowerBody ?? 0) > 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    {(tp.sleepCoefficients.lowerBody ?? 0) > 0 ? '+' : ''}{((tp.sleepCoefficients.lowerBody ?? 0) * 100).toFixed(0)}%
                   </td>
                   <td>{tp.sleepCoefficients.confidence} ({tp.sleepCoefficients.dataPoints} pts)</td>
                 </tr>
@@ -561,8 +561,8 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                   {tp.timeOfDayEffects.filter(e => e.dataPoints >= 3).map(e => (
                     <tr key={e.bucket}>
                       <td>{e.bucket}</td>
-                      <td style={{ color: e.avgDelta >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        {e.avgDelta >= 0 ? '+' : ''}{(e.avgDelta * 100).toFixed(1)}%
+                      <td style={{ color: (e.avgDelta ?? 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                        {(e.avgDelta ?? 0) >= 0 ? '+' : ''}{((e.avgDelta ?? 0) * 100).toFixed(1)}%
                       </td>
                       <td>{e.dataPoints}</td>
                     </tr>
@@ -582,8 +582,8 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                   {tp.consecutiveDaysEffects.filter(e => e.dataPoints >= 3).map(e => (
                     <tr key={e.dayIndex}>
                       <td>Day {e.dayIndex}</td>
-                      <td style={{ color: e.avgDelta >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        {e.avgDelta >= 0 ? '+' : ''}{(e.avgDelta * 100).toFixed(1)}%
+                      <td style={{ color: (e.avgDelta ?? 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                        {(e.avgDelta ?? 0) >= 0 ? '+' : ''}{((e.avgDelta ?? 0) * 100).toFixed(1)}%
                       </td>
                       <td>{e.dataPoints}</td>
                     </tr>
@@ -617,7 +617,7 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                   <tr key={r.muscleGroup}>
                     <td style={{ textTransform: 'capitalize' }}>{r.muscleGroup.replace(/_/g, ' ')}</td>
                     <td>{r.recoveryPercent}%</td>
-                    <td>{r.hoursSinceLastTrained === Infinity ? '—' : r.hoursSinceLastTrained.toFixed(0)}h</td>
+                    <td>{r.hoursSinceLastTrained === Infinity || r.hoursSinceLastTrained == null ? '—' : r.hoursSinceLastTrained.toFixed(0)}h</td>
                     <td style={{ color: r.readyToTrain ? 'var(--success)' : 'var(--danger)' }}>
                       {r.readyToTrain ? 'Yes' : 'No'}
                     </td>
@@ -691,13 +691,13 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                 </div>
                 <div className={s.statCard}>
                   <span className={s.statLabel}>Z-Score</span>
-                  <span className={s.statValue} style={{ color: tp.hrvIntensityModifier.zScore < -1 ? 'var(--danger)' : tp.hrvIntensityModifier.zScore > 0.5 ? 'var(--success)' : 'var(--text-primary)' }}>
-                    {tp.hrvIntensityModifier.zScore.toFixed(2)}
+                  <span className={s.statValue} style={{ color: (tp.hrvIntensityModifier.zScore ?? 0) < -1 ? 'var(--danger)' : (tp.hrvIntensityModifier.zScore ?? 0) > 0.5 ? 'var(--success)' : 'var(--text-primary)' }}>
+                    {(tp.hrvIntensityModifier.zScore ?? 0).toFixed(2)}
                   </span>
                 </div>
                 <div className={s.statCard}>
                   <span className={s.statLabel}>Intensity</span>
-                  <span className={s.statValue}>×{tp.hrvIntensityModifier.intensityMultiplier.toFixed(2)}</span>
+                  <span className={s.statValue}>×{(tp.hrvIntensityModifier.intensityMultiplier ?? 1).toFixed(2)}</span>
                 </div>
               </div>
               <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>{tp.hrvIntensityModifier.recommendation}</p>
@@ -722,11 +722,11 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                 </div>
                 <div className={s.statCard}>
                   <span className={s.statLabel}>Volume</span>
-                  <span className={s.statValue}>×{tp.sleepVolumeModifier.volumeMultiplier.toFixed(2)}</span>
+                  <span className={s.statValue}>×{(tp.sleepVolumeModifier.volumeMultiplier ?? 1).toFixed(2)}</span>
                 </div>
                 <div className={s.statCard}>
                   <span className={s.statLabel}>Rest</span>
-                  <span className={s.statValue}>×{tp.sleepVolumeModifier.restTimeMultiplier.toFixed(2)}</span>
+                  <span className={s.statValue}>×{(tp.sleepVolumeModifier.restTimeMultiplier ?? 1).toFixed(2)}</span>
                 </div>
               </div>
               <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>{tp.sleepVolumeModifier.reason}</p>
@@ -754,7 +754,7 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                 </div>
                 <div className={s.statCard}>
                   <span className={s.statLabel}>Weight Dev</span>
-                  <span className={s.statValue}>{tp.prescribedVsActual.avgWeightDeviation > 0 ? '+' : ''}{tp.prescribedVsActual.avgWeightDeviation.toFixed(1)}%</span>
+                  <span className={s.statValue}>{(tp.prescribedVsActual.avgWeightDeviation ?? 0) > 0 ? '+' : ''}{(tp.prescribedVsActual.avgWeightDeviation ?? 0).toFixed(1)}%</span>
                 </div>
               </div>
             </div>
@@ -794,7 +794,7 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
             <div className={s.cardCompact}>
               <div className={s.sectionLabel}>Steps-Performance Correlation</div>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
-                Steps-performance: {tp.stepsPerformanceCorrelation.coefficient.toFixed(2)} —{' '}
+                Steps-performance: {(tp.stepsPerformanceCorrelation.coefficient ?? 0).toFixed(2)} —{' '}
                 {tp.stepsPerformanceCorrelation.coefficient < -0.15
                   ? 'High step days may reduce strength'
                   : tp.stepsPerformanceCorrelation.coefficient > 0.15

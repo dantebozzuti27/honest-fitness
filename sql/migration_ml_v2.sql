@@ -460,6 +460,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_hr_timeline') THEN
     ALTER TABLE workouts ADD COLUMN workout_hr_timeline JSONB;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_calories_burned') THEN
+    ALTER TABLE workouts ADD COLUMN workout_calories_burned NUMERIC;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workouts' AND column_name = 'workout_steps') THEN
+    ALTER TABLE workouts ADD COLUMN workout_steps INTEGER;
+  END IF;
 
   -- Intraday HR storage on health_metrics
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'health_metrics' AND column_name = 'hr_zones_minutes') THEN

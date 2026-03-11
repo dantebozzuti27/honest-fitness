@@ -404,7 +404,7 @@ export async function mergeWearableDataToMetrics(userId: string, date: string | 
     deep_sleep: toNumber(sd.deep_sleep) ?? existingMetrics?.deep_sleep ?? null,
     rem_sleep: toNumber(sd.rem_sleep) ?? existingMetrics?.rem_sleep ?? null,
     light_sleep: toNumber(sd.light_sleep) ?? existingMetrics?.light_sleep ?? null,
-    calories_burned: toNumber(fitbitData?.calories_burned) ?? existingMetrics?.calories_burned ?? null,
+    calories_burned: toNumber(fitbitData?.calories_burned ?? fitbitData?.calories) ?? existingMetrics?.calories_burned ?? null,
     steps: toInteger(fitbitData?.steps) ?? existingMetrics?.steps ?? null,
     hr_zones_minutes: fitbitData?.hr_zones_minutes ?? existingMetrics?.hr_zones_minutes ?? null,
     max_heart_rate: toNumber(fitbitData?.max_heart_rate) ?? existingMetrics?.max_heart_rate ?? null,
@@ -528,22 +528,26 @@ export async function fetchAndSaveWorkoutFitbitMetrics(
     if (m.hrTimeline != null) patch.workout_hr_timeline = m.hrTimeline
 
     if (Object.keys(patch).length > 1) {
-      const { error } = await supabase
-        .from('workouts')
-        .update(patch)
-        .eq('id', workoutId)
-        .eq('user_id', userId)
-
-      if (error) {
-        if (error.code === '42703') {
+      let retries = 0
+      let currentPatch = { ...patch }
+      while (retries < 5) {
+        const { error } = await supabase
+          .from('workouts')
+          .update(currentPatch)
+          .eq('id', workoutId)
+          .eq('user_id', userId)
+        if (!error) break
+        if (error.code === '42703' || error.code === 'PGRST204') {
           const colMatch = (error.message || '').match(/column "([^"]+)"/)
-          if (colMatch) {
-            delete patch[colMatch[1]]
-            await supabase.from('workouts').update(patch).eq('id', workoutId).eq('user_id', userId)
+          if (colMatch && currentPatch[colMatch[1]] !== undefined) {
+            delete currentPatch[colMatch[1]]
+            retries++
+            if (Object.keys(currentPatch).length <= 1) break
+            continue
           }
-        } else {
-          logError('Error patching workout with Fitbit metrics', error)
         }
+        logError('Error patching workout with Fitbit metrics', error)
+        break
       }
     }
 

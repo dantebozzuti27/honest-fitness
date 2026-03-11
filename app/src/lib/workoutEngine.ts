@@ -327,12 +327,70 @@ function getRirTarget(role: ExerciseRole, goal: string, isDeload: boolean): numb
   return Math.max(0, Math.min(4, baseFatigue + (goalRirShift[goal] ?? 0)));
 }
 
+/**
+ * Derive appropriate working weight from estimated 1RM for a target rep count + RIR.
+ *
+ * Epley: 1RM = weight × (1 + reps/30)
+ * Inverted: weight = 1RM / (1 + effectiveReps/30)
+ *
+ * effectiveReps = targetReps + rir (sets at RIR 2 with target 5 = capacity for 7 reps)
+ *
+ * This prevents the engine from prescribing a user's 1RM as a working weight
+ * for multi-rep sets — the most dangerous bug in any training program generator.
+ */
+function weightForReps(estimated1RM: number, targetReps: number, rir: number, equipment?: string[]): number {
+  if (estimated1RM <= 0 || targetReps <= 0) return 0;
+  const effectiveReps = targetReps + rir;
+  const raw = estimated1RM / (1 + effectiveReps / 30);
+  const step = equipment?.includes('barbell') ? 5 : equipment?.includes('dumbbell') ? 5 : 5;
+  return Math.round(raw / step) * step;
+}
+
 function getRirLabel(rir: number): string {
   if (rir >= 4) return 'Light — leave plenty in the tank';
   if (rir === 3) return 'Leave 3 in the tank';
   if (rir === 2) return 'Leave 2 in the tank';
   if (rir === 1) return 'Leave 1 in the tank';
   return 'Push close to failure';
+}
+
+/**
+ * Infer exercise type when no explicit classification exists.
+ * Uses muscle count and name heuristics instead of always defaulting to 'compound'.
+ */
+function inferExerciseType(exercise: EnrichedExercise): string {
+  const name = exercise.name.toLowerCase();
+  const primaryCount = Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles.length : 0;
+  const secondaryCount = Array.isArray(exercise.secondary_muscles) ? exercise.secondary_muscles.length : 0;
+
+  const ISOLATION_KEYWORDS = [
+    'curl', 'extension', 'fly', 'raise', 'kickback', 'pushdown',
+    'pulldown cable', 'lateral', 'front raise', 'rear delt', 'calf',
+    'shrug', 'wrist', 'forearm', 'concentration', 'preacher',
+    'cable crossover', 'pec deck', 'tricep', 'bicep', 'hamstring curl',
+    'leg curl', 'leg extension', 'hip adduct', 'hip abduct',
+    'face pull', 'reverse fly',
+  ];
+  const COMPOUND_KEYWORDS = [
+    'squat', 'deadlift', 'bench press', 'overhead press', 'row',
+    'pull-up', 'pullup', 'chin-up', 'chinup', 'dip', 'lunge',
+    'clean', 'snatch', 'press', 'thrust',
+  ];
+  const CARDIO_KEYWORDS = [
+    'treadmill', 'bike', 'elliptical', 'rowing machine', 'stairmaster',
+    'run', 'jog', 'walk', 'cycling', 'swim', 'jump rope',
+  ];
+
+  if (CARDIO_KEYWORDS.some(k => name.includes(k))) return 'cardio';
+  if (ISOLATION_KEYWORDS.some(k => name.includes(k))) return 'isolation';
+  if (COMPOUND_KEYWORDS.some(k => name.includes(k))) return 'compound';
+
+  // Heuristic: multi-joint = compound, single-joint = isolation
+  if (primaryCount + secondaryCount >= 3) return 'compound';
+
+  // Default to isolation for unknown exercises — safer rest/volume programming
+  // than incorrectly assuming compound (which gives less rest, higher CNS load)
+  return 'isolation';
 }
 
 /**
@@ -356,7 +414,7 @@ function getRestByExercise(
   if (role === 'cardio') return 0;
 
   const mapping = getExerciseMapping(exercise.name);
-  const exType = mapping?.exercise_type ?? exercise.ml_exercise_type ?? 'compound';
+  const exType = mapping?.exercise_type ?? exercise.ml_exercise_type ?? inferExerciseType(exercise);
   const primaryCount = mapping?.primary_muscles?.length ?? (Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles.length : 1);
   const secondaryCount = mapping?.secondary_muscles?.length ?? (Array.isArray(exercise.secondary_muscles) ? exercise.secondary_muscles.length : 0);
   const pattern = mapping?.movement_pattern ?? exercise.movement_pattern ?? '';
@@ -471,12 +529,11 @@ function classifyExerciseRole(
   exercise: EnrichedExercise,
   indexInGroup: number
 ): ExerciseRole {
-  if (exercise.ml_exercise_type === 'cardio') return 'cardio';
-  if (exercise.ml_exercise_type === 'recovery') return 'corrective';
-  // First compound in the group is primary; subsequent compounds are secondary
-  if (indexInGroup === 0 && exercise.ml_exercise_type === 'compound') return 'primary';
-  if (exercise.ml_exercise_type === 'compound') return 'secondary';
-  // Isolation / accessory exercises
+  const exType = exercise.ml_exercise_type ?? inferExerciseType(exercise);
+  if (exType === 'cardio') return 'cardio';
+  if (exType === 'recovery') return 'corrective';
+  if (indexInGroup === 0 && exType === 'compound') return 'primary';
+  if (exType === 'compound') return 'secondary';
   return 'isolation';
 }
 
@@ -1640,13 +1697,21 @@ function stepPrescribe(
     }
 
     if (prog) {
-      targetWeight = prog.lastWeight;
+      // Derive working weight from estimated 1RM scaled to the target rep range + RIR.
+      // This prevents prescribing near-max weights for multi-rep sets.
+      const e1rm = prog.estimated1RM;
+      targetWeight = weightForReps(e1rm, targetReps, rir, equipment);
+
+      // Safety floor: never prescribe below 50% of last working weight (catches bad 1RM estimates)
+      if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
+        targetWeight = Math.round(prog.lastWeight * 0.75 / 5) * 5;
+      }
+      adjustments.push(`Based on est. 1RM ${Math.round(e1rm)} lbs → ${targetWeight} lbs for ${targetReps} reps @ RIR ${rir}`);
 
       if (recoveryAdj.isDeload) {
         targetWeight = Math.round(targetWeight * cfg.deloadWeightMultiplier);
         adjustments.push(`Deload: weight at ${Math.round(cfg.deloadWeightMultiplier * 100)}% (${targetWeight} lbs)`);
       } else {
-        // Increment: use YOUR observed increment pattern, fall back to equipment-based default
         const learnedInc = hasLearnedData ? pref.learnedIncrement : null;
         const fallbackIncrement = role === 'isolation' || role === 'corrective'
           ? cfg.isolationIncrement
@@ -1657,12 +1722,7 @@ function stepPrescribe(
               : cfg.machineIncrement;
 
         const baseIncrement = learnedInc != null ? learnedInc : fallbackIncrement;
-
-        // #7: Scale increment by experience progression rate
         const scaledIncrement = Math.round(baseIncrement * expProgressionScale * 10) / 10;
-
-        // Cap: never jump more than maxProgressionPct of current weight,
-        // but always allow at least the smallest practical plate increment (2.5 lbs)
         const maxJump = Math.max(Math.round(targetWeight * cfg.maxProgressionPct), 2.5);
         const increment = Math.min(scaledIncrement, maxJump);
 
@@ -1670,19 +1730,16 @@ function stepPrescribe(
           adjustments.push(`Your typical increment: ${learnedInc} lbs`);
         }
 
-        // #5: Use best progression pattern if available
         const exMapping = getExerciseMapping(sel.exercise.name);
         const movementPat = exMapping?.movement_pattern ?? sel.exercise.movement_pattern ?? '';
         const bestPatternType = profile.bestProgressionPatterns[movementPat] ?? null;
 
-        // #6: Check for rep-weight breakthrough readiness
         const breakthrough = profile.repWeightBreakthroughs.find(
           b => b.exerciseName === sel.exercise.name.toLowerCase()
         );
 
         const lastReps = prog.bestSet.reps;
         if (lastReps >= targetReps + cfg.repsAboveTargetForProgression && prog.status === 'progressing') {
-          // #5: Apply progression style — double progression holds reps first
           if (bestPatternType === 'double_progression' && breakthrough && !breakthrough.readyForWeightJump) {
             adjustments.push(`Double progression: add reps before weight (${breakthrough.accumulatedRepsAtWeight} reps accumulated, need ${breakthrough.typicalRepsBeforeJump})`);
           } else {
@@ -1690,7 +1747,6 @@ function stepPrescribe(
             adjustments.push(`Progressive overload: +${increment} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
           }
         } else if (prog.status === 'stalled') {
-          // #18: Active plateau response — modify sets or suggest variation
           const plateauInfo = profile.plateauDetections.find(
             p => p.exerciseName === sel.exercise.name.toLowerCase() && p.isPlateaued
           );
@@ -1700,10 +1756,7 @@ function stepPrescribe(
             adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
           }
         } else if (prog.status === 'regressing') {
-          // #19: Severity-aware regression — scale reduction proportional to slope
           const regressionSeverity = Math.abs(prog.progressionSlope);
-          // Continuous: the steeper the regression, the bigger the drop
-          // Mild (slope ~0.02) → ~92%. Severe (slope ~0.10) → ~85%.
           const reductionPct = Math.max(0.80, cfg.regressionWeightMultiplier - (regressionSeverity * 0.8));
           targetWeight = Math.round(targetWeight * reductionPct);
           adjustments.push(`Regressing (${regressionSeverity > 0.05 ? 'severe' : 'mild'}): reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%)`);
@@ -1924,7 +1977,8 @@ function stepApplyConstraints(
     }
   }
 
-  // Order within each muscle group: user historical pattern + CNS demand
+  // Order within each muscle group: CNS demand primary, history as tiebreaker.
+  // Science: compounds before isolations, heavy before light (Simão et al. 2012).
   const ordered: GeneratedExercise[] = [];
 
   for (const group of groupOrder) {
@@ -1933,13 +1987,14 @@ function stepApplyConstraints(
     const scored = groupExercises.map(ex => {
       const hist = positionMap.get(ex.exerciseName.toLowerCase());
       const cnsTier = getCnsDemandTier(ex);
+      const isCompound = ex.movementPattern === 'compound' || cnsTier <= 2;
 
-      let withinGroupScore: number;
-      if (hist && hist.sessions >= 3) {
-        withinGroupScore = hist.avgNormalizedPosition * 50 + cnsTier * 10;
-      } else {
-        withinGroupScore = cnsTier * 20;
-      }
+      // Primary sort: compound (0) before isolation (100)
+      // Secondary sort: CNS demand tier (0-4, lower = heavier)
+      // Tertiary sort: slight historical tiebreaker
+      const compoundBonus = isCompound ? 0 : 100;
+      const histNudge = (hist && hist.sessions >= 3) ? hist.avgNormalizedPosition * 5 : 0;
+      const withinGroupScore = compoundBonus + cnsTier * 20 + histNudge;
 
       return { exercise: ex, withinGroupScore, cnsTier };
     });
@@ -2231,15 +2286,18 @@ function stepApplyConstraints(
       const equipment = Array.isArray(cand.exercise.equipment) ? cand.exercise.equipment : [];
       const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
 
+      const rir = getRirTarget(role, effectiveGoal, false);
+
       let targetWeight: number | null = null;
       const prog = profile.exerciseProgressions.find(p => p.exerciseName === cand.exercise.name.toLowerCase());
       if (prog) {
-        targetWeight = prog.lastWeight;
+        targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment);
+        if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
+          targetWeight = Math.round(prog.lastWeight * 0.75 / 5) * 5;
+        }
       } else if (pref?.learnedWeight != null) {
         targetWeight = Math.round(pref.learnedWeight);
       }
-
-      const rir = getRirTarget(role, effectiveGoal, false);
       const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
       if (estMin > remainingMinutes) continue;
 

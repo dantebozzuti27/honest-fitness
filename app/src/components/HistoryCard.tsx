@@ -194,7 +194,7 @@ export default function HistoryCard({
                 if (!mins) return null
                 const labels: Record<string, string> = { rest: 'Rest', fatBurn: 'Fat Burn', cardio: 'Cardio', peak: 'Peak' }
                 const colors: Record<string, string> = { rest: '#8884d8', fatBurn: '#82ca9d', cardio: '#ffc658', peak: '#ff7043' }
-                const totalZone = Object.values(data.workout_hr_zones as Record<string, number>).reduce((a, b) => a + b, 0)
+                const totalZone = Object.values(data.workout_hr_zones as Record<string, number>).reduce((a, b) => a + (Number(b) || 0), 0)
                 const pct = totalZone > 0 ? Math.round((mins / totalZone) * 100) : 0
                 return (
                   <div key={zone} className={styles.hrZoneBar}>

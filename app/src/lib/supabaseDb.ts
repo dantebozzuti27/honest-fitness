@@ -157,10 +157,16 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       .single()
     workoutData = data
     workoutError = error
-    if (workoutError && (workoutError.code === '42703' || `${workoutError.message || ''}`.toLowerCase().includes('session_type'))) {
+    if (workoutError && (workoutError.code === '42703' || workoutError.code === 'PGRST204' || `${workoutError.message || ''}`.toLowerCase().includes('column'))) {
+      const migrationCols = new Set([
+        'session_type', 'session_rpe', 'training_density', 'workout_calories_burned',
+        'workout_steps', 'generated_workout_id', 'workout_start_time', 'workout_end_time'
+      ])
+      const cleaned = { ...upsertPayload } as Record<string, unknown>
+      for (const col of migrationCols) delete cleaned[col]
       const retry = await supabase
         .from('workouts')
-        .upsert(upsertPayload, { onConflict: 'id' })
+        .upsert(cleaned, { onConflict: 'id' })
         .select()
         .single()
       workoutData = retry.data
@@ -314,15 +320,16 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
           reps: set.reps ? Number(set.reps) : null,
           time: timeVal,
           speed: set.speed ? Number(set.speed) : null,
-          incline: set.incline ? Number(set.incline) : null
+          incline: set.incline ? Number(set.incline) : null,
+          is_warmup: set._is_warmup === true || set.is_warmup === true || false,
         }
       })
 
       const tryInsert = async (rows: any[]) => supabase.from('workout_sets').insert(rows)
       let { error: setsError } = await tryInsert(setsToInsert)
       if (setsError && (setsError.code === '42703' || `${setsError.message || ''}`.toLowerCase().includes('column'))) {
-        // Retry without optional BW columns for older schemas.
-        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, ...rest }: any) => rest)
+        // Retry without optional columns for older schemas.
+        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, is_warmup, ...rest }: any) => rest)
         const retry = await tryInsert(stripped)
         setsError = retry.error
       }
@@ -330,6 +337,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     }
   }
 
+  invalidateSupabaseCache()
   return workoutData
 }
 
@@ -398,66 +406,45 @@ export async function getRecentWorkoutsFromSupabase(userId: string, limit = 30) 
   const cached = getCached<any[]>(cacheKey)
   if (cached) return cached
 
-  const { data, error } = await supabase
-    .from('workouts')
-    .select(`
-      id,
-      date,
-      created_at,
-      duration,
-      template_name,
-      workout_avg_hr,
-      workout_peak_hr,
-      workout_calories_burned,
-      workout_steps,
-      workout_active_minutes,
-      workout_hr_zones,
+  const WORKOUT_SELECT_FULL = `
+      id, date, created_at, duration, template_name,
+      workout_avg_hr, workout_peak_hr,
+      workout_calories_burned, workout_steps, workout_active_minutes, workout_hr_zones,
       workout_exercises (
-        exercise_name,
-        body_part,
-        exercise_type,
-        workout_sets (
-          weight,
-          reps,
-          time,
-          speed,
-          incline
-        )
-      )
-    `)
+        exercise_name, body_part, exercise_type,
+        workout_sets ( weight, reps, time, speed, incline )
+      )`
+  const WORKOUT_SELECT_BASE = `
+      id, date, created_at, duration, template_name,
+      workout_exercises (
+        exercise_name, body_part, exercise_type,
+        workout_sets ( weight, reps, time, speed, incline )
+      )`
+
+  let { data, error } = await supabase
+    .from('workouts')
+    .select(WORKOUT_SELECT_FULL)
     .eq('user_id', userId)
     .order('date', { ascending: false })
     .limit(safeLimit)
 
+  // If columns don't exist (migration not run), retry with base columns
+  if (error?.code === 'PGRST204' || (error && error.message?.includes('column'))) {
+    const retry = await supabase
+      .from('workouts')
+      .select(WORKOUT_SELECT_BASE)
+      .eq('user_id', userId)
+      .order('date', { ascending: false })
+      .limit(safeLimit)
+    data = retry.data
+    error = retry.error
+  }
+
   if (error) {
-    // Fallback: some deployments may not have reliable date ordering; use created_at.
+    // Fallback: use created_at ordering
     const { data: d2, error: e2 } = await supabase
       .from('workouts')
-      .select(`
-        id,
-        date,
-        created_at,
-        duration,
-        template_name,
-        workout_avg_hr,
-        workout_peak_hr,
-        workout_calories_burned,
-        workout_steps,
-        workout_active_minutes,
-        workout_hr_zones,
-        workout_exercises (
-          exercise_name,
-          body_part,
-          exercise_type,
-          workout_sets (
-            weight,
-            reps,
-            time,
-            speed,
-            incline
-          )
-        )
-      `)
+      .select(WORKOUT_SELECT_BASE)
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(safeLimit)
@@ -662,26 +649,35 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
     throw new Error('Unauthorized: Workout does not belong to user')
   }
   
-  // Update workout
-  const { error: workoutError } = await supabase
+  // Update workout — build patch dynamically, stripping migration columns on failure
+  const workoutPatch: Record<string, any> = {
+    date: workout.date,
+    duration: workout.duration,
+    template_name: workout.templateName || null,
+    perceived_effort: workout.perceivedEffort || null,
+    mood_after: workout.moodAfter || null,
+    notes: workout.notes || null,
+    day_of_week: workout.dayOfWeek ?? null,
+    session_rpe: workout.perceivedEffort || null,
+    training_density: workout.trainingDensity != null ? Number(workout.trainingDensity) : null,
+    workout_calories_burned: workout.workoutCaloriesBurned != null ? Number(workout.workoutCaloriesBurned) : null,
+    workout_steps: workout.workoutSteps != null ? Number(workout.workoutSteps) : null,
+    generated_workout_id: workout.generatedWorkoutId || null,
+    updated_at: new Date().toISOString()
+  }
+
+  let { error: workoutError } = await supabase
     .from('workouts')
-    .update({
-      date: workout.date,
-      duration: workout.duration,
-      template_name: workout.templateName || null,
-      perceived_effort: workout.perceivedEffort || null,
-      mood_after: workout.moodAfter || null,
-      notes: workout.notes || null,
-      day_of_week: workout.dayOfWeek ?? null,
-      session_rpe: workout.perceivedEffort || null,
-      training_density: workout.trainingDensity != null ? Number(workout.trainingDensity) : null,
-      workout_calories_burned: workout.workoutCaloriesBurned != null ? Number(workout.workoutCaloriesBurned) : null,
-      workout_steps: workout.workoutSteps != null ? Number(workout.workoutSteps) : null,
-      generated_workout_id: workout.generatedWorkoutId || null,
-      updated_at: new Date().toISOString()
-    })
+    .update(workoutPatch)
     .eq('id', workoutId)
     .eq('user_id', userId)
+
+  if (workoutError?.code === 'PGRST204' || workoutError?.code === '42703') {
+    const migrationCols = new Set(['workout_calories_burned', 'workout_steps', 'training_density', 'generated_workout_id'])
+    for (const col of migrationCols) delete workoutPatch[col]
+    const retry = await supabase.from('workouts').update(workoutPatch).eq('id', workoutId).eq('user_id', userId)
+    workoutError = retry.error
+  }
 
   if (workoutError) throw workoutError
 
@@ -1068,11 +1064,26 @@ export async function saveMetricsToSupabase(userId: string, date: string, metric
   safeLogDebug('saveMetricsToSupabase: Prepared data for health_metrics', healthMetricsData)
   
   try {
-    // Upsert to health_metrics table
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('health_metrics')
       .upsert(healthMetricsData, { onConflict: 'user_id,date' })
       .select()
+
+    if (error?.code === 'PGRST204' || (error && error.message?.includes('column'))) {
+      const migrationCols = new Set([
+        'distance', 'floors', 'active_minutes_fairly', 'active_minutes_very',
+        'active_minutes_lightly', 'hr_zones_minutes', 'max_heart_rate', 'body_temp',
+        'sedentary_minutes', 'deep_sleep', 'rem_sleep', 'light_sleep', 'average_heart_rate'
+      ])
+      const cleaned = { ...healthMetricsData } as Record<string, unknown>
+      for (const col of migrationCols) delete cleaned[col]
+      const retry = await supabase
+        .from('health_metrics')
+        .upsert(cleaned, { onConflict: 'user_id,date' })
+        .select()
+      data = retry.data
+      error = retry.error
+    }
 
     if (error) {
       logError('saveMetricsToSupabase: Error from Supabase', error)
@@ -1080,14 +1091,7 @@ export async function saveMetricsToSupabase(userId: string, date: string, metric
     }
     
     safeLogDebug('saveMetricsToSupabase: Success', data)
-    
-    // Post-save enrichment removed (simplified)
-    try {
-      // placeholder
-    } catch (enrichError) {
-      // Non-critical
-    }
-    
+    invalidateSupabaseCache()
     return data
   } catch (err) {
     logError('saveMetricsToSupabase: Error', err)

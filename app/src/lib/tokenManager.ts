@@ -139,20 +139,18 @@ export function startTokenRefreshInterval(userId: string) {
 
 // ============ FITBIT SYNC SCHEDULER ============
 
-function getETDate(offset = 0): string {
-  const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
-  const d = new Date(etStr)
+function getLocalDateWithOffset(offset = 0): string {
+  const d = new Date()
   d.setDate(d.getDate() + offset)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function getMsUntilMidnightET(): number {
-  const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
-  const etNow = new Date(etStr)
-  const midnight = new Date(etStr)
+function getMsUntilLocalMidnight(): number {
+  const now = new Date()
+  const midnight = new Date(now)
   midnight.setDate(midnight.getDate() + 1)
   midnight.setHours(0, 0, 0, 0)
-  return Math.max(midnight.getTime() - etNow.getTime(), 60_000)
+  return Math.max(midnight.getTime() - now.getTime(), 60_000)
 }
 
 async function isFitbitConnected(userId: string): Promise<boolean> {
@@ -169,8 +167,8 @@ async function isFitbitConnected(userId: string): Promise<boolean> {
 export async function triggerFitbitSync(userId: string, date?: string): Promise<void> {
   try {
     if (!(await isFitbitConnected(userId))) return
-    await syncFitbitData(userId, date ?? getETDate(0))
-    logDebug('Fitbit sync triggered', { date: date ?? getETDate(0) })
+    await syncFitbitData(userId, date ?? getLocalDateWithOffset(0))
+    logDebug('Fitbit sync triggered', { date: date ?? getLocalDateWithOffset(0) })
   } catch (err: any) {
     logError('triggerFitbitSync failed (non-fatal)', { message: err?.message })
   }
@@ -189,7 +187,7 @@ async function backfillFitbitSync(userId: string, days: number = BACKFILL_DAYS):
   if (!(await isFitbitConnected(userId))) return
 
   for (let offset = -(days - 1); offset <= 0; offset++) {
-    const date = getETDate(offset)
+    const date = getLocalDateWithOffset(offset)
     try {
       await syncFitbitData(userId, date)
       logDebug('Fitbit backfill synced', { date })
@@ -219,13 +217,13 @@ export function startFitbitSyncScheduler(userId: string): () => void {
 
   function scheduleMidnight() {
     if (cancelled) return
-    const ms = getMsUntilMidnightET()
+    const ms = getMsUntilLocalMidnight()
     logDebug('Fitbit midnight sync scheduled', { ms, minutesUntil: Math.round(ms / 60_000) })
 
     midnightTimeout = setTimeout(async () => {
       if (cancelled) return
-      const yesterday = getETDate(-1)
-      const today = getETDate(0)
+      const yesterday = getLocalDateWithOffset(-1)
+      const today = getLocalDateWithOffset(0)
       await triggerFitbitSync(userId, yesterday)
       await triggerFitbitSync(userId, today)
       scheduleMidnight()
@@ -245,8 +243,8 @@ export function startFitbitSyncScheduler(userId: string): () => void {
       const elapsed = Date.now() - lastHiddenAt
       if (elapsed >= BACKGROUND_THRESHOLD_MS) {
         logDebug('App foregrounded after >1h background; syncing yesterday + today')
-        triggerFitbitSync(userId, getETDate(-1))
-        triggerFitbitSync(userId, getETDate(0))
+        triggerFitbitSync(userId, getLocalDateWithOffset(-1))
+        triggerFitbitSync(userId, getLocalDateWithOffset(0))
       }
       lastHiddenAt = 0
     }

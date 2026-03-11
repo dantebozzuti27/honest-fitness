@@ -459,19 +459,10 @@ export async function fetchAndSaveWorkoutFitbitMetrics(
     const startDt = new Date(startTimeISO)
     const endDt = new Date(endTimeISO)
 
-    const toET = (d: Date) => {
-      const parts = d.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).split(', ')
-      return parts
-    }
-
-    const etStart = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(startDt)
-    const etEnd = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(endDt)
-
-    const getPart = (parts: Intl.DateTimeFormatPart[], type: string) => parts.find(p => p.type === type)?.value || ''
-
-    const date = `${getPart(etStart, 'year')}-${getPart(etStart, 'month')}-${getPart(etStart, 'day')}`
-    const startTime = `${getPart(etStart, 'hour')}:${getPart(etStart, 'minute')}`
-    const endTime = `${getPart(etEnd, 'hour')}:${getPart(etEnd, 'minute')}`
+    const pad2 = (n: number) => String(n).padStart(2, '0')
+    const date = `${startDt.getFullYear()}-${pad2(startDt.getMonth() + 1)}-${pad2(startDt.getDate())}`
+    const startTime = `${pad2(startDt.getHours())}:${pad2(startDt.getMinutes())}`
+    const endTime = `${pad2(endDt.getHours())}:${pad2(endDt.getMinutes())}`
 
     const { data: { session } } = await supabase.auth.getSession()
     const authToken = session?.access_token || ''

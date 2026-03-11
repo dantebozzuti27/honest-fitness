@@ -43,10 +43,10 @@ function TrendRow({ label, mt, unit, goodDir }: { label: string; mt: { current: 
   )
 }
 
-type SectionId = 'trends' | 'percentiles' | 'profile' | 'training' | 'recovery' | 'flags' | 'ml' | 'forecasts' | 'fatigue'
+type SectionId = 'goal' | 'trends' | 'percentiles' | 'profile' | 'training' | 'recovery' | 'flags' | 'ml' | 'forecasts' | 'fatigue'
 
 export default function IntelligenceTab({ trainingProfile, profileLoading, onAnalyze }: Props) {
-  const [expanded, setExpanded] = useState<Set<SectionId>>(new Set(['trends', 'percentiles', 'profile']))
+  const [expanded, setExpanded] = useState<Set<SectionId>>(new Set(['goal', 'trends', 'percentiles', 'profile']))
 
   const toggle = (id: SectionId) => {
     setExpanded(prev => {
@@ -73,8 +73,75 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
   const tp = trainingProfile
   const t = tp.rolling30DayTrends
 
+  const gp = tp.goalProgress;
+
   return (
     <div className={s.pageContent}>
+      {/* ── Goal Progress (Hero) ──────────────────────────────── */}
+      {gp && (
+        <>
+          <div className={s.card}>
+            <div className={s.rowBetween}>
+              <div>
+                <h3 className={s.sectionTitle}>Goal: {gp.goalLabel}</h3>
+                <p className={s.sectionSubtitle}>{gp.summary}</p>
+              </div>
+              <div className={s.scoreDisplay}>
+                <span className={s.scoreValue} style={{ color: gp.overallScore >= 70 ? 'var(--success)' : gp.overallScore >= 45 ? '#e6a800' : '#ef4444' }}>
+                  {gp.overallScore}
+                </span>
+                <span className={s.scoreLabel}>Alignment</span>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {gp.signals.map((sig, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  padding: '10px 12px', borderRadius: 8,
+                  backgroundColor: sig.trend === 'positive' ? 'rgba(34,197,94,0.08)' : sig.trend === 'negative' ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)',
+                  borderLeft: `3px solid ${sig.trend === 'positive' ? 'var(--success)' : sig.trend === 'negative' ? '#ef4444' : 'var(--text-muted)'}`,
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{sig.label}</span>
+                      <span style={{
+                        fontSize: 13, fontWeight: 700,
+                        color: sig.trend === 'positive' ? 'var(--success)' : sig.trend === 'negative' ? '#ef4444' : 'var(--text-secondary)',
+                      }}>{sig.value}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>{sig.detail}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {gp.workoutAlignment.length > 0 && (
+            <div className={s.card} style={{ marginTop: 12 }}>
+              <h3 className={s.sectionTitle}>How Your Workouts Target This Goal</h3>
+              <p className={s.sectionSubtitle}>How the prescribed workouts are designed for {gp.goalLabel.toLowerCase()}</p>
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {gp.workoutAlignment.map((wa, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <span style={{
+                      fontSize: 12, fontWeight: 700, minWidth: 20, textAlign: 'center',
+                      color: wa.status === 'aligned' ? 'var(--success)' : wa.status === 'partial' ? '#e6a800' : '#ef4444',
+                    }}>
+                      {wa.status === 'aligned' ? '✓' : wa.status === 'partial' ? '~' : '✗'}
+                    </span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{wa.factor}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>{wa.detail}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {/* ── Athlete Profile (Hero) ─────────────────────────────── */}
       {tp.athleteProfile && tp.athleteProfile.items.length > 0 && (
         <div className={s.card}>

@@ -428,11 +428,37 @@ export interface TrainingProfile {
     reason: string;
   };
 
+  // Goal Progress
+  goalProgress: GoalProgress | null;
+
   // Global
   trainingFrequency: number;
   avgSessionDuration: number;
   trainingAgeDays: number;
   consistencyScore: number;
+}
+
+export interface GoalProgress {
+  primaryGoal: string;
+  goalLabel: string;
+  signals: GoalSignal[];
+  workoutAlignment: WorkoutAlignmentItem[];
+  overallScore: number; // 0-100: how well current trajectory aligns with goal
+  summary: string;
+}
+
+export interface GoalSignal {
+  label: string;
+  value: string;
+  trend: 'positive' | 'negative' | 'neutral';
+  detail: string;
+  weight: number; // 0-1: importance to goal
+}
+
+export interface WorkoutAlignmentItem {
+  factor: string;
+  status: 'aligned' | 'partial' | 'misaligned';
+  detail: string;
 }
 
 export interface StrengthPercentile {
@@ -3482,10 +3508,238 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     movementPatternFatigue: computeMovementPatternFatigue(workouts, exercises),
     sleepVolumeModifier: computeSleepVolumeModifier(health),
 
+    goalProgress: computeGoalProgress(
+      prefsResult?.data,
+      rolling30DayTrends,
+      computeBodyWeightTrend(health),
+      exerciseProgressions,
+      muscleVolumeStatuses,
+      { trainingFrequency, avgSessionDuration, consistencyScore, trainingAgeDays },
+      fitnessFatigueResult,
+    ),
+
     trainingFrequency: Math.round(trainingFrequency * 10) / 10,
     avgSessionDuration: Math.round(avgSessionDuration),
     trainingAgeDays: Math.round(trainingAgeDays),
     consistencyScore: Math.round(consistencyScore * 100) / 100,
+  };
+}
+
+// ─── Goal Progress ──────────────────────────────────────────────────────────
+
+function computeGoalProgress(
+  prefs: any,
+  trends: Rolling30DayTrends,
+  bwt: BodyWeightTrend,
+  progressions: ExerciseProgression[],
+  volumeStatuses: MuscleVolumeStatus[],
+  global: { trainingFrequency: number; avgSessionDuration: number; consistencyScore: number; trainingAgeDays: number },
+  ffm: { readiness: number; fitnessLevel: number; fatigueLevel: number },
+): GoalProgress | null {
+  const goal: string = prefs?.primary_goal ?? prefs?.training_goal ?? null;
+  if (!goal) return null;
+
+  const goalLabels: Record<string, string> = {
+    strength: 'Build Strength', hypertrophy: 'Build Muscle', fat_loss: 'Lose Fat',
+    endurance: 'Improve Endurance', general_fitness: 'General Fitness',
+  };
+
+  const signals: GoalSignal[] = [];
+  const alignment: WorkoutAlignmentItem[] = [];
+  let scoreSum = 0;
+  let weightSum = 0;
+
+  const addSignal = (s: GoalSignal) => { signals.push(s); scoreSum += (s.trend === 'positive' ? 1 : s.trend === 'negative' ? 0 : 0.5) * s.weight * 100; weightSum += s.weight; };
+
+  const progressing = progressions.filter(p => p.status === 'progressing').length;
+  const regressing = progressions.filter(p => p.status === 'regressing').length;
+  const total = progressions.length;
+
+  // -- Consistency (all goals) --
+  addSignal({
+    label: 'Consistency', value: `${Math.round(global.consistencyScore * 100)}%`,
+    trend: global.consistencyScore >= 0.7 ? 'positive' : global.consistencyScore >= 0.4 ? 'neutral' : 'negative',
+    detail: global.consistencyScore >= 0.7 ? 'Training consistently — this is the #1 factor for any goal' : 'Inconsistent training slows progress toward any goal',
+    weight: 0.2,
+  });
+
+  // -- Frequency (all goals) --
+  const freqTarget = goal === 'strength' || goal === 'hypertrophy' ? 4 : 3;
+  addSignal({
+    label: 'Training Frequency', value: `${global.trainingFrequency.toFixed(1)} days/wk`,
+    trend: global.trainingFrequency >= freqTarget ? 'positive' : global.trainingFrequency >= freqTarget - 1 ? 'neutral' : 'negative',
+    detail: global.trainingFrequency >= freqTarget ? `Hitting ${freqTarget}+ sessions/week supports your ${goalLabels[goal] || goal} goal` : `${goal === 'hypertrophy' ? 'Muscle growth' : 'Strength gains'} benefit from ${freqTarget}+ sessions/week`,
+    weight: 0.15,
+  });
+
+  if (goal === 'strength') {
+    // Strength Index trend
+    if (trends.totalStrengthIndex.dataPoints >= 3) {
+      addSignal({
+        label: 'Strength Index', value: `${trends.totalStrengthIndex.current?.toFixed(0) ?? '—'}`,
+        trend: trends.totalStrengthIndex.direction === 'up' ? 'positive' : trends.totalStrengthIndex.direction === 'down' ? 'negative' : 'neutral',
+        detail: trends.totalStrengthIndex.direction === 'up' ? `Strength index rising ${Math.abs(trends.totalStrengthIndex.slopePct).toFixed(1)}%/wk — compound lifts are progressing` : 'Strength stalling — consider deload or nutrition adjustment',
+        weight: 0.25,
+      });
+    }
+    // Progression rate
+    if (total > 0) {
+      const pctProgressing = progressing / total;
+      addSignal({
+        label: 'Lift Progression', value: `${progressing}/${total} lifts progressing`,
+        trend: pctProgressing >= 0.5 ? 'positive' : pctProgressing >= 0.3 ? 'neutral' : 'negative',
+        detail: pctProgressing >= 0.5 ? 'Majority of lifts are progressing — strong signal for strength gains' : `${regressing} lifts regressing — may need intensity cycling or deload`,
+        weight: 0.2,
+      });
+    }
+    // Volume load trend
+    if (trends.totalVolumeLoad.dataPoints >= 3) {
+      addSignal({
+        label: 'Volume Load', value: `${trends.totalVolumeLoad.direction === 'up' ? '↑' : trends.totalVolumeLoad.direction === 'down' ? '↓' : '→'} ${Math.abs(trends.totalVolumeLoad.slopePct).toFixed(1)}%/wk`,
+        trend: trends.totalVolumeLoad.direction === 'up' ? 'positive' : trends.totalVolumeLoad.direction === 'down' ? 'negative' : 'neutral',
+        detail: 'Progressive overload through volume is key for strength adaptation',
+        weight: 0.15,
+      });
+    }
+    // Alignment
+    const avgDur = global.avgSessionDuration / 60;
+    alignment.push({ factor: 'Session Duration', status: avgDur >= 45 ? 'aligned' : 'partial', detail: avgDur >= 45 ? `${Math.round(avgDur)} min avg — enough time for heavy compounds + rest` : `${Math.round(avgDur)} min avg — strength needs 45+ min for adequate rest between heavy sets` });
+    const compoundPct = progressions.filter(p => p.exerciseName.match(/squat|bench|deadlift|press|row/i)).length / Math.max(total, 1);
+    alignment.push({ factor: 'Compound Focus', status: compoundPct >= 0.3 ? 'aligned' : 'partial', detail: compoundPct >= 0.3 ? 'Training includes compound movements — core of strength development' : 'Add more compound lifts (squat, bench, deadlift, OHP, rows) for faster strength gains' });
+
+  } else if (goal === 'hypertrophy') {
+    // Volume trend
+    if (trends.totalWeeklyVolume.dataPoints >= 3) {
+      addSignal({
+        label: 'Weekly Volume', value: `${trends.totalWeeklyVolume.current?.toFixed(0) ?? '—'} sets/wk`,
+        trend: trends.totalWeeklyVolume.direction === 'up' ? 'positive' : trends.totalWeeklyVolume.direction === 'down' ? 'negative' : 'neutral',
+        detail: trends.totalWeeklyVolume.direction === 'up' ? 'Volume is increasing — progressive overload drives hypertrophy' : 'Volume stalling — muscle growth requires progressive volume increases',
+        weight: 0.2,
+      });
+    }
+    // Muscle volume coverage
+    const inMav = volumeStatuses.filter(v => v.status === 'in_mav').length;
+    const belowMev = volumeStatuses.filter(v => v.status === 'below_mev').length;
+    const totalMuscles = volumeStatuses.length;
+    if (totalMuscles > 0) {
+      addSignal({
+        label: 'Volume Coverage', value: `${inMav}/${totalMuscles} in growth range`,
+        trend: inMav >= totalMuscles * 0.5 ? 'positive' : belowMev >= totalMuscles * 0.5 ? 'negative' : 'neutral',
+        detail: inMav >= totalMuscles * 0.5 ? 'Most muscle groups are in the effective volume range for hypertrophy' : `${belowMev} muscle groups below minimum effective volume — not enough stimulus for growth`,
+        weight: 0.2,
+      });
+    }
+    // Weight trend (lean bulk = slight gain)
+    if (bwt.currentWeight != null) {
+      const weightGoal = prefs?.weight_goal_lbs;
+      addSignal({
+        label: 'Body Weight', value: `${bwt.currentWeight} lbs (${bwt.slope > 0 ? '+' : ''}${bwt.slope} lbs/wk)`,
+        trend: bwt.slope >= 0.1 && bwt.slope <= 1.0 ? 'positive' : bwt.slope > 1.0 ? 'neutral' : bwt.slope < -0.3 ? 'negative' : 'neutral',
+        detail: bwt.slope >= 0.1 && bwt.slope <= 1.0 ? 'Slow weight gain supports lean muscle growth' : bwt.slope > 1.0 ? 'Gaining fast — surplus may be too aggressive, more fat than muscle' : bwt.slope < -0.3 ? 'Losing weight makes muscle gain much harder — consider eating more' : `Maintaining${weightGoal ? ` (goal: ${weightGoal} lbs)` : ''}`,
+        weight: 0.15,
+      });
+    }
+    // Progression rate
+    if (total > 0) {
+      const pctProgressing = progressing / total;
+      addSignal({
+        label: 'Lift Progression', value: `${progressing}/${total} progressing`,
+        trend: pctProgressing >= 0.4 ? 'positive' : pctProgressing >= 0.2 ? 'neutral' : 'negative',
+        detail: pctProgressing >= 0.4 ? 'Progressive overload intact — muscles getting stronger stimulus each session' : 'Stalling lifts reduce hypertrophy stimulus — vary rep ranges or exercises',
+        weight: 0.15,
+      });
+    }
+    // Alignment
+    alignment.push({ factor: 'Rep Ranges', status: 'aligned', detail: 'Engine prescribes 8-15 rep ranges optimized for hypertrophy when this is your goal' });
+    alignment.push({ factor: 'Volume per Muscle', status: inMav >= totalMuscles * 0.5 ? 'aligned' : 'misaligned', detail: inMav >= totalMuscles * 0.5 ? `${inMav} muscle groups at effective volume for growth` : `${belowMev} groups below minimum — workouts should add more sets` });
+
+  } else if (goal === 'fat_loss') {
+    // Weight trend
+    if (bwt.currentWeight != null) {
+      const weightGoal = prefs?.weight_goal_lbs;
+      const onTrack = bwt.slope < -0.3 && bwt.slope >= -1.5;
+      addSignal({
+        label: 'Weight Trend', value: `${bwt.currentWeight} lbs (${bwt.slope > 0 ? '+' : ''}${bwt.slope} lbs/wk)`,
+        trend: onTrack ? 'positive' : bwt.slope >= 0 ? 'negative' : bwt.slope < -1.5 ? 'neutral' : 'neutral',
+        detail: onTrack ? `Losing ${Math.abs(bwt.slope).toFixed(1)} lbs/wk — sustainable fat loss rate${weightGoal ? `. Goal: ${weightGoal} lbs` : ''}` : bwt.slope >= 0 ? 'Not losing weight — caloric deficit may be insufficient or inconsistent' : `Losing ${Math.abs(bwt.slope).toFixed(1)} lbs/wk — rapid loss risks muscle loss`,
+        weight: 0.25,
+      });
+      if (weightGoal && bwt.currentWeight > weightGoal && bwt.slope < 0) {
+        const lbsToGo = bwt.currentWeight - weightGoal;
+        const weeksToGoal = Math.round(lbsToGo / Math.abs(bwt.slope));
+        addSignal({
+          label: 'Weight Goal', value: `${lbsToGo.toFixed(1)} lbs to go`,
+          trend: 'positive', detail: `At current rate, ~${weeksToGoal} weeks to reach ${weightGoal} lbs`,
+          weight: 0.1,
+        });
+      }
+    }
+    // Strength preservation
+    if (total > 0) {
+      addSignal({
+        label: 'Strength Retention', value: `${regressing}/${total} regressing`,
+        trend: regressing <= Math.ceil(total * 0.2) ? 'positive' : regressing <= Math.ceil(total * 0.4) ? 'neutral' : 'negative',
+        detail: regressing <= Math.ceil(total * 0.2) ? 'Maintaining strength during cut — muscle preservation is on track' : 'Significant strength loss — cut may be too aggressive or protein too low',
+        weight: 0.2,
+      });
+    }
+    // Activity level
+    if (trends.steps.dataPoints >= 3 && trends.steps.current != null) {
+      addSignal({
+        label: 'Daily Activity', value: `${Math.round(trends.steps.current).toLocaleString()} steps`,
+        trend: trends.steps.current >= 8000 ? 'positive' : trends.steps.current >= 5000 ? 'neutral' : 'negative',
+        detail: trends.steps.current >= 8000 ? 'High NEAT — daily activity amplifies fat loss beyond workouts' : 'Low daily movement — increasing steps is a low-effort way to boost calorie burn',
+        weight: 0.15,
+      });
+    }
+    // Alignment
+    alignment.push({ factor: 'Training Intensity', status: regressing <= Math.ceil(total * 0.3) ? 'aligned' : 'misaligned', detail: regressing <= Math.ceil(total * 0.3) ? 'Workouts maintain intensity to preserve muscle during the cut' : 'Too much regression — workouts should prioritize intensity over volume during a cut' });
+    alignment.push({ factor: 'Cardio Component', status: 'aligned', detail: 'Engine includes cardio scaled to your fat loss goal (up to 40% of session time)' });
+
+  } else {
+    // General fitness / endurance
+    if (trends.totalStrengthIndex.dataPoints >= 3) {
+      addSignal({
+        label: 'Overall Fitness', value: ffm.fitnessLevel.toFixed(0),
+        trend: ffm.readiness >= 0.6 ? 'positive' : ffm.readiness >= 0.4 ? 'neutral' : 'negative',
+        detail: `Fitness-fatigue model readiness: ${Math.round(ffm.readiness * 100)}%`,
+        weight: 0.2,
+      });
+    }
+    if (total > 0) {
+      addSignal({
+        label: 'Progression', value: `${progressing}/${total} exercises improving`,
+        trend: progressing >= total * 0.4 ? 'positive' : 'neutral',
+        detail: progressing >= total * 0.4 ? 'Steady improvement across exercises' : 'Some exercises stalling — consider varying stimulus',
+        weight: 0.2,
+      });
+    }
+    alignment.push({ factor: 'Balanced Programming', status: 'aligned', detail: 'Workouts blend strength, conditioning, and mobility for well-rounded fitness' });
+  }
+
+  // -- Readiness (all goals) --
+  addSignal({
+    label: 'Readiness', value: `${Math.round(ffm.readiness * 100)}%`,
+    trend: ffm.readiness >= 0.6 ? 'positive' : ffm.readiness >= 0.4 ? 'neutral' : 'negative',
+    detail: ffm.readiness >= 0.6 ? 'Recovery on track — body is adapting well to training load' : 'Fatigue is elevated — workouts are auto-adjusted to manage recovery',
+    weight: 0.1,
+  });
+
+  const overallScore = weightSum > 0 ? Math.round(scoreSum / weightSum) : 50;
+
+  const posCount = signals.filter(s => s.trend === 'positive').length;
+  const negCount = signals.filter(s => s.trend === 'negative').length;
+  const summaryParts: string[] = [];
+  if (posCount > 0) summaryParts.push(`${posCount} indicator${posCount > 1 ? 's' : ''} trending positively`);
+  if (negCount > 0) summaryParts.push(`${negCount} need${negCount > 1 ? '' : 's'} attention`);
+
+  return {
+    primaryGoal: goal,
+    goalLabel: goalLabels[goal] || goal,
+    signals,
+    workoutAlignment: alignment,
+    overallScore,
+    summary: summaryParts.length > 0 ? summaryParts.join(', ') : 'Tracking your progress',
   };
 }
 

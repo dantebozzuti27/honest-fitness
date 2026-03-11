@@ -263,37 +263,68 @@ function getRepRangeByRole(
   };
 }
 
+/**
+ * Default set count when no user history exists.
+ *
+ * Instead of fixed lookup, this uses a scoring approach:
+ *   - Role weight: primary > secondary > isolation > corrective
+ *   - Goal weight: strength emphasizes fewer high-quality sets;
+ *     hypertrophy & endurance emphasize more volume
+ *   - Priority muscles get a bonus set
+ *   - Deload cuts to ~60% of normal
+ */
 function getTieredSets(
   role: ExerciseRole,
   goal: string,
   isPriorityMuscle: boolean,
   isDeload: boolean
 ): number {
-  if (isDeload) {
-    return role === 'primary' ? 3 : 2;
-  }
-  switch (role) {
-    case 'primary': return goal === 'strength' ? 5 : 4;
-    case 'secondary': return isPriorityMuscle ? 4 : 3;
-    case 'isolation': return isPriorityMuscle ? 3 : 2;
-    case 'corrective': return 2;
-    default: return 3;
-  }
+  // Base sets by role importance
+  const roleBase: Record<string, number> = {
+    primary: 4, secondary: 3, isolation: 2, corrective: 2, cardio: 1,
+  };
+  let sets = roleBase[role] ?? 3;
+
+  // Goal adjustment
+  if (goal === 'strength' && role === 'primary') sets += 1;
+  if (goal === 'hypertrophy' && (role === 'primary' || role === 'secondary')) sets += 0;
+  if (goal === 'endurance') sets = Math.max(sets - 1, 2);
+
+  // Priority muscle bonus
+  if (isPriorityMuscle && role !== 'corrective') sets += 1;
+
+  // Deload: reduce to ~60%
+  if (isDeload) sets = Math.max(2, Math.round(sets * 0.6));
+
+  return Math.max(2, Math.min(6, sets));
 }
 
 /**
- * RIR targets by role. Solo training buffer: +1 on primary compounds.
- * Source: Helms et al. (2016), Zourdos et al. (2016)
+ * RIR target from role + goal interaction.
+ *
+ * Principle: the closer to failure you train, the more stimulus per set
+ * but also more fatigue. Primary compounds accumulate more fatigue per
+ * set (more muscle mass) so need a larger RIR buffer.
+ *
+ * Sources: Helms et al. (2016), Zourdos et al. (2016)
  */
 function getRirTarget(role: ExerciseRole, goal: string, isDeload: boolean): number {
   if (isDeload) return 4;
-  switch (role) {
-    case 'primary': return goal === 'strength' ? 3 : 3; // +1 solo buffer already applied
-    case 'secondary': return 2;
-    case 'isolation': return goal === 'strength' ? 2 : 1;
-    case 'corrective': return 3;
-    default: return 2;
-  }
+
+  // Fatigue cost by role: higher for compounds because they tax more systems
+  const roleFatigueCost: Record<string, number> = {
+    primary: 3, secondary: 2, isolation: 1, corrective: 3, cardio: 0,
+  };
+  const baseFatigue = roleFatigueCost[role] ?? 2;
+
+  // Goal modifier: strength training intentionally stays further from failure
+  // (quality reps with full neural drive matter more than grinding)
+  // Hypertrophy/fat loss can push closer to failure on isolation work
+  const goalRirShift: Record<string, number> = {
+    strength: 0, hypertrophy: -1, fat_loss: -1, endurance: 0, general_fitness: 0,
+  };
+
+  return Math.max(0, Math.min(4, baseFatigue + (goalRirShift[goal] ?? 0)));
 }
 
 function getRirLabel(rir: number): string {
@@ -305,17 +336,16 @@ function getRirLabel(rir: number): string {
 }
 
 /**
- * Rest periods based on exercise demand, not just role.
+ * Rest periods computed from exercise demand characteristics, not lookup tables.
  *
- * Factors:
- *   - exercise_type: compound needs more rest than isolation
- *   - primary muscle count: more muscles = more systemic fatigue
- *   - movement_pattern: squats/deadlifts > lunges > extensions > curls
- *   - training goal: strength demands longer rest than hypertrophy
- *
- * This means a squat (compound, 5 primaries, squat pattern) gets ~180s
- * while a calf raise (isolation, 2 primaries, extension) gets ~60s,
- * even if both happen to be classified as the same role.
+ * The formula builds rest from first principles:
+ *   1. Systemic demand score (0-10): how much CNS/metabolic recovery is needed.
+ *      Derived from primary muscle count, exercise type, and movement pattern.
+ *   2. Goal multiplier: strength needs full ATP recovery (longer rest),
+ *      fat loss benefits from incomplete recovery (shorter rest).
+ *   3. Floor/ceiling from physiological limits:
+ *      - Below 30s: incomplete phosphocreatine resynthesis even for isolation
+ *      - Above 300s: diminishing returns, session time waste
  */
 function getRestByExercise(
   exercise: EnrichedExercise,
@@ -327,47 +357,62 @@ function getRestByExercise(
 
   const mapping = getExerciseMapping(exercise.name);
   const exType = mapping?.exercise_type ?? exercise.ml_exercise_type ?? 'compound';
-  const primaryCount = mapping?.primary_muscles?.length ?? 1;
-  const pattern = mapping?.movement_pattern ?? '';
+  const primaryCount = mapping?.primary_muscles?.length ?? (Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles.length : 1);
+  const secondaryCount = mapping?.secondary_muscles?.length ?? (Array.isArray(exercise.secondary_muscles) ? exercise.secondary_muscles.length : 0);
+  const pattern = mapping?.movement_pattern ?? exercise.movement_pattern ?? '';
 
-  // Base rest by how systemically demanding the movement is
-  let base: number;
-  if (exType === 'compound' && primaryCount >= 4) {
-    base = 150; // heavy compound (squat, deadlift, bench)
-  } else if (exType === 'compound') {
-    base = 110; // lighter compound (row, lunge, OHP)
-  } else {
-    base = 60;  // isolation (curls, extensions, raises)
-  }
+  // Systemic demand score (0-10): how taxing this movement is on the whole body
+  let demandScore = 0;
 
-  // Pattern-specific adjustments
-  const heavyPatterns = ['squat', 'deadlift', 'hip_hinge'];
-  const mediumPatterns = ['horizontal_press', 'vertical_press', 'lunge'];
-  const lightPatterns = ['extension', 'curl', 'fly', 'raise'];
+  // Muscle mass recruited: more muscles = more oxygen debt = more rest
+  demandScore += Math.min(primaryCount * 1.2, 5);
+  demandScore += Math.min(secondaryCount * 0.3, 1.5);
 
-  if (heavyPatterns.includes(pattern)) {
-    base += 30;
-  } else if (mediumPatterns.includes(pattern)) {
-    base += 10;
-  } else if (lightPatterns.includes(pattern)) {
-    base -= 10;
-  }
+  // Compound vs isolation: multi-joint movements create more systemic fatigue
+  if (exType === 'compound') demandScore += 2;
 
-  // Goal scaling
-  if (goal === 'strength') {
-    base = Math.round(base * 1.5);
-  } else if (goal === 'fat_loss') {
-    base = Math.round(base * 0.75);
-  }
+  // Movement pattern CNS load: axial loading (spine-loaded) > other compounds > isolation
+  const PATTERN_CNS: Record<string, number> = {
+    squat: 2.0, deadlift: 2.0, hip_hinge: 1.8,
+    horizontal_press: 1.3, vertical_press: 1.3, lunge: 1.2,
+    horizontal_pull: 1.0, vertical_pull: 1.0,
+    extension: 0.3, curl: 0.3, fly: 0.3, raise: 0.3, rotation: 0.3,
+  };
+  demandScore += PATTERN_CNS[pattern] ?? 0.5;
 
-  return Math.max(30, Math.min(300, base));
+  // Convert demand score to rest seconds on a continuous curve
+  // Score 0 → ~40s, Score 10 → ~200s (before goal scaling)
+  const baseRest = 40 + (demandScore / 10) * 160;
+
+  // Goal multiplier: strength needs 3-5 min for phosphocreatine recovery (Willardson 2006)
+  // Hypertrophy benefits from 60-120s (Schoenfeld 2016). Fat loss uses shorter rest for metabolic stress.
+  const goalMultiplier: Record<string, number> = {
+    strength: 1.40,
+    hypertrophy: 1.0,
+    general_fitness: 1.0,
+    fat_loss: 0.75,
+    endurance: 0.65,
+  };
+  const scaled = baseRest * (goalMultiplier[goal] ?? 1.0);
+
+  return Math.max(30, Math.min(300, Math.round(scaled)));
 }
 
+/**
+ * Tempo prescription from exercise-specific default → goal/type interaction.
+ * Format: eccentric-pause-concentric.
+ *
+ * Hypertrophy benefits from controlled eccentrics (time under tension).
+ * Strength benefits from explosive concentrics.
+ * Isolation benefits from slower tempos to maintain tension on smaller muscles.
+ */
 function getTempo(defaultTempo: string | null, goal: string, exerciseType: string | null): string {
   if (defaultTempo) return defaultTempo;
-  if (goal === 'hypertrophy') return exerciseType === 'compound' ? '2-1-1' : '3-1-2';
-  if (goal === 'strength') return '1-1-1';
-  return '2-1-1';
+  const isIsolation = exerciseType === 'isolation' || exerciseType === 'accessory';
+  if (goal === 'strength') return isIsolation ? '2-0-1' : '1-1-1';
+  if (goal === 'hypertrophy') return isIsolation ? '3-1-2' : '2-1-1';
+  if (goal === 'endurance') return '2-0-1';
+  return isIsolation ? '2-1-1' : '2-1-1';
 }
 
 function isInjuryConflict(exercise: EnrichedExercise, injuries: UserPreferences['injuries']): boolean {
@@ -384,26 +429,40 @@ function isInjuryConflict(exercise: EnrichedExercise, injuries: UserPreferences[
   return false;
 }
 
-// Transition time per exercise: walk to machine, load plates, adjust seat
-const TRANSITION_TIME_SEC = {
-  primary: 120,   // heavy compound: more plate loading, setup
-  secondary: 90,  // moderate compound
-  isolation: 60,  // lighter, simpler setup
-  corrective: 45, // bands, bodyweight
+// Transition time per exercise based on setup complexity:
+// Primary compounds (barbell loading, rack adjustments, safety pins) need more.
+// Isolation machines (pin select, seat adjust) need less.
+// These scale with role as a proxy for equipment complexity.
+const TRANSITION_TIME_SEC: Record<string, number> = {
+  primary: 120,
+  secondary: 90,
+  isolation: 60,
+  corrective: 45,
   cardio: 60,     // walk over, set speed/incline
 };
 
 /**
  * Time-per-exercise estimate including set execution, rest between sets,
  * warmup sets, and transition/setup time to the next station.
+ *
+ * Set execution time is derived from rep count and tempo rather than a fixed constant.
+ * A 3-rep strength set is faster than a 15-rep endurance set.
  */
 function estimateExerciseMinutes(
   sets: number, restSeconds: number, role: ExerciseRole, warmupSets: number = 0,
+  reps: number = 0, tempo: string = '2-1-1'
 ): number {
-  const setExecutionSec = role === 'primary' ? 40 : role === 'secondary' ? 35 : 30;
-  const warmupRestSec = 60;
+  // Parse tempo to get seconds per rep (eccentric + pause + concentric)
+  const tempoParts = tempo.split('-').map(Number);
+  const secPerRep = (tempoParts[0] || 2) + (tempoParts[1] || 1) + (tempoParts[2] || 1);
+  const effectiveReps = reps > 0 ? reps : (role === 'primary' ? 5 : role === 'secondary' ? 8 : 12);
+  const setExecutionSec = effectiveReps * secPerRep;
+
+  // Warmup rest scales with working rest but is always shorter
+  const warmupRestSec = Math.round(restSeconds * 0.5);
+  const warmupExecSec = Math.round(setExecutionSec * 0.8);
   const workingTime = sets * (setExecutionSec + restSeconds);
-  const warmupTime = warmupSets * (30 + warmupRestSec);
+  const warmupTime = warmupSets * (warmupExecSec + warmupRestSec);
   const transition = TRANSITION_TIME_SEC[role] ?? 60;
   return (workingTime + warmupTime + transition) / 60;
 }
@@ -413,46 +472,110 @@ function classifyExerciseRole(
   indexInGroup: number
 ): ExerciseRole {
   if (exercise.ml_exercise_type === 'cardio') return 'cardio';
-  if (indexInGroup === 0 && (exercise.ml_exercise_type === 'compound')) return 'primary';
+  if (exercise.ml_exercise_type === 'recovery') return 'corrective';
+  // First compound in the group is primary; subsequent compounds are secondary
+  if (indexInGroup === 0 && exercise.ml_exercise_type === 'compound') return 'primary';
   if (exercise.ml_exercise_type === 'compound') return 'secondary';
+  // Isolation / accessory exercises
   return 'isolation';
 }
 
 /**
- * Generates warmup ramp sets for compound exercises.
- * Source: NSCA CSCS guidelines (Baechle & Earle 2008)
+ * Generates warmup ramp sets adaptively based on working weight, body weight,
+ * exercise type, and user history.
+ *
+ * Logic:
+ *   1. If the user has warmup history for this exercise, mirror their pattern.
+ *   2. Otherwise, compute warmup count from the spread between bar/empty
+ *      weight and working weight — heavier working sets need more ramp steps.
+ *   3. Reps taper inversely: light warmups get more reps (neuromuscular priming),
+ *      heavier warmups get fewer (avoid pre-fatiguing working sets).
+ *   4. The first warmup never starts at an arbitrary fixed weight. It starts
+ *      relative to the user's body weight and the exercise's min load
+ *      (bar weight for barbell, lightest dumbbell, etc).
  */
-function generateWarmupRamp(workingWeight: number, warmupHistory?: { sets: number; avgPct: number } | null): WarmupSet[] {
-  if (workingWeight <= 50) return [];
+function generateWarmupRamp(
+  workingWeight: number,
+  opts?: {
+    warmupHistory?: { sets: number; avgPct: number } | null;
+    bodyWeightLbs?: number | null;
+    equipment?: string[];
+    exerciseType?: string | null;
+    role?: ExerciseRole;
+  }
+): WarmupSet[] {
+  const { warmupHistory, bodyWeightLbs, equipment, exerciseType, role } = opts ?? {};
 
-  // #17: If user has warmup history, respect their pattern
+  // Relative intensity: how heavy is this working weight for this person?
+  const bw = bodyWeightLbs ?? 160;
+  const relativeIntensity = workingWeight / bw;
+
+  // Don't generate warmups for very light work (< 30% BW) — the exercise itself is warmup-weight
+  if (relativeIntensity < 0.30 && workingWeight < 65) return [];
+
+  // If user has warmup history for this exercise, mirror their exact pattern
   if (warmupHistory && warmupHistory.sets >= 1 && warmupHistory.avgPct > 0) {
-    const n = Math.min(warmupHistory.sets, 4);
-    const startPct = Math.max(0.3, warmupHistory.avgPct * 0.5);
+    const n = Math.min(warmupHistory.sets, 5);
+    const startPct = Math.max(0.25, warmupHistory.avgPct * 0.5);
     const endPct = warmupHistory.avgPct;
     const ramp: WarmupSet[] = [];
     for (let i = 0; i < n; i++) {
       const pct = startPct + (endPct - startPct) * (i / Math.max(n - 1, 1));
-      const w = Math.round(workingWeight * pct / 5) * 5;
-      const r = Math.max(2, Math.round(10 - i * 2.5));
-      if (w >= 20 && w < workingWeight) ramp.push({ weight: w, reps: r });
+      const w = roundToPlate(workingWeight * pct, equipment);
+      const r = Math.max(2, Math.round(10 - i * (8 / n)));
+      if (w >= 10 && w < workingWeight * 0.95) ramp.push({ weight: w, reps: r });
     }
     return ramp;
   }
 
-  if (workingWeight <= 95) {
-    return [
-      { weight: Math.round(workingWeight * 0.5 / 5) * 5, reps: 8 },
-      { weight: Math.round(workingWeight * 0.75 / 5) * 5, reps: 5 },
-    ];
+  // Determine minimum load (bar weight for barbell, light dumbbell, etc)
+  const isBarbell = equipment?.includes('barbell');
+  const isDumbbell = equipment?.includes('dumbbell');
+  const minLoad = isBarbell ? 45 : isDumbbell ? 10 : 20;
+
+  // Spread = how far from empty bar to working weight
+  const spread = workingWeight - minLoad;
+  if (spread <= 15) return []; // working weight is basically the empty bar
+
+  // Number of warmup sets scales with how heavy the exercise is relative to body weight
+  // and the absolute spread. Heavier = more ramp steps needed.
+  const warmupCount = relativeIntensity >= 1.5 ? 5  // very heavy (1.5x+ BW)
+    : relativeIntensity >= 1.0 ? 4                   // heavy (BW+)
+    : relativeIntensity >= 0.65 ? 3                  // moderate (0.65-1.0 BW)
+    : spread >= 60 ? 3                               // wide spread even if light per BW
+    : 2;                                             // light relative work
+
+  // Generate percentages that ramp from ~40% to ~90% of working weight
+  // Tighter spacing near the top so the last warmup is close to working weight
+  const ramp: WarmupSet[] = [];
+  for (let i = 0; i < warmupCount; i++) {
+    // Non-linear ramp: spacing tightens as we approach working weight
+    const t = (i + 1) / (warmupCount + 1);
+    const pct = 0.25 + t * 0.65; // ranges from ~0.38 to ~0.87
+    const rawWeight = workingWeight * pct;
+    const w = roundToPlate(Math.max(rawWeight, minLoad), equipment);
+
+    // Reps taper: lighter warmups get more reps for blood flow / neural priming
+    // Heavier warmups use fewer reps to avoid fatigue
+    const repTaper = Math.max(2, Math.round(12 - (pct * 12)));
+
+    // Don't duplicate weights or exceed working weight
+    if (w < workingWeight * 0.95 && !ramp.some(r => r.weight === w)) {
+      ramp.push({ weight: w, reps: repTaper });
+    }
   }
 
-  return [
-    { weight: 45, reps: 10 },
-    { weight: Math.round(workingWeight * 0.5 / 5) * 5, reps: 5 },
-    { weight: Math.round(workingWeight * 0.7 / 5) * 5, reps: 3 },
-    { weight: Math.round(workingWeight * 0.85 / 5) * 5, reps: 2 },
-  ];
+  return ramp;
+}
+
+/** Round to nearest practical plate increment based on equipment type */
+function roundToPlate(weight: number, equipment?: string[]): number {
+  const isBarbell = equipment?.includes('barbell');
+  const isDumbbell = equipment?.includes('dumbbell');
+  // Barbell: 2.5lb plates → round to 5. Dumbbell: usually 5lb steps.
+  // Machines: typically 5 or 10lb steps.
+  const step = isBarbell ? 5 : isDumbbell ? 5 : 10;
+  return Math.round(weight / step) * step;
 }
 
 /**
@@ -1459,7 +1582,7 @@ function stepPrescribe(
     if (profile.prescribedVsActual) {
       const compliance = profile.prescribedVsActual;
       if (compliance.avgRepsDeviation > 2 && compliance.complianceRate > 0.7) {
-        targetReps = Math.min(targetReps + 1, 15);
+        targetReps = Math.min(targetReps + 1, tableRange.max);
       }
     }
 
@@ -1557,11 +1680,11 @@ function stepPrescribe(
             adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
           }
         } else if (prog.status === 'regressing') {
-          // #19: Severity-aware regression — scale reduction by how bad the regression is
+          // #19: Severity-aware regression — scale reduction proportional to slope
           const regressionSeverity = Math.abs(prog.progressionSlope);
-          const reductionPct = regressionSeverity > 0.05
-            ? 0.88 // severe regression: drop to 88%
-            : cfg.regressionWeightMultiplier; // mild: use config (92%)
+          // Continuous: the steeper the regression, the bigger the drop
+          // Mild (slope ~0.02) → ~92%. Severe (slope ~0.10) → ~85%.
+          const reductionPct = Math.max(0.80, cfg.regressionWeightMultiplier - (regressionSeverity * 0.8));
           targetWeight = Math.round(targetWeight * reductionPct);
           adjustments.push(`Regressing (${regressionSeverity > 0.05 ? 'severe' : 'mild'}): reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%)`);
         } else if (prog.status === 'progressing') {
@@ -1634,16 +1757,26 @@ function stepPrescribe(
       adjustments.push(`Plateau: ${plateau.suggestedStrategy}`);
     }
 
-    // Warmup ramp for compound exercises with meaningful weight
+    // Warmup ramp: any exercise with meaningful weight relative to the user's body weight
     const isCompound = sel.exercise.ml_exercise_type === 'compound';
-    const needsWarmup = (role === 'primary' || (isCompound && targetWeight != null && targetWeight > 95))
-      && targetWeight != null && targetWeight > 50;
+    const bw = prefs.body_weight_lbs ?? 160;
+    const relativeLoad = targetWeight != null ? targetWeight / bw : 0;
+    const needsWarmup = targetWeight != null && targetWeight > 0 && (
+      role === 'primary'
+      || (isCompound && relativeLoad >= 0.30)
+      || relativeLoad >= 0.50
+    );
     const warmupSets = needsWarmup
-      ? generateWarmupRamp(targetWeight!)
+      ? generateWarmupRamp(targetWeight!, {
+          bodyWeightLbs: prefs.body_weight_lbs,
+          equipment,
+          exerciseType: sel.exercise.ml_exercise_type,
+          role,
+        })
       : null;
 
     const impact = computeImpactScore(sel.exercise, role, goal, secondaryGoal);
-    const estMin = estimateExerciseMinutes(sets, restSeconds, role, warmupSets?.length ?? 0);
+    const estMin = estimateExerciseMinutes(sets, restSeconds, role, warmupSets?.length ?? 0, targetReps, tempo);
 
     return {
       exerciseName: sel.exercise.name,
@@ -1817,16 +1950,19 @@ function stepApplyConstraints(
     }
   }
 
-  // #12: Session fatigue — reduce rest and/or load for exercises late in the session
+  // #12: Session fatigue — reduce rest for exercises late in the session.
+  // The reduction scales with the actual observed performance delta.
   let cumulativeMinutes = 0;
   for (const ex of ordered) {
     cumulativeMinutes += ex.estimatedMinutes;
     if (cumulativeMinutes > 60 && ex.exerciseRole !== 'primary') {
       const fatigueEffect = profile.sessionFatigueEffects.find(
-        e => e.positionBucket === '60-90min' && e.dataPoints >= 5
+        e => e.positionBucket === '60-90min' && e.dataPoints >= cfg.sessionFatigueMinDataPoints
       );
       if (fatigueEffect && fatigueEffect.avgDelta < -0.03) {
-        ex.restSeconds = Math.max(30, Math.round(ex.restSeconds * 0.85));
+        // Scale rest reduction proportional to how much performance drops
+        const restReduction = Math.min(0.25, Math.abs(fatigueEffect.avgDelta) * 2);
+        ex.restSeconds = Math.max(30, Math.round(ex.restSeconds * (1 - restReduction)));
       }
     }
   }
@@ -1840,7 +1976,8 @@ function stepApplyConstraints(
   );
   let sessionFatigueAdj = 1.0;
   if (lateFatigueEffect && lateFatigueEffect.avgDelta < cfg.sessionFatigueThreshold) {
-    sessionFatigueAdj = 0.90;
+    // Scale adjustment proportional to how severe the observed fatigue is
+    sessionFatigueAdj = Math.max(0.80, 1.0 + lateFatigueEffect.avgDelta);
   }
 
   const effectiveBudget = Math.round(availableMinutes * sessionFatigueAdj);
@@ -1851,7 +1988,8 @@ function stepApplyConstraints(
       ex.estimatedMinutes = (ex.cardioDurationSeconds ?? 1800) / 60 + (TRANSITION_TIME_SEC.cardio / 60);
     } else {
       ex.estimatedMinutes = estimateExerciseMinutes(
-        ex.sets, ex.restSeconds, ex.exerciseRole, ex.warmupSets?.length ?? 0
+        ex.sets, ex.restSeconds, ex.exerciseRole, ex.warmupSets?.length ?? 0,
+        ex.targetReps, ex.tempo
       );
     }
   };
@@ -1890,12 +2028,14 @@ function stepApplyConstraints(
   totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
 
   if (totalStrengthMin > strengthBudget) {
-    // Phase 1: Compress rest on isolation and secondary exercises (15% reduction)
+    // Phase 1: Compress rest on isolation and secondary exercises proportional to overshoot
+    const overshootRatio = totalStrengthMin / strengthBudget;
+    const restCompression = Math.min(0.30, (overshootRatio - 1) * 0.5);
     for (const ex of ordered) {
       if (totalStrengthMin <= strengthBudget) break;
       if (ex.exerciseRole === 'isolation' || ex.exerciseRole === 'corrective') {
         const oldRest = ex.restSeconds;
-        ex.restSeconds = Math.max(30, Math.round(ex.restSeconds * 0.85));
+        ex.restSeconds = Math.max(30, Math.round(ex.restSeconds * (1 - restCompression)));
         if (ex.restSeconds < oldRest) {
           const oldMin = ex.estimatedMinutes;
           recalcTime(ex);
@@ -1945,26 +2085,38 @@ function stepApplyConstraints(
   }
 
   // ── Time expansion: fill remaining budget with additional sets ────────
-  // If there's meaningful leftover time, add sets to existing exercises
-  // (starting from highest-impact primary/secondary exercises)
+  // Max sets cap is derived from the user's actual history for each exercise,
+  // not an arbitrary fixed number. Falls back to goal-aware defaults.
   totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   let remainingMinutes = effectiveBudget - totalStrengthMin - totalCardioMin;
 
+  const timePerSet = (ex: GeneratedExercise) => ex.estimatedMinutes / Math.max(ex.sets, 1);
+
   if (remainingMinutes >= 5 && ordered.length > 0) {
-    // Sort by impact — add sets to the most valuable exercises first
+    const getMaxSets = (ex: GeneratedExercise): number => {
+      // If the user has history, allow up to their historical max + 1
+      const pref = profile.exercisePreferences.find(p => p.exerciseName === ex.exerciseName.toLowerCase());
+      if (pref && pref.learnedSets != null && pref.recentSessions >= 2) {
+        return Math.min(Math.round(pref.learnedSets) + 1, 8);
+      }
+      // No history: use a sensible ceiling based on role
+      return ex.exerciseRole === 'primary' ? 6 : ex.exerciseRole === 'secondary' ? 5 : 4;
+    };
+
+    // Phase 1: Add sets to highest-impact compound exercises
     const expansionOrder = [...ordered]
       .filter(e => e.exerciseRole === 'primary' || e.exerciseRole === 'secondary')
       .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
 
     for (const ex of expansionOrder) {
-      if (remainingMinutes < 3) break;
-      const maxSets = ex.exerciseRole === 'primary' ? 6 : 5;
+      if (remainingMinutes < timePerSet(ex)) break;
+      const maxSets = getMaxSets(ex);
       if (ex.sets >= maxSets) continue;
 
       const addSets = Math.min(
         maxSets - ex.sets,
-        Math.floor(remainingMinutes / (ex.estimatedMinutes / Math.max(ex.sets, 1)))
+        Math.floor(remainingMinutes / timePerSet(ex))
       );
       if (addSets >= 1) {
         const oldSets = ex.sets;
@@ -1972,19 +2124,20 @@ function stepApplyConstraints(
         const oldMin = ex.estimatedMinutes;
         recalcTime(ex);
         remainingMinutes -= (ex.estimatedMinutes - oldMin);
-        ex.adjustments.push(`Sets expanded: ${oldSets} → ${ex.sets} (${Math.round(remainingMinutes + ex.estimatedMinutes - oldMin)} min remaining)`);
+        ex.adjustments.push(`Sets expanded: ${oldSets} → ${ex.sets} (filling ${prefs.session_duration_minutes} min budget)`);
       }
     }
 
-    // If still time left, add sets to isolation exercises
-    if (remainingMinutes >= 4) {
+    // Phase 2: Add sets to isolation exercises with remaining time
+    if (remainingMinutes >= 3) {
       const isolationExpansion = ordered
         .filter(e => e.exerciseRole === 'isolation')
         .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
 
       for (const ex of isolationExpansion) {
-        if (remainingMinutes < 3) break;
-        if (ex.sets >= 4) continue;
+        if (remainingMinutes < timePerSet(ex)) break;
+        const maxSets = getMaxSets(ex);
+        if (ex.sets >= maxSets) continue;
         const oldSets = ex.sets;
         ex.sets += 1;
         const oldMin = ex.estimatedMinutes;
@@ -2402,13 +2555,13 @@ export async function generateWorkout(
     ? Math.min(...profile.exercisePreferences.map(p => p.lastUsedDaysAgo))
     : Infinity;
 
+  // Break ramp: continuous function based on days off.
+  // Detraining begins around day 7 (Mujika & Padilla 2000).
+  // Longer breaks need more conservative ramp-back.
   let breakRampMultiplier = 1.0;
-  if (daysSinceLastWorkout >= 14) {
-    breakRampMultiplier = 0.60;
-  } else if (daysSinceLastWorkout >= 10) {
-    breakRampMultiplier = 0.70;
-  } else if (daysSinceLastWorkout >= 7) {
-    breakRampMultiplier = 0.80;
+  if (daysSinceLastWorkout >= 7) {
+    // Continuous: 7d → ~0.85, 14d → ~0.60, 21d → ~0.50
+    breakRampMultiplier = Math.max(0.45, 1.0 - (daysSinceLastWorkout - 5) * 0.028);
   }
 
   // Step 1: Recovery check

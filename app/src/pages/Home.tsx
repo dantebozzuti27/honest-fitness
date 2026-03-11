@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { calculateStreakFromSupabase, getRecentWorkoutsFromSupabase } from '../lib/db/workoutsDb'
 import { getMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metricsDb'
 import { getFitbitDaily, getMostRecentFitbitData, getAllConnectedAccounts } from '../lib/wearables'
-import { getTodayEST, getYesterdayEST } from '../utils/dateUtils'
+import { getTodayEST, getYesterdayEST, getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import Skeleton from '../components/Skeleton'
 import Button from '../components/Button'
@@ -18,6 +18,12 @@ type WorkoutEntry = {
   date?: string
   duration?: number
   template_name?: string
+  workout_avg_hr?: number | null
+  workout_peak_hr?: number | null
+  workout_calories_burned?: number | null
+  workout_steps?: number | null
+  workout_active_minutes?: number | null
+  workout_hr_zones?: Record<string, number> | null
   workout_exercises?: Array<{
     exercise_name?: string
     name?: string
@@ -167,9 +173,40 @@ export default function Home() {
                     const mins = Math.floor((w.duration || 0) / 60)
                     const exCount = Array.isArray(w.workout_exercises) ? w.workout_exercises.length : 0
                     return (
-                      <span key={w.id || i} className={styles.heroPrimarySub}>
-                        {w.template_name || 'Freestyle'} — {exCount} exercises, {mins} min
-                      </span>
+                      <div key={w.id || i}>
+                        <span className={styles.heroPrimarySub}>
+                          {w.template_name || 'Freestyle'} — {exCount} exercises, {mins} min
+                        </span>
+                        {(w.workout_calories_burned != null || w.workout_avg_hr != null || w.workout_steps != null) && (
+                          <div style={{ display: 'flex', gap: '12px', marginTop: '6px', flexWrap: 'wrap' }}>
+                            {w.workout_calories_burned != null && (
+                              <span className={styles.heroPrimarySub} style={{ fontSize: '12px' }}>
+                                {Math.round(w.workout_calories_burned)} cal
+                              </span>
+                            )}
+                            {w.workout_avg_hr != null && (
+                              <span className={styles.heroPrimarySub} style={{ fontSize: '12px' }}>
+                                {Math.round(w.workout_avg_hr)} avg HR
+                              </span>
+                            )}
+                            {w.workout_peak_hr != null && (
+                              <span className={styles.heroPrimarySub} style={{ fontSize: '12px' }}>
+                                {Math.round(w.workout_peak_hr)} peak HR
+                              </span>
+                            )}
+                            {w.workout_steps != null && (
+                              <span className={styles.heroPrimarySub} style={{ fontSize: '12px' }}>
+                                {w.workout_steps.toLocaleString()} steps
+                              </span>
+                            )}
+                            {w.workout_active_minutes != null && (
+                              <span className={styles.heroPrimarySub} style={{ fontSize: '12px' }}>
+                                {w.workout_active_minutes} active min
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )
                   })}
                 </>
@@ -290,7 +327,7 @@ export default function Home() {
             for (let i = 27; i >= 0; i--) {
               const d = new Date(today)
               d.setDate(d.getDate() - i)
-              const dateStr = d.toISOString().split('T')[0]
+              const dateStr = getLocalDate(d)
               days.push({
                 date: dateStr,
                 dayNum: d.getDate(),
@@ -407,6 +444,22 @@ export default function Home() {
                           {exCount} ex · {formatVolume(vol)} lbs
                         </span>
                       </div>
+                      {(w.workout_calories_burned != null || w.workout_avg_hr != null) && (
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '3px' }}>
+                          {w.workout_calories_burned != null && (
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{Math.round(w.workout_calories_burned)} cal</span>
+                          )}
+                          {w.workout_avg_hr != null && (
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{Math.round(w.workout_avg_hr)} avg HR</span>
+                          )}
+                          {w.workout_peak_hr != null && (
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{Math.round(w.workout_peak_hr)} peak</span>
+                          )}
+                          {w.workout_steps != null && w.workout_steps > 0 && (
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{w.workout_steps.toLocaleString()} steps</span>
+                          )}
+                        </div>
+                      )}
                       {bodyParts.length > 0 && (
                         <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
                           {bodyParts.map((bp, i) => (

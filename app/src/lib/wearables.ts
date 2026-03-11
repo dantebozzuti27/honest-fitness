@@ -117,14 +117,30 @@ export async function saveFitbitDaily(userId: string, date: string, data: any) {
     }
   }
 
-  const { data: result, error } = await supabase
+  let { data: result, error } = await supabase
     .from('health_metrics')
     .upsert(healthMetricsData, { onConflict: 'user_id,date' })
     .select()
     .maybeSingle()
   
+  // If upsert fails due to columns that don't exist (migration not run), retry without them
+  if (error?.code === 'PGRST204') {
+    const migrationOnlyColumns = new Set([
+      'hr_zones_minutes', 'max_heart_rate', 'body_temp',
+    ])
+    const cleaned = { ...healthMetricsData } as Record<string, unknown>
+    for (const col of migrationOnlyColumns) delete cleaned[col]
+    const retry = await supabase
+      .from('health_metrics')
+      .upsert(cleaned, { onConflict: 'user_id,date' })
+      .select()
+      .maybeSingle()
+    result = retry.data
+    error = retry.error
+  }
+
   if (error) {
-      logError('Error saving Fitbit daily data to health_metrics', error)
+    logError('Error saving Fitbit daily data to health_metrics', error)
     throw error
   }
   
@@ -417,11 +433,30 @@ export async function mergeWearableDataToMetrics(userId: string, date: string | 
   }
   
   if (merged.hrv || merged.sleep_duration || merged.steps || merged.calories_burned || merged.resting_heart_rate) {
-    const { data, error } = await supabase
+    // Attempt upsert; if it fails due to unknown columns (migration not yet run),
+    // strip the offending columns and retry with only base schema fields.
+    let { data, error } = await supabase
       .from('health_metrics')
       .upsert(merged, { onConflict: 'user_id,date' })
       .select()
       .single()
+
+    if (error?.code === 'PGRST204') {
+      const migrationOnlyColumns = new Set([
+        'distance', 'floors', 'sedentary_minutes',
+        'active_minutes_fairly', 'active_minutes_very', 'active_minutes_lightly',
+        'hr_zones_minutes', 'max_heart_rate', 'average_heart_rate',
+        'deep_sleep', 'rem_sleep', 'light_sleep', 'body_temp',
+      ])
+      for (const col of migrationOnlyColumns) delete merged[col]
+      const retry = await supabase
+        .from('health_metrics')
+        .upsert(merged, { onConflict: 'user_id,date' })
+        .select()
+        .single()
+      data = retry.data
+      error = retry.error
+    }
     
     if (error) {
       logError('Error merging wearable data to health_metrics', error)

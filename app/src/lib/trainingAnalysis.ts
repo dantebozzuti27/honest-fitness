@@ -568,7 +568,7 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
   since.setDate(since.getDate() - days);
   const sinceStr = since.toISOString().split('T')[0];
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('workouts')
     .select(`
       id, date, created_at, duration, template_name, perceived_effort, session_rpe, session_type,
@@ -583,6 +583,27 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
     .gte('date', sinceStr)
     .eq('session_type', 'workout')
     .order('date', { ascending: true });
+
+  // Fall back if workout_calories_burned column doesn't exist yet
+  if (error?.code === 'PGRST204' || (error && error.message?.includes('column'))) {
+    const retry = await supabase
+      .from('workouts')
+      .select(`
+        id, date, created_at, duration, template_name, perceived_effort, session_rpe, session_type,
+        workout_avg_hr, workout_peak_hr, workout_hr_zones,
+        workout_exercises (
+          exercise_name, body_part, exercise_library_id,
+          workout_sets ( set_number, weight, reps, time, is_bodyweight, logged_at,
+            tempo_eccentric_sec, tempo_pause_sec, tempo_concentric_sec, speed, incline )
+        )
+      `)
+      .eq('user_id', userId)
+      .gte('date', sinceStr)
+      .eq('session_type', 'workout')
+      .order('date', { ascending: true });
+    data = (retry.data || []).map((w: any) => ({ ...w, workout_calories_burned: null })) as any;
+    error = retry.error;
+  }
 
   if (error) throw error;
   const raw = (data ?? []) as WorkoutRecord[];
@@ -603,15 +624,36 @@ async function fetchHealthHistory(userId: string, days: number = 120): Promise<H
   since.setDate(since.getDate() - days);
   const sinceStr = since.toISOString().split('T')[0];
 
-  const { data, error } = await supabase
+  // Try with extended columns first; fall back to base columns if migration hasn't run
+  let { data, error } = await supabase
     .from('health_metrics')
     .select('date, weight, sleep_duration, sleep_score, hrv, resting_heart_rate, steps, calories_burned, body_fat_percentage, active_minutes_fairly, active_minutes_very, active_minutes_lightly, hr_zones_minutes')
     .eq('user_id', userId)
     .gte('date', sinceStr)
     .order('date', { ascending: true });
 
+  if (error?.code === 'PGRST204' || (error && error.message?.includes('column'))) {
+    const retry = await supabase
+      .from('health_metrics')
+      .select('date, weight, sleep_duration, sleep_score, hrv, resting_heart_rate, steps, calories_burned, body_fat_percentage')
+      .eq('user_id', userId)
+      .gte('date', sinceStr)
+      .order('date', { ascending: true });
+    data = (retry.data || []).map((h: any) => ({
+      ...h,
+      active_minutes_fairly: null,
+      active_minutes_very: null,
+      active_minutes_lightly: null,
+      hr_zones_minutes: null,
+    })) as any;
+    error = retry.error;
+  }
+
   if (error) throw error;
-  return (data as HealthRecord[]) || [];
+  return ((data || []) as HealthRecord[]).map(h => ({
+    ...{ active_minutes_fairly: null, active_minutes_very: null, active_minutes_lightly: null, hr_zones_minutes: null },
+    ...h,
+  }));
 }
 
 async function fetchEnrichedExercises(): Promise<EnrichedExercise[]> {

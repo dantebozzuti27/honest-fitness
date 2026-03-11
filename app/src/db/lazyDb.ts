@@ -91,27 +91,24 @@ export async function saveTemplate(template: any) {
   const db = await loadDb()
   await db.saveTemplate(template)
 
-  // Sync all templates to remote
   const all = await db.getAllTemplates()
-  syncTemplatesToRemote(Array.isArray(all) ? all : [])
+  await syncTemplatesToRemote(Array.isArray(all) ? all : [])
 }
 
 export async function deleteTemplate(id: any) {
   const db = await loadDb()
   await db.deleteTemplate(id)
 
-  // Sync all templates to remote
   const all = await db.getAllTemplates()
-  syncTemplatesToRemote(Array.isArray(all) ? all : [])
+  await syncTemplatesToRemote(Array.isArray(all) ? all : [])
 }
 
 export async function bulkAddTemplates(templates: any) {
   const db = await loadDb()
   await db.bulkAddTemplates(templates)
 
-  // Sync all templates to remote
   const all = await db.getAllTemplates()
-  syncTemplatesToRemote(Array.isArray(all) ? all : [])
+  await syncTemplatesToRemote(Array.isArray(all) ? all : [])
 }
 
 // Workouts (local)

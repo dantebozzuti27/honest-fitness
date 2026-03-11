@@ -833,8 +833,11 @@ function stepSelectMuscleGroups(
       priority += 0.15;
     }
 
+    // Scale sets by duration: longer sessions can accommodate more volume per group
+    const sessionDur = prefs.session_duration_minutes;
+    const durationSetScale = sessionDur >= 120 ? 1.30 : sessionDur >= 90 ? 1.15 : sessionDur <= 45 ? 0.75 : 1.0;
     const setsNeeded = Math.ceil(
-      Math.min(Math.max(volumeDeficit, 3), 10) * recoveryAdj.volumeMultiplier
+      Math.min(Math.max(volumeDeficit, 3), 12) * recoveryAdj.volumeMultiplier * durationSetScale
     );
 
     const splitLabel = splitTargetGroups?.has(vol.muscleGroup) ? ' [split match]' : '';
@@ -861,9 +864,12 @@ function stepSelectMuscleGroups(
 
   candidates.sort((a, b) => b.priority - a.priority);
 
-  const maxGroups = prefs.session_duration_minutes <= 45 ? 2
-    : prefs.session_duration_minutes <= 75 ? 3
-    : 4;
+  const dur = prefs.session_duration_minutes;
+  const maxGroups = dur <= 35 ? 2
+    : dur <= 50 ? 3
+    : dur <= 75 ? 4
+    : dur <= 100 ? 5
+    : 6;
 
   return { selected: candidates.slice(0, maxGroups), skipped };
 }
@@ -1085,15 +1091,17 @@ function stepSelectExercises(
 
     let remainingSets = group.targetSets;
 
-    // Determine max exercises from user's actual patterns for this group
+    // Determine max exercises from user's actual patterns for this group, scaled by session duration
     const userExercisesForGroup = scored.filter(s => {
       const p = prefMap.get(s.exercise.name.toLowerCase());
       return p && p.recentSessions >= 1;
     }).length;
-    const defaultMax = remainingSets <= 4 ? 1 : remainingSets <= 8 ? 2 : 3;
+    const durationMin = prefs.session_duration_minutes;
+    const durationBonus = durationMin >= 120 ? 2 : durationMin >= 90 ? 1 : 0;
+    const defaultMax = remainingSets <= 4 ? 1 + durationBonus : remainingSets <= 8 ? 2 + durationBonus : 3 + durationBonus;
     let maxExercisesPerGroup = userExercisesForGroup > 0
-      ? Math.min(userExercisesForGroup, 4)
-      : defaultMax;
+      ? Math.min(userExercisesForGroup + durationBonus, 5)
+      : Math.min(defaultMax, 5);
 
     // #4: Compliance Feedback — reduce exercises if user frequently skips last ones
     if (profile.prescribedVsActual && profile.prescribedVsActual.complianceRate < 0.6) {
@@ -1105,13 +1113,16 @@ function stepSelectExercises(
     // Sort by overall score — user preferences already dominate
     const ordered = [...scored].sort((a, b) => b.score - a.score);
 
+    // Scale max sets per exercise by duration
+    const maxSetsPerExercise = durationMin >= 120 ? 6 : durationMin >= 90 ? 5 : durationMin >= 60 ? 4 : 3;
+
     let exerciseCount = 0;
     for (const item of ordered) {
       if (exerciseCount >= maxExercises || remainingSets <= 0) break;
 
       const setsForThis = exerciseCount === 0
-        ? Math.min(Math.ceil(remainingSets * 0.6), 5)
-        : Math.min(remainingSets, 4);
+        ? Math.min(Math.ceil(remainingSets * 0.6), maxSetsPerExercise)
+        : Math.min(remainingSets, maxSetsPerExercise - 1);
 
       selections.push({
         exercise: item.exercise,
@@ -1933,6 +1944,57 @@ function stepApplyConstraints(
     ordered.push(...trimmed);
   }
 
+  // ── Time expansion: fill remaining budget with additional sets ────────
+  // If there's meaningful leftover time, add sets to existing exercises
+  // (starting from highest-impact primary/secondary exercises)
+  totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+  totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+  let remainingMinutes = effectiveBudget - totalStrengthMin - totalCardioMin;
+
+  if (remainingMinutes >= 5 && ordered.length > 0) {
+    // Sort by impact — add sets to the most valuable exercises first
+    const expansionOrder = [...ordered]
+      .filter(e => e.exerciseRole === 'primary' || e.exerciseRole === 'secondary')
+      .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
+
+    for (const ex of expansionOrder) {
+      if (remainingMinutes < 3) break;
+      const maxSets = ex.exerciseRole === 'primary' ? 6 : 5;
+      if (ex.sets >= maxSets) continue;
+
+      const addSets = Math.min(
+        maxSets - ex.sets,
+        Math.floor(remainingMinutes / (ex.estimatedMinutes / Math.max(ex.sets, 1)))
+      );
+      if (addSets >= 1) {
+        const oldSets = ex.sets;
+        ex.sets += addSets;
+        const oldMin = ex.estimatedMinutes;
+        recalcTime(ex);
+        remainingMinutes -= (ex.estimatedMinutes - oldMin);
+        ex.adjustments.push(`Sets expanded: ${oldSets} → ${ex.sets} (${Math.round(remainingMinutes + ex.estimatedMinutes - oldMin)} min remaining)`);
+      }
+    }
+
+    // If still time left, add sets to isolation exercises
+    if (remainingMinutes >= 4) {
+      const isolationExpansion = ordered
+        .filter(e => e.exerciseRole === 'isolation')
+        .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
+
+      for (const ex of isolationExpansion) {
+        if (remainingMinutes < 3) break;
+        if (ex.sets >= 4) continue;
+        const oldSets = ex.sets;
+        ex.sets += 1;
+        const oldMin = ex.estimatedMinutes;
+        recalcTime(ex);
+        remainingMinutes -= (ex.estimatedMinutes - oldMin);
+        ex.adjustments.push(`Extra volume: ${oldSets} → ${ex.sets} sets (filling time budget)`);
+      }
+    }
+  }
+
   // Suggest supersets (annotations only — user accepts/declines in UI)
   const ssInput = ordered.map(ex => ({
     exerciseName: ex.exerciseName,
@@ -2051,6 +2113,7 @@ function stepGenerateRationale(
       splitInfo,
       ...(profile.detectedSplit.evidence ?? []),
       dayInfo ?? `${todayPattern?.dayName ?? 'Today'}: typical rest day`,
+      `Duration budget: ${prefs.session_duration_minutes} min → max ${prefs.session_duration_minutes <= 35 ? 2 : prefs.session_duration_minutes <= 50 ? 3 : prefs.session_duration_minutes <= 75 ? 4 : prefs.session_duration_minutes <= 100 ? 5 : 6} muscle groups`,
       `Selected ${muscleGroups.length} groups from ${muscleGroups.length + skippedGroups.length} candidates`,
       ...muscleGroups.map(g => `✓ ${g.muscleGroup}: ${g.reason} (priority: ${g.priority.toFixed(2)}, ${g.targetSets} sets)`),
       ...skippedGroups.map(g => `✗ ${g.muscleGroup}: ${g.reason}`),

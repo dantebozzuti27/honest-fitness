@@ -1561,9 +1561,12 @@ function stepPrescribe(
       adjustments.push(`Plateau: ${plateau.suggestedStrategy}`);
     }
 
-    // Warmup ramp for primary compounds with known weight
-    const warmupSets = (role === 'primary' && targetWeight != null && targetWeight > 50 && idxInGroup === 0)
-      ? generateWarmupRamp(targetWeight)
+    // Warmup ramp for compound exercises with meaningful weight
+    const isCompound = sel.exercise.ml_exercise_type === 'compound';
+    const needsWarmup = (role === 'primary' || (isCompound && targetWeight != null && targetWeight > 95))
+      && targetWeight != null && targetWeight > 50;
+    const warmupSets = needsWarmup
+      ? generateWarmupRamp(targetWeight!)
       : null;
 
     const impact = computeImpactScore(sel.exercise, role, goal, secondaryGoal);

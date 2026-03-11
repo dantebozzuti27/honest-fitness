@@ -185,6 +185,7 @@ export default function ActiveWorkout() {
   const pausedMetricsRef = useRef<any[]>([]) // Track metrics during paused periods: [{pauseTime, resumeTime, metricsAtPause, metricsAtResume}]
   const didQuickAddRef = useRef(false)
   const generatedWorkoutIdRef = useRef<string | null>(null)
+  const generatedWorkoutNameRef = useRef<string | null>(null)
 
   // Keep refs in sync with the latest state so event listeners always read fresh values.
   useEffect(() => { exercisesRef.current = Array.isArray(exercises) ? exercises : [] }, [exercises])
@@ -1097,6 +1098,7 @@ export default function ActiveWorkout() {
                 })
                 setExercises(prePopulated)
                 generatedWorkoutIdRef.current = generated.generated_workout_id || null
+                generatedWorkoutNameRef.current = generated.templateName || null
               }
             }
           } catch (_) {}
@@ -1998,7 +2000,7 @@ export default function ActiveWorkout() {
       duration: workoutTime,
       workoutStartTime: new Date(workoutStartMs).toISOString(),
       workoutEndTime: new Date(workoutEndMs).toISOString(),
-      templateName: sessionType === 'recovery' ? 'Recovery Session' : (templateId || 'Freestyle'),
+      templateName: sessionType === 'recovery' ? 'Recovery Session' : (templateId || generatedWorkoutNameRef.current || 'Freestyle'),
       sessionType: sessionType,
       perceivedEffort: feedback.rpe,
       moodAfter: feedback.moodAfter,

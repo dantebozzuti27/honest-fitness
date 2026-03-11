@@ -271,27 +271,46 @@ export default function TodayWorkout() {
           }],
         }
       }
+      // Build warmup sets from engine prescription
+      const warmupRows = (ex.warmupSets || []).map((ws: any, wi: number) => ({
+        set_number: wi + 1,
+        target_weight: ws.weight,
+        target_reps: ws.reps,
+        weight: String(ws.weight),
+        reps: String(ws.reps),
+        _is_warmup: true,
+        _is_bodyweight: false,
+      }))
+
+      const workingRows = Array.from({ length: ex.sets }, (_, i) => ({
+        set_number: warmupRows.length + i + 1,
+        target_weight: ex.isBodyweight ? null : ex.targetWeight,
+        target_reps: ex.targetReps,
+        tempo: ex.tempo,
+        _is_bodyweight: ex.isBodyweight,
+        weight: ex.isBodyweight ? 'BW' : (ex.targetWeight != null ? String(ex.targetWeight) : ''),
+        reps: String(ex.targetReps),
+      }))
+
       return {
         name: ex.exerciseName,
         body_part: ex.bodyPart,
         exercise_library_id: ex.exerciseLibraryId,
         category: 'Strength',
         _prescription: prescription,
-        sets: Array.from({ length: ex.sets }, (_, i) => ({
-          set_number: i + 1,
-          target_weight: ex.isBodyweight ? null : ex.targetWeight,
-          target_reps: ex.targetReps,
-          tempo: ex.tempo,
-          _is_bodyweight: ex.isBodyweight,
-          weight: ex.isBodyweight ? 'BW' : (ex.targetWeight != null ? String(ex.targetWeight) : ''),
-          reps: String(ex.targetReps),
-        })),
+        sets: [...warmupRows, ...workingRows],
       }
     })
+
+    const workoutName = workout.exercises.length > 0
+      ? workout.exercises.map(e => e.targetMuscleGroup).filter((v, i, a) => a.indexOf(v) === i).map(g => g.replace(/_/g, ' ')).slice(0, 3).join(', ')
+      : 'Generated Workout'
+
     sessionStorage.setItem('generated_workout', JSON.stringify({
       exercises,
       generated_workout_id: workout.id,
       sessionRationale: workout.sessionRationale,
+      templateName: workoutName,
     }))
     navigate('/workout/active')
   }

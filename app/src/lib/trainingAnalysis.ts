@@ -90,6 +90,7 @@ export interface HealthRecord {
   active_minutes_lightly: number | null;
   hr_zones_minutes: Record<string, number> | null;
   source_data?: Record<string, any> | null;
+  source_provider?: string | null;
 }
 
 export interface EnrichedExercise {
@@ -652,7 +653,7 @@ async function fetchHealthHistory(userId: string, days: number = 120): Promise<H
   // Try with extended columns first; fall back to base columns if migration hasn't run
   let { data, error } = await supabase
     .from('health_metrics')
-    .select('date, weight, sleep_duration, sleep_score, hrv, resting_heart_rate, steps, calories_burned, body_fat_percentage, active_minutes_fairly, active_minutes_very, active_minutes_lightly, hr_zones_minutes')
+    .select('date, weight, sleep_duration, sleep_score, hrv, resting_heart_rate, steps, calories_burned, body_fat_percentage, active_minutes_fairly, active_minutes_very, active_minutes_lightly, hr_zones_minutes, source_provider')
     .eq('user_id', userId)
     .gte('date', sinceStr)
     .order('date', { ascending: true });
@@ -660,7 +661,7 @@ async function fetchHealthHistory(userId: string, days: number = 120): Promise<H
   if (error?.code === 'PGRST204' || (error && error.message?.includes('column'))) {
     const retry = await supabase
       .from('health_metrics')
-      .select('date, weight, sleep_duration, sleep_score, hrv, resting_heart_rate, steps, calories_burned, body_fat_percentage')
+      .select('date, weight, sleep_duration, sleep_score, hrv, resting_heart_rate, steps, calories_burned, body_fat_percentage, source_provider')
       .eq('user_id', userId)
       .gte('date', sinceStr)
       .order('date', { ascending: true });
@@ -752,7 +753,11 @@ function filterWorkingSets<T extends { weight: number | null; reps: number | nul
  */
 function buildWeightByDate(health: HealthRecord[]): Map<string, number> {
   const map = new Map<string, number>();
-  const sorted = health.filter(h => h.weight != null).sort((a, b) => a.date.localeCompare(b.date));
+  // Prefer manual weight entries; fall back to any source only if no manual data exists
+  let sorted = health.filter(h => h.weight != null && h.source_provider !== 'fitbit').sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length === 0) {
+    sorted = health.filter(h => h.weight != null).sort((a, b) => a.date.localeCompare(b.date));
+  }
   for (const h of sorted) map.set(h.date, h.weight!);
   return map;
 }
@@ -1163,6 +1168,8 @@ function computeExerciseOrderingEffects(workouts: WorkoutRecord[], userBodyWeigh
  * Feature 7: Body weight trend.
  */
 function computeBodyWeightTrend(health: HealthRecord[]): BodyWeightTrend {
+  // Use all weight entries. Fitbit is blocked from writing to the weight column
+  // (see wearables.ts merge), so values here are from manual user input.
   const withWeight = health.filter(h => h.weight != null && h.date != null).slice(-60);
   if (withWeight.length === 0) {
     return { currentWeight: null, sevenDayAvg: null, slope: 0, phase: 'maintaining' };
@@ -3132,6 +3139,7 @@ function computeRolling30DayTrends(
   const stepsEntries = recentHealth.filter(h => h.steps != null);
   const stepsValues = stepsEntries.map(h => h.steps!);
   const stepsDates = stepsEntries.map(h => h.date);
+  // Fitbit is blocked from writing weight (see wearables.ts), so all values are user-entered
   const weightEntries = recentHealth.filter(h => h.weight != null);
   const weightValues = weightEntries.map(h => h.weight!);
   const weightDates = weightEntries.map(h => h.date);

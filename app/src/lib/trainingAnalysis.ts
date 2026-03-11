@@ -834,7 +834,8 @@ function getBWFraction(exerciseName: string): number {
 
 function computeVolumeLoad(sets: SetRecord[], exerciseName?: string, userBodyWeight?: number | null): number {
   let total = 0;
-  for (const s of sets) {
+  const workingSets = filterWorkingSets(sets);
+  for (const s of workingSets) {
     if (s.is_bodyweight && s.reps != null && s.reps > 0 && userBodyWeight && userBodyWeight > 0) {
       const effectiveWeight = userBodyWeight * getBWFraction(exerciseName ?? '');
       total += effectiveWeight * s.reps;
@@ -882,9 +883,9 @@ function computePerformanceDeltas(
     }
     lastWorkoutDate = workout.date;
 
-    const prevDate = new Date(workout.date);
+    const prevDate = new Date(workout.date + 'T12:00:00');
     prevDate.setDate(prevDate.getDate() - 1);
-    const prevDateStr = prevDate.toISOString().split('T')[0];
+    const prevDateStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
     const health = healthByDate.get(workout.date);
     const prevHealth = healthByDate.get(prevDateStr);
 

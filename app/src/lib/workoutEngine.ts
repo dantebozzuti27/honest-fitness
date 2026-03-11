@@ -2818,7 +2818,7 @@ export function generateWeekPreview(
   todayCompleted: boolean = false,
   todayCompletedName?: string
 ): DayPreview[] {
-  const todayDow = new Date().getDay();
+  const todayDow = new Date().getDay(); // 0=Sun .. 6=Sat
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const { dayOfWeekPatterns, detectedSplit } = profile;
   const restDaySet = new Set(userRestDays);
@@ -2828,7 +2828,6 @@ export function generateWeekPreview(
     upper: 'Upper', lower: 'Lower', full: 'Full Body',
   };
 
-  // Build rotation sequence from detected split
   const rotation = detectedSplit.typicalRotation.length > 0
     ? detectedSplit.typicalRotation
     : [];
@@ -2853,37 +2852,35 @@ export function generateWeekPreview(
     }
   }
 
-  // First pass: count how many workout days we have
-  const workoutDays: number[] = [];
-  for (let offset = 0; offset < 7; offset++) {
-    const dow = (todayDow + offset) % 7;
+  // Week always starts on Monday (dow=1) and ends on Sunday (dow=0)
+  const mondayThroughSunday = [1, 2, 3, 4, 5, 6, 0];
+
+  // Count how many workout days occur *before* today in the week to offset the rotation.
+  // This ensures the rotation is consistent regardless of which day we're viewing.
+  let slotsBeforeToday = 0;
+  for (const dow of mondayThroughSunday) {
+    if (dow === todayDow) break;
     const hasExplicitRestConfig = restDaySet.size > 0;
     const isUserRestDay = restDaySet.has(dow);
     const pattern = dayOfWeekPatterns[dow];
     const isPatternRest = !pattern || pattern.isRestDay || pattern.frequency < 0.3;
     const shouldRest = hasExplicitRestConfig ? isUserRestDay : isPatternRest;
-    if (!shouldRest) workoutDays.push(dow);
+    if (!shouldRest) slotsBeforeToday++;
   }
 
   const previews: DayPreview[] = [];
   let usedRotationSlots = 0;
 
-  // If today's workout is already completed, it consumed a rotation slot
-  if (todayCompleted && rotation.length > 0) {
-    usedRotationSlots++;
-  }
-
-  for (let offset = 0; offset < 7; offset++) {
-    const dow = (todayDow + offset) % 7;
+  for (const dow of mondayThroughSunday) {
     const pattern = dayOfWeekPatterns[dow];
-    const isToday = offset === 0;
+    const isToday = dow === todayDow;
+    const isPast = mondayThroughSunday.indexOf(dow) < mondayThroughSunday.indexOf(todayDow);
 
     const isUserRestDay = restDaySet.has(dow);
     const hasExplicitRestConfig = restDaySet.size > 0;
     const isPatternRest = !pattern || pattern.isRestDay || pattern.frequency < 0.3;
     const shouldRest = hasExplicitRestConfig ? isUserRestDay : isPatternRest;
 
-    // If today's workout is already done, show it as completed rather than prescribing a new one
     if (isToday && todayCompleted) {
       previews.push({
         dayOfWeek: dow,
@@ -2896,6 +2893,7 @@ export function generateWeekPreview(
         estimatedMinutes: 0,
         isToday: true,
       });
+      if (!shouldRest) usedRotationSlots++;
       continue;
     }
 
@@ -2913,6 +2911,22 @@ export function generateWeekPreview(
       continue;
     }
 
+    // Days before today just consume a rotation slot (they're in the past)
+    if (isPast) {
+      usedRotationSlots++;
+      previews.push({
+        dayOfWeek: dow,
+        dayName: dayNames[dow],
+        isRestDay: false,
+        focus: '',
+        muscleGroups: [],
+        estimatedExercises: 0,
+        estimatedMinutes: 0,
+        isToday: false,
+      });
+      continue;
+    }
+
     let focus = '';
     let muscleGroups: string[] = [];
 
@@ -2923,18 +2937,13 @@ export function generateWeekPreview(
       usedRotationSlots++;
     }
 
-    // If rotation didn't produce muscle groups (no detected split or exhausted rotation),
-    // fall back to the day's historical pattern
     if (muscleGroups.length === 0 && pattern && pattern.muscleGroupsTypical.length > 0) {
       muscleGroups = pattern.muscleGroupsTypical.slice(0, 4);
       if (!focus) focus = muscleGroups.slice(0, 3).map(g => g.replace(/_/g, ' ')).join(', ');
     }
 
-    // If STILL no muscle groups (user toggled a historically-rest day to workout),
-    // assign from rotation wrap or use a generic label based on total workout days
     if (muscleGroups.length === 0 && !focus) {
       if (rotation.length > 0) {
-        // Wrap the rotation — keep cycling
         const slot = rotation[(rotationIdx + usedRotationSlots - 1) % rotation.length];
         focus = splitLabels[slot] || slot;
         muscleGroups = SPLIT_MUSCLE_MAPPING[slot] || [];

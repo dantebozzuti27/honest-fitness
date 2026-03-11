@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
 import { generateWorkout, saveGeneratedWorkout, generateWeekPreview, type GeneratedWorkout, type ExerciseRole, type SessionOverrides, type DayPreview } from '../lib/workoutEngine'
 import { requireSupabase } from '../lib/supabase'
+import { fetchWorkoutReview, type WorkoutReview } from '../lib/insightsApi'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import BackButton from '../components/BackButton'
@@ -14,6 +15,17 @@ import styles from './TodayWorkout.module.css'
 import s from '../styles/shared.module.css'
 
 type ViewState = 'loading' | 'ready' | 'error' | 'empty' | 'completed'
+
+function deriveWorkoutName(w: { template_name?: string; workout_exercises?: { body_part: string }[] }): string {
+  if (w.template_name && w.template_name !== 'Freestyle') return w.template_name
+  if (!w.workout_exercises || w.workout_exercises.length === 0) return w.template_name || 'Workout'
+  const bodyParts = w.workout_exercises
+    .map(ex => ex.body_part)
+    .filter((bp): bp is string => !!bp && bp !== 'Other' && bp !== 'Cardio')
+  const unique = [...new Set(bodyParts)]
+  if (unique.length > 0) return unique.slice(0, 3).join(', ')
+  return w.template_name || 'Workout'
+}
 
 export default function TodayWorkout() {
   const navigate = useNavigate()
@@ -35,7 +47,10 @@ export default function TodayWorkout() {
   const [restDays, setRestDays] = useState<number[]>([])
   const [excludedExercises, setExcludedExercises] = useState<Set<string>>(new Set())
   const [showExclusionPicker, setShowExclusionPicker] = useState(false)
-  const [completedWorkout, setCompletedWorkout] = useState<{ id: string; date: string; duration: number; template_name: string } | null>(null)
+  const [completedWorkout, setCompletedWorkout] = useState<{ id: string; date: string; duration: number; template_name: string; workout_exercises?: { body_part: string }[] } | null>(null)
+  const [workoutReview, setWorkoutReview] = useState<WorkoutReview | null>(null)
+  const [reviewLoading, setReviewLoading] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
   const regeneratingRef = useRef(false)
   const forceGenerateRef = useRef(false)
 
@@ -84,18 +99,19 @@ export default function TodayWorkout() {
       const today = getLocalDate()
       const { data: existingWorkout } = await supabase
         .from('workouts')
-        .select('id, date, duration, template_name')
+        .select('id, date, duration, template_name, workout_exercises(body_part)')
         .eq('user_id', user.id)
         .eq('date', today)
         .limit(1)
         .maybeSingle()
 
       const todayDone = !!(existingWorkout && !forceGenerateRef.current)
+      const completedName = existingWorkout ? deriveWorkoutName(existingWorkout) : undefined
       setWeekPreview(generateWeekPreview(
         tp,
         loadedRestDays,
         todayDone,
-        existingWorkout?.template_name || undefined
+        completedName
       ))
 
       if (todayDone) {
@@ -137,6 +153,8 @@ export default function TodayWorkout() {
         Object.keys(o).length > 0 ? o : undefined
       )
       setWorkout(w)
+      setWorkoutReview(null)
+      setReviewError(null)
       showToast('Workout regenerated', 'success')
     } catch (err) {
       logError('Regeneration error', err)
@@ -180,7 +198,7 @@ export default function TodayWorkout() {
         cachedProfile,
         next,
         hasDoneToday,
-        completedWorkout?.template_name || undefined
+        completedWorkout ? deriveWorkoutName(completedWorkout) : undefined
       ))
     }
 
@@ -244,6 +262,21 @@ export default function TodayWorkout() {
     if (next.has(key)) next.delete(key)
     else next.add(key)
     setExcludedExercises(next)
+  }
+
+  const runWorkoutReview = async () => {
+    if (!workout || !profile || reviewLoading) return
+    setReviewLoading(true)
+    setReviewError(null)
+    try {
+      const result = await fetchWorkoutReview(profile, workout)
+      setWorkoutReview(result)
+    } catch (err: any) {
+      logError('Workout review failed', err)
+      setReviewError(err?.message || 'Failed to get workout review')
+    } finally {
+      setReviewLoading(false)
+    }
   }
 
   const handleStartWorkout = () => {
@@ -416,7 +449,7 @@ export default function TodayWorkout() {
           <div className={s.card} style={{ padding: 'var(--space-lg)' }}>
             <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: 'var(--success)' }}>✓ Workout Completed</div>
             <p style={{ color: 'var(--text-secondary)', margin: '0 0 4px' }}>
-              {completedWorkout.template_name || 'Workout'} — {Math.round(completedWorkout.duration / 60)} min
+              {deriveWorkoutName(completedWorkout)} — {Math.round(completedWorkout.duration / 60)} min
             </p>
             <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
               You already trained today. Rest up and come back tomorrow.
@@ -1042,6 +1075,71 @@ export default function TodayWorkout() {
           <summary>Session Rationale</summary>
           <pre className={styles.rationaleContent}>{workout.sessionRationale}</pre>
         </details>
+
+        {/* AI Workout Review */}
+        <div className={s.card} style={{ marginBottom: 12 }}>
+          {!workoutReview && !reviewLoading && !reviewError && (
+            <div style={{ textAlign: 'center', padding: '8px 0' }}>
+              <Button variant="secondary" onClick={runWorkoutReview} style={{ fontSize: 13, padding: '6px 16px' }}>
+                AI Workout Review
+              </Button>
+            </div>
+          )}
+          {reviewLoading && (
+            <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--text-muted)', fontSize: 13 }}>
+              Analyzing workout...
+            </div>
+          )}
+          {reviewError && (
+            <div style={{ textAlign: 'center', padding: '8px 0' }}>
+              <p style={{ color: '#ef4444', fontSize: 12, marginBottom: 8 }}>{reviewError}</p>
+              <Button variant="secondary" onClick={runWorkoutReview} style={{ fontSize: 12, padding: '4px 12px' }}>Retry</Button>
+            </div>
+          )}
+          {workoutReview && (() => {
+            const verdictConfig: Record<string, { color: string; label: string }> = {
+              well_programmed: { color: 'var(--success)', label: 'Well Programmed' },
+              acceptable: { color: '#e6a800', label: 'Acceptable' },
+              has_concerns: { color: '#f59e0b', label: 'Has Concerns' },
+              problematic: { color: '#ef4444', label: 'Problematic' },
+            }
+            const vc = verdictConfig[workoutReview.verdict] || verdictConfig.acceptable
+            return (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>AI Review</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: vc.color, padding: '2px 8px', borderRadius: 4, backgroundColor: `${vc.color}20` }}>{vc.label}</span>
+                </div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
+                  {workoutReview.summary}
+                </p>
+                {workoutReview.observations?.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                    {workoutReview.observations.map((o, i) => {
+                      const oColor = o.sentiment === 'positive' ? 'var(--success)' : o.sentiment === 'concern' ? '#f59e0b' : 'var(--text-muted)'
+                      return (
+                        <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4, paddingLeft: 10, borderLeft: `2px solid ${oColor}` }}>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{o.aspect.replace(/_/g, ' ')}:</span>{' '}
+                          {o.note}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {workoutReview.expectedStimulus && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                    <strong style={{ color: 'var(--text-secondary)' }}>Stimulus:</strong> {workoutReview.expectedStimulus}
+                  </div>
+                )}
+                {workoutReview.recoveryImpact && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    <strong style={{ color: 'var(--text-secondary)' }}>Recovery:</strong> {workoutReview.recoveryImpact}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
 
         {/* Actions */}
         <div className={styles.actions}>

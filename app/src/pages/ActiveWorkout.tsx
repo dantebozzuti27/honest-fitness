@@ -561,7 +561,6 @@ export default function ActiveWorkout() {
     if (exercises.length === 0 || !workoutStartTimeRef.current) return
 
     const handleBeforeUnload = (e: any) => {
-      // Only warn if there's actual progress (exercises with data)
       const hasProgress = exercises.some(ex => 
         ex.sets && ex.sets.some((s: any) => 
           (s.weight && s.weight !== '') || 
@@ -577,9 +576,39 @@ export default function ActiveWorkout() {
       }
     }
 
+    // On iOS Safari, pagehide fires when the app is frozen/terminated but beforeunload may not.
+    // Synchronously persist to localStorage (async DB calls won't complete during pagehide).
+    const handlePageHide = () => {
+      if (!userId) return
+      const exs = exercisesRef.current
+      if (exs.length > 0 && workoutStartTimeRef.current) {
+        try {
+          localStorage.setItem(`activeWorkout_${userId}`, JSON.stringify({
+            exercises: exs,
+            workoutTime: workoutTimeRef.current,
+            restTime: restTimeRef.current,
+            isResting: isRestingRef.current,
+            sessionType: sessionTypeRef.current,
+            sessionTypeMode: sessionTypeModeRef.current,
+            templateId,
+            generatedWorkoutName: generatedWorkoutNameRef.current,
+            generatedWorkoutId: generatedWorkoutIdRef.current,
+            date: getTodayEST(),
+            timestamp: Date.now(),
+            workoutStartTime: workoutStartTimeRef.current,
+            pausedTimeMs: pausedTimeRef.current || 0,
+          }))
+        } catch { /* storage full — nothing we can do synchronously */ }
+      }
+    }
+
     window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [exercises])
+    window.addEventListener('pagehide', handlePageHide)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('pagehide', handlePageHide)
+    }
+  }, [exercises, userId, templateId])
 
   useEffect(() => {
     let mounted = true

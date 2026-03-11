@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
 import { lazy, Suspense } from 'react'
@@ -42,6 +42,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const { user } = useAuth()
+  const location = useLocation()
+  const hideBottomNav = location.pathname === '/workout/active'
 
   // Keep template sync user ID in sync with auth state
   useEffect(() => {
@@ -124,7 +126,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
-      {user && <BottomNav />}
+      {user && !hideBottomNav && <BottomNav />}
     </ErrorBoundary>
   )
 }

@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import type { TrainingProfile } from '../lib/trainingAnalysis'
+import { fetchTrainingSummary, type TrainingSummary } from '../lib/insightsApi'
 import Button from './Button'
+import { logError } from '../utils/logger'
 import s from '../styles/shared.module.css'
 
 interface Props {
@@ -43,10 +45,13 @@ function TrendRow({ label, mt, unit, goodDir }: { label: string; mt: { current: 
   )
 }
 
-type SectionId = 'goal' | 'trends' | 'percentiles' | 'profile' | 'training' | 'recovery' | 'flags' | 'ml' | 'forecasts' | 'fatigue'
+type SectionId = 'goal' | 'ai' | 'trends' | 'percentiles' | 'profile' | 'training' | 'recovery' | 'flags' | 'ml' | 'forecasts' | 'fatigue'
 
 export default function IntelligenceTab({ trainingProfile, profileLoading, onAnalyze }: Props) {
-  const [expanded, setExpanded] = useState<Set<SectionId>>(new Set(['goal', 'trends', 'percentiles', 'profile']))
+  const [expanded, setExpanded] = useState<Set<SectionId>>(new Set(['goal', 'ai', 'trends', 'percentiles', 'profile']))
+  const [aiSummary, setAiSummary] = useState<TrainingSummary | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
 
   const toggle = (id: SectionId) => {
     setExpanded(prev => {
@@ -54,6 +59,21 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
+  }
+
+  const runAiAnalysis = async () => {
+    if (!trainingProfile || aiLoading) return
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      const result = await fetchTrainingSummary(trainingProfile)
+      setAiSummary(result)
+    } catch (err: any) {
+      logError('AI training summary failed', err)
+      setAiError(err?.message || 'Failed to generate AI analysis')
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   if (!trainingProfile && !profileLoading) {
@@ -140,6 +160,94 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
             </div>
           )}
         </>
+      )}
+
+      {/* ── AI Analysis ─────────────────────────────────────────── */}
+      <SectionHeader title="AI Training Analysis" id="ai" expanded={expanded} onToggle={toggle} />
+      {expanded.has('ai') && (
+        <div className={s.card}>
+          {!aiSummary && !aiLoading && !aiError && (
+            <div style={{ textAlign: 'center', padding: 'var(--space-md) 0' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>
+                Have the AI analyze your complete training data and ML model outputs.
+              </p>
+              <Button onClick={runAiAnalysis}>Generate AI Analysis</Button>
+            </div>
+          )}
+          {aiLoading && (
+            <div style={{ textAlign: 'center', padding: 'var(--space-lg) 0', color: 'var(--text-muted)' }}>
+              Analyzing your training data...
+            </div>
+          )}
+          {aiError && (
+            <div style={{ textAlign: 'center', padding: 'var(--space-md) 0' }}>
+              <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{aiError}</p>
+              <Button variant="secondary" onClick={runAiAnalysis}>Retry</Button>
+            </div>
+          )}
+          {aiSummary && (
+            <>
+              <p style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 16 }}>
+                {aiSummary.overallAssessment}
+              </p>
+
+              {aiSummary.keyFindings?.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                  {aiSummary.keyFindings.map((f, i) => {
+                    const sentimentColor: Record<string, string> = {
+                      positive: 'var(--success)',
+                      neutral: 'var(--text-muted)',
+                      warning: '#e6a800',
+                      negative: '#ef4444',
+                    }
+                    const sentimentBg: Record<string, string> = {
+                      positive: 'rgba(34,197,94,0.08)',
+                      neutral: 'rgba(255,255,255,0.04)',
+                      warning: 'rgba(230,168,0,0.08)',
+                      negative: 'rgba(239,68,68,0.08)',
+                    }
+                    return (
+                      <div key={i} style={{
+                        padding: '10px 12px', borderRadius: 8,
+                        backgroundColor: sentimentBg[f.sentiment] || sentimentBg.neutral,
+                        borderLeft: `3px solid ${sentimentColor[f.sentiment] || sentimentColor.neutral}`,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{f.title}</span>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{f.category}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{f.detail}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {aiSummary.blindSpots?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div className={s.sectionLabel}>Blind Spots</div>
+                  <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                    {aiSummary.blindSpots.map((b, i) => (
+                      <li key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 4 }}>{b}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {aiSummary.dataQuality && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+                  Data quality: {aiSummary.dataQuality}
+                </div>
+              )}
+
+              <div style={{ textAlign: 'right', marginTop: 8 }}>
+                <Button variant="secondary" onClick={runAiAnalysis} style={{ fontSize: 12, padding: '4px 12px' }}>
+                  Refresh Analysis
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* ── Athlete Profile (Hero) ─────────────────────────────── */}

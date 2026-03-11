@@ -8,11 +8,12 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import BackButton from '../components/BackButton'
 import Button from '../components/Button'
+import { getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import styles from './TodayWorkout.module.css'
 import s from '../styles/shared.module.css'
 
-type ViewState = 'loading' | 'ready' | 'error' | 'empty'
+type ViewState = 'loading' | 'ready' | 'error' | 'empty' | 'completed'
 
 export default function TodayWorkout() {
   const navigate = useNavigate()
@@ -34,7 +35,9 @@ export default function TodayWorkout() {
   const [restDays, setRestDays] = useState<number[]>([])
   const [excludedExercises, setExcludedExercises] = useState<Set<string>>(new Set())
   const [showExclusionPicker, setShowExclusionPicker] = useState(false)
+  const [completedWorkout, setCompletedWorkout] = useState<{ id: string; date: string; duration: number; template_name: string } | null>(null)
   const regeneratingRef = useRef(false)
+  const forceGenerateRef = useRef(false)
 
   useEffect(() => {
     if (user) initialLoad()
@@ -78,6 +81,22 @@ export default function TodayWorkout() {
       setCachedProfile(tp)
       setProfile(tp)
       setWeekPreview(generateWeekPreview(tp, loadedRestDays))
+
+      const today = getLocalDate()
+      const { data: existingWorkout } = await supabase
+        .from('workouts')
+        .select('id, date, duration, template_name')
+        .eq('user_id', user.id)
+        .eq('date', today)
+        .limit(1)
+        .maybeSingle()
+
+      if (existingWorkout && !forceGenerateRef.current) {
+        setCompletedWorkout(existingWorkout)
+        setViewState('completed')
+        return
+      }
+      forceGenerateRef.current = false
 
       if (tp.trainingAgeDays < 7) {
         setViewState('empty')
@@ -348,6 +367,63 @@ export default function TodayWorkout() {
           <p>{errorMsg}</p>
           <Button onClick={initialLoad}>Try Again</Button>
         </div>
+      </div>
+    )
+  }
+
+  if (viewState === 'completed' && completedWorkout) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.header}>
+          <BackButton fallbackPath="/" />
+          <h1>Today's Workout</h1>
+          <div style={{ width: 32 }} />
+        </div>
+
+        <div style={{ padding: 'var(--space-lg)', textAlign: 'center' }}>
+          <div className={s.card} style={{ padding: 'var(--space-lg)' }}>
+            <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: 'var(--success)' }}>✓ Workout Completed</div>
+            <p style={{ color: 'var(--text-secondary)', margin: '0 0 4px' }}>
+              {completedWorkout.template_name || 'Workout'} — {Math.round(completedWorkout.duration / 60)} min
+            </p>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+              You already trained today. Rest up and come back tomorrow.
+            </p>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <Button variant="secondary" onClick={() => {
+              forceGenerateRef.current = true
+              setViewState('loading')
+              initialLoad()
+            }}>
+              Generate Another Workout Anyway
+            </Button>
+          </div>
+        </div>
+
+        {weekPreview.length > 0 && (
+          <div className={styles.weekPreview} style={{ padding: '0 var(--space-lg)' }}>
+            <h3 className={styles.weekPreviewTitle}>This Week</h3>
+            <div className={styles.weekDays}>
+              {weekPreview.map(day => {
+                const isRest = restDays.includes(day.dayOfWeek) || (restDays.length === 0 && day.isRestDay)
+                return (
+                  <div
+                    key={day.dayOfWeek}
+                    className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${isRest ? styles.weekDayRest : ''}`}
+                  >
+                    <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
+                    <div className={styles.weekDayFocus}>
+                      {isRest ? 'Rest' : day.focus || 'Workout'}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {toast && <Toast message={toast.message} type={toast.type} duration={toast.duration} onClose={hideToast} />}
       </div>
     )
   }

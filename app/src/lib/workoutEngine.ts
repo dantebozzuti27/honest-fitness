@@ -23,6 +23,7 @@ import { estimateWeight as estimateWeightFromRatios } from './liftRatios';
 import { suggestSupersets, type SupersetSuggestion } from './supersetPairer';
 import { DEFAULT_MODEL_CONFIG, type ModelConfig } from './modelConfig';
 import { getSportProfile, type SportProfile, type SportSeason } from './sportProfiles';
+import { getLocalDate } from '../utils/dateUtils';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -1247,7 +1248,8 @@ function stepPrescribe(
   prefs: UserPreferences,
   recoveryAdj: RecoveryAdjustment,
   cfg: ModelConfig,
-  expProgressionScale: number = 1.0
+  expProgressionScale: number = 1.0,
+  breakRampMultiplier: number = 1.0
 ): GeneratedExercise[] {
   const goal = getEffectiveGoal(prefs);
   const secondaryGoal = prefs.secondary_goal;
@@ -1511,7 +1513,8 @@ function stepPrescribe(
       }
 
       // #5: Progression Forecasting — use ML-predicted target if confident
-      if (profile.progressionForecasts) {
+      // Skip forecast overrides during break ramp-back to avoid prescribing pre-break loads
+      if (profile.progressionForecasts && breakRampMultiplier >= 1.0) {
         const forecast = profile.progressionForecasts.find(
           f => f.exerciseName === sel.exercise.name.toLowerCase()
         );
@@ -2191,7 +2194,7 @@ function stepGenerateRationale(
 
   return {
     id: generateId(),
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDate(),
     trainingGoal: prefs.training_goal,
     estimatedDurationMinutes: Math.round(totalDuration),
     muscleGroupsFocused,
@@ -2266,6 +2269,20 @@ export async function generateWorkout(
     }
   }
 
+  // Return-from-break detection: auto-deload after extended time off
+  const daysSinceLastWorkout = profile.exercisePreferences.length > 0
+    ? Math.min(...profile.exercisePreferences.map(p => p.lastUsedDaysAgo))
+    : Infinity;
+
+  let breakRampMultiplier = 1.0;
+  if (daysSinceLastWorkout >= 14) {
+    breakRampMultiplier = 0.60;
+  } else if (daysSinceLastWorkout >= 10) {
+    breakRampMultiplier = 0.70;
+  } else if (daysSinceLastWorkout >= 7) {
+    breakRampMultiplier = 0.80;
+  }
+
   // Step 1: Recovery check
   const recoveryAdj = stepRecoveryCheck(profile, cfg);
 
@@ -2277,6 +2294,11 @@ export async function generateWorkout(
   }
   if (ageVolumeScale !== 1.0 && userAge != null) {
     recoveryAdj.adjustmentReasons.push(`Age (${userAge}): volume ×${ageVolumeScale.toFixed(2)}, progression ×${ageProgressionScale.toFixed(2)}`);
+  }
+
+  if (breakRampMultiplier < 1.0) {
+    recoveryAdj.volumeMultiplier *= breakRampMultiplier;
+    recoveryAdj.adjustmentReasons.push(`Return from ${daysSinceLastWorkout}d break: volume ×${breakRampMultiplier} (ramp-back protocol)`);
   }
 
   // #15: Caloric-phase MRV scaling — cut reduces tolerance, bulk increases
@@ -2329,7 +2351,7 @@ export async function generateWorkout(
   }
 
   // Step 4: Prescribe sets/reps/weight/tempo
-  const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg, expProgressionScale * ageProgressionScale);
+  const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg, expProgressionScale * ageProgressionScale, breakRampMultiplier);
 
   // Step 5: Apply session constraints
   const constrained = stepApplyConstraints(prescribed, prefs, profile, cfg);

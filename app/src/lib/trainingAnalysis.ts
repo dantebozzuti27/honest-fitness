@@ -31,6 +31,7 @@ import {
   type MuscleGroupTrainingRecord,
 } from './recoveryModel';
 import { getExerciseMapping } from './exerciseMuscleMap';
+import { localDayOfWeek } from '../utils/dateUtils';
 import strengthStandardsData from './strengthStandards.json';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -2317,7 +2318,7 @@ function detectTrainingSplit(
     }
     sessionProfiles.push({
       date: w.date,
-      dayOfWeek: new Date(w.date).getDay(),
+      dayOfWeek: localDayOfWeek(w.date),
       groups,
       template: w.template_name,
     });
@@ -2480,7 +2481,7 @@ function computeDayOfWeekPatterns(
   }
 
   for (const w of workouts) {
-    const dow = new Date(w.date).getDay();
+    const dow = localDayOfWeek(w.date);
     const dd = dayData[dow];
     dd.workoutCount++;
     dd.exerciseCounts.push(w.workout_exercises.length);

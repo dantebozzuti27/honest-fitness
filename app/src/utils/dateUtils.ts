@@ -27,6 +27,24 @@ export function getESTDate(date: Date = new Date()): string {
   return getLocalDate(date)
 }
 
+/**
+ * Parse a YYYY-MM-DD string as LOCAL midnight and return the local day-of-week.
+ * Avoids the classic JS bug where new Date("YYYY-MM-DD") parses as UTC midnight,
+ * which shifts getDay() by -1 for west-of-UTC timezones.
+ */
+export function localDayOfWeek(dateStr: string): number {
+  const parts = dateStr.split('-')
+  return new Date(+parts[0], +parts[1] - 1, +parts[2]).getDay()
+}
+
+/**
+ * Parse a YYYY-MM-DD string as LOCAL midnight Date object.
+ */
+export function parseLocalDate(dateStr: string): Date {
+  const parts = dateStr.split('-')
+  return new Date(+parts[0], +parts[1] - 1, +parts[2])
+}
+
 // Format date as MM-DD-YYYY (standardized format)
 // Uses local timezone for proper date parsing
 export function formatDateMMDDYYYY(dateStr: string | null | undefined): string {

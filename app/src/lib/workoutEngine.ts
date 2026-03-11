@@ -1263,23 +1263,13 @@ function stepPrescribe(
       const cardio = profile.cardioHistory.find(c => c.exerciseName === sel.exercise.name.toLowerCase());
       const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
 
-      let duration = cardio?.lastDurationSeconds ?? cardio?.avgDurationSeconds ?? 1800;
-      let speed = cardio?.lastSpeed ?? cardio?.avgSpeed ?? null;
-      let incline = cardio?.lastIncline ?? cardio?.avgIncline ?? null;
+      const baseDuration = cardio?.avgDurationSeconds ?? 1800;
+      const baseSpeed = cardio?.avgSpeed ?? null;
+      const baseIncline = cardio?.avgIncline ?? null;
+      let duration = baseDuration;
+      let speed = baseSpeed;
+      let incline = baseIncline;
       const adjustments: string[] = [];
-
-      if (recoveryAdj.isDeload) {
-        duration = Math.round(duration * cfg.deloadCardioDurationMultiplier);
-        adjustments.push(`Deload: duration reduced ${Math.round((1 - cfg.deloadCardioDurationMultiplier) * 100)}%`);
-        if (speed != null) {
-          speed = Math.round(speed * cfg.deloadCardioIntensityMultiplier * 10) / 10;
-          adjustments.push(`Deload: intensity reduced ${Math.round((1 - cfg.deloadCardioIntensityMultiplier) * 100)}%`);
-        }
-      } else if (cardio && cardio.trendDuration === 'increasing') {
-        adjustments.push(`Duration trending up — maintaining at ${Math.round(duration / 60)} min`);
-      } else if (cardio && cardio.trendIntensity === 'increasing') {
-        adjustments.push(`Intensity trending up — good progressive overload`);
-      }
 
       const exName = sel.exercise.name.toLowerCase();
       let speedLabel: string | null = null;
@@ -1289,17 +1279,89 @@ function stepPrescribe(
       else if (exName.includes('treadmill') || exName.includes('walk') || exName.includes('run')) speedLabel = 'Speed (mph)';
       else if (speed != null) speedLabel = 'Intensity';
 
-      // HR zone prescription based on goal
+      // Vary cardio prescription based on goal, recovery, and session context
+      // Use a deterministic session-index to cycle through cardio styles
+      const sessionIdx = (profile.exercisePreferences.find(
+        p => p.exerciseName === sel.exercise.name.toLowerCase()
+      )?.totalSessions ?? 0) % 4;
+
       let targetHrZone: number | null = null;
+
       if (recoveryAdj.isDeload) {
+        duration = Math.round(baseDuration * cfg.deloadCardioDurationMultiplier);
         targetHrZone = 1;
-        adjustments.push('Deload: Zone 1 (easy) cardio only');
+        adjustments.push(`Deload: easy cardio, Zone 1, duration ${Math.round(duration / 60)} min`);
+        if (speed != null) {
+          speed = Math.round(speed * cfg.deloadCardioIntensityMultiplier * 10) / 10;
+        }
       } else if (goal === 'fat_loss' || secondaryGoal === 'fat_loss') {
+        // Fat loss: alternate between longer Zone 2 and shorter Zone 3
+        if (sessionIdx % 2 === 0) {
+          targetHrZone = 2;
+          duration = Math.round(baseDuration * 1.15);
+          adjustments.push(`Fat loss: extended Zone 2 (${Math.round(duration / 60)} min) — maximize fat oxidation`);
+        } else {
+          targetHrZone = 3;
+          duration = Math.round(baseDuration * 0.75);
+          if (speed != null) speed = Math.round(speed * 1.10 * 10) / 10;
+          if (incline != null) incline = Math.round(Math.min(incline + 1, 15) * 10) / 10;
+          adjustments.push(`Fat loss: Zone 3 tempo (${Math.round(duration / 60)} min) — higher calorie burn rate`);
+        }
+      } else if (goal === 'strength') {
+        // Strength: keep cardio short and easy to minimize interference
         targetHrZone = 2;
-      } else if (goal === 'endurance' || secondaryGoal === 'endurance') {
-        targetHrZone = 2;
+        duration = Math.min(duration, 20 * 60);
+        adjustments.push(`Strength focus: capped at ${Math.round(duration / 60)} min Zone 2 — minimize interference`);
       } else {
-        targetHrZone = 2; // default to Zone 2 to minimize interference
+        // General fitness / hypertrophy: rotate through varied styles
+        switch (sessionIdx) {
+          case 0: // Steady-state Zone 2
+            targetHrZone = 2;
+            adjustments.push(`Steady state: Zone 2, ${Math.round(duration / 60)} min — aerobic base building`);
+            break;
+          case 1: // Moderate tempo Zone 3
+            targetHrZone = 3;
+            duration = Math.round(baseDuration * 0.80);
+            if (speed != null) speed = Math.round(speed * 1.08 * 10) / 10;
+            if (incline != null) incline = Math.round(Math.min(incline + 1, 15) * 10) / 10;
+            adjustments.push(`Tempo: Zone 3, ${Math.round(duration / 60)} min — push the pace`);
+            break;
+          case 2: // Incline/resistance focus
+            targetHrZone = 2;
+            if (incline != null) {
+              incline = Math.round(Math.min(incline + 2, 15) * 10) / 10;
+              adjustments.push(`Incline focus: +2 incline, Zone 2, ${Math.round(duration / 60)} min`);
+            } else if (speed != null) {
+              speed = Math.round(speed * 1.12 * 10) / 10;
+              adjustments.push(`Intensity push: ${speedLabel ?? 'intensity'} up, Zone 2, ${Math.round(duration / 60)} min`);
+            } else {
+              adjustments.push(`Steady state: Zone 2, ${Math.round(duration / 60)} min`);
+            }
+            break;
+          case 3: // Progressive — slight duration increase
+            targetHrZone = 2;
+            duration = Math.round(baseDuration * 1.10);
+            adjustments.push(`Progressive: Zone 2, ${Math.round(duration / 60)} min — extending duration`);
+            break;
+        }
+      }
+
+      // Progressive overload for cardio: if user's been doing this consistently, nudge up
+      if (!recoveryAdj.isDeload && cardio && cardio.recentSessions >= 4) {
+        if (cardio.trendDuration === 'stable' && cardio.trendIntensity === 'stable') {
+          // Stagnant — suggest a bump
+          if (speed != null && incline == null) {
+            speed = Math.round((speed + 0.2) * 10) / 10;
+            adjustments.push(`Progressive overload: +0.2 ${speedLabel ?? 'intensity'}`);
+          } else if (incline != null) {
+            incline = Math.round(Math.min(incline + 0.5, 15) * 10) / 10;
+            adjustments.push(`Progressive overload: +0.5 incline`);
+          }
+        } else if (cardio.trendDuration === 'increasing') {
+          adjustments.push(`Duration trending up — good progression`);
+        } else if (cardio.trendIntensity === 'increasing') {
+          adjustments.push(`Intensity trending up — good progressive overload`);
+        }
       }
 
       let targetHrBpmRange: { min: number; max: number } | null = null;

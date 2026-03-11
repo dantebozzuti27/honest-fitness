@@ -4307,12 +4307,13 @@ function computeGoalProgress(
       weight: 0.06,
     });
 
-    // Session duration
-    if (global.avgSessionDuration > 0) {
+    // Session duration (avgSessionDuration is in seconds)
+    const gfDurMin = global.avgSessionDuration / 60;
+    if (gfDurMin > 0) {
       addSignal({
-        label: 'Session Duration', value: `${Math.round(global.avgSessionDuration)} min avg`,
-        trend: global.avgSessionDuration >= 45 ? 'positive' : global.avgSessionDuration >= 25 ? 'neutral' : 'negative',
-        detail: global.avgSessionDuration >= 45 ? 'Sessions are long enough to accumulate meaningful training volume' : 'Short sessions — consider extending to allow adequate volume and warm-up',
+        label: 'Session Duration', value: `${Math.round(gfDurMin)} min avg`,
+        trend: gfDurMin >= 45 ? 'positive' : gfDurMin >= 25 ? 'neutral' : 'negative',
+        detail: gfDurMin >= 45 ? 'Sessions are long enough to accumulate meaningful training volume' : 'Short sessions — consider extending to allow adequate volume and warm-up',
         weight: 0.10,
       });
     }

@@ -32,6 +32,17 @@ type WorkoutEntry = {
   }>
 }
 
+function deriveWorkoutName(w: WorkoutEntry): string {
+  if (w.template_name && w.template_name !== 'Freestyle') return w.template_name
+  if (!w.workout_exercises || w.workout_exercises.length === 0) return w.template_name || 'Freestyle'
+  const bodyParts = w.workout_exercises
+    .map(ex => ex.body_part)
+    .filter((bp): bp is string => !!bp && bp !== 'Other' && bp !== 'Cardio')
+  const unique = [...new Set(bodyParts)]
+  if (unique.length > 0) return unique.slice(0, 3).join(', ')
+  return w.template_name || 'Workout'
+}
+
 export default function Home() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -194,7 +205,7 @@ export default function Home() {
                     return (
                       <div key={w.id || i}>
                         <span className={styles.heroPrimarySub}>
-                          {w.template_name || 'Freestyle'} — {exCount} exercises, {mins} min
+                          {deriveWorkoutName(w)} — {exCount} exercises, {mins} min
                         </span>
                         {(w.workout_calories_burned != null || w.workout_avg_hr != null || w.workout_steps != null) && (
                           <div style={{ display: 'flex', gap: '12px', marginTop: '6px', flexWrap: 'wrap' }}>
@@ -457,7 +468,7 @@ export default function Home() {
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className={styles.previewValue}>
-                          {w.template_name || 'Freestyle'}
+                          {deriveWorkoutName(w)}
                         </span>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                           {exCount} ex · {formatVolume(vol)} lbs

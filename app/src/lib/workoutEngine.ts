@@ -2804,6 +2804,7 @@ export interface DayPreview {
   dayOfWeek: number;        // 0=Sun
   dayName: string;
   isRestDay: boolean;
+  isCompleted?: boolean;    // Today's workout already done
   focus: string;            // e.g. "Push" or "Upper" or "Chest, Triceps"
   muscleGroups: string[];
   estimatedExercises: number;
@@ -2811,7 +2812,12 @@ export interface DayPreview {
   isToday: boolean;
 }
 
-export function generateWeekPreview(profile: TrainingProfile, userRestDays: number[] = []): DayPreview[] {
+export function generateWeekPreview(
+  profile: TrainingProfile,
+  userRestDays: number[] = [],
+  todayCompleted: boolean = false,
+  todayCompletedName?: string
+): DayPreview[] {
   const todayDow = new Date().getDay();
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const { dayOfWeekPatterns, detectedSplit } = profile;
@@ -2862,6 +2868,11 @@ export function generateWeekPreview(profile: TrainingProfile, userRestDays: numb
   const previews: DayPreview[] = [];
   let usedRotationSlots = 0;
 
+  // If today's workout is already completed, it consumed a rotation slot
+  if (todayCompleted && rotation.length > 0) {
+    usedRotationSlots++;
+  }
+
   for (let offset = 0; offset < 7; offset++) {
     const dow = (todayDow + offset) % 7;
     const pattern = dayOfWeekPatterns[dow];
@@ -2871,6 +2882,22 @@ export function generateWeekPreview(profile: TrainingProfile, userRestDays: numb
     const hasExplicitRestConfig = restDaySet.size > 0;
     const isPatternRest = !pattern || pattern.isRestDay || pattern.frequency < 0.3;
     const shouldRest = hasExplicitRestConfig ? isUserRestDay : isPatternRest;
+
+    // If today's workout is already done, show it as completed rather than prescribing a new one
+    if (isToday && todayCompleted) {
+      previews.push({
+        dayOfWeek: dow,
+        dayName: dayNames[dow],
+        isRestDay: false,
+        isCompleted: true,
+        focus: todayCompletedName || 'Done',
+        muscleGroups: [],
+        estimatedExercises: 0,
+        estimatedMinutes: 0,
+        isToday: true,
+      });
+      continue;
+    }
 
     if (shouldRest) {
       previews.push({
@@ -2890,7 +2917,6 @@ export function generateWeekPreview(profile: TrainingProfile, userRestDays: numb
     let muscleGroups: string[] = [];
 
     if (rotation.length > 0) {
-      // Always assign the next rotation slot to each workout day, wrapping around
       const slot = rotation[(rotationIdx + usedRotationSlots) % rotation.length];
       focus = splitLabels[slot] || slot;
       muscleGroups = SPLIT_MUSCLE_MAPPING[slot] || [];

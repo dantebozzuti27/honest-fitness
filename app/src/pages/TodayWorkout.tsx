@@ -80,7 +80,6 @@ export default function TodayWorkout() {
       const tp = await computeTrainingProfile(user.id)
       setCachedProfile(tp)
       setProfile(tp)
-      setWeekPreview(generateWeekPreview(tp, loadedRestDays))
 
       const today = getLocalDate()
       const { data: existingWorkout } = await supabase
@@ -91,7 +90,15 @@ export default function TodayWorkout() {
         .limit(1)
         .maybeSingle()
 
-      if (existingWorkout && !forceGenerateRef.current) {
+      const todayDone = !!(existingWorkout && !forceGenerateRef.current)
+      setWeekPreview(generateWeekPreview(
+        tp,
+        loadedRestDays,
+        todayDone,
+        existingWorkout?.template_name || undefined
+      ))
+
+      if (todayDone) {
         setCompletedWorkout(existingWorkout)
         setViewState('completed')
         return
@@ -168,7 +175,13 @@ export default function TodayWorkout() {
     setRestDays(next)
 
     if (cachedProfile) {
-      setWeekPreview(generateWeekPreview(cachedProfile, next))
+      const hasDoneToday = !!completedWorkout
+      setWeekPreview(generateWeekPreview(
+        cachedProfile,
+        next,
+        hasDoneToday,
+        completedWorkout?.template_name || undefined
+      ))
     }
 
     try {
@@ -432,8 +445,8 @@ export default function TodayWorkout() {
                     className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${isRest ? styles.weekDayRest : ''}`}
                   >
                     <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
-                    <div className={styles.weekDayFocus}>
-                      {isRest ? 'Rest' : (day.focus || (day.muscleGroups.length > 0 ? day.muscleGroups.slice(0, 2).map(g => g.replace(/_/g, ' ')).join(', ') : 'Full Body'))}
+                    <div className={styles.weekDayFocus} style={day.isCompleted ? { color: 'var(--success)' } : undefined}>
+                      {day.isCompleted ? `✓ ${day.focus}` : isRest ? 'Rest' : (day.focus || (day.muscleGroups.length > 0 ? day.muscleGroups.slice(0, 2).map(g => g.replace(/_/g, ' ')).join(', ') : 'Full Body'))}
                     </div>
                   </div>
                 )
@@ -525,14 +538,14 @@ export default function TodayWorkout() {
                   <div
                     key={day.dayOfWeek}
                     className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${isRest ? styles.weekDayRest : ''}`}
-                    onClick={() => toggleRestDay(day.dayOfWeek)}
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => !day.isCompleted && toggleRestDay(day.dayOfWeek)}
+                    style={{ cursor: day.isCompleted ? 'default' : 'pointer', userSelect: 'none' }}
                   >
                     <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
-                    <div className={styles.weekDayFocus}>
-                      {isRest ? 'Rest' : (day.focus || (day.muscleGroups.length > 0 ? day.muscleGroups.slice(0, 2).map(g => g.replace(/_/g, ' ')).join(', ') : 'Full Body'))}
+                    <div className={styles.weekDayFocus} style={day.isCompleted ? { color: 'var(--success)' } : undefined}>
+                      {day.isCompleted ? `✓ ${day.focus}` : isRest ? 'Rest' : (day.focus || (day.muscleGroups.length > 0 ? day.muscleGroups.slice(0, 2).map(g => g.replace(/_/g, ' ')).join(', ') : 'Full Body'))}
                     </div>
-                    {!isRest && day.muscleGroups.length > 0 && (
+                    {!isRest && !day.isCompleted && day.muscleGroups.length > 0 && (
                       <div className={styles.weekDayMeta} title={day.muscleGroups.map(g => g.replace(/_/g, ' ')).join(', ')}>
                         {day.estimatedExercises} ex · {day.estimatedMinutes}m
                       </div>

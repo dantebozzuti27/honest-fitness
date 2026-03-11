@@ -101,10 +101,7 @@ export async function saveFitbitDaily(userId: string, date: string, data: any) {
       lightly_active_minutes: data.lightly_active_minutes || null,
       fairly_active_minutes: data.fairly_active_minutes || null,
       very_active_minutes: data.very_active_minutes || null,
-      marginal_calories: toNumber(data.marginal_calories),
-      weight: toNumber(data.weight),
-      bmi: toNumber(data.bmi),
-      fat: toNumber(data.fat)
+      marginal_calories: toNumber(data.marginal_calories)
     },
     updated_at: new Date().toISOString()
   }

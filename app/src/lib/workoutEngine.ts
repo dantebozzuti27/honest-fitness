@@ -338,11 +338,16 @@ function getRirTarget(role: ExerciseRole, goal: string, isDeload: boolean): numb
  * This prevents the engine from prescribing a user's 1RM as a working weight
  * for multi-rep sets — the most dangerous bug in any training program generator.
  */
-function weightForReps(estimated1RM: number, targetReps: number, rir: number, equipment?: string[]): number {
+function weightForReps(estimated1RM: number, targetReps: number, rir: number, equipment?: string[], exerciseType?: string): number {
   if (estimated1RM <= 0 || targetReps <= 0) return 0;
   const effectiveReps = targetReps + rir;
   const raw = estimated1RM / (1 + effectiveReps / 30);
-  const step = equipment?.includes('barbell') ? 5 : equipment?.includes('dumbbell') ? 5 : 5;
+  const cfg = DEFAULT_MODEL_CONFIG;
+  let step: number;
+  if (equipment?.includes('barbell')) step = cfg.barbellIncrement;
+  else if (equipment?.includes('dumbbell')) step = cfg.dumbbellIncrement;
+  else if (exerciseType === 'isolation') step = cfg.isolationIncrement;
+  else step = cfg.machineIncrement;
   return Math.round(raw / step) * step;
 }
 

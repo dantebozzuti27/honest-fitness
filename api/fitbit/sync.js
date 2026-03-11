@@ -207,6 +207,26 @@ export default async function handler(req, res) {
         if (hrJson['activities-heart'] && hrJson['activities-heart'].length > 0) {
           const heartData = hrJson['activities-heart'][0].value
           fitbitData.resting_heart_rate = heartData?.restingHeartRate != null ? Number(heartData.restingHeartRate) : null
+          if (heartData?.heartRateZones && Array.isArray(heartData.heartRateZones)) {
+            const zones = {}
+            for (const z of heartData.heartRateZones) {
+              if (z.name && z.minutes != null) zones[z.name] = Number(z.minutes)
+            }
+            if (Object.keys(zones).length > 0) fitbitData.hr_zones_minutes = zones
+          }
+
+          // Extract HR zone minutes (Fat Burn, Cardio, Peak, Out of Range)
+          if (heartData?.heartRateZones && Array.isArray(heartData.heartRateZones)) {
+            const zones = {}
+            for (const zone of heartData.heartRateZones) {
+              if (zone.name && zone.minutes != null) {
+                zones[zone.name] = Number(zone.minutes)
+              }
+            }
+            if (Object.keys(zones).length > 0) {
+              fitbitData.hr_zones_minutes = zones
+            }
+          }
         }
       } else if (hrResponse.status === 401 || hrResponse.status === 403) {
         const errorText = await hrResponse.text().catch(() => '')
@@ -271,6 +291,18 @@ export default async function handler(req, res) {
         fitbitData.distance = summary.distances && summary.distances.length > 0 && summary.distances[0].distance != null
           ? Number(summary.distances[0].distance) 
           : null
+        fitbitData.sedentary_minutes = summary.sedentaryMinutes != null ? Number(summary.sedentaryMinutes) : null
+        fitbitData.lightly_active_minutes = summary.lightlyActiveMinutes != null ? Number(summary.lightlyActiveMinutes) : null
+        fitbitData.fairly_active_minutes = summary.fairlyActiveMinutes != null ? Number(summary.fairlyActiveMinutes) : null
+        fitbitData.very_active_minutes = summary.veryActiveMinutes != null ? Number(summary.veryActiveMinutes) : null
+        fitbitData.floors = summary.floors != null ? Number(summary.floors) : null
+
+        // Activity zone minutes
+        fitbitData.sedentary_minutes = summary.sedentaryMinutes != null ? Number(summary.sedentaryMinutes) : null
+        fitbitData.lightly_active_minutes = summary.lightlyActiveMinutes != null ? Number(summary.lightlyActiveMinutes) : null
+        fitbitData.fairly_active_minutes = summary.fairlyActiveMinutes != null ? Number(summary.fairlyActiveMinutes) : null
+        fitbitData.very_active_minutes = summary.veryActiveMinutes != null ? Number(summary.veryActiveMinutes) : null
+        fitbitData.floors = summary.floors != null ? Number(summary.floors) : null
       } else if (activityResponse.status === 401 || activityResponse.status === 403) {
         const errorText = await activityResponse.text().catch(() => '')
         throw new Error(`Authorization failed: ${activityResponse.status}. Please reconnect your Fitbit account.`)
@@ -285,27 +317,7 @@ export default async function handler(req, res) {
       }
     }
     
-    // Fetch body weight data
-    try {
-      const weightResponse = await fetch(
-        `https://api.fitbit.com/1/user/-/body/log/weight/date/${date}.json`,
-        { headers: { 'Authorization': `Bearer ${accessToken}` } }
-      )
-      if (weightResponse.ok) {
-        const weightJson = await weightResponse.json()
-        if (weightJson.weight && weightJson.weight.length > 0) {
-          const latest = weightJson.weight[weightJson.weight.length - 1]
-          if (latest.weight != null) {
-            // Fitbit returns kg by default; convert to lbs (Fitbit API uses unit system from profile)
-            fitbitData.weight = Number(latest.weight)
-            fitbitData.bmi = latest.bmi != null ? Number(latest.bmi) : null
-            fitbitData.fat = latest.fat != null ? Number(latest.fat) : null
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Error fetching body weight:', e)
-    }
+    // Body weight is NOT fetched from Fitbit — user enters weight manually
 
     // Helper to ensure integer conversion
     const toInteger = (val) => {
@@ -330,6 +342,7 @@ export default async function handler(req, res) {
     
     // Check if there's an existing manual weight entry for this date
     let existingManualWeight = null
+    let existingSourceProvider = null
     try {
       const { data: existingRow } = await supabase
         .from('health_metrics')
@@ -340,6 +353,7 @@ export default async function handler(req, res) {
       if (existingRow?.weight != null && existingRow.source_provider === 'manual') {
         existingManualWeight = existingRow.weight
       }
+      existingSourceProvider = existingRow?.source_provider ?? null
     } catch (_) {}
 
     const healthMetricsData = {
@@ -351,7 +365,7 @@ export default async function handler(req, res) {
       sleep_duration: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
       calories_burned: fitbitData.calories != null ? Number(fitbitData.calories) : null,
       steps: toInteger(fitbitData.steps),
-      source_provider: 'fitbit',
+      source_provider: existingSourceProvider === 'manual' ? 'manual' : 'fitbit',
       source_data: {
         sleep_efficiency: fitbitData.sleep_efficiency != null ? Number(fitbitData.sleep_efficiency) : null,
         active_calories: fitbitData.active_calories != null ? Number(fitbitData.active_calories) : null,
@@ -370,11 +384,11 @@ export default async function handler(req, res) {
       updated_at: new Date().toISOString()
     }
 
-    // Write Fitbit weight to the primary weight column — manual entries take precedence
+    // Never write Fitbit weight to the primary weight column.
+    // Weight must only come from manual user entry (Home page or Profile).
+    // Fitbit body weight data is stored in source_data for reference only.
     if (existingManualWeight != null) {
       healthMetricsData.weight = existingManualWeight
-    } else if (fitbitData.weight != null) {
-      healthMetricsData.weight = Number(fitbitData.weight)
     }
 
     const { error: healthMetricsError } = await supabase

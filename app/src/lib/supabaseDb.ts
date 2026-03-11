@@ -775,9 +775,10 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
         is_bodyweight: String(set?.weight || '').trim().toUpperCase() === 'BW',
         weight_label: String(set?.weight || '').trim().toUpperCase() === 'BW' ? 'BW' : null,
         reps: set.reps ? Number(set.reps) : null,
-        time: set.time ?? set.time_seconds ?? null,
+        time: set.time != null ? String(Math.floor(Number(set.time))) : (set.time_seconds != null ? String(Math.floor(Number(set.time_seconds))) : null),
         speed: set.speed ? Number(set.speed) : null,
-        incline: set.incline ? Number(set.incline) : null
+        incline: set.incline ? Number(set.incline) : null,
+        is_warmup: set._is_warmup === true || set.is_warmup === true,
       }))
 
       const tryInsert = async (rows: any[]) => supabase.from('workout_sets').insert(rows)

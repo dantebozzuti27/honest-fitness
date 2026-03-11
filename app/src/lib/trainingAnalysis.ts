@@ -49,6 +49,7 @@ export interface WorkoutRecord {
   workout_peak_hr: number | null;
   workout_hr_zones: Record<string, number> | null;
   workout_calories_burned: number | null;
+  generated_workout_id: string | null;
   workout_exercises: ExerciseRecord[];
 }
 
@@ -568,7 +569,8 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
   const supabase = requireSupabase();
   const since = new Date();
   since.setDate(since.getDate() - days);
-  const sinceStr = since.toISOString().split('T')[0];
+  // Use local date, not UTC — toISOString() returns UTC which shifts by 1 day in US timezones
+  const sinceStr = `${since.getFullYear()}-${String(since.getMonth() + 1).padStart(2, '0')}-${String(since.getDate()).padStart(2, '0')}`;
 
   const isColumnError = (e: any) => e?.code === 'PGRST204' || (e && e.message?.includes('column'));
 
@@ -576,7 +578,7 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
     .from('workouts')
     .select(`
       id, date, created_at, duration, template_name, perceived_effort, session_rpe, session_type,
-      workout_avg_hr, workout_peak_hr, workout_hr_zones, workout_calories_burned,
+      workout_avg_hr, workout_peak_hr, workout_hr_zones, workout_calories_burned, generated_workout_id,
       workout_exercises (
         exercise_name, body_part, exercise_library_id,
         workout_sets ( set_number, weight, reps, time, is_bodyweight, logged_at,
@@ -622,11 +624,12 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
       data = (retry2.data || []).map((w: any) => ({
         ...w,
         session_rpe: null, session_type: 'workout',
-        workout_avg_hr: null, workout_peak_hr: null, workout_hr_zones: null, workout_calories_burned: null,
+        workout_avg_hr: null, workout_peak_hr: null, workout_hr_zones: null,
+        workout_calories_burned: null, generated_workout_id: null,
       })) as any;
       error = retry2.error;
     } else {
-      data = (retry1.data || []).map((w: any) => ({ ...w, workout_calories_burned: null })) as any;
+      data = (retry1.data || []).map((w: any) => ({ ...w, workout_calories_burned: null, generated_workout_id: null })) as any;
       error = retry1.error;
     }
   }
@@ -648,7 +651,7 @@ async function fetchHealthHistory(userId: string, days: number = 120): Promise<H
   const supabase = requireSupabase();
   const since = new Date();
   since.setDate(since.getDate() - days);
-  const sinceStr = since.toISOString().split('T')[0];
+  const sinceStr = `${since.getFullYear()}-${String(since.getMonth() + 1).padStart(2, '0')}-${String(since.getDate()).padStart(2, '0')}`;
 
   // Try with extended columns first; fall back to base columns if migration hasn't run
   let { data, error } = await supabase
@@ -753,11 +756,7 @@ function filterWorkingSets<T extends { weight: number | null; reps: number | nul
  */
 function buildWeightByDate(health: HealthRecord[]): Map<string, number> {
   const map = new Map<string, number>();
-  // Prefer manual weight entries; fall back to any source only if no manual data exists
-  let sorted = health.filter(h => h.weight != null && h.source_provider !== 'fitbit').sort((a, b) => a.date.localeCompare(b.date));
-  if (sorted.length === 0) {
-    sorted = health.filter(h => h.weight != null).sort((a, b) => a.date.localeCompare(b.date));
-  }
+  const sorted = health.filter(h => h.weight != null).sort((a, b) => a.date.localeCompare(b.date));
   for (const h of sorted) map.set(h.date, h.weight!);
   return map;
 }
@@ -847,9 +846,10 @@ function computeVolumeLoad(sets: SetRecord[], exerciseName?: string, userBodyWei
 }
 
 function daysBetween(a: string, b: string): number {
-  return Math.abs(
-    (new Date(a).getTime() - new Date(b).getTime()) / (1000 * 60 * 60 * 24)
-  );
+  // Parse as noon to avoid timezone-induced off-by-one errors with midnight
+  const da = new Date(a.length <= 10 ? a + 'T12:00:00' : a);
+  const db = new Date(b.length <= 10 ? b + 'T12:00:00' : b);
+  return Math.abs((da.getTime() - db.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 // ─── Feature Computations ───────────────────────────────────────────────────
@@ -922,11 +922,16 @@ function computePerformanceDeltas(
 
       if (history.length >= 3) {
         const recentHistory = history.slice(-8);
-        expected = mean(recentHistory) * (1 + linearRegressionSlope(recentHistory) * 0.01);
-        if (expected <= 0) expected = mean(recentHistory);
+        const histMean = mean(recentHistory);
+        const slope = linearRegressionSlope(recentHistory);
+        // Normalize slope relative to mean to prevent blow-up with large volume loads
+        const normSlope = histMean > 0 ? slope / histMean : 0;
+        // Cap expected to ±20% of mean to prevent wild extrapolation
+        expected = histMean * (1 + Math.max(-0.2, Math.min(0.2, normSlope)));
+        if (expected <= 0) expected = histMean > 0 ? histMean : volumeLoad;
       }
 
-      const delta = history.length >= 3 ? (volumeLoad - expected) / expected : 0;
+      const delta = (history.length >= 3 && expected > 0) ? (volumeLoad - expected) / expected : 0;
 
       const firstSetTime = ex.workout_sets[0]?.logged_at;
       const elapsedMin = firstSetTime
@@ -1223,9 +1228,12 @@ function computeDeloadRecommendation(
     signals.push(`${regressing.length} exercises regressing simultaneously`);
   }
 
-  // Use 21-day window and require steeper trends to avoid false positives
-  const recent21 = health.slice(-21);
-  if (recent21.length >= 14) {
+  // Use 21-day DATE window (not record count) to avoid sparse data spanning months
+  const cutoff21 = new Date();
+  cutoff21.setDate(cutoff21.getDate() - 21);
+  const cutoff21Str = cutoff21.toISOString().split('T')[0];
+  const recent21 = health.filter(h => h.date >= cutoff21Str);
+  if (recent21.length >= 10) {
     const hrvs = recent21.filter(h => h.hrv != null).map(h => h.hrv!);
     if (hrvs.length >= 10) {
       const hrvSlope = linearRegressionSlope(hrvs);
@@ -1307,9 +1315,11 @@ function computePlateauDetections(
 
     const recent = sessions.slice(-6);
     const values = recent.map(s => s.best1RM);
-    const slope = linearRegressionSlope(values);
+    // Use date-aware slope for unevenly spaced sessions
+    const slopePerDay = dateAwareSlopePerDay(recent.map(s => ({ date: s.date, value: s.best1RM })));
+    const slopePerWeek = slopePerDay * 7;
     const avg = mean(values);
-    const normalizedSlope = avg > 0 ? slope / avg : 0;
+    const normalizedSlope = avg > 0 ? slopePerWeek / avg : 0;
 
     const isPlateaued = Math.abs(normalizedSlope) < 0.005 && recent.length >= 4;
     const isRegressing = normalizedSlope < -0.01;
@@ -1398,7 +1408,7 @@ function computeIndividualMRV(
     for (const ex of w.workout_exercises) {
       const group = exerciseToGroup.get(ex.exercise_name.toLowerCase());
       if (!group) continue;
-      const sets = ex.workout_sets.length;
+      const sets = filterWorkingSets(ex.workout_sets).length;
       weeklySets[group] = (weeklySets[group] ?? 0) + sets;
 
       const vol = computeVolumeLoad(ex.workout_sets, ex.exercise_name, userBodyWeight);
@@ -1407,9 +1417,11 @@ function computeIndividualMRV(
       const hist = exerciseHistory[key];
       if (hist.length >= 3 && vol > 0) {
         const expected = mean(hist.slice(-5));
-        const delta = (vol - expected) / expected;
-        if (!weeklyDeltas[group]) weeklyDeltas[group] = [];
-        weeklyDeltas[group].push(delta);
+        if (expected > 0) {
+          const delta = (vol - expected) / expected;
+          if (!weeklyDeltas[group]) weeklyDeltas[group] = [];
+          weeklyDeltas[group].push(delta);
+        }
       }
       if (vol > 0) hist.push(vol);
     }
@@ -1627,8 +1639,9 @@ function computeMuscleVolumeStatuses(
     const weekValues = Object.values(weekData);
     const weeksWithData = Math.max(weekValues.length, 1);
     const totalSets = weekValues.reduce((a, b) => a + b, 0);
-    const weeklyDirect = totalSets / Math.min(4, weeksWithData);
-    const weeklyIndirect = (groupIndirectSets[guide.muscleGroup] ?? 0) / 4;
+    const weekDivisor = Math.min(4, weeksWithData);
+    const weeklyDirect = totalSets / weekDivisor;
+    const weeklyIndirect = (groupIndirectSets[guide.muscleGroup] ?? 0) / weekDivisor;
     const mrv = individualMrv[guide.muscleGroup] ?? guide.mrv;
 
     let status: MuscleVolumeStatus['status'];
@@ -2831,11 +2844,25 @@ function computeExercisePreferences(workouts: WorkoutRecord[]): ExercisePreferen
         ? median(recentSetCounts)
         : null;
 
-      // Learned weight: most recent session's median working weight
-      const lastSession = recent[recent.length - 1];
-      const learnedWeight = lastSession && lastSession.weights.length > 0
-        ? median(lastSession.weights)
-        : null;
+      // Learned weight: recency-weighted median of recent sessions (not just the last one,
+      // which is too volatile — a single light day would drop the value)
+      const sessionMedians = recent
+        .filter(s => s.weights.length > 0)
+        .map(s => median(s.weights));
+      let learnedWeight: number | null = null;
+      if (sessionMedians.length >= 3) {
+        // Weighted average: most recent session gets 3x, second-most 2x, rest 1x
+        const n = sessionMedians.length;
+        let wSum = 0, wTotal = 0;
+        for (let si = 0; si < n; si++) {
+          const recencyWeight = si === n - 1 ? 3 : si === n - 2 ? 2 : 1;
+          wSum += sessionMedians[si] * recencyWeight;
+          wTotal += recencyWeight;
+        }
+        learnedWeight = wSum / wTotal;
+      } else if (sessionMedians.length > 0) {
+        learnedWeight = sessionMedians[sessionMedians.length - 1];
+      }
 
       // Learned increment: median of non-zero weight changes between consecutive sessions
       const increments: number[] = [];
@@ -4855,14 +4882,14 @@ function computeFitnessFatigueModel(workouts: WorkoutRecord[]) {
     const daysAgo = daysBetween(w.date, todayStr);
     if (daysAgo < 0) continue;
 
-    // Training impulse: duration × perceived effort
-    // When effort is unknown, estimate conservatively from exercise count + duration
+    // Training impulse (TRIMP-like): duration_hours × effort (1-10 scale)
+    // Typical values: 1hr × RPE 6 = 6.0, 1.5hr × RPE 7 = 10.5
     const durationMin = w.duration ?? 0;
-    const duration = durationMin > 0 ? durationMin / 60 : 0.5;
+    const durationHours = durationMin > 0 ? durationMin / 60 : 0.5;
     const totalSets = w.workout_exercises.reduce((s, e) => s + (e.workout_sets?.length || 0), 0);
     const estimatedEffort = durationMin > 60 ? 5 : durationMin > 30 ? 4 : totalSets > 15 ? 5 : 3;
     const effort = (w as any).perceived_effort ?? (w as any).session_rpe ?? estimatedEffort;
-    const impulse = duration * effort / 60;
+    const impulse = durationHours * effort;
 
     fitness += impulse * Math.exp(-daysAgo / FITNESS_TAU);
     fatigue += impulse * Math.exp(-daysAgo / FATIGUE_TAU);

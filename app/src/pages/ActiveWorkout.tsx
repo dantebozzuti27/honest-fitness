@@ -633,7 +633,7 @@ export default function ActiveWorkout() {
                 try {
                   localStorage.removeItem(`pausedWorkout_${userId}`)
                   localStorage.removeItem('pausedWorkout')
-                } catch {}
+                } catch (err) { logError('Failed to remove paused workout from localStorage', err) }
                 hasResumedPaused = true
               } else {
                 // User chose not to resume, delete paused workout
@@ -641,7 +641,7 @@ export default function ActiveWorkout() {
                 try {
                   localStorage.removeItem(`pausedWorkout_${userId}`)
                   localStorage.removeItem('pausedWorkout')
-                } catch {}
+                } catch (err) { logError('Failed to remove paused workout from localStorage', err) }
               }
             }
           } catch (error: any) {
@@ -775,22 +775,44 @@ export default function ActiveWorkout() {
         
         setExercises(randomExercises)
       } else if (aiWorkout) {
-        // Load AI-generated workout
-        const workoutExercises = aiWorkout.exercises.map((ex: any, idx: number) => ({
-          id: idx,
-          name: ex.name,
-          category: 'Strength',
-          bodyPart: ex.bodyPart || 'Other',
-          equipment: '',
-          sets: Array(ex.sets || 3).fill(null).map(() => ({ 
-            weight: '', 
-            reps: ex.reps?.toString() || '', 
-            time: '', 
-            speed: '', 
-            incline: '' 
-          })),
-          expanded: idx === 0
-        }))
+        // Load AI-generated workout — preserve category, _prescription, and cardio-specific fields
+        const workoutExercises = aiWorkout.exercises.map((ex: any, idx: number) => {
+          const isCardio = (ex.category || '').toString().toLowerCase() === 'cardio'
+          const rawSets = Array.isArray(ex.sets) ? ex.sets : []
+          const setsCount = rawSets.length > 0 ? rawSets.length : (ex.sets || 3)
+          const sets = rawSets.length > 0
+            ? rawSets.map((s: any) => ({
+                weight: s.target_weight != null ? String(s.target_weight) : (s.weight ?? ''),
+                reps: s.target_reps != null ? String(s.target_reps) : (s.reps ?? ''),
+                time: s.time != null ? String(s.time) : '',
+                time_seconds: s.time_seconds != null ? String(s.time_seconds) : (isCardio && s.time ? String(s.time) : ''),
+                speed: s.speed != null ? String(s.speed) : '',
+                incline: s.incline != null ? String(s.incline) : '',
+                _target_weight: s.target_weight,
+                _target_reps: s.target_reps,
+                _tempo: s.tempo,
+                _is_bodyweight: s._is_bodyweight,
+              }))
+            : Array(setsCount).fill(null).map(() => ({
+                weight: '',
+                reps: ex.reps?.toString() || '',
+                time: ex.time != null ? String(ex.time) : '',
+                time_seconds: ex.time_seconds != null ? String(ex.time_seconds) : '',
+                speed: ex.speed != null ? String(ex.speed) : '',
+                incline: ex.incline != null ? String(ex.incline) : '',
+              }))
+          return {
+            id: idx,
+            name: ex.name,
+            category: ex.category || 'Strength',
+            bodyPart: ex.bodyPart || 'Other',
+            equipment: ex.equipment ?? '',
+            exercise_library_id: ex.exercise_library_id ?? ex.exerciseLibraryId ?? null,
+            _prescription: ex._prescription ?? null,
+            sets,
+            expanded: idx === 0,
+          }
+        })
         setExercises(workoutExercises)
       }
       }
@@ -819,7 +841,7 @@ export default function ActiveWorkout() {
             try {
               await deleteActiveWorkoutSession(userId)
               localStorage.removeItem(`activeWorkout_${userId}`)
-            } catch (_) {}
+            } catch (err) { logError('Failed to delete stale workout session', err) }
             // Fall through to create a fresh workout
           } else if (hasExercises && !isRecent) {
             const startTimeLabel = new Date(session.workout_start_time).toLocaleString()
@@ -835,7 +857,7 @@ export default function ActiveWorkout() {
               try {
                 await deleteActiveWorkoutSession(userId)
                 localStorage.removeItem(`activeWorkout_${userId}`)
-              } catch (_) {}
+              } catch (err) { logError('Failed to delete workout session when starting fresh', err) }
             } else {
               workoutStartTimeRef.current = new Date(session.workout_start_time).getTime()
               const pausedMs = session.paused_time_ms || 0
@@ -1064,7 +1086,7 @@ export default function ActiveWorkout() {
           
           try {
             localStorage.setItem(`workoutStartMetrics_${userId}`, JSON.stringify(startMetrics))
-          } catch (_) {}
+          } catch (err) { logError('Failed to store workout start metrics in localStorage', err) }
           
           // Check for pre-populated exercises from the workout generator
           try {
@@ -1101,11 +1123,11 @@ export default function ActiveWorkout() {
                 generatedWorkoutIdRef.current = generated.generated_workout_id || null
                 generatedWorkoutNameRef.current = generated.templateName || null
                 if (generated.templateName && generatedWorkoutNamePersistKey) {
-                  try { localStorage.setItem(generatedWorkoutNamePersistKey, generated.templateName) } catch {}
+                  try { localStorage.setItem(generatedWorkoutNamePersistKey, generated.templateName) } catch (err) { logError('Failed to persist generated workout name to localStorage', err) }
                 }
               }
             }
-          } catch (_) {}
+          } catch (err) { logError('Failed to load generated workout from sessionStorage', err) }
           
           // Don't persist an empty session to the DB — the auto-save will
           // create the DB record once the first exercise is added.
@@ -1419,7 +1441,7 @@ export default function ActiveWorkout() {
       // If workout was never finished and has no exercises, clean up the empty session
       if (!hasFinishedRef.current && userId && exercisesRef.current.length === 0) {
         deleteActiveWorkoutSession(userId).catch(() => {})
-        try { localStorage.removeItem(`activeWorkout_${userId}`) } catch (_) {}
+        try { localStorage.removeItem(`activeWorkout_${userId}`) } catch (err) { logError('Failed to remove active workout from localStorage on cleanup', err) }
       }
     }
   }, [templateId, randomWorkout, aiWorkout, userId])
@@ -1499,7 +1521,7 @@ export default function ActiveWorkout() {
     setIsResting(true)
 
     // Tiny “rest started” feedback loop: one light tap + subtle toast.
-    try { showToast(`Rest started · ${duration}s`, 'info', 1400) } catch {}
+    try { showToast(`Rest started · ${duration}s`, 'info', 1400) } catch (err) { logError('Failed to show rest started toast', err) }
     
     // Save to database
     try {
@@ -1527,7 +1549,7 @@ export default function ActiveWorkout() {
           setIsResting(false)
           setShowTimesUp(true)
           // Stronger “rest finished” cue.
-          try { showToast('Rest finished', 'success', 1400) } catch {}
+          try { showToast('Rest finished', 'success', 1400) } catch (err) { logError('Failed to show rest finished toast', err) }
           const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
           timeoutRefs.current.push(timeoutId)
           // Clear rest timer from database
@@ -1552,7 +1574,7 @@ export default function ActiveWorkout() {
     setIsResting(false)
     setRestTime(0)
 
-    try { showToast('Rest skipped', 'info', 1200) } catch {}
+    try { showToast('Rest skipped', 'info', 1200) } catch (err) { logError('Failed to show rest skipped toast', err) }
     
     // Clear rest timer from database
     try {
@@ -1572,11 +1594,11 @@ export default function ActiveWorkout() {
 
   // Persist prefs (used by ExerciseCard for auto-advance/auto-next)
   useEffect(() => {
-    try { localStorage.setItem('workout_auto_advance', prefAutoAdvance ? '1' : '0') } catch {}
+    try { localStorage.setItem('workout_auto_advance', prefAutoAdvance ? '1' : '0') } catch (err) { logError('Failed to persist auto-advance preference to localStorage', err) }
   }, [prefAutoAdvance])
 
   useEffect(() => {
-    try { localStorage.setItem('workout_auto_next', prefAutoNext ? '1' : '0') } catch {}
+    try { localStorage.setItem('workout_auto_next', prefAutoNext ? '1' : '0') } catch (err) { logError('Failed to persist auto-next preference to localStorage', err) }
   }, [prefAutoNext])
 
   // Lightweight sync pill (trust-grade)
@@ -1901,7 +1923,7 @@ export default function ActiveWorkout() {
       try {
         localStorage.removeItem(`pausedWorkout_${userId}`)
         localStorage.removeItem('pausedWorkout')
-      } catch {}
+      } catch (err) { logError('Failed to remove paused workout from localStorage on finish', err) }
     }
 
     // Clear localStorage backup
@@ -2121,7 +2143,7 @@ export default function ActiveWorkout() {
       restDurationRef.current = 0
       lastSavedExercisesRef.current = null
       if (generatedWorkoutNamePersistKey) {
-        try { localStorage.removeItem(generatedWorkoutNamePersistKey) } catch {}
+        try { localStorage.removeItem(generatedWorkoutNamePersistKey) } catch (err) { logError('Failed to remove generated workout name from localStorage on save', err) }
       }
 
       const dest = navigateTo || '/fitness'
@@ -2463,7 +2485,7 @@ export default function ActiveWorkout() {
                   workoutStartMetricsRef.current = null
                   pausedMetricsRef.current = []
                   if (generatedWorkoutNamePersistKey) {
-                    try { localStorage.removeItem(generatedWorkoutNamePersistKey) } catch {}
+                    try { localStorage.removeItem(generatedWorkoutNamePersistKey) } catch (err) { logError('Failed to remove generated workout name from localStorage on clear', err) }
                   }
                   
                   // Clear from database and localStorage

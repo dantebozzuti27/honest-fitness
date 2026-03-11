@@ -98,7 +98,7 @@ export default function TodayWorkout() {
       }
       forceGenerateRef.current = false
 
-      if (tp.trainingAgeDays < 7) {
+      if (tp.trainingAgeDays < 3) {
         setViewState('empty')
         return
       }
@@ -198,7 +198,7 @@ export default function TodayWorkout() {
           user_id: user.id,
           exercise_name: exerciseName.toLowerCase(),
         })
-      } catch { /* non-fatal */ }
+      } catch (err) { logError('Failed to save exercise swap', err) }
     }
 
     setRegenerating(true)
@@ -433,7 +433,7 @@ export default function TodayWorkout() {
                   >
                     <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
                     <div className={styles.weekDayFocus}>
-                      {isRest ? 'Rest' : day.focus || 'Workout'}
+                      {isRest ? 'Rest' : (day.focus || (day.muscleGroups.length > 0 ? day.muscleGroups.slice(0, 2).map(g => g.replace(/_/g, ' ')).join(', ') : 'Full Body'))}
                     </div>
                   </div>
                 )
@@ -530,7 +530,7 @@ export default function TodayWorkout() {
                   >
                     <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
                     <div className={styles.weekDayFocus}>
-                      {isRest ? 'Rest' : day.focus || 'Workout'}
+                      {isRest ? 'Rest' : (day.focus || (day.muscleGroups.length > 0 ? day.muscleGroups.slice(0, 2).map(g => g.replace(/_/g, ' ')).join(', ') : 'Full Body'))}
                     </div>
                     {!isRest && day.muscleGroups.length > 0 && (
                       <div className={styles.weekDayMeta} title={day.muscleGroups.map(g => g.replace(/_/g, ' ')).join(', ')}>

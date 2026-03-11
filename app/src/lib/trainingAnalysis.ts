@@ -1026,7 +1026,8 @@ function computeDeloadRecommendation(
 
   // Only count strength exercises regressing — cardio fluctuations are normal
   const regressing = exerciseProgressions.filter(e => e.status === 'regressing');
-  if (regressing.length >= 5) {
+  const regressingThreshold = DEFAULT_MODEL_CONFIG.deloadRegressingExerciseThreshold;
+  if (regressing.length >= regressingThreshold) {
     signals.push(`${regressing.length} exercises regressing simultaneously`);
   }
 
@@ -1062,7 +1063,7 @@ function computeDeloadRecommendation(
   }
 
   return {
-    needed: signals.length >= 3,
+    needed: signals.length >= DEFAULT_MODEL_CONFIG.deloadSignalCountThreshold,
     signals,
     suggestedDurationDays: 7,
     suggestedVolumeMultiplier: 0.5,

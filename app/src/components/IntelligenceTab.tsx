@@ -614,6 +614,77 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
             </div>
           )}
 
+          {/* Steps-Performance Correlation */}
+          {tp.stepsPerformanceCorrelation != null && tp.stepsPerformanceCorrelation.dataPoints >= 3 && (
+            <div className={s.cardCompact}>
+              <div className={s.sectionLabel}>Steps-Performance Correlation</div>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
+                Steps-performance: {tp.stepsPerformanceCorrelation.coefficient.toFixed(2)} —{' '}
+                {tp.stepsPerformanceCorrelation.coefficient < -0.15
+                  ? 'High step days may reduce strength'
+                  : tp.stepsPerformanceCorrelation.coefficient > 0.15
+                    ? 'Active days boost your performance'
+                    : 'No significant step-performance link detected'}
+              </p>
+            </div>
+          )}
+
+          {/* Exercise Ordering Interference */}
+          {tp.exerciseOrderingEffects && tp.exerciseOrderingEffects.filter(e => e.interference < -0.08 && e.dataPoints >= 5).length > 0 && (
+            <div className={s.cardCompact}>
+              <div className={s.sectionLabel}>Exercise Ordering Interference</div>
+              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
+                When Exercise A is done before Exercise B, B's performance is affected.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {tp.exerciseOrderingEffects
+                  .filter(e => e.interference < -0.08 && e.dataPoints >= 5)
+                  .map((e, i) => (
+                    <div key={i} className={s.profileItemWatch}>
+                      <div className={s.profileItemTitle}>
+                        {e.precedingExercise} → {e.affectedExercise}: {(e.interference * 100).toFixed(1)}% impact
+                      </div>
+                      <div className={s.profileItemData}>{e.dataPoints} data points</div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Session Fatigue Effects */}
+          {tp.sessionFatigueEffects && (() => {
+            const buckets = tp.sessionFatigueEffects.filter(e => e.dataPoints >= 5)
+            const show60 = buckets.find(b => b.positionBucket === '60-90min')
+            const show90 = buckets.find(b => b.positionBucket === '90+min')
+            if (!show60 && !show90) return null
+            return (
+              <div className={s.cardCompact}>
+                <div className={s.sectionLabel}>Session Fatigue Effects</div>
+                <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
+                  Performance delta vs baseline by elapsed session time.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {show60 && (
+                    <div style={{ fontSize: 12 }}>
+                      Performance at 60–90min:{' '}
+                      <span style={{ color: show60.avgDelta >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                        {show60.avgDelta >= 0 ? '+' : ''}{(show60.avgDelta * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                  {show90 && (
+                    <div style={{ fontSize: 12 }}>
+                      Performance at 90+min:{' '}
+                      <span style={{ color: show90.avgDelta >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                        {show90.avgDelta >= 0 ? '+' : ''}{(show90.avgDelta * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* Exercise Swap Learning */}
           {tp.exerciseSwapHistory && tp.exerciseSwapHistory.length > 0 && (
             <div className={s.cardCompact}>

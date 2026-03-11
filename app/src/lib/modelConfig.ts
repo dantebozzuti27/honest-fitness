@@ -147,6 +147,18 @@ export interface ModelConfig {
   beginnerProgressionRate: number;
   /** Progression rate for advanced (slower, smaller increments) */
   advancedProgressionRate: number;
+
+  // ── Defaults & Fallbacks ────────────────────────────────────────────
+  defaultSessionDurationMinutes: number;
+  defaultBodyWeightLbs: number;
+  minTrainingAgeDays: number;
+  maxCardioPctDefault: number;
+  maxCardioPctFatLoss: number;
+  maxCardioPerExerciseMinutes: number;
+
+  // ── Deload Trigger Thresholds ───────────────────────────────────────
+  deloadRegressingExerciseThreshold: number;
+  deloadSignalCountThreshold: number;
 }
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
@@ -231,4 +243,16 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   advancedVolumeMultiplier: 1.15,
   beginnerProgressionRate: 1.5,
   advancedProgressionRate: 0.7,
+
+  // Defaults & fallbacks
+  defaultSessionDurationMinutes: 60,
+  defaultBodyWeightLbs: 160,
+  minTrainingAgeDays: 3,
+  maxCardioPctDefault: 0.30,
+  maxCardioPctFatLoss: 0.40,
+  maxCardioPerExerciseMinutes: 45,
+
+  // Deload triggers
+  deloadRegressingExerciseThreshold: 5,
+  deloadSignalCountThreshold: 3,
 };

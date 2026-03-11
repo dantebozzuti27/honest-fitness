@@ -38,6 +38,7 @@ export default function Home() {
   const { toast, showToast, hideToast } = useToast()
 
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [streak, setStreak] = useState(0)
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutEntry[]>([])
   const [fitbitData, setFitbitData] = useState<any>(null)
@@ -49,14 +50,27 @@ export default function Home() {
   const loadData = useCallback(async () => {
     if (!user?.id) return
     setLoading(true)
+    setLoadError(false)
     try {
       const today = getTodayEST()
       const yesterday = getYesterdayEST()
 
       const [streakVal, workouts, todayMetrics] = await Promise.all([
-        calculateStreakFromSupabase(user.id).catch(() => 0),
-        getRecentWorkoutsFromSupabase(user.id, 10).catch(() => []),
-        getMetricsFromSupabase(user.id, yesterday, today).catch(() => []),
+        calculateStreakFromSupabase(user.id).catch((e) => {
+          setLoadError(true)
+          logError('Failed to load streak', e)
+          return 0
+        }),
+        getRecentWorkoutsFromSupabase(user.id, 10).catch((e) => {
+          setLoadError(true)
+          logError('Failed to load workouts', e)
+          return []
+        }),
+        getMetricsFromSupabase(user.id, yesterday, today).catch((e) => {
+          setLoadError(true)
+          logError('Failed to load metrics', e)
+          return []
+        }),
       ])
 
       setStreak(streakVal as number)
@@ -160,6 +174,11 @@ export default function Home() {
         </div>
 
         <div className={styles.content}>
+          {loadError && (
+            <div style={{ color: 'var(--danger)', padding: 8, fontSize: 13, textAlign: 'center' }}>
+              Some data failed to load. Pull down to retry.
+            </div>
+          )}
           {/* Hero CTA */}
           <div className={styles.todayHero}>
             <Button unstyled className={styles.heroPrimary} onClick={() => navigate('/today')}>

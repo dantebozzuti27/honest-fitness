@@ -18,6 +18,14 @@ const LOG_LEVELS = {
 
 const currentLogLevel = isDevelopment ? LOG_LEVELS.DEBUG : LOG_LEVELS.ERROR
 
+/** In-memory error log (max 50 entries) for inspection from console or debug screen */
+const MAX_REPORTED_ERRORS = 50
+const reportedErrors: Array<{ timestamp: string; message: string; stack?: string }> = []
+
+export function getRecentErrors() {
+  return [...reportedErrors]
+}
+
 /**
  * Log error messages
  */
@@ -25,9 +33,10 @@ export function logError(message: string, error: unknown = null) {
   if (currentLogLevel >= LOG_LEVELS.ERROR) {
     console.error(`[ERROR] ${message}`, error || '')
   }
-  // In production, you might want to send to error tracking service
-  if (!isDevelopment && error) {
-    // TODO: Send to error tracking service (e.g., Sentry)
+  const stack = error instanceof Error ? error.stack : undefined
+  reportedErrors.push({ timestamp: new Date().toISOString(), message, stack })
+  if (reportedErrors.length > MAX_REPORTED_ERRORS) {
+    reportedErrors.shift()
   }
 }
 

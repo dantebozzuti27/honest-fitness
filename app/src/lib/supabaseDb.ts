@@ -11,9 +11,9 @@ const supabase: any = supabaseClient ?? new Proxy({}, { get: () => { throw new E
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
 
-// Simple TTL cache for frequent Supabase reads
+// Simple TTL cache for frequent Supabase reads (shorter TTL for fresher active data)
 const readCache = new Map<string, { data: any; ts: number }>()
-const CACHE_TTL_MS = 60_000
+const CACHE_TTL_MS = 30_000
 
 function getCached<T>(key: string): T | undefined {
   const entry = readCache.get(key)
@@ -24,6 +24,11 @@ function getCached<T>(key: string): T | undefined {
 
 function setCache(key: string, data: any) {
   readCache.set(key, { data, ts: Date.now() })
+}
+
+/** Clears the Supabase read cache. Call after writes (e.g. saveWorkout) for immediate consistency. */
+export function invalidateSupabaseCache() {
+  readCache.clear()
 }
 
 let pausedWorkoutsDisabled = false
@@ -57,7 +62,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       // Continue without validation if function is not available
     }
   } catch (validationError) {
-    logError('Error importing or calling validateWorkout', validationError)
+    logError('Validation module unavailable, saving raw data', validationError)
     // Continue without validation if import fails
   }
   
@@ -73,7 +78,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       // Use original workout if cleaning function is not available
     }
   } catch (cleaningError) {
-    logError('Error importing or calling cleanWorkoutData', cleaningError)
+    logError('Validation module unavailable, saving raw data', cleaningError)
     // Use original workout if import fails
   }
   
@@ -119,12 +124,17 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   // - Otherwise generate one (and use it for this write).
   const workoutId = isUuidV4(workoutToSave?.id) ? workoutToSave.id : uuidv4()
 
+  // #13: Mark AI-generated workouts via template_name when generated_workout_id is present
+  const templateName = workoutToSave.generatedWorkoutId
+    ? `${workoutToSave.templateName || 'Generated'} (AI)`
+    : workoutToSave.templateName || null
+
   const upsertPayload: Record<string, any> = {
     id: workoutId,
     user_id: userId,
     date: workoutToSave.date,
     duration: workoutToSave.duration,
-    template_name: workoutToSave.templateName || null,
+    template_name: templateName,
     perceived_effort: workoutToSave.perceivedEffort || null,
     session_rpe: workoutToSave.perceivedEffort || null,
     training_density: workoutToSave.trainingDensity != null ? Number(workoutToSave.trainingDensity) : null,

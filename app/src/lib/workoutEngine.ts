@@ -182,7 +182,7 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     training_goal: data?.training_goal ?? 'hypertrophy',
     primary_goal: data?.primary_goal ?? null,
     secondary_goal: data?.secondary_goal ?? null,
-    session_duration_minutes: data?.session_duration_minutes ?? 75,
+    session_duration_minutes: data?.session_duration_minutes ?? DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes,
     equipment_access: data?.equipment_access ?? 'full_gym',
     available_days_per_week: data?.available_days_per_week ?? 5,
     injuries: Array.isArray(rawInjuries) ? rawInjuries : [],
@@ -507,7 +507,7 @@ function generateWarmupRamp(
   const { warmupHistory, bodyWeightLbs, equipment, exerciseType, role } = opts ?? {};
 
   // Relative intensity: how heavy is this working weight for this person?
-  const bw = bodyWeightLbs ?? 160;
+  const bw = bodyWeightLbs ?? DEFAULT_MODEL_CONFIG.defaultBodyWeightLbs;
   const relativeIntensity = workingWeight / bw;
 
   // Don't generate warmups for very light work (< 30% BW) — the exercise itself is warmup-weight
@@ -1180,6 +1180,18 @@ function stepSelectExercises(
         }
       }
 
+      // #9: Plateau strategies — penalize plateaued exercises with swap_variation so engine prefers alternatives
+      const plateau = profile.plateauDetections?.find(
+        p => p.exerciseName === ex.name.toLowerCase() && p.isPlateaued
+      );
+      if (plateau?.suggestedStrategy) {
+        const strat = plateau.suggestedStrategy.toLowerCase();
+        if (strat.includes('swap') || strat.includes('variation')) {
+          score -= 3;
+          factors.push(`Plateaued — swap/variation suggested (-3)`);
+        }
+      }
+
       return { exercise: ex, score, factors };
     });
 
@@ -1397,7 +1409,15 @@ function stepPrescribe(
       const cardio = profile.cardioHistory.find(c => c.exerciseName === sel.exercise.name.toLowerCase());
       const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
 
-      const baseDuration = cardio?.avgDurationSeconds ?? 1800;
+      // #1: Goal-based cardio duration fallback instead of hardcoded 30 min
+      const goalCardioDefaults: Record<string, number> = {
+        fat_loss: 25 * 60, strength: 15 * 60, hypertrophy: 20 * 60,
+        endurance: 30 * 60, general_fitness: 20 * 60,
+      };
+      const prefDuration = prefs.cardio_duration_minutes ? prefs.cardio_duration_minutes * 60 : null;
+      const baseDuration = cardio?.avgDurationSeconds
+        ?? prefDuration
+        ?? goalCardioDefaults[goal] ?? 20 * 60;
       const baseSpeed = cardio?.avgSpeed ?? null;
       const baseIncline = cardio?.avgIncline ?? null;
       let duration = baseDuration;
@@ -1759,7 +1779,7 @@ function stepPrescribe(
 
     // Warmup ramp: any exercise with meaningful weight relative to the user's body weight
     const isCompound = sel.exercise.ml_exercise_type === 'compound';
-    const bw = prefs.body_weight_lbs ?? 160;
+    const bw = prefs.body_weight_lbs ?? cfg.defaultBodyWeightLbs;
     const relativeLoad = targetWeight != null ? targetWeight / bw : 0;
     const needsWarmup = targetWeight != null && targetWeight > 0 && (
       role === 'primary'
@@ -1880,7 +1900,12 @@ function stepApplyConstraints(
   exercises: GeneratedExercise[],
   prefs: UserPreferences,
   profile: TrainingProfile,
-  cfg: ModelConfig
+  cfg: ModelConfig,
+  allExercises: EnrichedExercise[] = [],
+  existingSelections: ExerciseSelection[] = [],
+  recoveryAdj?: RecoveryAdjustment,
+  progressionScale: number = 1.0,
+  breakRampMultiplier: number = 1.0
 ): GeneratedExercise[] {
   const cardio = exercises.filter(e => e.isCardio);
   const strength = exercises.filter(e => !e.isCardio);
@@ -1995,31 +2020,58 @@ function stepApplyConstraints(
   };
 
   // ── Cardio time enforcement ───────────────────────────────────────────
-  // Strength gets priority. Cardio must fit in whatever remains.
+  // Cardio has HARD CAPS:
+  //   1. Per-exercise cap: max of user's historical average * 1.3, prefs, or 45 min
+  //   2. Total cardio cap: percentage of session based on goal (never more than 40%)
+  // Strength always gets at least 60% of the session.
+  const goal = getEffectiveGoal(prefs);
+  const maxCardioPct = goal === 'fat_loss' ? cfg.maxCardioPctFatLoss
+    : goal === 'endurance' ? cfg.maxCardioPctDefault * 1.15
+    : goal === 'strength' ? cfg.maxCardioPctDefault * 0.65
+    : cfg.maxCardioPctDefault;
+  const maxTotalCardioMin = Math.round(effectiveBudget * maxCardioPct);
+
   let totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
-  const strengthFloor = Math.min(totalStrengthMin, cfg.minStrengthBudgetMinutes);
-  const maxCardioMinutes = Math.max(0, effectiveBudget - strengthFloor);
-  let totalCardioMin = cardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   const keptCardio: GeneratedExercise[] = [];
 
-  if (totalCardioMin > maxCardioMinutes && maxCardioMinutes >= 10) {
-    const scale = maxCardioMinutes / totalCardioMin;
-    const minCardioSeconds = 10 * 60;
-    for (const ex of cardio) {
-      const originalSec = ex.cardioDurationSeconds ?? ex.estimatedMinutes * 60;
-      const scaledSec = Math.round(originalSec * scale);
-      if (scaledSec >= minCardioSeconds) {
+  for (const ex of cardio) {
+    // Per-exercise cap: use user's pref or historical average, with a hard ceiling
+    const cardioHist = profile.cardioHistory.find(c => c.exerciseName === ex.exerciseName.toLowerCase());
+    const prefCardioDur = prefs.cardio_duration_minutes;
+    const histAvgMin = cardioHist ? Math.round(cardioHist.avgDurationSeconds / 60) : null;
+    const perExerciseCap = Math.min(
+      prefCardioDur ?? histAvgMin ?? 30,
+      histAvgMin != null ? Math.round(histAvgMin * 1.3) : 45,
+      cfg.maxCardioPerExerciseMinutes
+    ) * 60; // convert to seconds
+
+    const originalSec = ex.cardioDurationSeconds ?? 1800;
+    if (originalSec > perExerciseCap) {
+      ex.cardioDurationSeconds = perExerciseCap;
+      ex.adjustments.push(`Duration capped: ${Math.round(originalSec / 60)} → ${Math.round(perExerciseCap / 60)} min (per-exercise limit)`);
+      recalcTime(ex);
+    }
+    keptCardio.push(ex);
+  }
+
+  // Enforce total cardio cap
+  let totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+  if (totalCardioMin > maxTotalCardioMin) {
+    const scale = maxTotalCardioMin / totalCardioMin;
+    const filtered: GeneratedExercise[] = [];
+    for (const ex of keptCardio) {
+      const scaledSec = Math.round((ex.cardioDurationSeconds ?? 1800) * scale);
+      if (scaledSec >= 8 * 60) {
         ex.cardioDurationSeconds = scaledSec;
-        ex.adjustments.push(`Duration capped to ${Math.round(scaledSec / 60)} min (session budget: ${effectiveBudget} min)`);
+        ex.adjustments.push(`Duration scaled to ${Math.round(scaledSec / 60)} min (${Math.round(maxCardioPct * 100)}% cardio budget)`);
         recalcTime(ex);
-        keptCardio.push(ex);
+        filtered.push(ex);
       }
     }
-  } else if (totalCardioMin > maxCardioMinutes) {
-    // No room for cardio
-  } else {
-    keptCardio.push(...cardio);
+    keptCardio.length = 0;
+    keptCardio.push(...filtered);
   }
+  totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
 
   // ── Strength time enforcement (3-phase) ───────────────────────────────
   // Budget remaining after cardio
@@ -2084,27 +2136,25 @@ function stepApplyConstraints(
     ordered.push(...trimmed);
   }
 
-  // ── Time expansion: fill remaining budget with additional sets ────────
-  // Max sets cap is derived from the user's actual history for each exercise,
-  // not an arbitrary fixed number. Falls back to goal-aware defaults.
+  // ── Time expansion (3-phase): fill remaining budget ──────────────────
+  // Phase A: Add sets to existing exercises
+  // Phase B: Add NEW exercises from the pool to fill large gaps
+  // Phase C: Final set expansion if still time left
   totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   let remainingMinutes = effectiveBudget - totalStrengthMin - totalCardioMin;
 
   const timePerSet = (ex: GeneratedExercise) => ex.estimatedMinutes / Math.max(ex.sets, 1);
+  const getMaxSets = (ex: GeneratedExercise): number => {
+    const pref = profile.exercisePreferences.find(p => p.exerciseName === ex.exerciseName.toLowerCase());
+    if (pref && pref.learnedSets != null && pref.recentSessions >= 2) {
+      return Math.min(Math.round(pref.learnedSets) + 1, 8);
+    }
+    return ex.exerciseRole === 'primary' ? 6 : ex.exerciseRole === 'secondary' ? 5 : 4;
+  };
 
+  // Phase A: Add sets to existing high-impact exercises
   if (remainingMinutes >= 5 && ordered.length > 0) {
-    const getMaxSets = (ex: GeneratedExercise): number => {
-      // If the user has history, allow up to their historical max + 1
-      const pref = profile.exercisePreferences.find(p => p.exerciseName === ex.exerciseName.toLowerCase());
-      if (pref && pref.learnedSets != null && pref.recentSessions >= 2) {
-        return Math.min(Math.round(pref.learnedSets) + 1, 8);
-      }
-      // No history: use a sensible ceiling based on role
-      return ex.exerciseRole === 'primary' ? 6 : ex.exerciseRole === 'secondary' ? 5 : 4;
-    };
-
-    // Phase 1: Add sets to highest-impact compound exercises
     const expansionOrder = [...ordered]
       .filter(e => e.exerciseRole === 'primary' || e.exerciseRole === 'secondary')
       .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
@@ -2113,11 +2163,7 @@ function stepApplyConstraints(
       if (remainingMinutes < timePerSet(ex)) break;
       const maxSets = getMaxSets(ex);
       if (ex.sets >= maxSets) continue;
-
-      const addSets = Math.min(
-        maxSets - ex.sets,
-        Math.floor(remainingMinutes / timePerSet(ex))
-      );
+      const addSets = Math.min(maxSets - ex.sets, Math.floor(remainingMinutes / timePerSet(ex)));
       if (addSets >= 1) {
         const oldSets = ex.sets;
         ex.sets += addSets;
@@ -2127,24 +2173,133 @@ function stepApplyConstraints(
         ex.adjustments.push(`Sets expanded: ${oldSets} → ${ex.sets} (filling ${prefs.session_duration_minutes} min budget)`);
       }
     }
+  }
 
-    // Phase 2: Add sets to isolation exercises with remaining time
-    if (remainingMinutes >= 3) {
-      const isolationExpansion = ordered
-        .filter(e => e.exerciseRole === 'isolation')
-        .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
+  // Phase B: Add entirely NEW exercises when significant time remains (>= 8 min)
+  // This prevents a 120-min session from having 3 lifts + 90 min cardio
+  if (remainingMinutes >= 8 && allExercises.length > 0) {
+    const usedNames = new Set([
+      ...ordered.map(e => e.exerciseName.toLowerCase()),
+      ...keptCardio.map(e => e.exerciseName.toLowerCase()),
+    ]);
+    const avoidSet = new Set(prefs.exercises_to_avoid.map(e => e.toLowerCase()));
 
-      for (const ex of isolationExpansion) {
-        if (remainingMinutes < timePerSet(ex)) break;
-        const maxSets = getMaxSets(ex);
-        if (ex.sets >= maxSets) continue;
-        const oldSets = ex.sets;
-        ex.sets += 1;
-        const oldMin = ex.estimatedMinutes;
-        recalcTime(ex);
-        remainingMinutes -= (ex.estimatedMinutes - oldMin);
-        ex.adjustments.push(`Extra volume: ${oldSets} → ${ex.sets} sets (filling time budget)`);
+    // Find muscle groups already in the workout to add complementary exercises
+    const existingGroups = new Set(ordered.map(e => e.targetMuscleGroup));
+    const strengthPool = allExercises.filter(ex =>
+      ex.ml_exercise_type !== 'cardio'
+      && ex.ml_exercise_type !== 'recovery'
+      && !usedNames.has(ex.name.toLowerCase())
+      && !avoidSet.has(ex.name.toLowerCase())
+      && !isInjuryConflict(ex, prefs.injuries)
+    );
+
+    // Score candidates: prefer exercises for existing muscle groups (accessory work),
+    // then exercises the user has history with
+    const candidates = strengthPool.map(ex => {
+      const primaryGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+        .map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+      const isForExistingGroup = primaryGroups.some(g => existingGroups.has(g));
+      const pref = profile.exercisePreferences.find(p => p.exerciseName === ex.name.toLowerCase());
+      let score = 0;
+      if (isForExistingGroup) score += 5;
+      if (pref && pref.recentSessions >= 1) score += 3 + Math.min(pref.recencyScore, 3);
+      if (ex.ml_exercise_type === 'compound') score += 2;
+      const muscleGroup = primaryGroups[0] || 'other';
+      return { exercise: ex, score, muscleGroup };
+    });
+
+    candidates.sort((a, b) => b.score - a.score);
+
+    const effectiveGoal = getEffectiveGoal(prefs);
+    const secondaryGoal = prefs.secondary_goal;
+    let addedCount = 0;
+    const maxNewExercises = Math.min(
+      Math.floor(remainingMinutes / 5),
+      6
+    );
+
+    for (const cand of candidates) {
+      if (remainingMinutes < 5 || addedCount >= maxNewExercises) break;
+      const role: ExerciseRole = cand.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
+      const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+      const pref = profile.exercisePreferences.find(p => p.exerciseName === cand.exercise.name.toLowerCase());
+      const reps = pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target;
+      const sets = pref?.learnedSets ? Math.min(Math.round(pref.learnedSets), 4) : (role === 'secondary' ? 3 : 2);
+      const rest = pref?.learnedRestSeconds ?? getRestByExercise(cand.exercise, role, effectiveGoal);
+      const tempo = getTempo(cand.exercise.default_tempo, effectiveGoal, cand.exercise.ml_exercise_type);
+      const equipment = Array.isArray(cand.exercise.equipment) ? cand.exercise.equipment : [];
+      const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
+
+      let targetWeight: number | null = null;
+      const prog = profile.exerciseProgressions.find(p => p.exerciseName === cand.exercise.name.toLowerCase());
+      if (prog) {
+        targetWeight = prog.lastWeight;
+      } else if (pref?.learnedWeight != null) {
+        targetWeight = Math.round(pref.learnedWeight);
       }
+
+      const rir = getRirTarget(role, effectiveGoal, false);
+      const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
+      if (estMin > remainingMinutes) continue;
+
+      const newEx: GeneratedExercise = {
+        exerciseName: cand.exercise.name,
+        exerciseLibraryId: cand.exercise.id,
+        bodyPart: cand.exercise.body_part,
+        primaryMuscles: Array.isArray(cand.exercise.primary_muscles) ? cand.exercise.primary_muscles : [],
+        secondaryMuscles: Array.isArray(cand.exercise.secondary_muscles) ? cand.exercise.secondary_muscles : [],
+        movementPattern: cand.exercise.movement_pattern ?? 'unknown',
+        targetMuscleGroup: cand.muscleGroup,
+        exerciseRole: role,
+        sets,
+        targetReps: reps,
+        targetWeight: isBodyweight ? null : (targetWeight ? Math.round(targetWeight) : null),
+        targetRir: rir,
+        rirLabel: getRirLabel(rir),
+        isBodyweight,
+        tempo,
+        restSeconds: rest,
+        rationale: `Added to fill ${prefs.session_duration_minutes} min session (score: ${cand.score.toFixed(1)})`,
+        adjustments: [`Time expansion: added as extra volume for ${cand.muscleGroup.replace(/_/g, ' ')}`],
+        isDeload: false,
+        isCardio: false,
+        cardioDurationSeconds: null,
+        cardioSpeed: null,
+        cardioIncline: null,
+        cardioSpeedLabel: null,
+        targetHrZone: null,
+        targetHrBpmRange: null,
+        warmupSets: null,
+        supersetGroupId: null,
+        supersetType: null,
+        impactScore: computeImpactScore(cand.exercise, role, effectiveGoal, secondaryGoal),
+        estimatedMinutes: estMin,
+      };
+
+      ordered.push(newEx);
+      usedNames.add(cand.exercise.name.toLowerCase());
+      remainingMinutes -= estMin;
+      addedCount++;
+    }
+  }
+
+  // Phase C: Final set expansion on isolation exercises if still time
+  if (remainingMinutes >= 3) {
+    const isolationExpansion = ordered
+      .filter(e => e.exerciseRole === 'isolation' || e.exerciseRole === 'secondary')
+      .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
+
+    for (const ex of isolationExpansion) {
+      if (remainingMinutes < timePerSet(ex)) break;
+      const maxSets = getMaxSets(ex);
+      if (ex.sets >= maxSets) continue;
+      const oldSets = ex.sets;
+      ex.sets += 1;
+      const oldMin = ex.estimatedMinutes;
+      recalcTime(ex);
+      remainingMinutes -= (ex.estimatedMinutes - oldMin);
+      ex.adjustments.push(`Extra volume: ${oldSets} → ${ex.sets} sets (filling time budget)`);
     }
   }
 
@@ -2634,8 +2789,8 @@ export async function generateWorkout(
   // Step 4: Prescribe sets/reps/weight/tempo
   const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg, expProgressionScale * ageProgressionScale, breakRampMultiplier);
 
-  // Step 5: Apply session constraints
-  const constrained = stepApplyConstraints(prescribed, prefs, profile, cfg);
+  // Step 5: Apply session constraints (pass exercise pool + selections for expansion)
+  const constrained = stepApplyConstraints(prescribed, prefs, profile, cfg, allExercises, exerciseSelections, recoveryAdj, expProgressionScale * ageProgressionScale, breakRampMultiplier);
 
   // Step 6: Generate rationale + decision log
   const workout = stepGenerateRationale(constrained, muscleGroups, recoveryAdj, profile, prefs, skippedGroups, exerciseDecisions);

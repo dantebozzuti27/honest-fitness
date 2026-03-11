@@ -415,8 +415,8 @@ export async function mergeWearableDataToMetrics(userId: string, date: string | 
     sedentary_minutes: toInteger(sd.sedentary_minutes) ?? existingMetrics?.sedentary_minutes ?? null,
     floors: toInteger(sd.floors) ?? existingMetrics?.floors ?? null,
     distance: toNumber(sd.distance) ?? existingMetrics?.distance ?? null,
-    weight: existingMetrics?.weight ?? toNumber(sd.weight) ?? null,
-    body_fat_percentage: existingMetrics?.body_fat_percentage ?? toNumber(sd.fat) ?? null,
+    weight: existingMetrics?.weight ?? null,
+    body_fat_percentage: existingMetrics?.body_fat_percentage ?? null,
     source_provider: fitbitData ? 'fitbit' : existingMetrics?.source_provider ?? 'manual',
     source_data: {
       ...(sd),

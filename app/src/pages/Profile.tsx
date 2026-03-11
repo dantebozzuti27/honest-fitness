@@ -10,6 +10,7 @@ import { deleteUserAccount } from '../lib/accountDeletion'
 import { supabase } from '../lib/supabase'
 import { getTodayEST } from '../utils/dateUtils'
 import { getAllMetricsFromSupabase } from '../lib/db/metricsDb'
+import { saveMetricsToSupabase } from '../lib/supabaseDb'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -454,6 +455,17 @@ export default function Profile() {
         sport_season: trainingProfile.sport_season || null,
       }
       await saveUserPreferences(user.id, payload)
+
+      // Write weight to health_metrics time-series so the trend computation stays current
+      const weightLbs = trainingProfile.body_weight_lbs ? Number(trainingProfile.body_weight_lbs) : null
+      if (weightLbs && weightLbs > 0) {
+        try {
+          await saveMetricsToSupabase(user.id, getTodayEST(), { weight: weightLbs }, { allowOutbox: false })
+        } catch {
+          // non-critical — profile was already saved
+        }
+      }
+
       showToast('Training profile saved', 'success')
     } catch (err) {
       logError('Training profile save error', err)

@@ -585,7 +585,7 @@ function generateWarmupRamp(
     const ramp: WarmupSet[] = [];
     for (let i = 0; i < n; i++) {
       const pct = startPct + (endPct - startPct) * (i / Math.max(n - 1, 1));
-      const w = roundToPlate(workingWeight * pct, equipment);
+      const w = snapToPlate(workingWeight * pct, equipment, exerciseType ?? undefined);
       const r = Math.max(2, Math.round(10 - i * (8 / n)));
       if (w >= 10 && w < workingWeight * 0.95) ramp.push({ weight: w, reps: r });
     }
@@ -617,7 +617,7 @@ function generateWarmupRamp(
     const t = (i + 1) / (warmupCount + 1);
     const pct = 0.25 + t * 0.65; // ranges from ~0.38 to ~0.87
     const rawWeight = workingWeight * pct;
-    const w = roundToPlate(Math.max(rawWeight, minLoad), equipment);
+    const w = snapToPlate(Math.max(rawWeight, minLoad), equipment, exerciseType ?? undefined);
 
     // Reps taper: lighter warmups get more reps for blood flow / neural priming
     // Heavier warmups use fewer reps to avoid fatigue
@@ -632,12 +632,22 @@ function generateWarmupRamp(
   return ramp;
 }
 
-/** Round to nearest practical plate increment based on equipment type */
-function roundToPlate(weight: number, equipment?: string[]): number {
+/**
+ * Snap a weight to the nearest loadable increment for the given equipment.
+ * Barbell: 5 lb (45 lb bar + plates loaded in pairs, smallest pair = 2.5 lb × 2)
+ * Dumbbell: 5 lb (standard fixed-weight jumps)
+ * Isolation cable/machine: 2.5 lb (pin-select stacks)
+ * Other/unknown: 5 lb
+ */
+function snapToPlate(weight: number, equipment?: string[], exerciseType?: string): number {
+  if (weight <= 0) return 0;
+  const cfg = DEFAULT_MODEL_CONFIG;
   const eqNorm = (equipment ?? []).map(normalizeEquipment);
-  const isBarbell = eqNorm.includes('barbell');
-  const isDumbbell = eqNorm.includes('dumbbell');
-  const step = isBarbell ? 5 : isDumbbell ? 5 : 10;
+  let step: number;
+  if (eqNorm.includes('barbell')) step = cfg.barbellIncrement;
+  else if (eqNorm.includes('dumbbell')) step = cfg.dumbbellIncrement;
+  else if (exerciseType === 'isolation') step = cfg.isolationIncrement;
+  else step = cfg.machineIncrement;
   return Math.round(weight / step) * step;
 }
 
@@ -1642,6 +1652,7 @@ function stepPrescribe(
     const isPriority = prioritySet.has(sel.muscleGroup);
 
     const equipment = (Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : []).map(normalizeEquipment);
+    const exType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
     const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
 
     // ── Learned-first prescription ──
@@ -1709,16 +1720,16 @@ function stepPrescribe(
       // Derive working weight from estimated 1RM scaled to the target rep range + RIR.
       // This prevents prescribing near-max weights for multi-rep sets.
       const e1rm = prog.estimated1RM;
-      targetWeight = weightForReps(e1rm, targetReps, rir, equipment);
+      targetWeight = weightForReps(e1rm, targetReps, rir, equipment, exType);
 
       // Safety floor: never prescribe below 50% of last working weight (catches bad 1RM estimates)
       if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
-        targetWeight = Math.round(prog.lastWeight * 0.75 / 5) * 5;
+        targetWeight = snapToPlate(prog.lastWeight * 0.75, equipment, exType);
       }
       adjustments.push(`Based on est. 1RM ${Math.round(e1rm)} lbs → ${targetWeight} lbs for ${targetReps} reps @ RIR ${rir}`);
 
       if (recoveryAdj.isDeload) {
-        targetWeight = Math.round(targetWeight * cfg.deloadWeightMultiplier);
+        targetWeight = snapToPlate(targetWeight * cfg.deloadWeightMultiplier, equipment, exType);
         adjustments.push(`Deload: weight at ${Math.round(cfg.deloadWeightMultiplier * 100)}% (${targetWeight} lbs)`);
       } else {
         const learnedInc = hasLearnedData ? pref.learnedIncrement : null;
@@ -1752,8 +1763,8 @@ function stepPrescribe(
           if (bestPatternType === 'double_progression' && breakthrough && !breakthrough.readyForWeightJump) {
             adjustments.push(`Double progression: add reps before weight (${breakthrough.accumulatedRepsAtWeight} reps accumulated, need ${breakthrough.typicalRepsBeforeJump})`);
           } else {
-            targetWeight = targetWeight + increment;
-            adjustments.push(`Progressive overload: +${increment} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
+            targetWeight = snapToPlate(targetWeight + increment, equipment, exType);
+            adjustments.push(`Progressive overload: +${snapToPlate(increment, equipment, exType)} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
           }
         } else if (prog.status === 'stalled') {
           const plateauInfo = profile.plateauDetections.find(
@@ -1767,7 +1778,7 @@ function stepPrescribe(
         } else if (prog.status === 'regressing') {
           const regressionSeverity = Math.abs(prog.progressionSlope);
           const reductionPct = Math.max(0.80, cfg.regressionWeightMultiplier - (regressionSeverity * 0.8));
-          targetWeight = Math.round(targetWeight * reductionPct);
+          targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
           adjustments.push(`Regressing (${regressionSeverity > 0.05 ? 'severe' : 'mild'}): reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%)`);
         } else if (prog.status === 'progressing') {
           adjustments.push(`Carry forward: ${targetWeight} lbs at RIR ${rir}`);
@@ -1781,9 +1792,10 @@ function stepPrescribe(
           const isLower = ['quadriceps', 'hamstrings', 'glutes'].includes(sel.muscleGroup);
           const coeff = isLower ? profile.sleepCoefficients.lowerBody : profile.sleepCoefficients.upperBody;
           if (Math.abs(coeff) > cfg.sleepCoefficientMinimum) {
-            const weightAdj = Math.round(coeff * sleepDelta * (targetWeight ?? 100));
+            const rawAdj = coeff * sleepDelta * (targetWeight ?? 100);
+            const weightAdj = -snapToPlate(Math.abs(rawAdj), equipment, exType);
             if (weightAdj < -2) {
-              targetWeight = (targetWeight ?? 0) + weightAdj;
+              targetWeight = snapToPlate((targetWeight ?? 0) + weightAdj, equipment, exType);
               adjustments.push(`Sleep-performance: ${weightAdj} lbs (learned from your data)`);
             }
           }
@@ -1810,7 +1822,7 @@ function stepPrescribe(
       }
     } else if (hasLearnedData && pref.learnedWeight != null) {
       // No progression data (< 3 sessions) but learned weight exists
-      targetWeight = Math.round(pref.learnedWeight);
+      targetWeight = snapToPlate(pref.learnedWeight, equipment, exType);
       adjustments.push(`Weight from your recent sessions: ${targetWeight} lbs`);
     } else if (!isBodyweight) {
       // No data at all — estimate from lift ratios + strength standards
@@ -1826,7 +1838,7 @@ function stepPrescribe(
         prefs.gender,
       );
       if (estimated != null) {
-        targetWeight = estimated;
+        targetWeight = snapToPlate(estimated, equipment, exType);
         adjustments.push(`Estimated from lift ratios — adjust after first session`);
       }
     }
@@ -1871,7 +1883,7 @@ function stepPrescribe(
       exerciseRole: role,
       sets,
       targetReps,
-      targetWeight: isBodyweight ? null : (targetWeight ? Math.round(targetWeight) : null),
+      targetWeight: isBodyweight ? null : (targetWeight ? snapToPlate(targetWeight, equipment, exType) : null),
       targetRir: rir,
       rirLabel: getRirLabel(rir),
       isBodyweight,
@@ -2393,18 +2405,19 @@ function stepApplyConstraints(
       const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal);
       const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
       const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
+      const fillExType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
       const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
       const rir = getRirTarget(role, effectiveGoal, false);
 
       let targetWeight: number | null = null;
       const prog = profile.exerciseProgressions.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
       if (prog) {
-        targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment);
+        targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, fillExType);
         if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
-          targetWeight = Math.round(prog.lastWeight * 0.75 / 5) * 5;
+          targetWeight = snapToPlate(prog.lastWeight * 0.75, equipment, fillExType);
         }
       } else if (pref?.learnedWeight != null) {
-        targetWeight = Math.round(pref.learnedWeight);
+        targetWeight = snapToPlate(pref.learnedWeight, equipment, fillExType);
       }
       const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
 
@@ -2419,7 +2432,7 @@ function stepApplyConstraints(
         exerciseRole: role,
         sets,
         targetReps: reps,
-        targetWeight: isBodyweight ? null : (targetWeight ? Math.round(targetWeight) : null),
+        targetWeight: isBodyweight ? null : (targetWeight ? snapToPlate(targetWeight, equipment, fillExType) : null),
         targetRir: rir,
         rirLabel: getRirLabel(rir),
         isBodyweight,

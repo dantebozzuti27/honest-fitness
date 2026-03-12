@@ -56,6 +56,8 @@ function computeNodePreviews(p: TrainingProfile): Record<number, string> {
   const obs = (p.llmPatternObservations || []).length
   const trendCount = (p.rolling30DayTrends.exerciseTrends || []).length
   const mgCount = (p.rolling30DayTrends.muscleGroupTrends || []).length
+  const utilityPct = Math.round((p.canonicalModelContext?.objectiveUtility ?? 0) * 100)
+  const setAccPct = Math.round((p.prescribedVsActual?.avgSetExecutionAccuracy ?? 0) * 100)
 
   return {
     1: `Ingested ${p.totalWorkoutCount} sessions, ${p.healthDataDays} health days`,
@@ -68,7 +70,7 @@ function computeNodePreviews(p: TrainingProfile): Record<number, string> {
     8: `Budget: ${p.avgSessionDuration} min`,
     9: `4 rules checked`,
     10: `${obs} stored observations`,
-    11: `Est. ${p.avgSessionDuration} min session`,
+    11: `Utility ${utilityPct}% | Set accuracy ${setAccPct}%`,
   }
 }
 
@@ -1273,6 +1275,10 @@ function FinalOutputPanel({ profile: p }: { profile: TrainingProfile }) {
   const progressing = (p.exerciseProgressions || []).filter(ep => ep.status === 'progressing').length
   const learned = (p.exercisePreferences || []).filter(ep => ep.recentSessions >= 2).length
   const tier = p.totalWorkoutCount < 10 ? 'bootstrap' : p.totalWorkoutCount < 30 ? 'learning' : 'personalized'
+  const utility = p.canonicalModelContext?.objectiveUtility ?? 0
+  const utilityVersion = p.canonicalModelContext?.version ?? 'utility_v1'
+  const setExecutionAcc = p.prescribedVsActual?.avgSetExecutionAccuracy ?? 0
+  const setExecutionN = p.prescribedVsActual?.executionSampleSize ?? 0
 
   const stages = [
     { stage: '1. Data Collection',       impact: `${tier} mode (${p.totalWorkoutCount} workouts)` },
@@ -1285,12 +1291,13 @@ function FinalOutputPanel({ profile: p }: { profile: TrainingProfile }) {
     { stage: '8. Time Fit',              impact: `Fitted to ${p.avgSessionDuration} min budget (SFR greedy)` },
     { stage: '9. Validation',            impact: `4 safety checks applied` },
     { stage: '10. LLM Review',           impact: `${obs.length} stored observations active` },
+    { stage: '11. Objective Utility',    impact: `${Math.round(utility * 100)}% (${utilityVersion}), set accuracy ${Math.round(setExecutionAcc * 100)}% from ${setExecutionN} labels` },
   ]
 
   return (
     <>
       <div className={S.summary}>
-        The final workout is the product of all 10 upstream pipeline stages. Each stage transforms,
+        The final workout is the product of all 11 upstream pipeline stages. Each stage transforms,
         filters, or adjusts the output — from raw data to a validated, LLM-reviewed exercise prescription.
       </div>
 

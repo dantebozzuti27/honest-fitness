@@ -655,3 +655,52 @@ CREATE POLICY "Users can update own workout_outcomes" ON workout_outcomes
 DROP POLICY IF EXISTS "Users can delete own workout_outcomes" ON workout_outcomes;
 CREATE POLICY "Users can delete own workout_outcomes" ON workout_outcomes
   FOR DELETE USING (auth.uid() = user_id);
+
+-- ============================================================================
+-- PRESCRIPTION EXECUTION EVENTS
+-- Set-level target-vs-actual labels for high-fidelity model training.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS prescription_execution_events (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  workout_id UUID REFERENCES workouts(id) ON DELETE CASCADE,
+  workout_exercise_id UUID REFERENCES workout_exercises(id) ON DELETE CASCADE,
+  generated_workout_id UUID REFERENCES generated_workouts(id) ON DELETE SET NULL,
+  workout_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  exercise_name TEXT,
+  set_number INTEGER NOT NULL,
+  target_weight NUMERIC,
+  actual_weight NUMERIC,
+  target_reps INTEGER,
+  actual_reps INTEGER,
+  target_time_seconds NUMERIC,
+  actual_time_seconds NUMERIC,
+  target_rir NUMERIC,
+  actual_rir NUMERIC,
+  execution_accuracy NUMERIC CHECK (execution_accuracy >= 0 AND execution_accuracy <= 1),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_prescription_exec_user_date
+  ON prescription_execution_events(user_id, workout_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_prescription_exec_generated
+  ON prescription_execution_events(generated_workout_id, set_number);
+
+ALTER TABLE prescription_execution_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own prescription_execution_events" ON prescription_execution_events;
+CREATE POLICY "Users can view own prescription_execution_events" ON prescription_execution_events
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own prescription_execution_events" ON prescription_execution_events;
+CREATE POLICY "Users can insert own prescription_execution_events" ON prescription_execution_events
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own prescription_execution_events" ON prescription_execution_events;
+CREATE POLICY "Users can update own prescription_execution_events" ON prescription_execution_events
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own prescription_execution_events" ON prescription_execution_events;
+CREATE POLICY "Users can delete own prescription_execution_events" ON prescription_execution_events
+  FOR DELETE USING (auth.uid() = user_id);

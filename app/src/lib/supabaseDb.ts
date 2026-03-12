@@ -233,6 +233,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
 
   // Insert exercises (only those with valid sets data)
   let exerciseOrder = 0
+  const executionEvents: any[] = []
   for (let i = 0; i < workoutToSave.exercises.length; i++) {
     const ex = workoutToSave.exercises[i]
     
@@ -334,6 +335,64 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
         setsError = retry.error
       }
       if (setsError) throw setsError
+
+      const generatedWorkoutId = workoutToSave.generatedWorkoutId || null
+      const workoutDate = workoutToSave.date || getLocalDate()
+      const scoreAccuracy = (target: number | null, actual: number | null) => {
+        if (!Number.isFinite(target as number) || target == null || target <= 0) return null
+        if (!Number.isFinite(actual as number) || actual == null) return null
+        const ratio = Math.min(target, actual) / Math.max(target, actual)
+        return Math.max(0, Math.min(1, ratio))
+      }
+
+      for (let si = 0; si < validSets.length; si++) {
+        const s = validSets[si]
+        const targetWeight = s?.target_weight != null ? Number(s.target_weight) : null
+        const actualWeight = (String(s?.weight || '').trim().toUpperCase() === 'BW') ? null : (s?.weight != null && s.weight !== '' ? Number(s.weight) : null)
+        const targetReps = s?.target_reps != null ? Number(s.target_reps) : null
+        const actualReps = s?.reps != null && s.reps !== '' ? Number(s.reps) : null
+        const targetTimeSeconds = s?.target_time_seconds != null ? Number(s.target_time_seconds) : null
+        const actualTimeSeconds = s?.time_seconds != null && s.time_seconds !== '' ? Number(s.time_seconds) : null
+        const targetRir = ex?._prescription?.targetRir != null ? Number(ex._prescription.targetRir) : null
+        const actualRir = s?.actual_rir != null ? Number(s.actual_rir) : null
+
+        const weightAcc = scoreAccuracy(targetWeight, actualWeight)
+        const repsAcc = scoreAccuracy(targetReps, actualReps)
+        const timeAcc = scoreAccuracy(targetTimeSeconds, actualTimeSeconds)
+        const accParts = [weightAcc, repsAcc, timeAcc].filter((v): v is number => v != null)
+        const executionAccuracy = accParts.length > 0
+          ? accParts.reduce((a, b) => a + b, 0) / accParts.length
+          : null
+
+        executionEvents.push({
+          user_id: userId,
+          workout_id: workoutData.id,
+          workout_exercise_id: exerciseData.id,
+          generated_workout_id: generatedWorkoutId,
+          workout_date: workoutDate,
+          exercise_name: ex.name || null,
+          set_number: si + 1,
+          target_weight: targetWeight,
+          actual_weight: actualWeight,
+          target_reps: targetReps,
+          actual_reps: actualReps,
+          target_time_seconds: targetTimeSeconds,
+          actual_time_seconds: actualTimeSeconds,
+          target_rir: targetRir,
+          actual_rir: actualRir,
+          execution_accuracy: executionAccuracy,
+        })
+      }
+    }
+  }
+
+  if (executionEvents.length > 0) {
+    const { error: executionError } = await supabase
+      .from('prescription_execution_events')
+      .insert(executionEvents)
+    if (executionError) {
+      // Non-fatal during rollout while migration propagates; workout save should not fail.
+      logWarn('Failed to persist prescription_execution_events', executionError)
     }
   }
 

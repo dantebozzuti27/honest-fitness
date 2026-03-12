@@ -148,6 +148,13 @@ export interface GeneratedWorkout {
   decisionLog: DecisionLogEntry[];
   muscleGroupDecisions: MuscleGroupDecision[];
   exerciseDecisions: ExerciseDecision[];
+  objectiveUtility?: {
+    version: string;
+    adherenceScore: number;
+    progressionScore: number;
+    sessionFitScore: number;
+    utility: number;
+  };
 }
 
 // ─── Data Fetching ──────────────────────────────────────────────────────────
@@ -2540,6 +2547,14 @@ function stepGenerateRationale(
     ? `Time-constrained: ${availMin} min available (deadline active)`
     : `Session budget: ${prefs.session_duration_minutes} min`;
 
+  const objectiveUtility = {
+    version: profile.canonicalModelContext?.version ?? 'utility_v1',
+    adherenceScore: profile.canonicalModelContext?.adherenceScore ?? profile.prescribedVsActual?.complianceRate ?? 0.5,
+    progressionScore: profile.canonicalModelContext?.progressionScore ?? 0.5,
+    sessionFitScore: profile.canonicalModelContext?.sessionFitScore ?? 0.5,
+    utility: profile.canonicalModelContext?.objectiveUtility ?? 0.5,
+  };
+
   const sessionRationale = [
     splitInfo,
     prefs.preferred_split ? `Preferred split: ${prefs.preferred_split.replace(/_/g, ' ')}` : null,
@@ -2559,6 +2574,7 @@ function stepGenerateRationale(
     profile.bodyWeightTrend.phase !== 'maintaining'
       ? `Weight trend: ${profile.bodyWeightTrend.phase} (${profile.bodyWeightTrend.slope > 0 ? '+' : ''}${profile.bodyWeightTrend.slope} lbs/week)`
       : null,
+    `Objective utility (${objectiveUtility.version}): ${(objectiveUtility.utility * 100).toFixed(0)} (adh ${(objectiveUtility.adherenceScore * 100).toFixed(0)}, prog ${(objectiveUtility.progressionScore * 100).toFixed(0)}, fit ${(objectiveUtility.sessionFitScore * 100).toFixed(0)})`,
   ].filter(Boolean).join('\n');
 
   // Build decision log
@@ -2803,6 +2819,7 @@ function stepGenerateRationale(
     decisionLog,
     muscleGroupDecisions,
     exerciseDecisions,
+    objectiveUtility,
   };
 }
 
@@ -3314,6 +3331,7 @@ export async function saveGeneratedWorkout(
           config_version: MODEL_CONFIG_VERSION,
           engine_version: WORKOUT_ENGINE_VERSION,
           feature_snapshot_id: workout.featureSnapshotId ?? null,
+          objective_utility: workout.objectiveUtility ?? null,
         },
       },
       exercises: workout.exercises,

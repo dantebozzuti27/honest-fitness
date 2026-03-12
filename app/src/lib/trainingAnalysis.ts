@@ -275,6 +275,14 @@ export interface TrainingProfile {
   userId: string;
   computedAt: string;
   featureSnapshotId: string;
+  canonicalModelContext: {
+    version: string;
+    adherenceScore: number;
+    progressionScore: number;
+    sessionFitScore: number;
+    recoveryReadinessScore: number;
+    objectiveUtility: number;
+  };
 
   // Recovery
   muscleRecovery: MuscleRecoveryStatus[];
@@ -375,6 +383,8 @@ export interface TrainingProfile {
     exercisesSkipped: number;   // total exercises skipped
     avgSessionOutcomeScore: number; // 0-1 post-session label average
     outcomeSampleSize: number;  // number of post-session labels used
+    avgSetExecutionAccuracy: number; // 0-1 average set-level target vs actual fidelity
+    executionSampleSize: number; // number of set-level labels used
   };
 
   // #4: Individual muscle recovery rates (learned from performance-after-rest)
@@ -3574,6 +3584,34 @@ function createFeatureSnapshotId(parts: Array<string | number | null | undefined
   return `fs_${(hash >>> 0).toString(36)}`;
 }
 
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+function computeCanonicalModelContext(
+  profileSignals: {
+    adherenceScore: number;
+    progressionScore: number;
+    sessionFitScore: number;
+    recoveryReadinessScore: number;
+  }
+): TrainingProfile['canonicalModelContext'] {
+  const adherence = clamp01(profileSignals.adherenceScore);
+  const progression = clamp01(profileSignals.progressionScore);
+  const fit = clamp01(profileSignals.sessionFitScore);
+  const readiness = clamp01(profileSignals.recoveryReadinessScore);
+  // Objective redesign: optimize long-horizon utility around adherence + progression + fit.
+  const utility = clamp01(adherence * 0.5 + progression * 0.35 + fit * 0.15);
+  return {
+    version: 'utility_v1',
+    adherenceScore: adherence,
+    progressionScore: progression,
+    sessionFitScore: fit,
+    recoveryReadinessScore: readiness,
+    objectiveUtility: utility,
+  };
+}
+
 export async function computeTrainingProfile(userId: string): Promise<TrainingProfile> {
   const supabase = requireSupabase();
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
@@ -3808,10 +3846,30 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     (feedbackResult?.data ?? []).length,
   ]);
 
+  const prescribedVsActual = await computePrescribedVsActual(userId, workouts);
+  const progressionScore = (() => {
+    const eligible = exerciseProgressions.filter(p => p.sessionsTracked >= 3);
+    if (eligible.length === 0) return 0.5;
+    const progressing = eligible.filter(p => p.status === 'progressing').length;
+    const stalled = eligible.filter(p => p.status === 'stalled').length;
+    return clamp01((progressing + stalled * 0.5) / eligible.length);
+  })();
+  const sessionFitScore = clamp01(
+    (prescribedVsActual.avgSetExecutionAccuracy * 0.6) +
+    (prescribedVsActual.avgSessionOutcomeScore * 0.4)
+  );
+  const canonicalModelContext = computeCanonicalModelContext({
+    adherenceScore: prescribedVsActual.complianceRate,
+    progressionScore,
+    sessionFitScore,
+    recoveryReadinessScore: fitnessFatigueResult.readiness,
+  });
+
   return {
     userId,
     computedAt: new Date().toISOString(),
     featureSnapshotId,
+    canonicalModelContext,
 
     muscleRecovery,
     recoveryContext: recoveryCtx,
@@ -3848,7 +3906,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     rolling30DayTrends,
 
     // #1: Prescribed vs actual feedback loop
-    prescribedVsActual: await computePrescribedVsActual(userId, workouts),
+    prescribedVsActual,
 
     // #4: Individual muscle recovery rates
     individualRecoveryRates: computeIndividualRecoveryRates(workouts, exercises),
@@ -4881,6 +4939,8 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
     exercisesSkipped: 0,
     avgSessionOutcomeScore: 0,
     outcomeSampleSize: 0,
+    avgSetExecutionAccuracy: 0,
+    executionSampleSize: 0,
   };
   try {
     const supabase = requireSupabase();
@@ -4898,6 +4958,11 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
     const { data: outcomes } = await supabase
       .from('workout_outcomes')
       .select('generated_workout_id, session_outcome_score')
+      .eq('user_id', userId)
+      .in('generated_workout_id', genIds.slice(0, 20));
+    const { data: executionEvents } = await supabase
+      .from('prescription_execution_events')
+      .select('execution_accuracy')
       .eq('user_id', userId)
       .in('generated_workout_id', genIds.slice(0, 20));
 
@@ -4934,6 +4999,9 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
     const outcomeScores = (outcomes ?? [])
       .map((o: any) => Number(o?.session_outcome_score))
       .filter((s: number) => Number.isFinite(s) && s >= 0 && s <= 1);
+    const executionScores = (executionEvents ?? [])
+      .map((e: any) => Number(e?.execution_accuracy))
+      .filter((s: number) => Number.isFinite(s) && s >= 0 && s <= 1);
 
     return {
       complianceRate: totalPrescribed > 0 ? totalCompleted / totalPrescribed : 1,
@@ -4943,6 +5011,8 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
       exercisesSkipped: totalSkipped,
       avgSessionOutcomeScore: outcomeScores.length > 0 ? mean(outcomeScores) : 0,
       outcomeSampleSize: outcomeScores.length,
+      avgSetExecutionAccuracy: executionScores.length > 0 ? mean(executionScores) : 0,
+      executionSampleSize: executionScores.length,
     };
   } catch {
     return defaultResult;

@@ -756,6 +756,51 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                   <span className={s.statLabel}>Weight Dev</span>
                   <span className={s.statValue}>{(tp.prescribedVsActual.avgWeightDeviation ?? 0) > 0 ? '+' : ''}{(tp.prescribedVsActual.avgWeightDeviation ?? 0).toFixed(1)}%</span>
                 </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Set Accuracy</span>
+                  <span className={s.statValue} style={{ color: (tp.prescribedVsActual.avgSetExecutionAccuracy ?? 0) >= 0.8 ? 'var(--success)' : (tp.prescribedVsActual.avgSetExecutionAccuracy ?? 0) >= 0.6 ? '#e6a800' : 'var(--danger)' }}>
+                    {Math.round((tp.prescribedVsActual.avgSetExecutionAccuracy ?? 0) * 100)}%
+                  </span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Set Labels</span>
+                  <span className={s.statValue}>{tp.prescribedVsActual.executionSampleSize ?? 0}</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Outcome Score</span>
+                  <span className={s.statValue}>{Math.round((tp.prescribedVsActual.avgSessionOutcomeScore ?? 0) * 100)}%</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Outcome Labels</span>
+                  <span className={s.statValue}>{tp.prescribedVsActual.outcomeSampleSize ?? 0}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Utility Objective */}
+          {tp.canonicalModelContext && (
+            <div className={s.cardCompact}>
+              <div className={s.sectionLabel}>Objective Utility ({tp.canonicalModelContext.version})</div>
+              <div className={s.statsGrid}>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Utility</span>
+                  <span className={s.statValue} style={{ color: tp.canonicalModelContext.objectiveUtility >= 0.75 ? 'var(--success)' : tp.canonicalModelContext.objectiveUtility >= 0.55 ? '#e6a800' : 'var(--danger)' }}>
+                    {Math.round(tp.canonicalModelContext.objectiveUtility * 100)}%
+                  </span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Adherence</span>
+                  <span className={s.statValue}>{Math.round(tp.canonicalModelContext.adherenceScore * 100)}%</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Progression</span>
+                  <span className={s.statValue}>{Math.round(tp.canonicalModelContext.progressionScore * 100)}%</span>
+                </div>
+                <div className={s.statCard}>
+                  <span className={s.statLabel}>Session Fit</span>
+                  <span className={s.statValue}>{Math.round(tp.canonicalModelContext.sessionFitScore * 100)}%</span>
+                </div>
               </div>
             </div>
           )}

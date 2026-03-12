@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
 import { generateWorkout, saveGeneratedWorkout, generateWeekPreview, type GeneratedWorkout, type ExerciseRole, type SessionOverrides, type DayPreview } from '../lib/workoutEngine'
 import { requireSupabase } from '../lib/supabase'
-import { fetchWorkoutReview, type WorkoutReview } from '../lib/insightsApi'
+import { fetchWorkoutReview, fetchWorkoutValidation, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import BackButton from '../components/BackButton'
@@ -36,6 +36,7 @@ export default function TodayWorkout() {
   const [profile, setProfile] = useState<TrainingProfile | null>(null)
   const [expandedExercise, setExpandedExercise] = useState<number | null>(null)
   const [expandedWarmup, setExpandedWarmup] = useState<Set<number>>(new Set())
+  const [expandedWhy, setExpandedWhy] = useState<Set<number>>(new Set())
   const [regenerating, setRegenerating] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [prefsSet, setPrefsSet] = useState(true)
@@ -51,12 +52,57 @@ export default function TodayWorkout() {
   const [workoutReview, setWorkoutReview] = useState<WorkoutReview | null>(null)
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
+  const [llmValidation, setLlmValidation] = useState<WorkoutValidation | null>(null)
+  const llmValidationFiredRef = useRef(false)
   const regeneratingRef = useRef(false)
   const forceGenerateRef = useRef(false)
 
   useEffect(() => {
     if (user) initialLoad()
   }, [user])
+
+  useEffect(() => {
+    if (!llmValidation || !workout) return
+
+    if (llmValidation.immediate_corrections?.length) {
+      const updated = { ...workout, exercises: [...workout.exercises] }
+      for (const corr of llmValidation.immediate_corrections) {
+        const idx = updated.exercises.findIndex(
+          e => e.exerciseName.toLowerCase() === corr.exerciseName.toLowerCase()
+        )
+        if (idx === -1) continue
+
+        if (corr.fix === 'sets' && typeof corr.newValue === 'number') {
+          updated.exercises[idx] = {
+            ...updated.exercises[idx],
+            sets: corr.newValue,
+            adjustments: [...(updated.exercises[idx].adjustments || []), `LLM correction: ${corr.issue} → ${corr.newValue} sets (${corr.reason})`],
+          }
+        } else if (corr.fix === 'weight' && typeof corr.newValue === 'number') {
+          updated.exercises[idx] = {
+            ...updated.exercises[idx],
+            targetWeight: corr.newValue,
+            adjustments: [...(updated.exercises[idx].adjustments || []), `LLM correction: ${corr.issue} → ${corr.newValue} lbs (${corr.reason})`],
+          }
+        } else if (corr.fix === 'remove') {
+          updated.exercises.splice(idx, 1)
+        }
+      }
+      setWorkout(updated)
+    }
+
+    if (llmValidation.pattern_observations?.length && user) {
+      const supabase = requireSupabase()
+      const rows = llmValidation.pattern_observations.map(obs => ({
+        user_id: user.id,
+        feedback_type: 'pattern_observation' as const,
+        feedback_data: obs,
+        workout_date: getLocalDate(),
+      }))
+      supabase.from('model_feedback').insert(rows)
+        .then(({ error }) => { if (error) logError('Failed to store pattern observations', error) })
+    }
+  }, [llmValidation])
 
   // Initial load: fetch prefs, compute profile, generate first workout
   const initialLoad = async () => {
@@ -130,6 +176,11 @@ export default function TodayWorkout() {
       setWorkout(w)
       setViewState('ready')
       saveGeneratedWorkout(user.id, w).catch(e => logError('Save generated workout failed (non-blocking)', e))
+
+      if (!llmValidationFiredRef.current) {
+        llmValidationFiredRef.current = true
+        fetchWorkoutValidation(tp, w).then(setLlmValidation).catch(e => logError('LLM workout validation failed (non-blocking)', e))
+      }
     } catch (err) {
       logError('Workout generation error', err)
       setErrorMsg(err instanceof Error ? err.message : 'Failed to generate workout')
@@ -155,7 +206,12 @@ export default function TodayWorkout() {
       setWorkout(w)
       setWorkoutReview(null)
       setReviewError(null)
+      setLlmValidation(null)
+      llmValidationFiredRef.current = false
       showToast('Workout regenerated', 'success')
+
+      llmValidationFiredRef.current = true
+      fetchWorkoutValidation(cachedProfile, w).then(setLlmValidation).catch(e => logError('LLM workout validation failed (non-blocking)', e))
     } catch (err) {
       logError('Regeneration error', err)
       showToast('Regeneration failed', 'error')
@@ -370,6 +426,15 @@ export default function TodayWorkout() {
 
   const toggleWarmup = (idx: number) => {
     setExpandedWarmup(prev => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
+
+  const toggleWhy = (idx: number) => {
+    setExpandedWhy(prev => {
       const next = new Set(prev)
       if (next.has(idx)) next.delete(idx)
       else next.add(idx)
@@ -835,6 +900,143 @@ export default function TodayWorkout() {
 
                     <div className={styles.rationaleText}>{ex.rationale}</div>
 
+                    {/* D3: Inline decision breakdown */}
+                    <div className={styles.whySection}>
+                      <div
+                        className={styles.whyToggle}
+                        onClick={(e) => { e.stopPropagation(); toggleWhy(idx) }}
+                      >
+                        <span>{expandedWhy.has(idx) ? '▾' : '▸'} Why this exercise?</span>
+                      </div>
+                      {expandedWhy.has(idx) && (() => {
+                        const decision = workout.exerciseDecisions.find(
+                          d => d.exerciseName.toLowerCase() === ex.exerciseName.toLowerCase()
+                        )
+                        const competitors = workout.exerciseDecisions
+                          .filter(d => d.muscleGroup === (ex.targetMuscleGroup ?? ''))
+                          .sort((a, b) => b.score - a.score)
+                        const rank = competitors.findIndex(
+                          d => d.exerciseName.toLowerCase() === ex.exerciseName.toLowerCase()
+                        )
+                        return (
+                          <div className={styles.whyContent}>
+                            {/* D3.2: Why this exercise */}
+                            {decision && (
+                              <>
+                                <div className={styles.whyLabel}>Why this exercise (score: {decision.score}, rank #{rank + 1} of {competitors.length})</div>
+                                {decision.factors.map((f, fi) => (
+                                  <div key={fi} className={styles.whyFactor}>{f}</div>
+                                ))}
+                                {competitors.length > 1 && (
+                                  <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                    Other candidates: {competitors.filter(c => c.exerciseName.toLowerCase() !== ex.exerciseName.toLowerCase()).map(c => `${c.exerciseName} (${c.score})`).join(', ')}
+                                  </div>
+                                )}
+                              </>
+                            )}
+
+                            {/* D3.3: Why these sets */}
+                            {!ex.isCardio && profile && (() => {
+                              const vol = profile.muscleVolumeStatuses.find(
+                                v => v.muscleGroup.toLowerCase() === (ex.targetMuscleGroup ?? '').toLowerCase()
+                              )
+                              const freq = profile.muscleGroupFrequency[(ex.targetMuscleGroup ?? '').toLowerCase()] ?? 0
+                              return vol ? (
+                                <>
+                                  <div className={styles.whyLabel}>Why {ex.sets} sets</div>
+                                  <div className={styles.whyFactor}>
+                                    <span>Volume status</span>
+                                    <span>{vol.status.replace(/_/g, ' ')} ({vol.weeklyDirectSets} / {vol.mavLow}–{vol.mavHigh} MAV)</span>
+                                  </div>
+                                  <div className={styles.whyFactor}>
+                                    <span>Weekly frequency</span>
+                                    <span>{freq.toFixed(1)}×/wk</span>
+                                  </div>
+                                  <div className={styles.whyFactor}>
+                                    <span>Per-session ceiling</span>
+                                    <span>{freq > 0 ? Math.round(vol.mavHigh / freq) : vol.mavHigh} sets (MAV ÷ freq)</span>
+                                  </div>
+                                  <div style={{ marginTop: '4px', fontSize: '10px', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                                    SFR curve: additional sets give diminishing stimulus (Krieger 2010). Below MEV → more sets prioritized; approaching MRV → engine prefers variety.
+                                  </div>
+                                </>
+                              ) : null
+                            })()}
+
+                            {/* D3.4: Why this weight */}
+                            {!ex.isCardio && ex.targetWeight != null && profile && (() => {
+                              const prog = profile.exerciseProgressions.find(
+                                p => p.exerciseName.toLowerCase() === ex.exerciseName.toLowerCase()
+                              )
+                              return prog ? (
+                                <>
+                                  <div className={styles.whyLabel}>Why {ex.targetWeight} lbs</div>
+                                  <div className={styles.whyFactor}>
+                                    <span>Estimated 1RM</span>
+                                    <span>{Math.round(prog.estimated1RM)} lbs</span>
+                                  </div>
+                                  <div className={styles.whyFactor}>
+                                    <span>Best set (Epley input)</span>
+                                    <span>{prog.bestSet.weight} lbs × {prog.bestSet.reps} reps</span>
+                                  </div>
+                                  <div className={styles.whyFactor}>
+                                    <span>Epley formula</span>
+                                    <span>{prog.bestSet.weight} × (1 + {prog.bestSet.reps}/30) = {Math.round(prog.bestSet.weight * (1 + prog.bestSet.reps / 30))}</span>
+                                  </div>
+                                  <div className={styles.whyFactor}>
+                                    <span>Target: {ex.targetReps} reps @ RIR {ex.targetRir ?? '—'}</span>
+                                    <span>→ {ex.targetWeight} lbs (rounded to 5)</span>
+                                  </div>
+                                  <div className={styles.whyFactor}>
+                                    <span>Last working weight</span>
+                                    <span>{prog.lastWeight} lbs</span>
+                                  </div>
+                                  <div className={styles.whyFactor}>
+                                    <span>Progression</span>
+                                    <span>{prog.status} ({prog.sessionsTracked} sessions, {prog.progressionPattern})</span>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className={styles.whyLabel}>Why {ex.targetWeight} lbs</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                    No progression data yet — weight based on table defaults or user preference.
+                                  </div>
+                                </>
+                              )
+                            })()}
+
+                            {/* D3.6: LLM notes */}
+                            {llmValidation && (() => {
+                              const corrections = (llmValidation.immediate_corrections || []).filter(
+                                c => c.exerciseName.toLowerCase() === ex.exerciseName.toLowerCase()
+                              )
+                              const observations = (llmValidation.pattern_observations || []).filter(
+                                o => (o.pattern + ' ' + o.suggestion).toLowerCase().includes(ex.exerciseName.toLowerCase())
+                              )
+                              if (corrections.length === 0 && observations.length === 0) return null
+                              return (
+                                <>
+                                  <div className={styles.whyLabel}>LLM Notes</div>
+                                  {corrections.map((c, ci) => (
+                                    <div key={ci} className={styles.whyFactor} style={{ color: 'var(--text-warning, #ffa726)' }}>
+                                      <span>{c.fix}: {c.issue}</span>
+                                      <span>{c.reason}</span>
+                                    </div>
+                                  ))}
+                                  {observations.map((o, oi) => (
+                                    <div key={oi} style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                                      <span style={{ fontWeight: 600 }}>{o.pattern}</span> — {o.suggestion} ({o.confidence})
+                                    </div>
+                                  ))}
+                                </>
+                              )
+                            })()}
+                          </div>
+                        )
+                      })()}
+                    </div>
+
                     {/* #28: Exercise swap button */}
                     {!ex.isCardio && (
                       <button
@@ -1049,7 +1251,7 @@ export default function TodayWorkout() {
                 <div key={group} className={styles.scoreGroup}>
                   <div className={styles.scoreGroupLabel}>{group.replace(/_/g, ' ')}</div>
                   {decisions.map((d, i) => {
-                    const isSelected = workout.exercises.some(e => e.exerciseName === d.exerciseName);
+                    const isSelected = workout.exercises.some(e => (e.exerciseName || '').toLowerCase() === (d.exerciseName || '').toLowerCase());
                     return (
                       <div key={i}>
                         <div className={styles.scoreEntry}>

@@ -103,6 +103,63 @@ export async function fetchTrainingSummary(trainingProfile: any): Promise<Traini
   return json.data as TrainingSummary
 }
 
+export interface WorkoutValidation {
+  immediate_corrections: {
+    exerciseName: string
+    issue: string
+    fix: 'sets' | 'weight' | 'remove' | 'reorder'
+    newValue: number | null
+    reason: string
+  }[]
+  pattern_observations: {
+    pattern: string
+    suggestion: string
+    confidence: 'high' | 'medium' | 'low'
+  }[]
+  verdict: 'pass' | 'minor_issues' | 'major_issues'
+}
+
+export async function fetchWorkoutValidation(trainingProfile: any, workoutData: any): Promise<WorkoutValidation> {
+  const token = await getAuthToken()
+
+  const exercises = workoutData.exercises || []
+  const workoutSummary = {
+    estimatedDurationMinutes: workoutData.estimatedDurationMinutes,
+    trainingGoal: workoutData.trainingGoal,
+    exercises: exercises.map((ex: any) => ({
+      exerciseName: ex.exerciseName,
+      bodyPart: ex.bodyPart,
+      targetMuscleGroup: ex.targetMuscleGroup,
+      role: ex.exerciseRole,
+      sets: typeof ex.sets === 'number' ? ex.sets : (Array.isArray(ex.sets) ? ex.sets.length : 0),
+      targetReps: ex.targetReps ?? null,
+      targetWeight: ex.targetWeight ?? null,
+      targetRir: ex.targetRir ?? null,
+      restSeconds: ex.restSeconds ?? null,
+      isCardio: ex.isCardio,
+      adjustments: ex.adjustments,
+    })),
+  }
+
+  const res = await fetch(apiUrl('/api/insights'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ type: 'validate-workout', trainingProfile, workoutData: workoutSummary }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error?.message || `Request failed (${res.status})`)
+  }
+
+  const json = await res.json()
+  if (!json.success) throw new Error(json.error?.message || 'Unknown error')
+  return json.data as WorkoutValidation
+}
+
 export async function fetchWorkoutReview(trainingProfile: any, workoutData: any): Promise<WorkoutReview> {
   const token = await getAuthToken()
   const sanitized = sanitizeProfile(trainingProfile)

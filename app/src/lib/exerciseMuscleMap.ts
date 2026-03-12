@@ -28,6 +28,21 @@ export interface ExerciseMapping {
   functional_description: string;
   /** For cardio/recovery: equivalent strength-training sets of fatigue per 30 minutes of activity, per primary muscle group */
   cardio_fatigue_factor?: number;
+  /**
+   * Stimulus-to-fatigue ratio (1-5 scale). Derived from Helms/Israetel guidelines.
+   *
+   * 5 = High stimulus, low systemic fatigue (e.g., leg press, cable fly, machine curl)
+   * 4 = Good stimulus, moderate fatigue (e.g., dumbbell press, lat pulldown)
+   * 3 = Balanced (e.g., barbell row, dumbbell lunge)
+   * 2 = High stimulus but high systemic/CNS fatigue (e.g., barbell squat, bench press)
+   * 1 = Maximum systemic fatigue relative to stimulus (e.g., conventional deadlift)
+   *
+   * Used by the engine to determine when adding sets yields diminishing returns
+   * vs when adding a new exercise is more productive.
+   */
+  stimulus_to_fatigue_ratio?: number;
+  /** What makes this exercise biomechanically distinct from similar movements */
+  biomechanical_notes?: string;
 }
 
 export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
@@ -573,6 +588,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Primary horizontal pressing movement. Sternal head does most work; slight decline in pad maximizes sternal activation.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Dumbbell Bench Press': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'triceps_lateral_head'],
@@ -581,6 +597,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Greater range of motion vs barbell. Independent arms require more stabilizer activation and allow deeper pec stretch.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Incline Barbell Bench Press': {
     primary_muscles: ['pectoralis_major_clavicular', 'anterior_deltoid', 'triceps_lateral_head'],
@@ -589,6 +606,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Incline shifts primary load to clavicular (upper) pec and anterior deltoid. 30-45 degrees optimal.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Incline Dumbbell Bench Press': {
     primary_muscles: ['pectoralis_major_clavicular', 'anterior_deltoid', 'triceps_lateral_head'],
@@ -597,6 +615,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Best upper pec exercise. Dumbbells allow convergent press path and deeper stretch at bottom.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Decline Barbell Bench Press': {
     primary_muscles: ['pectoralis_major_sternal', 'triceps_lateral_head', 'triceps_medial_head'],
@@ -605,6 +624,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Decline angle maximizes sternal pec recruitment and reduces anterior deltoid contribution.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Machine Chest Press': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'triceps_lateral_head'],
@@ -613,6 +633,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Fixed path removes stabilizer demands, allowing focused pec overload to failure.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Smith Machine Bench Press': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'triceps_lateral_head'],
@@ -621,6 +642,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Fixed bar path allows heavy chest loading without spotter. Reduced stabilizer demand.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Push-Up': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'triceps_lateral_head'],
@@ -629,6 +651,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Bodyweight horizontal press. Serratus anterior engagement via scapular protraction at top.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Incline Push-Up': {
     primary_muscles: ['pectoralis_major_sternal', 'triceps_lateral_head'],
@@ -637,6 +660,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Hands elevated reduces load percentage. Regression for those building toward full push-ups.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Decline Push-Up': {
     primary_muscles: ['pectoralis_major_clavicular', 'triceps_lateral_head', 'anterior_deltoid'],
@@ -645,6 +669,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Feet elevated shifts load toward upper pec and anterior deltoid, similar to incline press.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Weighted Push-Up': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'triceps_lateral_head'],
@@ -653,6 +678,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Progressive overload on the push-up pattern via plate or vest.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Ring Push-Up': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'triceps_lateral_head'],
@@ -661,6 +687,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'advanced',
     default_tempo: '2-1-1',
     functional_description: 'Unstable rings massively increase stabilizer demand, particularly rotator cuff and serratus.',
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Chest Dip': {
     primary_muscles: ['pectoralis_major_sternal', 'triceps_lateral_head', 'triceps_medial_head'],
@@ -669,6 +696,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Forward lean targets lower pec. Upright torso shifts to triceps. Deep stretch on pec at bottom.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Ring Dip': {
     primary_muscles: ['pectoralis_major_sternal', 'triceps_lateral_head', 'triceps_medial_head'],
@@ -677,6 +705,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'advanced',
     default_tempo: '2-1-1',
     functional_description: 'Unstable ring dip with extreme stability demands. Chest and triceps compound with rotator cuff stabilization.',
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Dumbbell Floor Press': {
     primary_muscles: ['pectoralis_major_sternal', 'triceps_lateral_head', 'triceps_medial_head'],
@@ -685,6 +714,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Reduced range of motion from the floor eliminates stretch at the bottom, emphasizing lockout and triceps.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Cable Chest Press': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'triceps_lateral_head'],
@@ -693,6 +723,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Cables provide constant tension through the full pressing range, unlike free weights.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Incline Machine Chest Press': {
     primary_muscles: ['pectoralis_major_clavicular', 'triceps_lateral_head'],
@@ -701,6 +732,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Machine-guided incline press for isolated upper pec loading without stabilizer fatigue.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Decline Machine Chest Press': {
     primary_muscles: ['pectoralis_major_sternal', 'triceps_lateral_head'],
@@ -709,6 +741,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Machine-guided decline press for sternal pec isolation.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -721,6 +754,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '3-1-1',
     functional_description: 'Horizontal adduction of the humerus isolates the pecs with minimal triceps involvement.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Incline Dumbbell Fly': {
     primary_muscles: ['pectoralis_major_clavicular'],
@@ -729,6 +763,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '3-1-1',
     functional_description: 'Incline angle shifts fly stimulus to clavicular pec. Best isolation for upper chest.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Cable Fly': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular'],
@@ -737,6 +772,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Constant cable tension through full range. Peak contraction possible at center vs dumbbells which lose tension.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Low-to-High Cable Fly': {
     primary_muscles: ['pectoralis_major_clavicular'],
@@ -745,6 +781,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Low-to-high path follows the fiber direction of the clavicular pec for optimal upper chest isolation.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'High-to-Low Cable Fly': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_minor'],
@@ -753,6 +790,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'High-to-low path follows the fiber direction of the sternal pec for lower chest emphasis.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Pec Deck Fly': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular'],
@@ -761,6 +799,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Machine-guided pec fly. Removes stabilizer demands for maximal pec isolation.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Dumbbell Pullover': {
     primary_muscles: ['pectoralis_major_sternal', 'latissimus_dorsi'],
@@ -769,6 +808,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'extension', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '3-1-1',
     functional_description: 'Shoulder extension pattern targets both pec and lat. Unique stretch on serratus anterior and thoracic expansion.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Close-Grip Bench Press': {
     primary_muscles: ['triceps_lateral_head', 'triceps_medial_head', 'triceps_long_head', 'pectoralis_major_sternal'],
@@ -777,6 +817,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Narrow grip shifts primary load from pecs to triceps while still working sternal pec.',
+    stimulus_to_fatigue_ratio: 2,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -789,6 +830,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Pronated grip emphasizes lats over biceps compared to chin-up. Wider grip increases lat stretch.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Chin-Up': {
     primary_muscles: ['latissimus_dorsi', 'biceps_brachii_short_head', 'biceps_brachii_long_head', 'brachialis'],
@@ -797,6 +839,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Supinated grip increases biceps recruitment vs pull-up. Greater pec minor stretch at bottom.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Assisted Pull-Up': {
     primary_muscles: ['latissimus_dorsi', 'teres_major', 'biceps_brachii_short_head'],
@@ -805,6 +848,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Machine or band assistance reduces bodyweight load while maintaining pull-up motor pattern.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Lat Pulldown': {
     primary_muscles: ['latissimus_dorsi', 'teres_major'],
@@ -813,6 +857,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Machine-based lat pulldown. Easier to load progressively and target lat width vs pull-ups.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Close-Grip Lat Pulldown': {
     primary_muscles: ['latissimus_dorsi', 'teres_major', 'biceps_brachii_short_head', 'biceps_brachii_long_head'],
@@ -821,6 +866,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Close grip increases range of motion and biceps contribution. Greater lat stretch at top.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Wide-Grip Lat Pulldown': {
     primary_muscles: ['latissimus_dorsi', 'teres_major', 'trapezius_lower'],
@@ -829,6 +875,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Wide grip reduces range of motion but emphasizes lat width and lower trap activation.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Straight-Arm Pulldown': {
     primary_muscles: ['latissimus_dorsi', 'teres_major'],
@@ -837,6 +884,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Locked elbows isolate lats from biceps. Only true lat isolation exercise.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Neutral-Grip Pull-Up': {
     primary_muscles: ['latissimus_dorsi', 'teres_major', 'biceps_brachii_short_head', 'brachialis'],
@@ -845,6 +893,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Neutral grip is most shoulder-friendly. Balanced lat and biceps recruitment.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Wide-Grip Pull-Up': {
     primary_muscles: ['latissimus_dorsi', 'teres_major', 'trapezius_lower'],
@@ -853,6 +902,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'advanced',
     default_tempo: '2-1-1',
     functional_description: 'Maximum lat width stimulus. Reduced range of motion but greater stretch on lat insertion.',
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Single-Arm Lat Pulldown': {
     primary_muscles: ['latissimus_dorsi', 'teres_major'],
@@ -861,6 +911,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-2',
     functional_description: 'Unilateral lat pulldown allows greater range of motion and addresses bilateral imbalances.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Cable Pullover': {
     primary_muscles: ['latissimus_dorsi'],
@@ -869,6 +920,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Cable-based lat isolation with constant tension. Targets shoulder extension without elbow flexion.',
+    stimulus_to_fatigue_ratio: 5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -881,6 +933,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Overhand grip targets upper back (traps/rhomboids). Underhand grip shifts to lats and biceps.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Pendlay Row': {
     primary_muscles: ['latissimus_dorsi', 'trapezius_middle', 'rhomboids'],
@@ -889,6 +942,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '1-0-1',
     functional_description: 'Dead-stop from the floor each rep eliminates momentum. Higher concentric force demand.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'One-Arm Dumbbell Row': {
     primary_muscles: ['latissimus_dorsi', 'trapezius_middle', 'rhomboids'],
@@ -897,6 +951,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Unilateral row with bracing arm support. Allows full scapular range of motion and lat stretch.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Chest-Supported Dumbbell Row': {
     primary_muscles: ['trapezius_middle', 'rhomboids', 'latissimus_dorsi'],
@@ -905,6 +960,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Chest support eliminates erector spinae demand and momentum, isolating upper back pulling muscles.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Seated Cable Row': {
     primary_muscles: ['latissimus_dorsi', 'trapezius_middle', 'rhomboids'],
@@ -913,6 +969,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Constant cable tension through full row range. V-handle targets lats; wide handle targets upper back.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Machine Row': {
     primary_muscles: ['trapezius_middle', 'rhomboids', 'latissimus_dorsi'],
@@ -921,6 +978,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Machine-guided row for focused back loading without stabilizer fatigue.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'T-Bar Row': {
     primary_muscles: ['latissimus_dorsi', 'trapezius_middle', 'rhomboids'],
@@ -929,6 +987,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Neutral grip allows heavy loading. Close grip targets lats; wider handles target upper back.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Landmine Row': {
     primary_muscles: ['latissimus_dorsi', 'trapezius_middle', 'rhomboids'],
@@ -937,6 +996,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Arc bar path from landmine pivot creates a unique resistance curve. Can be done single or double arm.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Inverted Row': {
     primary_muscles: ['trapezius_middle', 'rhomboids', 'latissimus_dorsi'],
@@ -945,6 +1005,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Bodyweight horizontal pull. Feet elevation increases difficulty. Excellent scapular retraction training.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Single-Arm Cable Row': {
     primary_muscles: ['latissimus_dorsi', 'rhomboids', 'trapezius_middle'],
@@ -953,6 +1014,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Unilateral cable row with anti-rotation core demand.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Meadows Row': {
     primary_muscles: ['latissimus_dorsi', 'teres_major', 'trapezius_middle'],
@@ -961,6 +1023,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Landmine row variation with overhand grip perpendicular to the bar. Emphasizes lat stretch and upper back.',
+    stimulus_to_fatigue_ratio: 2,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -973,6 +1036,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Standing barbell press demands full-body stabilization. Primary anterior and lateral deltoid compound movement.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Dumbbell Shoulder Press': {
     primary_muscles: ['anterior_deltoid', 'lateral_deltoid', 'triceps_lateral_head'],
@@ -981,6 +1045,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Independent arms allow natural arc path and increased range of motion vs barbell.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Arnold Press': {
     primary_muscles: ['anterior_deltoid', 'lateral_deltoid', 'triceps_lateral_head'],
@@ -989,6 +1054,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Rotation through the press activates anterior deltoid at the bottom and lateral deltoid at the top.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Machine Shoulder Press': {
     primary_muscles: ['anterior_deltoid', 'lateral_deltoid', 'triceps_lateral_head'],
@@ -997,6 +1063,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Machine-guided overhead press for deltoid isolation without stabilizer demands.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Landmine Press': {
     primary_muscles: ['anterior_deltoid', 'serratus_anterior'],
@@ -1005,6 +1072,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Angled pressing path is shoulder-friendly. Strong serratus anterior activation through scapular upward rotation.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Push Press': {
     primary_muscles: ['anterior_deltoid', 'lateral_deltoid', 'triceps_lateral_head'],
@@ -1013,6 +1081,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '1-0-1',
     functional_description: 'Leg drive initiates the press, allowing heavier loads overhead. Overloads lockout strength.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Dumbbell Lateral Raise': {
     primary_muscles: ['lateral_deltoid'],
@@ -1021,6 +1090,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'abduction', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Primary lateral deltoid isolation. Leading with pinky increases supraspinatus involvement.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Cable Lateral Raise': {
     primary_muscles: ['lateral_deltoid'],
@@ -1029,6 +1099,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'abduction', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Cable provides constant tension through the full range, unlike dumbbells which lose tension at the bottom.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Dumbbell Front Raise': {
     primary_muscles: ['anterior_deltoid'],
@@ -1037,6 +1108,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Direct anterior deltoid isolation. Rarely needed due to heavy pressing providing ample front delt stimulus.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Cable Front Raise': {
     primary_muscles: ['anterior_deltoid'],
@@ -1045,6 +1117,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Cable front raise with constant tension for anterior deltoid isolation.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Upright Row': {
     primary_muscles: ['lateral_deltoid', 'trapezius_upper'],
@@ -1053,6 +1126,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'abduction', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Combined lateral delt and trap exercise. Wider grip reduces impingement risk and emphasizes lateral delt.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Face Pull': {
     primary_muscles: ['posterior_deltoid', 'trapezius_middle', 'rhomboids'],
@@ -1061,6 +1135,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-2-1',
     functional_description: 'External rotation under load targets posterior deltoid and rotator cuff. Essential for shoulder health.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Rear Delt Cable Fly': {
     primary_muscles: ['posterior_deltoid'],
@@ -1069,6 +1144,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Cable reverse fly isolates posterior deltoid with constant tension.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Dumbbell Rear Delt Fly': {
     primary_muscles: ['posterior_deltoid'],
@@ -1077,6 +1153,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Bent-over position targets posterior deltoid through horizontal abduction.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Shrug': {
     primary_muscles: ['trapezius_upper'],
@@ -1085,6 +1162,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'elevation', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '1-2-1',
     functional_description: 'Scapular elevation targets upper trapezius. Pause at top for peak contraction.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1097,6 +1175,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Supinated grip curls. Shoulder-width grip balances both heads; narrow grip emphasizes long head.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Dumbbell Biceps Curl': {
     primary_muscles: ['biceps_brachii_short_head', 'biceps_brachii_long_head'],
@@ -1105,6 +1184,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Allows supination through the curl which maximizes biceps activation vs fixed bar.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Hammer Curl': {
     primary_muscles: ['brachialis', 'brachioradialis', 'biceps_brachii_long_head'],
@@ -1113,6 +1193,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Neutral grip shifts load to brachialis (beneath the biceps) and brachioradialis. Builds arm thickness.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Incline Dumbbell Curl': {
     primary_muscles: ['biceps_brachii_long_head'],
@@ -1121,6 +1202,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '3-1-2',
     functional_description: 'Incline position places the shoulder in extension, stretching the long head of the biceps. Best long head isolation.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Preacher Curl': {
     primary_muscles: ['biceps_brachii_short_head'],
@@ -1129,6 +1211,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Pad fixes the shoulder in flexion, shortening the long head and shifting emphasis to the short (inner) head.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Cable Curl': {
     primary_muscles: ['biceps_brachii_short_head', 'biceps_brachii_long_head'],
@@ -1137,6 +1220,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Cable provides constant tension through full range. Maintains load at the top where dumbbells lose it.',
+    stimulus_to_fatigue_ratio: 5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1149,6 +1233,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'extension', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Elbow at the side position shortens the long head, emphasizing lateral and medial heads.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Overhead Triceps Extension': {
     primary_muscles: ['triceps_long_head'],
@@ -1157,6 +1242,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'extension', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '3-1-2',
     functional_description: 'Overhead position stretches the long head at the shoulder, uniquely targeting it vs pushdown. Only way to fully train long head.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Skull Crusher': {
     primary_muscles: ['triceps_long_head', 'triceps_lateral_head', 'triceps_medial_head'],
@@ -1165,6 +1251,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'extension', exercise_type: 'isolation', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '3-1-1',
     functional_description: 'Lying position allows loading all three heads. Lowering behind head increases long head stretch.',
+    stimulus_to_fatigue_ratio: 4,
   },
   'Parallel Bar Dip': {
     primary_muscles: ['triceps_lateral_head', 'triceps_medial_head', 'triceps_long_head'],
@@ -1173,6 +1260,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Upright torso emphasizes triceps vs forward lean which shifts to chest. Heavy compound triceps movement.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Cable Triceps Kickback': {
     primary_muscles: ['triceps_lateral_head', 'triceps_medial_head'],
@@ -1181,6 +1269,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'extension', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-2-2',
     functional_description: 'Full elbow extension in the stretched position with constant cable tension.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Dumbbell Triceps Kickback': {
     primary_muscles: ['triceps_lateral_head', 'triceps_medial_head'],
@@ -1189,6 +1278,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'extension', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-2-2',
     functional_description: 'Gravity-loaded kickback. Only maximal tension at full extension, unlike cable version.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1201,6 +1291,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Wrist flexion for forearm flexor development and grip strength.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Reverse Wrist Curl': {
     primary_muscles: ['wrist_extensors'],
@@ -1209,6 +1300,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'extension', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Wrist extension for forearm extensor development. Important for elbow tendon health.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Farmer Carry': {
     primary_muscles: ['wrist_flexors', 'trapezius_upper', 'rectus_abdominis'],
@@ -1217,6 +1309,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'carry', exercise_type: 'compound', force_type: 'static', difficulty: 'beginner',
     default_tempo: '0-0-0',
     functional_description: 'Loaded carry for grip endurance, core stability, and trap development under sustained load.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1229,6 +1322,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'anti_extension', exercise_type: 'isometric', force_type: 'static', difficulty: 'beginner',
     default_tempo: '0-0-0',
     functional_description: 'Anti-extension isometric. Trains the core to resist lumbar extension under load.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Side Plank': {
     primary_muscles: ['obliques_external', 'obliques_internal'],
@@ -1237,6 +1331,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'anti_lateral_flexion', exercise_type: 'isometric', force_type: 'static', difficulty: 'beginner',
     default_tempo: '0-0-0',
     functional_description: 'Anti-lateral flexion isometric. Targets obliques and gluteus medius for frontal plane stability.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Dead Bug': {
     primary_muscles: ['rectus_abdominis', 'transverse_abdominis'],
@@ -1245,6 +1340,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'anti_extension', exercise_type: 'isolation', force_type: 'static', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Supine anti-extension drill teaching core bracing while moving limbs. Fundamental motor control exercise.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Bird Dog': {
     primary_muscles: ['erector_spinae', 'rectus_abdominis'],
@@ -1253,6 +1349,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'anti_rotation', exercise_type: 'isolation', force_type: 'static', difficulty: 'beginner',
     default_tempo: '2-2-2',
     functional_description: 'Anti-rotation exercise training contralateral limb coordination and spinal stability.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Hanging Knee Raise': {
     primary_muscles: ['rectus_abdominis', 'hip_flexors'],
@@ -1261,6 +1358,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Hanging position adds grip and lat isometric demand. Knee raise targets lower rectus abdominis.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Hanging Leg Raise': {
     primary_muscles: ['rectus_abdominis', 'hip_flexors'],
@@ -1269,6 +1367,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-2',
     functional_description: 'Straight legs increase lever arm, demanding more rectus abdominis and hip flexor strength than knee raises.',
+    stimulus_to_fatigue_ratio: 4,
   },
   'Cable Crunch': {
     primary_muscles: ['rectus_abdominis'],
@@ -1277,6 +1376,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Loaded spinal flexion for progressive overload on rectus abdominis.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Russian Twist': {
     primary_muscles: ['obliques_external', 'obliques_internal'],
@@ -1285,6 +1385,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'rotation', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '1-0-1',
     functional_description: 'Rotational core exercise targeting obliques through transverse plane movement.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Ab Wheel Rollout': {
     primary_muscles: ['rectus_abdominis', 'transverse_abdominis'],
@@ -1293,6 +1394,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'anti_extension', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '3-0-1',
     functional_description: 'Extreme anti-extension demand as the body extends. One of the highest rectus abdominis activating exercises.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Pallof Press': {
     primary_muscles: ['obliques_external', 'obliques_internal', 'transverse_abdominis'],
@@ -1301,6 +1403,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'anti_rotation', exercise_type: 'isolation', force_type: 'static', difficulty: 'beginner',
     default_tempo: '2-2-2',
     functional_description: 'Anti-rotation exercise using cable resistance. Trains obliques to resist rotational forces.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Cable Pallof Press': {
     primary_muscles: ['obliques_external', 'obliques_internal', 'transverse_abdominis'],
@@ -1309,6 +1412,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'anti_rotation', exercise_type: 'isolation', force_type: 'static', difficulty: 'beginner',
     default_tempo: '2-2-2',
     functional_description: 'Cable-based Pallof press for anti-rotation core training.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Cable Woodchop': {
     primary_muscles: ['obliques_external', 'obliques_internal'],
@@ -1317,6 +1421,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'rotation', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-0-1',
     functional_description: 'Loaded rotational movement through transverse plane. Targets obliques through full range.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Hollow Body Hold': {
     primary_muscles: ['rectus_abdominis', 'transverse_abdominis'],
@@ -1325,6 +1430,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'anti_extension', exercise_type: 'isometric', force_type: 'static', difficulty: 'intermediate',
     default_tempo: '0-0-0',
     functional_description: 'Gymnastic core hold. Full body anti-extension creating total anterior chain tension.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Reverse Crunch': {
     primary_muscles: ['rectus_abdominis'],
@@ -1333,6 +1439,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Posterior pelvic tilt emphasis targets lower portion of rectus abdominis.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Bicycle Crunch': {
     primary_muscles: ['rectus_abdominis', 'obliques_external'],
@@ -1341,6 +1448,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'rotation', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '1-0-1',
     functional_description: 'Combined flexion and rotation for rectus abdominis and oblique training.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Sit-Up': {
     primary_muscles: ['rectus_abdominis', 'hip_flexors'],
@@ -1349,6 +1457,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '1-0-1',
     functional_description: 'Full spinal flexion through sit-up. Hip flexor dominant vs crunches.',
+    stimulus_to_fatigue_ratio: 5,
   },
   'Weighted Sit-Up': {
     primary_muscles: ['rectus_abdominis', 'hip_flexors'],
@@ -1357,6 +1466,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-0-1',
     functional_description: 'Loaded sit-up for progressive overload on rectus abdominis.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1369,6 +1479,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'hinge', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '0-0-0',
     functional_description: 'Ballistic hip hinge. Trains explosive hip extension with power endurance component.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Dumbbell Thruster': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'anterior_deltoid'],
@@ -1377,6 +1488,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'squat', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '1-0-1',
     functional_description: 'Combined front squat to overhead press in one fluid movement. Total body metabolic exercise.',
+    stimulus_to_fatigue_ratio: 2,
   },
   'Barbell Thruster': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'anterior_deltoid'],
@@ -1385,6 +1497,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'squat', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '1-0-1',
     functional_description: 'Barbell thruster for heavier loading. Front squat to press with leg drive.',
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Power Clean': {
     primary_muscles: ['gluteus_maximus', 'biceps_femoris', 'semimembranosus', 'trapezius_upper'],
@@ -1393,6 +1506,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'hinge', exercise_type: 'compound', force_type: 'pull', difficulty: 'advanced',
     default_tempo: '0-0-0',
     functional_description: 'Olympic lift derivative for explosive power development. Triple extension pattern.',
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Hang Power Clean': {
     primary_muscles: ['gluteus_maximus', 'biceps_femoris', 'trapezius_upper'],
@@ -1401,6 +1515,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'hinge', exercise_type: 'compound', force_type: 'pull', difficulty: 'advanced',
     default_tempo: '0-0-0',
     functional_description: 'Starting from the hang position emphasizes the second pull. Reduced technical demand vs full clean.',
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Medicine Ball Slam': {
     primary_muscles: ['rectus_abdominis', 'latissimus_dorsi', 'anterior_deltoid'],
@@ -1409,6 +1524,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '0-0-0',
     functional_description: 'Ballistic full-body flexion pattern for power and conditioning.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Sled Push': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus'],
@@ -1417,6 +1533,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'squat', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '0-0-0',
     functional_description: 'Concentric-only leg training. No eccentric damage, allowing high frequency without excessive soreness.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Sled Pull': {
     primary_muscles: ['biceps_femoris', 'gluteus_maximus', 'latissimus_dorsi'],
@@ -1425,6 +1542,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'hinge', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '0-0-0',
     functional_description: 'Concentric-only posterior chain training. Excellent for recovery days or supplemental conditioning.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1438,6 +1556,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Cyclic lower-body loading. Quads absorb impact eccentrically, calves drive push-off. Moderate hamstring and glute involvement through full gait cycle.',
     cardio_fatigue_factor: 2.5,
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Outdoor Run': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'biceps_femoris', 'gluteus_maximus', 'gastrocnemius_medial', 'gastrocnemius_lateral', 'soleus'],
@@ -1447,6 +1566,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Higher impact than treadmill due to variable terrain. Greater proprioceptive demand on ankle stabilizers. Lateral stability muscles work harder on uneven surfaces.',
     cardio_fatigue_factor: 3.0,
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Shuttle Run': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'gluteus_maximus', 'gastrocnemius_medial', 'gastrocnemius_lateral'],
@@ -1456,6 +1576,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Rapid deceleration and re-acceleration. Heavy eccentric quad loading at each turn. Significant adductor and lateral glute demand from change-of-direction.',
     cardio_fatigue_factor: 3.5,
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Hill Sprints': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'gluteus_maximus', 'gastrocnemius_medial', 'gastrocnemius_lateral', 'soleus'],
@@ -1465,6 +1586,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Maximum concentric force production on each stride against gravity. Extreme calf and glute demand. Highest CNS fatigue of any running variant.',
     cardio_fatigue_factor: 4.0,
+    stimulus_to_fatigue_ratio: 1,
   },
   'Treadmill Intervals': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'biceps_femoris', 'gluteus_maximus', 'gastrocnemius_medial', 'gastrocnemius_lateral'],
@@ -1474,6 +1596,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Alternating high/low intensity. Sprint intervals create higher muscle damage than steady state. Greater type-II fiber recruitment during work intervals.',
     cardio_fatigue_factor: 3.5,
+    stimulus_to_fatigue_ratio: 1,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1487,6 +1610,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Concentric-dominant quad loading with minimal eccentric damage. Low impact makes it excellent active recovery. Saddle position shifts quad vs glute emphasis.',
     cardio_fatigue_factor: 1.5,
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Outdoor Cycling': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'vastus_intermedius', 'gluteus_maximus'],
@@ -1496,6 +1620,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Terrain variation adds upper body stabilization demand. Climbing shifts emphasis to glutes. More varied muscle recruitment than stationary.',
     cardio_fatigue_factor: 2.0,
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Air Bike': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'anterior_deltoid', 'biceps_brachii_short_head'],
@@ -1505,6 +1630,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Dual upper+lower body loading. Fan resistance scales with effort, preventing coasting. Arms push/pull while legs drive — true full-body cardiovascular demand.',
     cardio_fatigue_factor: 3.0,
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Assault Bike Intervals': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'anterior_deltoid', 'biceps_brachii_short_head'],
@@ -1514,6 +1640,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Maximum-effort intervals on fan bike. Among the highest caloric burn rates of any exercise. Extreme cardiovascular and muscular demand simultaneously.',
     cardio_fatigue_factor: 4.0,
+    stimulus_to_fatigue_ratio: 2.5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1527,6 +1654,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Drive phase loads quads and glutes concentrically; pull phase loads lats and biceps. ~60% legs, ~30% back/arms, ~10% core. Low impact, full-body.',
     cardio_fatigue_factor: 2.5,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Rowing Intervals': {
     primary_muscles: ['latissimus_dorsi', 'rhomboids', 'rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'biceps_brachii_short_head'],
@@ -1536,6 +1664,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'High-intensity rowing with work/rest periods. Greater power output per stroke than steady state. Higher type-II fiber recruitment in legs and back.',
     cardio_fatigue_factor: 3.5,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Ski Erg': {
     primary_muscles: ['latissimus_dorsi', 'triceps_long_head', 'triceps_lateral_head', 'rectus_abdominis'],
@@ -1545,6 +1674,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Upper-body-dominant cardio. Powerful lat and tricep pull-down pattern. Core stabilization through hip hinge. Minimal lower body impact — ideal for leg recovery days.',
     cardio_fatigue_factor: 2.5,
+    stimulus_to_fatigue_ratio: 3,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1558,6 +1688,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Zero-impact leg motion. Reduced eccentric component means less muscle damage than running. Arm handles add mild upper body involvement.',
     cardio_fatigue_factor: 1.5,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Elliptical Intervals': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus'],
@@ -1567,6 +1698,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Higher resistance intervals on elliptical. Increased quad and glute loading during work periods while maintaining zero impact.',
     cardio_fatigue_factor: 2.0,
+    stimulus_to_fatigue_ratio: 2,
   },
   'StairMaster': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'gluteus_maximus', 'gluteus_medius', 'gastrocnemius_medial', 'soleus'],
@@ -1576,6 +1708,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Revolving staircase machine. Continuous concentric quad and glute work against gravity. Level-based resistance (1-20). Higher sustained caloric burn than pedal-style stair climbers due to true stepping mechanics.',
     cardio_fatigue_factor: 3.2,
+    stimulus_to_fatigue_ratio: 2,
   },
   'StairMaster Intervals': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'gluteus_maximus', 'gluteus_medius', 'gastrocnemius_medial', 'soleus'],
@@ -1585,6 +1718,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Alternating high/low levels on revolving staircase. Interval protocol creates repeated anaerobic spikes with active recovery. Extreme quad and glute fatigue.',
     cardio_fatigue_factor: 3.8,
+    stimulus_to_fatigue_ratio: 1,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1598,6 +1732,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Full-body aquatic movement. Lat-dominant pull phase, tricep-dominant push phase. Continuous core rotation. Low impact but high shoulder volume — monitor for impingement risk.',
     cardio_fatigue_factor: 2.5,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Swimming (Breaststroke)': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'anterior_deltoid', 'adductors', 'rectus_femoris'],
@@ -1607,6 +1742,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Chest and adductor dominant. Wide arm sweep loads pecs; frog kick loads inner thigh. Lower lat demand than freestyle. Higher knee stress — caution with knee injuries.',
     cardio_fatigue_factor: 2.0,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Swimming (Backstroke)': {
     primary_muscles: ['latissimus_dorsi', 'posterior_deltoid', 'teres_major', 'trapezius_middle'],
@@ -1616,6 +1752,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Posterior-chain dominant pull pattern. Greater posterior deltoid and mid-trap activation than freestyle. Good for shoulder health due to external rotation emphasis.',
     cardio_fatigue_factor: 2.0,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Swimming (Butterfly)': {
     primary_muscles: ['latissimus_dorsi', 'anterior_deltoid', 'pectoralis_major_sternal', 'rectus_abdominis', 'erector_spinae'],
@@ -1625,6 +1762,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Most demanding stroke. Simultaneous bilateral arm recovery over water. Extreme lat, delt, and core demand. Undulating body movement loads entire posterior chain. Very high fatigue.',
     cardio_fatigue_factor: 4.0,
+    stimulus_to_fatigue_ratio: 2.5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1638,6 +1776,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Calf-dominant repetitive impact. Develops elastic energy return in the Achilles tendon. Wrist endurance component. High reps accumulate significant calf fatigue.',
     cardio_fatigue_factor: 2.5,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'High Knees': {
     primary_muscles: ['hip_flexors', 'rectus_femoris', 'rectus_abdominis'],
@@ -1647,6 +1786,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Hip flexor and core dominant. Rapid knee drive develops sprint mechanics. Higher hip flexor fatigue than running due to exaggerated range of motion.',
     cardio_fatigue_factor: 2.0,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Mountain Climbers': {
     primary_muscles: ['rectus_abdominis', 'obliques_external', 'hip_flexors', 'anterior_deltoid'],
@@ -1656,6 +1796,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Plank position with alternating knee drives. Isometric shoulder and chest hold combined with dynamic hip flexion. Core anti-extension under dynamic load.',
     cardio_fatigue_factor: 2.0,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Burpees': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'pectoralis_major_sternal', 'anterior_deltoid', 'triceps_lateral_head'],
@@ -1665,6 +1806,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Full-body metabolic conditioning. Eccentric squat → push-up → concentric jump. Hits every major muscle group. High CNS demand and caloric expenditure.',
     cardio_fatigue_factor: 3.5,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Jumping Jacks': {
     primary_muscles: ['gastrocnemius_medial', 'gastrocnemius_lateral', 'lateral_deltoid'],
@@ -1674,6 +1816,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Low-intensity full-body movement. Shoulder abduction/adduction with leg abduction/adduction. Good warm-up or active recovery.',
     cardio_fatigue_factor: 1.0,
+    stimulus_to_fatigue_ratio: 4,
   },
   'Box Jumps': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'gluteus_maximus', 'gastrocnemius_medial', 'gastrocnemius_lateral'],
@@ -1683,6 +1826,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Explosive concentric power. Triple extension (ankle, knee, hip) develops rate of force development. Landing demands eccentric absorption — step down to reduce impact.',
     cardio_fatigue_factor: 3.0,
+    stimulus_to_fatigue_ratio: 1,
   },
   'Medicine Ball Throws': {
     primary_muscles: ['rectus_abdominis', 'obliques_external', 'anterior_deltoid', 'latissimus_dorsi'],
@@ -1692,6 +1836,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Rotational and linear power development. Wall balls load quads and shoulders; slams load lats and core. Ballistic nature develops rate of force development.',
     cardio_fatigue_factor: 2.0,
+    stimulus_to_fatigue_ratio: 1,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1705,6 +1850,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Upper body endurance with rotational core demand. Shoulders sustain prolonged isometric holds between punches. Footwork loads calves.',
     cardio_fatigue_factor: 1.5,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Heavy Bag Rounds': {
     primary_muscles: ['anterior_deltoid', 'lateral_deltoid', 'triceps_lateral_head', 'pectoralis_major_sternal', 'rectus_abdominis', 'obliques_external'],
@@ -1714,6 +1860,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Full-contact impact training. Punches load shoulders and chest against resistance. High wrist/forearm fatigue. Core rotates to generate power. Significant caloric demand.',
     cardio_fatigue_factor: 3.0,
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Basketball (Pickup)': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'gastrocnemius_medial', 'gastrocnemius_lateral'],
@@ -1723,6 +1870,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Intermittent high-intensity sprinting, jumping, and cutting. High eccentric quad demand from deceleration. Lateral movement stresses adductors and lateral glutes.',
     cardio_fatigue_factor: 3.0,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Soccer (Pickup)': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'gastrocnemius_medial', 'gastrocnemius_lateral', 'biceps_femoris'],
@@ -1732,6 +1880,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Sustained running with sprints, cutting, and kicking. Kicking loads hip flexors and quads eccentrically in the hamstrings. Very high total distance and leg fatigue.',
     cardio_fatigue_factor: 3.5,
+    stimulus_to_fatigue_ratio: 2,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1745,6 +1894,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Shoulder endurance under sustained concentric load. Alternating waves hit unilateral stability. Slams recruit full posterior chain. Extreme metabolic demand.',
     cardio_fatigue_factor: 3.0,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Kettlebell Snatch (Conditioning)': {
     primary_muscles: ['gluteus_maximus', 'biceps_femoris', 'anterior_deltoid', 'trapezius_upper'],
@@ -1754,6 +1904,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Ballistic hip hinge to overhead. Combines posterior chain power with shoulder stability. High-rep sets build grip endurance and cardiovascular capacity simultaneously.',
     cardio_fatigue_factor: 3.5,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Kettlebell Clean & Press (Conditioning)': {
     primary_muscles: ['gluteus_maximus', 'anterior_deltoid', 'triceps_lateral_head', 'trapezius_upper'],
@@ -1763,6 +1914,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Multi-joint complex: hip hinge → rack → press. Each rep demands full kinetic chain coordination. High metabolic cost per rep. Grip and shoulder endurance limiting factors.',
     cardio_fatigue_factor: 3.5,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Sandbag Carry': {
     primary_muscles: ['trapezius_upper', 'erector_spinae', 'rectus_abdominis', 'obliques_external', 'gluteus_maximus'],
@@ -1772,6 +1924,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Unstable load forces constant core bracing. Bear hug position loads biceps and chest isometrically. Walking under load develops trunk stability and conditioning.',
     cardio_fatigue_factor: 3.0,
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Farmer Carry (Conditioning)': {
     primary_muscles: ['trapezius_upper', 'wrist_flexors', 'erector_spinae', 'obliques_external'],
@@ -1781,6 +1934,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Grip endurance and core stability under bilateral load. Traps sustain isometric hold. Anti-lateral flexion core demand. Walking pattern loads calves and glutes.',
     cardio_fatigue_factor: 2.5,
+    stimulus_to_fatigue_ratio: 1,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1794,6 +1948,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Outdoor walking at moderate pace. Lowest-impact cardio. Variable terrain provides mild ankle stabilization demand. Active recovery and general health maintenance.',
     cardio_fatigue_factor: 0.4,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Brisk Walk': {
     primary_muscles: ['gastrocnemius_medial', 'soleus', 'gluteus_maximus'],
@@ -1803,6 +1958,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Low-impact aerobic activity. Promotes blood flow to muscles without creating meaningful fatigue. Active recovery tool that supports, not hinders, strength training.',
     cardio_fatigue_factor: 0.5,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Power Walk': {
     primary_muscles: ['gluteus_maximus', 'gastrocnemius_medial', 'soleus', 'hip_flexors'],
@@ -1812,6 +1968,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'High-intensity walking with exaggerated arm drive and stride length. Greater glute and calf activation than casual walking. Shoulder muscles contribute via arm swing. Bridges gap between walking and jogging.',
     cardio_fatigue_factor: 0.8,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Treadmill Walk': {
     primary_muscles: ['gastrocnemius_medial', 'soleus', 'gluteus_maximus'],
@@ -1821,6 +1978,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Flat treadmill walking. Controlled pace and environment. Lowest-fatigue treadmill option. Suitable for active recovery or warm-up.',
     cardio_fatigue_factor: 0.3,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Incline Treadmill Walk': {
     primary_muscles: ['gluteus_maximus', 'gluteus_medius', 'gastrocnemius_medial', 'soleus'],
@@ -1830,6 +1988,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Incline shifts emphasis to glutes and calves vs flat walking. Significant caloric burn at steep grades without the joint impact of running. Popular LISS cardio.',
     cardio_fatigue_factor: 1.0,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Weighted Walk (Ruck)': {
     primary_muscles: ['gluteus_maximus', 'gastrocnemius_medial', 'soleus', 'trapezius_upper', 'erector_spinae'],
@@ -1839,6 +1998,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Walking under external load (backpack/vest). Traps and spinal erectors sustain isometric hold. Core must brace against shifting load. Combines cardiovascular conditioning with loaded carry benefits.',
     cardio_fatigue_factor: 1.8,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Treadmill Walk Intervals': {
     primary_muscles: ['gluteus_maximus', 'gluteus_medius', 'gastrocnemius_medial', 'soleus', 'rectus_femoris'],
@@ -1848,6 +2008,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Alternating incline and/or speed intervals while walking. Intermittent glute-emphasis periods from incline spikes. Higher fatigue than steady-state walking without running impact.',
     cardio_fatigue_factor: 1.2,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Hiking': {
     primary_muscles: ['gluteus_maximus', 'gluteus_medius', 'rectus_femoris', 'vastus_lateralis', 'gastrocnemius_medial', 'soleus'],
@@ -1857,6 +2018,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Variable terrain walking. Downhill segments create significant eccentric quad loading. Ankle stabilization demand from uneven surfaces. Duration-dependent fatigue.',
     cardio_fatigue_factor: 2.0,
+    stimulus_to_fatigue_ratio: 3.5,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1870,6 +2032,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Active recovery through sustained holds and mobility. Promotes blood flow, reduces cortisol, improves joint ROM. Zero fatigue cost — enhances recovery.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Stretching (Full Body)': {
     primary_muscles: ['hip_flexors', 'biceps_femoris', 'rectus_femoris', 'gastrocnemius_medial', 'pectoralis_major_sternal'],
@@ -1879,6 +2042,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Passive or active stretching targeting major muscle groups. Improves flexibility and reduces perceived soreness. No meaningful fatigue — pure recovery.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Foam Rolling': {
     primary_muscles: [],
@@ -1888,6 +2052,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Self-myofascial release. Targets specific muscles with pressure to reduce adhesions and improve blood flow. Applied to whatever muscles are sore.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 5,
   },
   'Mobility (Hips)': {
     primary_muscles: ['hip_flexors', 'gluteus_maximus', 'gluteus_medius', 'adductors'],
@@ -1897,6 +2062,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Targeted hip joint mobility work. 90/90 rotations, pigeon stretches, hip CARs. Improves squat depth and reduces hip impingement risk.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 5,
   },
   'Mobility (Shoulders)': {
     primary_muscles: ['rotator_cuff', 'anterior_deltoid', 'posterior_deltoid', 'trapezius_upper'],
@@ -1906,6 +2072,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Shoulder joint CARs, wall slides, band pull-aparts. Improves overhead ROM and reduces impingement risk. Essential for pressing longevity.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 5,
   },
   'Sauna': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1913,6 +2080,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Heat exposure promotes blood flow, reduces inflammation, and enhances recovery through increased growth hormone release.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Infrared Sauna': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1920,6 +2088,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Deep-penetrating infrared heat. Lower ambient temperature than traditional sauna with similar systemic recovery benefits.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 1.5,
   },
   'Steam Room': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1927,6 +2096,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Moist heat promotes vasodilation and muscle relaxation. Aids in clearing respiratory pathways.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Hot Tub': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1934,6 +2104,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Warm water immersion with jet massage. Reduces muscle soreness and joint stiffness.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Cold Plunge': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1941,6 +2112,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Cold water immersion reduces inflammation, decreases DOMS, and enhances parasympathetic recovery. 2-5 minute protocols.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Cold Shower': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1948,6 +2120,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Accessible cold exposure. Less intense than cold plunge but still activates cold shock response and norepinephrine release.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Contrast Therapy': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1955,6 +2128,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Alternating hot/cold exposure. Vascular pumping effect enhances blood flow to damaged tissues.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Breathwork': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1962,6 +2136,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Controlled breathing protocols. Activates parasympathetic nervous system, reduces cortisol, improves HRV.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 5,
   },
   'Meditation': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1969,6 +2144,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Mental recovery through mindfulness or guided meditation. Reduces stress hormones and improves sleep quality.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 5,
   },
   'Massage Gun': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1976,6 +2152,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Percussive therapy targeting specific muscles. Reduces soreness and improves short-term range of motion.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Sports Massage': {
     primary_muscles: [], secondary_muscles: [], stabilizer_muscles: [],
@@ -1983,6 +2160,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Professional manual therapy targeting trigger points and fascial adhesions. Enhances recovery between training blocks.',
     cardio_fatigue_factor: 0,
+    stimulus_to_fatigue_ratio: 2,
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1997,6 +2175,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Generic bench press. Horizontal pressing — sternal pec is primary mover; triceps assist lockout.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Bicep Curls': {
     primary_muscles: ['biceps_brachii_short_head', 'biceps_brachii_long_head'],
@@ -2005,6 +2184,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Generic bicep curl. Supinated grip elbow flexion targeting both heads of the biceps.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Chest Fly': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular'],
@@ -2013,6 +2193,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Generic chest fly. Horizontal adduction isolating the pectorals through full range of motion.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Cycling': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'vastus_intermedius', 'gluteus_maximus'],
@@ -2022,6 +2203,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Generic cycling. Quad-dominant pedaling with glute engagement at power phase. Low impact cardiovascular conditioning.',
     cardio_fatigue_factor: 2.0,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Deadlifts': {
     primary_muscles: ['gluteus_maximus', 'biceps_femoris', 'semimembranosus', 'semitendinosus', 'erector_spinae'],
@@ -2030,6 +2212,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'hinge', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Generic deadlift. Maximum posterior chain loading with significant erector spinae demand. Highest systemic fatigue of any exercise.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Lateral Raises': {
     primary_muscles: ['lateral_deltoid'],
@@ -2038,6 +2221,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'abduction', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Generic lateral raise. Shoulder abduction isolating the lateral deltoid.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Leg Curls': {
     primary_muscles: ['biceps_femoris', 'semimembranosus', 'semitendinosus'],
@@ -2046,6 +2230,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'flexion', exercise_type: 'isolation', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Generic leg curl. Knee flexion isolation targeting the hamstring group.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Leg Extensions': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'vastus_intermedius'],
@@ -2054,6 +2239,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'extension', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Generic leg extension. Pure knee extension isolation targeting all four quadricep heads.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Lunges': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'gluteus_maximus'],
@@ -2062,6 +2248,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'lunge', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '1-0-1',
     functional_description: 'Generic lunge. Unilateral lower-body compound combining quad and glute stimulus with balance demands.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Pull-ups': {
     primary_muscles: ['latissimus_dorsi', 'teres_major', 'biceps_brachii_short_head', 'biceps_brachii_long_head'],
@@ -2070,6 +2257,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Generic pull-up. Pronated grip vertical pull emphasizing lats with significant bicep involvement.',
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Push-ups': {
     primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'triceps_lateral_head'],
@@ -2078,6 +2266,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
     default_tempo: '2-1-1',
     functional_description: 'Generic push-up. Bodyweight horizontal press with serratus engagement via scapular protraction.',
+    stimulus_to_fatigue_ratio: 4.5,
   },
   'Rowing': {
     primary_muscles: ['latissimus_dorsi', 'rhomboids', 'rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'biceps_brachii_short_head'],
@@ -2087,6 +2276,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Generic rowing. Full-body cardio — drive phase loads quads/glutes, pull phase loads lats/biceps. Low impact.',
     cardio_fatigue_factor: 2.5,
+    stimulus_to_fatigue_ratio: 2,
   },
   'Rows': {
     primary_muscles: ['latissimus_dorsi', 'trapezius_middle', 'rhomboids'],
@@ -2095,6 +2285,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'horizontal_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'beginner',
     default_tempo: '2-1-2',
     functional_description: 'Generic row. Horizontal pulling targeting lats, mid-traps, and rhomboids.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Running': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'biceps_femoris', 'gluteus_maximus', 'gastrocnemius_medial', 'gastrocnemius_lateral', 'soleus'],
@@ -2104,6 +2295,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Generic running. Full lower-body cardio with significant calf and quad demand. High impact.',
     cardio_fatigue_factor: 3.0,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Shoulder Press': {
     primary_muscles: ['anterior_deltoid', 'lateral_deltoid', 'triceps_lateral_head', 'triceps_medial_head'],
@@ -2112,6 +2304,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'vertical_push', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Generic shoulder press. Vertical pressing compound targeting anterior and lateral deltoids.',
+    stimulus_to_fatigue_ratio: 3,
   },
   'Squats': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'vastus_intermedius', 'gluteus_maximus'],
@@ -2120,6 +2313,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'squat', exercise_type: 'compound', force_type: 'push', difficulty: 'intermediate',
     default_tempo: '2-1-1',
     functional_description: 'Generic squat. Full quad recruitment with significant glute loading at depth.',
+    stimulus_to_fatigue_ratio: 3.5,
   },
   'Swimming': {
     primary_muscles: ['latissimus_dorsi', 'anterior_deltoid', 'triceps_long_head', 'triceps_lateral_head'],
@@ -2129,6 +2323,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '0-0-0',
     functional_description: 'Generic swimming. Full-body aquatic movement — lat-dominant pull, continuous core rotation. Low impact, high shoulder volume.',
     cardio_fatigue_factor: 2.5,
+    stimulus_to_fatigue_ratio: 2.5,
   },
   'Tricep Extensions': {
     primary_muscles: ['triceps_long_head'],
@@ -2137,6 +2332,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     movement_pattern: 'extension', exercise_type: 'isolation', force_type: 'push', difficulty: 'beginner',
     default_tempo: '3-1-2',
     functional_description: 'Generic tricep extension. Elbow extension isolation primarily targeting the long head.',
+    stimulus_to_fatigue_ratio: 3,
   },
 };
 
@@ -2162,4 +2358,55 @@ export function getExerciseMapping(name: string): ExerciseMapping | undefined {
   if (aliased && EXERCISE_MUSCLE_MAP[aliased]) return EXERCISE_MUSCLE_MAP[aliased];
   return Object.entries(EXERCISE_MUSCLE_MAP)
     .find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
+}
+
+/**
+ * Compute stimulus-to-fatigue ratio for an exercise.
+ *
+ * If the mapping has an explicit value, use it. Otherwise, derive from
+ * exercise metadata using research-based heuristics:
+ *
+ * Sources:
+ *   - Helms et al. (2014) — Muscle & Strength Pyramids
+ *   - Israetel et al. (2019) — Scientific Principles of Hypertrophy Training
+ *   - Krieger (2010) — meta-analysis on volume and muscle growth
+ *
+ * Scale: 1 (high fatigue per unit stimulus) to 5 (low fatigue per unit stimulus)
+ */
+export function getExerciseSFR(name: string): number {
+  const mapping = getExerciseMapping(name);
+  if (!mapping) return 3;
+  if (mapping.stimulus_to_fatigue_ratio != null) return mapping.stimulus_to_fatigue_ratio;
+
+  const baseSFR: Record<string, number> = {
+    compound: 2, isolation: 4, isometric: 4, cardio: 3, recovery: 5,
+  };
+  let sfr = baseSFR[mapping.exercise_type] ?? 3;
+  const n = name.toLowerCase();
+
+  if (n.includes('machine') || n.includes('cable') || n.includes('pec deck')
+      || n.includes('lat pulldown') || n.includes('leg press')
+      || n.includes('leg extension') || n.includes('leg curl')
+      || n.includes('hip abduction') || n.includes('hip adduction')
+      || n.includes('smith machine')) sfr += 1;
+
+  if (n.includes('push-up') || n.includes('bodyweight') || n.includes('plank')
+      || n.includes('dead bug') || n.includes('bird dog')
+      || n.includes('hollow body') || n.includes('sit-up')
+      || n.includes('crunch')) sfr += 0.5;
+
+  if ((n.includes('barbell') || n.includes('conventional') || n.includes('sumo'))
+      && (mapping.movement_pattern === 'squat' || mapping.movement_pattern === 'hinge'
+          || n.includes('deadlift') || n.includes('squat')
+          || n.includes('good morning'))) sfr -= 0.5;
+
+  if (mapping.difficulty === 'advanced') sfr -= 0.5;
+  if (mapping.difficulty === 'beginner') sfr += 0.5;
+
+  if (Array.isArray(mapping.stabilizer_muscles) && mapping.stabilizer_muscles.length >= 4) sfr -= 0.5;
+
+  if (n === 'conventional deadlift' || n === 'sumo deadlift' || n === 'deficit deadlift') sfr = 1;
+  if (n === 'barbell back squat' || n === 'barbell front squat') sfr = 1.5;
+
+  return Math.max(1, Math.min(5, Math.round(sfr * 2) / 2));
 }

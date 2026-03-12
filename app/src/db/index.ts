@@ -55,7 +55,11 @@ export async function bulkAddExercises(exercises: any[]) {
 
 export async function getExercisesByBodyPart(bodyPart: string) {
   const db = await getDB()
-  return db.getAllFromIndex('exercises', 'bodyPart', bodyPart)
+  const normalized = (bodyPart || '').toLowerCase()
+  const exact = await db.getAllFromIndex('exercises', 'bodyPart', bodyPart)
+  if (exact.length > 0) return exact
+  const all = await db.getAll('exercises')
+  return all.filter((e: any) => (e.bodyPart || '').toLowerCase() === normalized)
 }
 
 export async function getAllTemplates() {

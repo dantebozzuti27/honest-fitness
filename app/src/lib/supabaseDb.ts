@@ -1500,7 +1500,7 @@ export async function getDetailedBodyPartStats(userId: string) {
   const workouts = await getWorkoutsFromSupabase(userId)
   const stats: Record<string, any> = {}
   
-  const bodyParts = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Core', 'Legs', 'Cardio', 'Recovery']
+  const bodyParts = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'core', 'legs', 'cardio', 'recovery', 'arms', 'full_body']
   
   bodyParts.forEach(bp => {
     stats[bp] = {
@@ -1512,17 +1512,15 @@ export async function getDetailedBodyPartStats(userId: string) {
     }
   })
   
-  // Process all workouts (already filtered by getWorkoutsFromSupabase)
   workouts.forEach((w: any) => {
     w.workout_exercises?.forEach((ex: any) => {
-      // ONLY count exercises with valid sets data (double-check)
       const setsArr = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
       const hasValidSets = setsArr.length > 0 && 
         setsArr.some((s: any) => s.weight || s.reps || s.time)
       
       if (!hasValidSets) return
       
-      const bp = ex.body_part || 'Other'
+      const bp = (ex.body_part || 'other').toLowerCase()
       if (!stats[bp]) return
       
       // Track dates

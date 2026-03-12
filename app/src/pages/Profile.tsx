@@ -1251,6 +1251,20 @@ export default function Profile() {
               </div>
             </section>
 
+            {/* How It Works */}
+            <section style={{ padding: '16px', margin: '0 16px 16px' }}>
+              <Button variant="secondary" onClick={() => navigate('/how-it-works')} style={{ width: '100%' }}>
+                How the Model Works
+              </Button>
+            </section>
+
+            {/* ML Pipeline Dashboard */}
+            <section style={{ padding: '16px', margin: '0 16px 16px' }}>
+              <Button variant="secondary" onClick={() => navigate('/model')} style={{ width: '100%' }}>
+                ML Pipeline Dashboard
+              </Button>
+            </section>
+
             {/* Sign Out */}
             <section style={{ padding: '16px', margin: '0 16px 16px' }}>
               <Button variant="secondary" onClick={handleLogout} style={{ width: '100%' }}>

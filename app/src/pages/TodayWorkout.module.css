@@ -676,6 +676,44 @@
   border: 1px solid var(--border);
 }
 
+/* Why? Section */
+.whySection {
+  margin-top: 12px;
+  margin-bottom: 4px;
+  background: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.whyToggle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.whyContent {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.whyLabel {
+  font-weight: 600;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  margin-top: 8px;
+  margin-bottom: 2px;
+}
+
+.whyFactor {
+  padding: 2px 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 /* Session Controls */
 .sessionControls {
   background: var(--bg-secondary);
@@ -842,6 +880,42 @@
 }
 .swapBtn:hover { background: var(--surface-tertiary, #e0e0e0); }
 .swapBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Why? Decision Breakdown */
+.whySection {
+  margin-top: 10px;
+  background: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.whyToggle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  user-select: none;
+}
+.whyBody {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.whyLabel {
+  font-weight: 600;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  margin-top: 8px;
+  margin-bottom: 2px;
+}
+.whyFactor {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 30%, transparent);
+  font-size: 11px;
+}
+.whyFactor:last-child { border-bottom: none; }
 
 /* Actions */
 .actions {

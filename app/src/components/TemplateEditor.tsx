@@ -97,7 +97,7 @@ export default function TemplateEditor({
   }, [editingTemplate])
 
   const handleAddExercise = (exercise: any) => {
-    const meta = allExercises.find(e => e?.name === exercise?.name) || {}
+    const meta = allExercises.find(e => (e?.name || '').toLowerCase() === (exercise?.name || '').toLowerCase()) || {}
     const isCardio = meta?.category === 'Cardio'
     const isRecovery = meta?.category === 'Recovery'
     const defaultSets = (isCardio || isRecovery) ? 1 : 4

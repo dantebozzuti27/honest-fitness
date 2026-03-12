@@ -23,6 +23,7 @@
 import { requireSupabase } from './supabase';
 import { DEFAULT_MODEL_CONFIG } from './modelConfig';
 import { MUSCLE_HEAD_TO_GROUP, VOLUME_GUIDELINES, SYNERGIST_FATIGUE } from './volumeGuidelines';
+import { getAllConnectedAccounts } from './wearables';
 import {
   computeAllRecoveryStatuses,
   exercisesToMuscleGroupRecords,
@@ -448,6 +449,17 @@ export interface TrainingProfile {
   avgSessionDuration: number;
   trainingAgeDays: number;
   consistencyScore: number;
+
+  /** Per-muscle-group training frequency (sessions/week over last 14 days) */
+  muscleGroupFrequency: Record<string, number>;
+
+  /** LLM pattern observations from recent workouts (last 30 days) */
+  llmPatternObservations: Array<{ pattern: string; suggestion: string; confidence: string }>;
+
+  /** D2.1 — Data Collection summary fields */
+  totalWorkoutCount: number;
+  healthDataDays: number;
+  connectedWearables: string[];
 }
 
 export interface GoalProgress {
@@ -569,8 +581,7 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
   const supabase = requireSupabase();
   const since = new Date();
   since.setDate(since.getDate() - days);
-  // Use local date, not UTC — toISOString() returns UTC which shifts by 1 day in US timezones
-  const sinceStr = `${since.getFullYear()}-${String(since.getMonth() + 1).padStart(2, '0')}-${String(since.getDate()).padStart(2, '0')}`;
+  const sinceStr = localDateStr(since);
 
   const isColumnError = (e: any) => e?.code === 'PGRST204' || (e && e.message?.includes('column'));
 
@@ -651,7 +662,7 @@ async function fetchHealthHistory(userId: string, days: number = 120): Promise<H
   const supabase = requireSupabase();
   const since = new Date();
   since.setDate(since.getDate() - days);
-  const sinceStr = `${since.getFullYear()}-${String(since.getMonth() + 1).padStart(2, '0')}-${String(since.getDate()).padStart(2, '0')}`;
+  const sinceStr = localDateStr(since);
 
   // Try with extended columns first; fall back to base columns if migration hasn't run
   let { data, error } = await supabase
@@ -788,6 +799,21 @@ function dateAwareSlopePerDay(entries: { date: string; value: number }[]): numbe
   return (n * sumXY - sumX * sumY) / denom;
 }
 
+/**
+ * Normalizes sleep_duration to hours.
+ * Fitbit stores minutesAsleep (e.g. 420 for 7h); manual entry stores hours (e.g. 7.5).
+ * The cleaning pipeline is bypassed in both paths, so the DB has mixed units.
+ * Heuristic: any value > 24 is almost certainly minutes (nobody sleeps > 24 hours).
+ */
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function normalizeSleepHours(val: number | null | undefined): number | null {
+  if (val == null) return null;
+  return val > 24 ? val / 60 : val;
+}
+
 function mean(arr: number[]): number {
   if (arr.length === 0) return 0;
   return arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -885,12 +911,13 @@ function computePerformanceDeltas(
 
     const prevDate = new Date(workout.date + 'T12:00:00');
     prevDate.setDate(prevDate.getDate() - 1);
-    const prevDateStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
+    const prevDateStr = localDateStr(prevDate);
     const health = healthByDate.get(workout.date);
     const prevHealth = healthByDate.get(prevDateStr);
 
-    const sleepDelta = health?.sleep_duration != null && healthBaselines.sleep > 0
-      ? (health.sleep_duration - healthBaselines.sleep) / healthBaselines.sleep
+    const sleepHrs = normalizeSleepHours(health?.sleep_duration);
+    const sleepDelta = sleepHrs != null && healthBaselines.sleep > 0
+      ? (sleepHrs - healthBaselines.sleep) / healthBaselines.sleep
       : null;
     const hrvDelta = health?.hrv != null && healthBaselines.hrv > 0
       ? (health.hrv - healthBaselines.hrv) / healthBaselines.hrv
@@ -1232,7 +1259,7 @@ function computeDeloadRecommendation(
   // Use 21-day DATE window (not record count) to avoid sparse data spanning months
   const cutoff21 = new Date();
   cutoff21.setDate(cutoff21.getDate() - 21);
-  const cutoff21Str = cutoff21.toISOString().split('T')[0];
+  const cutoff21Str = localDateStr(cutoff21);
   const recent21 = health.filter(h => h.date >= cutoff21Str);
   if (recent21.length >= 10) {
     const hrvs = recent21.filter(h => h.hrv != null).map(h => h.hrv!);
@@ -1253,7 +1280,7 @@ function computeDeloadRecommendation(
       }
     }
 
-    const sleeps = recent21.filter(h => h.sleep_duration != null).map(h => h.sleep_duration!);
+    const sleeps = recent21.filter(h => h.sleep_duration != null).map(h => normalizeSleepHours(h.sleep_duration)!);
     if (sleeps.length >= 10) {
       const sleepSlope = linearRegressionSlope(sleeps);
       const sleepMean = mean(sleeps);
@@ -1603,7 +1630,7 @@ function computeMuscleVolumeStatuses(
   const weekBuckets: Record<string, Record<number, number>> = {};
 
   for (const w of recentWorkouts) {
-    const weekIdx = Math.floor(daysBetween(w.date, fourWeeksAgo.toISOString().split('T')[0]) / 7);
+    const weekIdx = Math.floor(daysBetween(w.date, localDateStr(fourWeeksAgo)) / 7);
 
     for (const ex of w.workout_exercises) {
       const muscles = exerciseToMuscles.get(ex.exercise_name.toLowerCase());
@@ -1666,7 +1693,7 @@ function computeMuscleVolumeStatuses(
     else volumeTrend = 'stable';
 
     const lt = lastTrained[guide.muscleGroup];
-    const daysSince = lt ? daysBetween(now.toISOString().split('T')[0], lt) : Infinity;
+    const daysSince = lt ? daysBetween(localDateStr(now), lt) : Infinity;
 
     return {
       muscleGroup: guide.muscleGroup,
@@ -2163,7 +2190,7 @@ function computeHealthPercentiles(
   }
 
   // Sleep
-  const sleepVals = recent.filter(h => h.sleep_duration != null).map(h => h.sleep_duration! / 60);
+  const sleepVals = recent.filter(h => h.sleep_duration != null).map(h => normalizeSleepHours(h.sleep_duration)!);
   if (sleepVals.length >= 3) {
     const avg = sleepVals.reduce((s, v) => s + v, 0) / sleepVals.length;
     const norms = SLEEP_NORMS[ageGroup];
@@ -3146,8 +3173,8 @@ function computeRolling30DayTrends(
   exercises: EnrichedExercise[],
   exerciseProgressions: ExerciseProgression[]
 ): Rolling30DayTrends {
-  const today = new Date().toISOString().split('T')[0];
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000).toISOString().split('T')[0];
+  const today = localDateStr(new Date());
+  const thirtyDaysAgo = localDateStr(new Date(Date.now() - 30 * 86400_000));
 
   const recentHealth = health.filter(h => h.date >= thirtyDaysAgo && h.date <= today)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -3156,7 +3183,7 @@ function computeRolling30DayTrends(
 
   // Health metric trends — extract dates alongside values for date-aware regression
   const sleepEntries = recentHealth.filter(h => h.sleep_duration != null);
-  const sleepValues = sleepEntries.map(h => h.sleep_duration!);
+  const sleepValues = sleepEntries.map(h => normalizeSleepHours(h.sleep_duration)!);
   const sleepDates = sleepEntries.map(h => h.date);
   const hrvEntries = recentHealth.filter(h => h.hrv != null);
   const hrvValues = hrvEntries.map(h => h.hrv!);
@@ -3372,9 +3399,9 @@ function computeCumulativeSleepDebt(health: HealthRecord[]): TrainingProfile['cu
     return { rolling3dAvgHours: null, rolling7dAvgHours: null, sleepDebt3d: null, sleepDebt7d: null, recoveryModifier: 1.0 };
   }
 
-  const recent3 = sorted.slice(0, 3).map(h => h.sleep_duration!);
-  const recent7 = sorted.slice(0, 7).map(h => h.sleep_duration!);
-  const baseline30 = sorted.slice(0, 30).map(h => h.sleep_duration!);
+  const recent3 = sorted.slice(0, 3).map(h => normalizeSleepHours(h.sleep_duration)!);
+  const recent7 = sorted.slice(0, 7).map(h => normalizeSleepHours(h.sleep_duration)!);
+  const baseline30 = sorted.slice(0, 30).map(h => normalizeSleepHours(h.sleep_duration)!);
 
   const avg3 = recent3.reduce((a, b) => a + b, 0) / recent3.length;
   const avg7 = recent7.reduce((a, b) => a + b, 0) / recent7.length;
@@ -3408,7 +3435,7 @@ function computeExerciseRotation(
   const exerciseMap = new Map<string, { weeks: Set<number>; lastSeen: string; type: string }>();
 
   for (const w of sorted) {
-    const weekNum = Math.floor(daysBetween(w.date, now.toISOString().split('T')[0]) / 7);
+    const weekNum = Math.floor(daysBetween(w.date, localDateStr(now)) / 7);
     if (weekNum > 12) break; // only look at last 12 weeks
 
     for (const ex of w.workout_exercises) {
@@ -3535,11 +3562,17 @@ function computeImbalanceAlerts(volumeStatuses: MuscleVolumeStatus[]): Imbalance
 
 export async function computeTrainingProfile(userId: string): Promise<TrainingProfile> {
   const supabase = requireSupabase();
-  const [workouts, health, exercises, prefsResult] = await Promise.all([
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+  const [workouts, health, exercises, prefsResult, feedbackResult, connectedAccounts] = await Promise.all([
     fetchWorkoutHistory(userId),
     fetchHealthHistory(userId),
     fetchEnrichedExercises(),
     supabase.from('user_preferences').select('*').eq('user_id', userId).maybeSingle(),
+    supabase.from('model_feedback').select('feedback_data')
+      .eq('user_id', userId).eq('feedback_type', 'pattern_observation')
+      .gte('created_at', thirtyDaysAgo).order('created_at', { ascending: false }).limit(10)
+      .then(r => r).catch(() => ({ data: null, error: null })),
+    getAllConnectedAccounts(userId).catch(() => [] as any[]),
   ]);
   const userGender = prefsResult?.data?.gender ?? null;
   const userRecoverySpeed = prefsResult?.data?.recovery_speed != null ? Number(prefsResult.data.recovery_speed) : 1.0;
@@ -3560,7 +3593,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
 
   // Compute baselines (30-day averages)
   const last30 = health.slice(-30);
-  const sleepVals = last30.filter(h => h.sleep_duration != null).map(h => h.sleep_duration!);
+  const sleepVals = last30.filter(h => h.sleep_duration != null).map(h => normalizeSleepHours(h.sleep_duration)!);
   const hrvVals = last30.filter(h => h.hrv != null).map(h => h.hrv!);
   const rhrVals = last30.filter(h => h.resting_heart_rate != null).map(h => h.resting_heart_rate!);
   const stepsVals = last30.filter(h => h.steps != null).map(h => h.steps!);
@@ -3582,7 +3615,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   // Recovery context from most recent data
   const lastHealth = health.length > 0 ? health[health.length - 1] : null;
   const recoveryCtx: RecoveryContext = {
-    sleepDurationLastNight: lastHealth?.sleep_duration ?? null,
+    sleepDurationLastNight: normalizeSleepHours(lastHealth?.sleep_duration) ?? null,
     sleepBaseline30d: baselines.sleep || null,
     hrvLastNight: lastHealth?.hrv ?? null,
     hrvBaseline30d: baselines.hrv || null,
@@ -3663,13 +3696,13 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   // Global stats
   const trainingDates = [...new Set(workouts.map(w => w.date))];
   const last4Weeks = trainingDates.filter(
-    d => daysBetween(d, new Date().toISOString().split('T')[0]) <= 28
+    d => daysBetween(d, localDateStr(new Date())) <= 28
   );
   const trainingFrequency = last4Weeks.length / 4;
   const durations = workouts.filter(w => w.duration).map(w => w.duration!);
   const avgSessionDuration = mean(durations);
   const trainingAgeDays = workouts.length > 0
-    ? daysBetween(workouts[0].date, new Date().toISOString().split('T')[0])
+    ? daysBetween(workouts[0].date, localDateStr(new Date()))
     : 0;
 
   // Consistency: count weeks with 0 workouts in last 12 weeks
@@ -3679,13 +3712,38 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     weekStart.setDate(weekStart.getDate() - (i + 1) * 7);
     const weekEnd = new Date();
     weekEnd.setDate(weekEnd.getDate() - i * 7);
-    const weekStartStr = weekStart.toISOString().split('T')[0];
-    const weekEndStr = weekEnd.toISOString().split('T')[0];
+    const weekStartStr = localDateStr(weekStart);
+    const weekEndStr = localDateStr(weekEnd);
     const hasWorkout = trainingDates.some(d => d >= weekStartStr && d < weekEndStr);
     last12Weeks.push(hasWorkout);
   }
   const weeksWithWorkouts = last12Weeks.filter(Boolean).length;
   const consistencyScore = weeksWithWorkouts / 12;
+
+  // Per-muscle-group training frequency (sessions/week over last 14 days)
+  // Used by the engine to derive per-session volume ceilings: weeklyTarget / frequency
+  const exToGroups = new Map<string, string[]>();
+  for (const ex of exercises) {
+    const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+      .map((m: string) => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+    if (groups.length > 0) exToGroups.set((ex.name ?? '').toLowerCase(), [...new Set(groups)]);
+  }
+  const muscleGroupFrequency: Record<string, number> = {};
+  const twoWeeksAgo = localDateStr(new Date(Date.now() - 14 * 86400000));
+  const recentWorkouts14d = workouts.filter(w => w.date >= twoWeeksAgo);
+  for (const w of recentWorkouts14d) {
+    const groupsThisSession = new Set<string>();
+    for (const ex of (w.exercises ?? [])) {
+      const groups = exToGroups.get((ex.exercise_name ?? '').toLowerCase());
+      if (groups) for (const g of groups) groupsThisSession.add(g);
+    }
+    for (const g of groupsThisSession) {
+      muscleGroupFrequency[g] = (muscleGroupFrequency[g] ?? 0) + 1;
+    }
+  }
+  for (const g of Object.keys(muscleGroupFrequency)) {
+    muscleGroupFrequency[g] = Math.round((muscleGroupFrequency[g] / 2) * 10) / 10;
+  }
 
   // Pre-compute values needed by athlete profile
   const imbalanceAlerts = computeImbalanceAlerts(muscleVolumeStatuses);
@@ -3712,6 +3770,11 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     plateauDetections,
     age: userAge,
   });
+
+  // D2.1 — Data Collection summary
+  const totalWorkoutCount = workouts.length;
+  const healthDataDays = new Set(health.map(h => h.date)).size;
+  const connectedWearables = (connectedAccounts ?? []).map((a: any) => a.provider as string);
 
   return {
     userId,
@@ -3785,6 +3848,14 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     avgSessionDuration: Math.round(avgSessionDuration),
     trainingAgeDays: Math.round(trainingAgeDays),
     consistencyScore: Math.round(consistencyScore * 100) / 100,
+    muscleGroupFrequency,
+    llmPatternObservations: (feedbackResult?.data ?? [])
+      .map((r: any) => r.feedback_data)
+      .filter((d: any) => d && typeof d.pattern === 'string'),
+
+    totalWorkoutCount,
+    healthDataDays,
+    connectedWearables,
   };
 }
 
@@ -4424,7 +4495,7 @@ function computeHrvIntensityModifier(health: HealthRecord[]): TrainingProfile['h
   const hrvRecords = health.filter(h => h.hrv != null).sort((a, b) => a.date.localeCompare(b.date));
   if (hrvRecords.length < 5) return defaultResult;
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateStr(new Date());
   const last7 = hrvRecords.filter(h => daysBetween(h.date, todayStr) <= 7);
   if (last7.length < 5) {
     // Fall back to the last 5 HRV readings regardless of date
@@ -4654,8 +4725,8 @@ function computeMovementPatternFatigue(
   exercises: EnrichedExercise[],
 ): TrainingProfile['movementPatternFatigue'] {
   const now = Date.now();
-  const todayStr = new Date().toISOString().split('T')[0];
-  const oneWeekAgoStr = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const todayStr = localDateStr(new Date());
+  const oneWeekAgoStr = localDateStr(new Date(now - 7 * 24 * 60 * 60 * 1000));
 
   const allPatterns = Object.keys(MOVEMENT_PATTERN_MAP);
   const patternLastTrained = new Map<string, string>();
@@ -4718,7 +4789,7 @@ function computeSleepVolumeModifier(health: HealthRecord[]): TrainingProfile['sl
   if (sleepRecords.length === 0) return defaultResult;
 
   const latest = sleepRecords[sleepRecords.length - 1];
-  const hours = latest.sleep_duration!;
+  const hours = normalizeSleepHours(latest.sleep_duration)!;
 
   let quality: 'poor' | 'fair' | 'good' | 'excellent';
   let volumeMultiplier: number;
@@ -4876,7 +4947,7 @@ function computeFitnessFatigueModel(workouts: WorkoutRecord[]) {
 
   let fitness = 0, fatigue = 0;
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = localDateStr(today);
 
   const sorted = [...workouts].sort((a, b) => a.date.localeCompare(b.date));
 

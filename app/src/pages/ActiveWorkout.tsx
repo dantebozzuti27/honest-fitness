@@ -728,7 +728,7 @@ export default function ActiveWorkout() {
                 const presetTime = typeof entry === 'object' ? entry?.time : undefined
                 const presetStackGroup = typeof entry === 'object' ? entry?.stackGroup : undefined
 
-                const exerciseData = allEx.find((e: any) => e.name === name)
+                const exerciseData = allEx.find((e: any) => (e.name || '').toLowerCase() === name.toLowerCase())
                 const isCardio = exerciseData?.category === 'Cardio'
                 const isRecovery = exerciseData?.category === 'Recovery'
                 const defaultSets = (isCardio || isRecovery) ? 1 : 4

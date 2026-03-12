@@ -14,6 +14,8 @@ const Profile = lazy(() => import('./pages/Profile'))
 const ActiveWorkout = lazy(() => import('./pages/ActiveWorkout'))
 const Progress = lazy(() => import('./pages/Progress'))
 const TodayWorkout = lazy(() => import('./pages/TodayWorkout'))
+const HowItWorks = lazy(() => import('./pages/HowItWorks'))
+const ModelDashboard = lazy(() => import('./pages/ModelDashboard'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -123,6 +125,8 @@ export default function App() {
           <Route path="/progress" element={<ProtectedRoute><Progress /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/account" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/how-it-works" element={<ProtectedRoute><HowItWorks /></ProtectedRoute>} />
+          <Route path="/model" element={<ProtectedRoute><ModelDashboard /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

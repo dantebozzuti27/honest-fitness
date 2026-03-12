@@ -539,3 +539,55 @@ DO $$ BEGIN
     ALTER TABLE user_preferences ADD COLUMN sport_season TEXT;
   END IF;
 END $$;
+
+-- ============================================================================
+-- EXERCISE LIBRARY: Stimulus-to-Fatigue Ratio + Biomechanical Notes
+-- ============================================================================
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'exercise_library' AND column_name = 'stimulus_to_fatigue_ratio') THEN
+    ALTER TABLE exercise_library ADD COLUMN stimulus_to_fatigue_ratio NUMERIC;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'exercise_library' AND column_name = 'biomechanical_notes') THEN
+    ALTER TABLE exercise_library ADD COLUMN biomechanical_notes TEXT;
+  END IF;
+END $$;
+
+-- ============================================================================
+-- MODEL FEEDBACK TABLE
+-- Stores LLM workout review feedback for the engine's learning loop.
+-- immediate_correction: applied to current workout before display
+-- pattern_observation: stored and read by computeTrainingProfile for future workouts
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS model_feedback (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  feedback_type TEXT NOT NULL CHECK (feedback_type IN ('immediate_correction', 'pattern_observation')),
+  feedback_data JSONB NOT NULL,
+  applied BOOLEAN DEFAULT false,
+  workout_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_feedback_user
+  ON model_feedback(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_model_feedback_type
+  ON model_feedback(user_id, feedback_type, created_at DESC);
+
+ALTER TABLE model_feedback ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own model_feedback" ON model_feedback;
+CREATE POLICY "Users can view own model_feedback" ON model_feedback
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own model_feedback" ON model_feedback;
+CREATE POLICY "Users can insert own model_feedback" ON model_feedback
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own model_feedback" ON model_feedback;
+CREATE POLICY "Users can update own model_feedback" ON model_feedback
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own model_feedback" ON model_feedback;
+CREATE POLICY "Users can delete own model_feedback" ON model_feedback
+  FOR DELETE USING (auth.uid() = user_id);

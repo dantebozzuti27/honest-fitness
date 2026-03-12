@@ -73,6 +73,55 @@ Respond with ONLY this JSON format:
 
 Include 3-5 observations.`
 
+const VALIDATE_WORKOUT_PROMPT = `You are an exercise science reviewer auditing a machine-generated workout.
+You receive the lifter's training profile (recovery, volume status, progressions, goals) AND the generated workout.
+
+Your job: find concrete problems and return structured corrections in two categories.
+
+CATEGORY 1 — immediate_corrections (apply NOW, before the user sees the workout):
+Only flag issues that are clearly wrong based on the data. Examples:
+- Weight prescribed above the lifter's known 1RM
+- More than 6 working sets of a single exercise
+- A muscle group trained yesterday appearing with high volume today
+- Exercise ordered after a movement that would severely fatigue its prime movers
+- Total session time wildly exceeding the user's budget
+
+Each correction must include the exercise name and a specific fix (new sets, new weight, remove, reorder).
+
+CATEGORY 2 — pattern_observations (stored for future workouts, not applied now):
+Recurring patterns you notice across the profile that the engine should learn. Examples:
+- "User consistently swaps out barbell rows — consider defaulting to cable rows"
+- "Chest volume has been above MRV for 3 weeks — next mesocycle should reduce"
+- "User never does unilateral leg work — consider adding lunges/split squats"
+
+Respond with ONLY this JSON:
+{
+  "immediate_corrections": [
+    {
+      "exerciseName": "exact exercise name from the workout",
+      "issue": "what is wrong",
+      "fix": "sets|weight|remove|reorder",
+      "newValue": "the corrected value (number for sets/weight, null for remove, target index for reorder)",
+      "reason": "1-sentence evidence-based justification"
+    }
+  ],
+  "pattern_observations": [
+    {
+      "pattern": "what you noticed",
+      "suggestion": "what the engine should do differently in future",
+      "confidence": "high|medium|low"
+    }
+  ],
+  "verdict": "pass|minor_issues|major_issues"
+}
+
+RULES:
+- If the workout looks good, return empty arrays and verdict "pass"
+- Maximum 3 immediate corrections — only flag the most critical
+- Maximum 3 pattern observations
+- Never invent data — only reference values present in the profile
+- Be conservative: if unsure, do not correct`
+
 const insightsLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
@@ -82,11 +131,45 @@ const insightsLimiter = rateLimit({
   message: { error: { message: 'Rate limit exceeded. Please wait a minute.', status: 429 } }
 })
 
+const validateCache = new Map()
+const CACHE_TTL_MS = 5 * 60 * 1000
+
+function summarizeProfileForLLM(profile) {
+  return {
+    goal: profile.goalProgress?.primaryGoal,
+    trainingFrequency: profile.trainingFrequency,
+    avgSessionDuration: profile.avgSessionDuration,
+    consistencyScore: profile.consistencyScore,
+    muscleGroupFrequency: profile.muscleGroupFrequency,
+    muscleVolumeStatuses: (profile.muscleVolumeStatuses || []).map(v => ({
+      muscleGroup: v.muscleGroup, status: v.status, weeklyDirectSets: v.weeklyDirectSets, mrv: v.mrv,
+    })),
+    recoveryContext: profile.recoveryContext,
+    muscleRecovery: (profile.muscleRecovery || []).filter(r => r.recoveryPercent < 90).map(r => ({
+      muscleGroup: r.muscleGroup, recoveryPercent: r.recoveryPercent, hoursSinceLastTrained: r.hoursSinceLastTrained,
+    })),
+    exerciseProgressions: (profile.exerciseProgressions || []).slice(0, 15).map(p => ({
+      exerciseName: p.exerciseName, estimated1RM: p.estimated1RM, lastWeight: p.lastWeight, trend: p.trend,
+    })),
+    bodyWeightTrend: profile.bodyWeightTrend,
+    deloadRecommendation: profile.deloadRecommendation,
+    fitnessFatigueModel: profile.fitnessFatigueModel,
+  }
+}
+
 insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
   const { type, trainingProfile, workoutData } = req.body || {}
 
   if (!type || !trainingProfile) {
     return sendError(res, { status: 400, message: 'Missing required fields: type, trainingProfile' })
+  }
+
+  if (type === 'validate-workout' && req.userId) {
+    const cacheKey = `${req.userId}:validate`
+    const cached = validateCache.get(cacheKey)
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return sendSuccess(res, { data: cached.data, type, cached: true })
+    }
   }
 
   const apiKey = process.env.OPENAI_API_KEY
@@ -106,8 +189,15 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
     }
     systemPrompt = WORKOUT_REVIEW_PROMPT
     userContent = `Training Profile:\n${JSON.stringify(trainingProfile, null, 2)}\n\nGenerated Workout:\n${JSON.stringify(workoutData, null, 2)}`
+  } else if (type === 'validate-workout') {
+    if (!workoutData) {
+      return sendError(res, { status: 400, message: 'validate-workout requires workoutData' })
+    }
+    systemPrompt = VALIDATE_WORKOUT_PROMPT
+    const summary = summarizeProfileForLLM(trainingProfile)
+    userContent = `Training Profile (summarized):\n${JSON.stringify(summary, null, 2)}\n\nGenerated Workout:\n${JSON.stringify(workoutData, null, 2)}`
   } else {
-    return sendError(res, { status: 400, message: 'Invalid type. Must be "summary" or "workout_review"' })
+    return sendError(res, { status: 400, message: 'Invalid type. Must be "summary", "workout_review", or "validate-workout"' })
   }
 
   if (userContent.length > 12000) {
@@ -156,8 +246,30 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
       if (match) jsonStr = match[1].trim()
     }
     const parsed = JSON.parse(jsonStr)
+
+    if (type === 'validate-workout') {
+      const safe = {
+        immediate_corrections: Array.isArray(parsed.immediate_corrections)
+          ? parsed.immediate_corrections.slice(0, 3).filter(c => c && typeof c.exerciseName === 'string')
+          : [],
+        pattern_observations: Array.isArray(parsed.pattern_observations)
+          ? parsed.pattern_observations.slice(0, 3).filter(o => o && typeof o.pattern === 'string')
+          : [],
+        verdict: ['pass', 'minor_issues', 'major_issues'].includes(parsed.verdict)
+          ? parsed.verdict
+          : 'pass',
+      }
+      if (req.userId) {
+        validateCache.set(`${req.userId}:validate`, { data: safe, ts: Date.now() })
+      }
+      return sendSuccess(res, { data: safe, type })
+    }
+
     return sendSuccess(res, { data: parsed, type })
   } catch {
+    if (type === 'validate-workout') {
+      return sendSuccess(res, { data: { immediate_corrections: [], pattern_observations: [], verdict: 'pass' }, type })
+    }
     return sendSuccess(res, { data: { raw: content }, type })
   }
 }))

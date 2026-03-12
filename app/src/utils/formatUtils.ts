@@ -1,3 +1,39 @@
+// ── Name Normalization ──────────────────────────────────────────────────────
+// Canonical internal identifiers are lowercase + trimmed.
+// These are used at every boundary (DB reads, map lookups, user input)
+// so that "Bench Press" and "bench press" always resolve the same way.
+
+/** Normalize any identifier for internal comparison: lowercase + trim. */
+export function normalizeName(s: string | null | undefined): string {
+  return (s ?? '').trim().toLowerCase()
+}
+
+/**
+ * Normalize an equipment token, handling known plural/alias mismatches.
+ * The seed uses 'dumbbells' (plural) but engine code checks 'dumbbell' (singular).
+ * The seed uses 'cable' but some code checks 'cable_machine'.
+ */
+const EQUIPMENT_ALIASES: Record<string, string> = {
+  dumbbells: 'dumbbell',
+  dumbells: 'dumbbell',
+  cables: 'cable',
+  machines: 'machine',
+  kettlebells: 'kettlebell',
+  bands: 'band',
+  barbells: 'barbell',
+}
+
+export function normalizeEquipment(s: string | null | undefined): string {
+  const raw = normalizeName(s)
+  return EQUIPMENT_ALIASES[raw] ?? raw
+}
+
+/** Normalize an array of equipment tokens. */
+export function normalizeEquipmentList(arr: string[] | null | undefined): string[] {
+  if (!Array.isArray(arr)) return []
+  return arr.map(normalizeEquipment)
+}
+
 /**
  * Formats a database field name (with underscores) into a clean display name
  * @param {string} fieldName - The database field name (e.g., 'workouts_per_week')

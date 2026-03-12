@@ -16,14 +16,15 @@
 
 import { requireSupabase } from './supabase';
 import { VOLUME_GUIDELINES, MUSCLE_HEAD_TO_GROUP, getGuidelineForGroup } from './volumeGuidelines';
-import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference, CardioHistory, ExerciseOrderProfile } from './trainingAnalysis';
+import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference, CardioHistory, ExerciseOrderProfile, MuscleVolumeStatus } from './trainingAnalysis';
 import { uuidv4 } from '../utils/uuid';
-import { getExerciseMapping } from './exerciseMuscleMap';
+import { getExerciseMapping, getExerciseSFR } from './exerciseMuscleMap';
 import { estimateWeight as estimateWeightFromRatios } from './liftRatios';
 import { suggestSupersets, type SupersetSuggestion } from './supersetPairer';
 import { DEFAULT_MODEL_CONFIG, type ModelConfig } from './modelConfig';
 import { getSportProfile, type SportProfile, type SportSeason } from './sportProfiles';
 import { getLocalDate } from '../utils/dateUtils';
+import { normalizeEquipment } from '../utils/formatUtils';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -343,9 +344,10 @@ function weightForReps(estimated1RM: number, targetReps: number, rir: number, eq
   const effectiveReps = targetReps + rir;
   const raw = estimated1RM / (1 + effectiveReps / 30);
   const cfg = DEFAULT_MODEL_CONFIG;
+  const eqNorm = (equipment ?? []).map(normalizeEquipment);
   let step: number;
-  if (equipment?.includes('barbell')) step = cfg.barbellIncrement;
-  else if (equipment?.includes('dumbbell')) step = cfg.dumbbellIncrement;
+  if (eqNorm.includes('barbell')) step = cfg.barbellIncrement;
+  else if (eqNorm.includes('dumbbell')) step = cfg.dumbbellIncrement;
   else if (exerciseType === 'isolation') step = cfg.isolationIncrement;
   else step = cfg.machineIncrement;
   return Math.round(raw / step) * step;
@@ -590,9 +592,9 @@ function generateWarmupRamp(
     return ramp;
   }
 
-  // Determine minimum load (bar weight for barbell, light dumbbell, etc)
-  const isBarbell = equipment?.includes('barbell');
-  const isDumbbell = equipment?.includes('dumbbell');
+  const eqNorm = (equipment ?? []).map(normalizeEquipment);
+  const isBarbell = eqNorm.includes('barbell');
+  const isDumbbell = eqNorm.includes('dumbbell');
   const minLoad = isBarbell ? 45 : isDumbbell ? 10 : 20;
 
   // Spread = how far from empty bar to working weight
@@ -632,10 +634,9 @@ function generateWarmupRamp(
 
 /** Round to nearest practical plate increment based on equipment type */
 function roundToPlate(weight: number, equipment?: string[]): number {
-  const isBarbell = equipment?.includes('barbell');
-  const isDumbbell = equipment?.includes('dumbbell');
-  // Barbell: 2.5lb plates → round to 5. Dumbbell: usually 5lb steps.
-  // Machines: typically 5 or 10lb steps.
+  const eqNorm = (equipment ?? []).map(normalizeEquipment);
+  const isBarbell = eqNorm.includes('barbell');
+  const isDumbbell = eqNorm.includes('dumbbell');
   const step = isBarbell ? 5 : isDumbbell ? 5 : 10;
   return Math.round(weight / step) * step;
 }
@@ -1196,8 +1197,9 @@ function stepSelectExercises(
       }
 
       if (prefs.equipment_access === 'limited') {
-        const needsHeavyEquip = (Array.isArray(ex.equipment) ? ex.equipment : []).some(e =>
-          ['barbell', 'cable_machine', 'smith_machine'].includes(e)
+        const exEq = (Array.isArray(ex.equipment) ? ex.equipment : []).map(normalizeEquipment);
+        const needsHeavyEquip = exEq.some(e =>
+          ['barbell', 'cable', 'smith_machine'].includes(e)
         );
         if (needsHeavyEquip) {
           score -= 5;
@@ -1225,11 +1227,13 @@ function stepSelectExercises(
       if (profile.movementPatternFatigue) {
         const patternFatigue = profile.movementPatternFatigue.find(p => {
           const exMp = (ex.movement_pattern || '').toLowerCase();
-          const exPrimary = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : []).map(m => m.toLowerCase());
-          if (p.pattern === 'horizontal_push' && (exMp.includes('press') || exPrimary.includes('chest'))) return true;
-          if (p.pattern === 'vertical_pull' && (exMp.includes('pull') || exPrimary.includes('back_lats'))) return true;
-          if (p.pattern === 'hip_hinge' && (exMp.includes('hinge') || exPrimary.includes('hamstrings'))) return true;
-          if (p.pattern === 'knee_dominant' && (exMp.includes('squat') || exPrimary.includes('quads'))) return true;
+          const exGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+            .map(m => MUSCLE_HEAD_TO_GROUP[m?.toLowerCase()])
+            .filter(Boolean);
+          if (p.pattern === 'horizontal_push' && (exMp.includes('press') || exGroups.includes('chest'))) return true;
+          if (p.pattern === 'vertical_pull' && (exMp.includes('pull') || exGroups.includes('back_lats'))) return true;
+          if (p.pattern === 'hip_hinge' && (exMp.includes('hinge') || exGroups.includes('hamstrings'))) return true;
+          if (p.pattern === 'knee_dominant' && (exMp.includes('squat') || exGroups.includes('quadriceps'))) return true;
           return false;
         });
 
@@ -1637,7 +1641,7 @@ function stepPrescribe(
     const role = classifyExerciseRole(sel.exercise, idxInGroup);
     const isPriority = prioritySet.has(sel.muscleGroup);
 
-    const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
+    const equipment = (Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : []).map(normalizeEquipment);
     const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
 
     // ── Learned-first prescription ──
@@ -1932,6 +1936,90 @@ function getCnsDemandTier(ex: GeneratedExercise): number {
 }
 
 /**
+ * Diminishing-returns stimulus curve per additional set.
+ *
+ * Based on Krieger (2010) meta-analysis: hypertrophy gains per set follow a
+ * logarithmic curve, with ~70% of the benefit captured in the first 3 sets.
+ * SFR modulates how fast returns diminish — high-SFR exercises (machines,
+ * cables) tolerate more volume before returns flatten; low-SFR exercises
+ * (heavy compounds) see sharper drop-off.
+ *
+ * Returns a 0–1 multiplier representing marginal stimulus of the Nth set.
+ */
+function sfrCurve(currentSets: number, exerciseSFR: number): number {
+  const k = 0.18 + (5 - exerciseSFR) * 0.06;
+  return Math.exp(-k * currentSets);
+}
+
+type MarginalAction =
+  | { type: 'add_set'; exerciseIndex: number }
+  | { type: 'add_exercise'; exercise: ExerciseSelection };
+
+/**
+ * Score a candidate action (add a set to an existing exercise OR add a new
+ * exercise) by its marginal training stimulus.
+ *
+ * Factors:
+ *   1. sfrCurve — diminishing returns on additional sets
+ *   2. Volume status — muscles below MEV get a priority boost; muscles
+ *      approaching MRV get penalised
+ *   3. Frequency — muscles trained less frequently this week benefit more
+ *      from an extra exercise (variety > volume)
+ */
+function computeMarginalValue(
+  action: MarginalAction,
+  currentExercises: GeneratedExercise[],
+  volumeStatuses: MuscleVolumeStatus[],
+  muscleGroupFrequency: Record<string, number>,
+): number {
+  if (action.type === 'add_set') {
+    const ex = currentExercises[action.exerciseIndex];
+    const sfr = getExerciseSFR(ex.exerciseName);
+    const stimulus = sfrCurve(ex.sets, sfr);
+
+    const vol = volumeStatuses.find(
+      v => v.muscleGroup.toLowerCase() === (ex.targetMuscleGroup ?? '').toLowerCase()
+    );
+    let volMod = 1.0;
+    if (vol) {
+      if (vol.status === 'below_mev') volMod = 1.3;
+      else if (vol.status === 'in_mev_mav') volMod = 1.0;
+      else if (vol.status === 'in_mav') volMod = 0.8;
+      else if (vol.status === 'approaching_mrv') volMod = 0.4;
+      else if (vol.status === 'above_mrv') volMod = 0.1;
+    }
+
+    return stimulus * volMod;
+  }
+
+  // add_exercise: value of bringing in a brand-new movement
+  const sel = action.exercise;
+  const sfr = getExerciseSFR(sel.exercise.name);
+  const baseStimulus = sfrCurve(0, sfr);
+
+  const group = (sel.muscleGroup ?? '').toLowerCase();
+  const vol = volumeStatuses.find(v => v.muscleGroup.toLowerCase() === group);
+  let volMod = 1.0;
+  if (vol) {
+    if (vol.status === 'below_mev') volMod = 1.5;
+    else if (vol.status === 'in_mev_mav') volMod = 1.1;
+    else if (vol.status === 'in_mav') volMod = 0.9;
+    else if (vol.status === 'approaching_mrv') volMod = 0.5;
+    else if (vol.status === 'above_mrv') volMod = 0.15;
+  }
+
+  const freq = muscleGroupFrequency[group] ?? 0;
+  const freqBonus = freq < 2 ? 1.3 : freq < 3 ? 1.0 : 0.8;
+
+  const alreadyHasGroup = currentExercises.some(
+    e => (e.targetMuscleGroup ?? '').toLowerCase() === group
+  );
+  const varietyBonus = alreadyHasGroup ? 0.7 : 1.2;
+
+  return baseStimulus * volMod * freqBonus * varietyBonus;
+}
+
+/**
  * Compute available session time, accounting for weekday deadlines.
  */
 function computeAvailableMinutes(prefs: UserPreferences): number {
@@ -1974,39 +2062,33 @@ function stepApplyConstraints(
     positionMap.set(op.exerciseName, op);
   }
 
-  // Determine muscle group ordering: preserve step 2 priority order
-  const groupOrder: string[] = [];
-  for (const ex of strength) {
-    if (!groupOrder.includes(ex.targetMuscleGroup)) {
-      groupOrder.push(ex.targetMuscleGroup);
-    }
-  }
+  // Global two-tier ordering (Simão et al. 2012):
+  //   Tier 1: ALL compounds, sorted by CNS demand (heaviest first)
+  //   Tier 2: ALL isolations, sorted by muscle group priority then CNS demand
+  // This guarantees bench press never appears after lateral raises,
+  // regardless of which muscle group each belongs to.
+  const groupPriority = new Map<string, number>();
+  strength.forEach((ex, i) => {
+    if (!groupPriority.has(ex.targetMuscleGroup)) groupPriority.set(ex.targetMuscleGroup, i);
+  });
 
-  // Order within each muscle group: CNS demand primary, history as tiebreaker.
-  // Science: compounds before isolations, heavy before light (Simão et al. 2012).
-  const ordered: GeneratedExercise[] = [];
+  const scored = strength.map(ex => {
+    const hist = positionMap.get(ex.exerciseName.toLowerCase());
+    const cnsTier = getCnsDemandTier(ex);
+    const isCompound = ex.movementPattern === 'compound' || cnsTier <= 2;
+    const histNudge = (hist && hist.sessions >= 3) ? hist.avgNormalizedPosition * 2 : 0;
+    const gp = groupPriority.get(ex.targetMuscleGroup) ?? 99;
+    // Primary: compound tier (0) vs isolation tier (1000)
+    // Within compounds: CNS demand (lower = heavier = first)
+    // Within isolations: muscle group priority, then CNS demand
+    const sortKey = isCompound
+      ? cnsTier * 10 + histNudge
+      : 1000 + gp * 20 + cnsTier * 5 + histNudge;
+    return { exercise: ex, sortKey };
+  });
 
-  for (const group of groupOrder) {
-    const groupExercises = strength.filter(e => e.targetMuscleGroup === group);
-
-    const scored = groupExercises.map(ex => {
-      const hist = positionMap.get(ex.exerciseName.toLowerCase());
-      const cnsTier = getCnsDemandTier(ex);
-      const isCompound = ex.movementPattern === 'compound' || cnsTier <= 2;
-
-      // Primary sort: compound (0) before isolation (100)
-      // Secondary sort: CNS demand tier (0-4, lower = heavier)
-      // Tertiary sort: slight historical tiebreaker
-      const compoundBonus = isCompound ? 0 : 100;
-      const histNudge = (hist && hist.sessions >= 3) ? hist.avgNormalizedPosition * 5 : 0;
-      const withinGroupScore = compoundBonus + cnsTier * 20 + histNudge;
-
-      return { exercise: ex, withinGroupScore, cnsTier };
-    });
-
-    scored.sort((a, b) => a.withinGroupScore - b.withinGroupScore);
-    ordered.push(...scored.map(s => s.exercise));
-  }
+  scored.sort((a, b) => a.sortKey - b.sortKey);
+  const ordered: GeneratedExercise[] = scored.map(s => s.exercise);
 
   // #13: Enhanced interference avoidance — try multiple swaps and pick best
   for (let i = 0; i < ordered.length - 1; i++) {
@@ -2196,10 +2278,11 @@ function stepApplyConstraints(
     ordered.push(...trimmed);
   }
 
-  // ── Time expansion (3-phase): fill remaining budget ──────────────────
-  // Phase A: Add sets to existing exercises
-  // Phase B: Add NEW exercises from the pool to fill large gaps
-  // Phase C: Final set expansion if still time left
+  // ── Time expansion (unified marginal-value greedy loop) ─────────────
+  // Each iteration picks the single highest-value action:
+  //   • add 1 set to an existing exercise, OR
+  //   • add a brand-new exercise from the pool
+  // Stops when remaining time < cost of cheapest action.
   totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   let remainingMinutes = effectiveBudget - totalStrengthMin - totalCardioMin;
@@ -2213,88 +2296,108 @@ function stepApplyConstraints(
     return ex.exerciseRole === 'primary' ? 6 : ex.exerciseRole === 'secondary' ? 5 : 4;
   };
 
-  // Phase A: Add sets to existing high-impact exercises
-  if (remainingMinutes >= 5 && ordered.length > 0) {
-    const expansionOrder = [...ordered]
-      .filter(e => e.exerciseRole === 'primary' || e.exerciseRole === 'secondary')
-      .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
+  const volumeStatuses = profile.muscleVolumeStatuses ?? [];
+  const mgFreq = profile.muscleGroupFrequency ?? {};
 
-    for (const ex of expansionOrder) {
-      if (remainingMinutes < timePerSet(ex)) break;
-      const maxSets = getMaxSets(ex);
-      if (ex.sets >= maxSets) continue;
-      const addSets = Math.min(maxSets - ex.sets, Math.floor(remainingMinutes / timePerSet(ex)));
-      if (addSets >= 1) {
-        const oldSets = ex.sets;
-        ex.sets += addSets;
-        const oldMin = ex.estimatedMinutes;
-        recalcTime(ex);
-        remainingMinutes -= (ex.estimatedMinutes - oldMin);
-        ex.adjustments.push(`Sets expanded: ${oldSets} → ${ex.sets} (filling ${prefs.session_duration_minutes} min budget)`);
-      }
-    }
-  }
-
-  // Phase B: Add entirely NEW exercises when significant time remains (>= 8 min)
-  // This prevents a 120-min session from having 3 lifts + 90 min cardio
-  if (remainingMinutes >= 8 && allExercises.length > 0) {
-    const usedNames = new Set([
-      ...ordered.map(e => e.exerciseName.toLowerCase()),
-      ...keptCardio.map(e => e.exerciseName.toLowerCase()),
-    ]);
-    const avoidSet = new Set(prefs.exercises_to_avoid.map(e => e.toLowerCase()));
-
-    // Find muscle groups already in the workout to add complementary exercises
-    const existingGroups = new Set(ordered.map(e => e.targetMuscleGroup));
-    const strengthPool = allExercises.filter(ex =>
+  // Build candidate pool for new exercises
+  const usedNames = new Set([
+    ...ordered.map(e => e.exerciseName.toLowerCase()),
+    ...keptCardio.map(e => e.exerciseName.toLowerCase()),
+  ]);
+  const avoidSet = new Set(prefs.exercises_to_avoid.map(e => e.toLowerCase()));
+  const strengthPool: ExerciseSelection[] = (allExercises || [])
+    .filter(ex =>
       ex.ml_exercise_type !== 'cardio'
       && ex.ml_exercise_type !== 'recovery'
       && !usedNames.has(ex.name.toLowerCase())
       && !avoidSet.has(ex.name.toLowerCase())
       && !isInjuryConflict(ex, prefs.injuries)
-    );
-
-    // Score candidates: prefer exercises for existing muscle groups (accessory work),
-    // then exercises the user has history with
-    const candidates = strengthPool.map(ex => {
+    )
+    .map(ex => {
       const primaryGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
         .map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
-      const isForExistingGroup = primaryGroups.some(g => existingGroups.has(g));
-      const pref = profile.exercisePreferences.find(p => p.exerciseName === ex.name.toLowerCase());
-      let score = 0;
-      if (isForExistingGroup) score += 5;
-      if (pref && pref.recentSessions >= 1) score += 3 + Math.min(pref.recencyScore, 3);
-      if (ex.ml_exercise_type === 'compound') score += 2;
-      const muscleGroup = primaryGroups[0] || 'other';
-      return { exercise: ex, score, muscleGroup };
+      return {
+        exercise: ex,
+        muscleGroup: primaryGroups[0] || 'other',
+        sets: 0,
+        reason: 'time_expansion',
+      };
     });
 
-    candidates.sort((a, b) => b.score - a.score);
+  const effectiveGoal = getEffectiveGoal(prefs);
+  const secondaryGoal = prefs.secondary_goal;
+  let addedNewCount = 0;
+  const maxNewExercises = 6;
+  const MAX_ITERATIONS = 40;
 
-    const effectiveGoal = getEffectiveGoal(prefs);
-    const secondaryGoal = prefs.secondary_goal;
-    let addedCount = 0;
-    const maxNewExercises = Math.min(
-      Math.floor(remainingMinutes / 5),
-      6
-    );
+  for (let iter = 0; iter < MAX_ITERATIONS && remainingMinutes >= 3; iter++) {
+    let bestValue = -1;
+    let bestAction: MarginalAction | null = null;
+    let bestTimeCost = Infinity;
 
-    for (const cand of candidates) {
-      if (remainingMinutes < 5 || addedCount >= maxNewExercises) break;
-      const role: ExerciseRole = cand.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
+    // Score: add 1 set to each existing exercise
+    for (let i = 0; i < ordered.length; i++) {
+      const ex = ordered[i];
+      if (ex.sets >= getMaxSets(ex)) continue;
+      const cost = timePerSet(ex);
+      if (cost > remainingMinutes) continue;
+      const action: MarginalAction = { type: 'add_set', exerciseIndex: i };
+      const val = computeMarginalValue(action, ordered, volumeStatuses, mgFreq);
+      if (val > bestValue) {
+        bestValue = val;
+        bestAction = action;
+        bestTimeCost = cost;
+      }
+    }
+
+    // Score: add each candidate new exercise (only if >= 5 min left and under cap)
+    if (remainingMinutes >= 5 && addedNewCount < maxNewExercises) {
+      for (const sel of strengthPool) {
+        if (usedNames.has(sel.exercise.name.toLowerCase())) continue;
+        const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
+        const sets = role === 'secondary' ? 3 : 2;
+        const rest = getRestByExercise(sel.exercise, role, effectiveGoal);
+        const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+        const reps = tableRange.target;
+        const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+        const cost = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
+        if (cost > remainingMinutes) continue;
+        const action: MarginalAction = { type: 'add_exercise', exercise: sel };
+        const val = computeMarginalValue(action, ordered, volumeStatuses, mgFreq);
+        if (val > bestValue) {
+          bestValue = val;
+          bestAction = action;
+          bestTimeCost = cost;
+        }
+      }
+    }
+
+    if (!bestAction || bestTimeCost > remainingMinutes) break;
+
+    // Execute the winning action
+    if (bestAction.type === 'add_set') {
+      const ex = ordered[bestAction.exerciseIndex];
+      const oldSets = ex.sets;
+      ex.sets += 1;
+      const oldMin = ex.estimatedMinutes;
+      recalcTime(ex);
+      remainingMinutes -= (ex.estimatedMinutes - oldMin);
+      ex.adjustments.push(`Sets expanded: ${oldSets} → ${ex.sets} (marginal value: ${bestValue.toFixed(2)})`);
+    } else {
+      const sel = bestAction.exercise;
+      const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
       const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
-      const pref = profile.exercisePreferences.find(p => p.exerciseName === cand.exercise.name.toLowerCase());
+      const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
       const reps = pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target;
       const sets = pref?.learnedSets ? Math.min(Math.round(pref.learnedSets), 4) : (role === 'secondary' ? 3 : 2);
-      const rest = pref?.learnedRestSeconds ?? getRestByExercise(cand.exercise, role, effectiveGoal);
-      const tempo = getTempo(cand.exercise.default_tempo, effectiveGoal, cand.exercise.ml_exercise_type);
-      const equipment = Array.isArray(cand.exercise.equipment) ? cand.exercise.equipment : [];
+      const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal);
+      const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+      const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
       const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
-
       const rir = getRirTarget(role, effectiveGoal, false);
 
       let targetWeight: number | null = null;
-      const prog = profile.exerciseProgressions.find(p => p.exerciseName === cand.exercise.name.toLowerCase());
+      const prog = profile.exerciseProgressions.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
       if (prog) {
         targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment);
         if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
@@ -2304,16 +2407,15 @@ function stepApplyConstraints(
         targetWeight = Math.round(pref.learnedWeight);
       }
       const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
-      if (estMin > remainingMinutes) continue;
 
       const newEx: GeneratedExercise = {
-        exerciseName: cand.exercise.name,
-        exerciseLibraryId: cand.exercise.id,
-        bodyPart: cand.exercise.body_part,
-        primaryMuscles: Array.isArray(cand.exercise.primary_muscles) ? cand.exercise.primary_muscles : [],
-        secondaryMuscles: Array.isArray(cand.exercise.secondary_muscles) ? cand.exercise.secondary_muscles : [],
-        movementPattern: cand.exercise.movement_pattern ?? 'unknown',
-        targetMuscleGroup: cand.muscleGroup,
+        exerciseName: sel.exercise.name,
+        exerciseLibraryId: sel.exercise.id,
+        bodyPart: sel.exercise.body_part,
+        primaryMuscles: Array.isArray(sel.exercise.primary_muscles) ? sel.exercise.primary_muscles : [],
+        secondaryMuscles: Array.isArray(sel.exercise.secondary_muscles) ? sel.exercise.secondary_muscles : [],
+        movementPattern: sel.exercise.movement_pattern ?? 'unknown',
+        targetMuscleGroup: sel.muscleGroup,
         exerciseRole: role,
         sets,
         targetReps: reps,
@@ -2323,8 +2425,8 @@ function stepApplyConstraints(
         isBodyweight,
         tempo,
         restSeconds: rest,
-        rationale: `Added to fill ${prefs.session_duration_minutes} min session (score: ${cand.score.toFixed(1)})`,
-        adjustments: [`Time expansion: added as extra volume for ${cand.muscleGroup.replace(/_/g, ' ')}`],
+        rationale: `Added to fill ${prefs.session_duration_minutes} min session (marginal value: ${bestValue.toFixed(2)})`,
+        adjustments: [`Time expansion: added for ${sel.muscleGroup.replace(/_/g, ' ')} (value: ${bestValue.toFixed(2)})`],
         isDeload: false,
         isCardio: false,
         cardioDurationSeconds: null,
@@ -2336,33 +2438,14 @@ function stepApplyConstraints(
         warmupSets: null,
         supersetGroupId: null,
         supersetType: null,
-        impactScore: computeImpactScore(cand.exercise, role, effectiveGoal, secondaryGoal),
+        impactScore: computeImpactScore(sel.exercise, role, effectiveGoal, secondaryGoal),
         estimatedMinutes: estMin,
       };
 
       ordered.push(newEx);
-      usedNames.add(cand.exercise.name.toLowerCase());
+      usedNames.add(sel.exercise.name.toLowerCase());
       remainingMinutes -= estMin;
-      addedCount++;
-    }
-  }
-
-  // Phase C: Final set expansion on isolation exercises if still time
-  if (remainingMinutes >= 3) {
-    const isolationExpansion = ordered
-      .filter(e => e.exerciseRole === 'isolation' || e.exerciseRole === 'secondary')
-      .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
-
-    for (const ex of isolationExpansion) {
-      if (remainingMinutes < timePerSet(ex)) break;
-      const maxSets = getMaxSets(ex);
-      if (ex.sets >= maxSets) continue;
-      const oldSets = ex.sets;
-      ex.sets += 1;
-      const oldMin = ex.estimatedMinutes;
-      recalcTime(ex);
-      remainingMinutes -= (ex.estimatedMinutes - oldMin);
-      ex.adjustments.push(`Extra volume: ${oldSets} → ${ex.sets} sets (filling time budget)`);
+      addedNewCount++;
     }
   }
 
@@ -2717,6 +2800,155 @@ export interface SessionOverrides {
   gymProfile?: string;
 }
 
+interface LlmHints {
+  avoidExercises: string[];
+  preferExercises: string[];
+  reduceVolumeGroups: string[];
+  increaseVolumeGroups: string[];
+  raw: Array<{ pattern: string; suggestion: string }>;
+}
+
+function parseLlmPatternObservations(
+  observations: Array<{ pattern: string; suggestion: string; confidence: string }> | undefined
+): LlmHints {
+  const hints: LlmHints = { avoidExercises: [], preferExercises: [], reduceVolumeGroups: [], increaseVolumeGroups: [], raw: [] };
+  if (!observations?.length) return hints;
+  for (const obs of observations) {
+    const s = (obs.suggestion ?? '').toLowerCase();
+    hints.raw.push({ pattern: obs.pattern, suggestion: obs.suggestion });
+    if (s.includes('avoid') || s.includes('remove') || s.includes('swap out') || s.includes('stop')) {
+      const match = s.match(/(?:avoid|remove|swap out|stop)\s+(?:using\s+)?(.+?)(?:\s*[-—]|\.|$)/);
+      if (match) hints.avoidExercises.push(match[1].trim());
+    }
+    if (s.includes('add') || s.includes('consider') || s.includes('default to') || s.includes('prefer')) {
+      const match = s.match(/(?:add|consider|default to|prefer)\s+(.+?)(?:\s*[-—]|\.|$)/);
+      if (match) hints.preferExercises.push(match[1].trim());
+    }
+    if (s.includes('reduce') && s.includes('volume')) {
+      const match = s.match(/reduce\s+(?:\w+\s+)?volume\s+(?:for\s+|on\s+)?(\w+)/);
+      if (match) hints.reduceVolumeGroups.push(match[1].trim());
+    }
+    if (s.includes('increase') && s.includes('volume')) {
+      const match = s.match(/increase\s+(?:\w+\s+)?volume\s+(?:for\s+|on\s+)?(\w+)/);
+      if (match) hints.increaseVolumeGroups.push(match[1].trim());
+    }
+  }
+  return hints;
+}
+
+/**
+ * Post-generation validation and auto-correction.
+ *
+ * Runs a series of rule-based checks on the generated workout and fixes
+ * violations in-place. Every correction is logged to the exercise's
+ * `adjustments` array so the decision tree UI can surface it.
+ */
+function validateAndCorrect(
+  exercises: GeneratedExercise[],
+  profile: TrainingProfile,
+  sessionBudgetMin: number,
+): GeneratedExercise[] {
+  const corrections: string[] = [];
+
+  // Check B4.2: per-exercise set cap (weeklyTarget / frequency)
+  for (const ex of exercises) {
+    if (ex.isCardio) continue;
+    const group = (ex.targetMuscleGroup ?? '').toLowerCase();
+    const freq = (profile.muscleGroupFrequency ?? {})[group] ?? 2;
+    const vol = (profile.muscleVolumeStatuses ?? []).find(
+      v => v.muscleGroup.toLowerCase() === group
+    );
+    const weeklyTarget = vol ? vol.mavHigh : 12;
+    const perSessionCap = Math.max(3, Math.ceil(weeklyTarget / Math.max(freq, 1)));
+    if (ex.sets > perSessionCap) {
+      const old = ex.sets;
+      ex.sets = perSessionCap;
+      ex.adjustments.push(`Sets capped: ${old} → ${perSessionCap} (${weeklyTarget} weekly / ${freq.toFixed(1)}x freq)`);
+      corrections.push(`${ex.exerciseName}: ${old} → ${perSessionCap} sets`);
+    }
+  }
+
+  // Check B4.3: compounds after isolations — re-sort
+  const strengthExs = exercises.filter(e => !e.isCardio);
+  let hasOrderViolation = false;
+  let lastCompoundIdx = -1;
+  let firstIsolationIdx = strengthExs.length;
+  for (let i = 0; i < strengthExs.length; i++) {
+    const cnsTier = getCnsDemandTier(strengthExs[i]);
+    const isCompound = strengthExs[i].movementPattern === 'compound' || cnsTier <= 2;
+    if (isCompound) lastCompoundIdx = i;
+    if (!isCompound && i < firstIsolationIdx) firstIsolationIdx = i;
+  }
+  if (lastCompoundIdx > firstIsolationIdx) {
+    hasOrderViolation = true;
+    const compounds = strengthExs.filter(e => {
+      const t = getCnsDemandTier(e);
+      return e.movementPattern === 'compound' || t <= 2;
+    });
+    const isolations = strengthExs.filter(e => {
+      const t = getCnsDemandTier(e);
+      return e.movementPattern !== 'compound' && t > 2;
+    });
+    compounds.sort((a, b) => getCnsDemandTier(a) - getCnsDemandTier(b));
+    const reordered = [...compounds, ...isolations];
+    const cardioExs = exercises.filter(e => e.isCardio);
+    exercises.length = 0;
+    exercises.push(...reordered, ...cardioExs);
+    corrections.push('Re-sorted: compounds moved before isolations');
+  }
+
+  // Check B4.4: single exercise > 40% of total working sets
+  const totalSets = exercises.filter(e => !e.isCardio).reduce((s, e) => s + e.sets, 0);
+  if (totalSets > 0) {
+    for (const ex of exercises) {
+      if (ex.isCardio) continue;
+      const pct = ex.sets / totalSets;
+      if (pct > 0.4 && ex.sets > 3) {
+        const maxAllowed = Math.max(3, Math.floor(totalSets * 0.4));
+        if (ex.sets > maxAllowed) {
+          const old = ex.sets;
+          ex.sets = maxAllowed;
+          ex.adjustments.push(`Sets reduced: ${old} → ${maxAllowed} (was ${Math.round(pct * 100)}% of total volume)`);
+          corrections.push(`${ex.exerciseName}: ${old} → ${maxAllowed} sets (>40% cap)`);
+        }
+      }
+    }
+  }
+
+  // Check B4.5: total time vs session budget (±20%)
+  const recalc = (e: GeneratedExercise) => {
+    if (e.isCardio) {
+      e.estimatedMinutes = (e.cardioDurationSeconds ?? 1800) / 60 + (TRANSITION_TIME_SEC.cardio / 60);
+    } else {
+      e.estimatedMinutes = estimateExerciseMinutes(
+        e.sets, e.restSeconds, e.exerciseRole, e.warmupSets?.length ?? 0,
+        e.targetReps, e.tempo
+      );
+    }
+  };
+  exercises.forEach(recalc);
+  let totalMin = exercises.reduce((s, e) => s + e.estimatedMinutes, 0);
+
+  if (totalMin > sessionBudgetMin * 1.2) {
+    const nonPrimary = exercises
+      .filter(e => !e.isCardio && e.exerciseRole !== 'primary')
+      .sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
+    for (const ex of nonPrimary) {
+      if (totalMin <= sessionBudgetMin * 1.1) break;
+      if (ex.sets > 2) {
+        const old = ex.sets;
+        ex.sets = Math.max(2, ex.sets - 1);
+        recalc(ex);
+        totalMin = exercises.reduce((s, e) => s + e.estimatedMinutes, 0);
+        ex.adjustments.push(`Validation trim: ${old} → ${ex.sets} sets (over time budget)`);
+        corrections.push(`${ex.exerciseName}: trimmed to fit budget`);
+      }
+    }
+  }
+
+  return exercises;
+}
+
 export async function generateWorkout(
   profile: TrainingProfile,
   overrides?: SessionOverrides
@@ -2824,6 +3056,15 @@ export async function generateWorkout(
   // Step 2: Select muscle groups
   const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg, caloricPhaseScale);
 
+  // Parse LLM pattern observations into actionable hints
+  const llmHints = parseLlmPatternObservations(profile.llmPatternObservations);
+  if (llmHints.avoidExercises.length > 0) {
+    const existing = new Set(prefs.exercises_to_avoid.map(e => e.toLowerCase()));
+    for (const name of llmHints.avoidExercises) {
+      if (!existing.has(name.toLowerCase())) prefs.exercises_to_avoid.push(name);
+    }
+  }
+
   // Step 3: Select exercises
   const { selections: exerciseSelections, decisions: exerciseDecisions } = stepSelectExercises(muscleGroups, allExercises, profile, prefs, cfg);
 
@@ -2855,8 +3096,11 @@ export async function generateWorkout(
   // Step 5: Apply session constraints (pass exercise pool + selections for expansion)
   const constrained = stepApplyConstraints(prescribed, prefs, profile, cfg, allExercises, exerciseSelections, recoveryAdj, expProgressionScale * ageProgressionScale, breakRampMultiplier);
 
+  // Step 5b: Post-generation validation — catch absurd prescriptions
+  const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes);
+
   // Step 6: Generate rationale + decision log
-  const workout = stepGenerateRationale(constrained, muscleGroups, recoveryAdj, profile, prefs, skippedGroups, exerciseDecisions);
+  const workout = stepGenerateRationale(validated, muscleGroups, recoveryAdj, profile, prefs, skippedGroups, exerciseDecisions);
 
   return workout;
 }

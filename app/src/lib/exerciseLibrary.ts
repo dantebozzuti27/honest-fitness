@@ -22,7 +22,7 @@ export async function getSystemExercises(filters: { category?: string; bodyPart?
     query = query.eq('category', filters.category)
   }
   if (filters.bodyPart) {
-    query = query.eq('body_part', filters.bodyPart)
+    query = query.ilike('body_part', filters.bodyPart)
   }
   if (filters.search) {
     query = query.ilike('name', `%${filters.search}%`)
@@ -145,11 +145,11 @@ export async function deleteCustomExercise(userId: string, exerciseId: string) {
  * Get exercise by name (system or custom for user)
  */
 export async function getExerciseByName(userId: string, exerciseName: string) {
-  // Try system exercise first
+  // Try system exercise first (case-insensitive to handle casing mismatches)
   const { data: systemExercise } = await supabase
     .from('exercise_library')
     .select('*')
-    .eq('name', exerciseName)
+    .ilike('name', exerciseName)
     .eq('is_custom', false)
     .maybeSingle()
   
@@ -159,7 +159,7 @@ export async function getExerciseByName(userId: string, exerciseName: string) {
   const { data: customExercise } = await supabase
     .from('exercise_library')
     .select('*')
-    .eq('name', exerciseName)
+    .ilike('name', exerciseName)
     .eq('is_custom', true)
     .eq('created_by_user_id', userId)
     .maybeSingle()

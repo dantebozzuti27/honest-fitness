@@ -274,6 +274,7 @@ export interface Rolling30DayTrends {
 export interface TrainingProfile {
   userId: string;
   computedAt: string;
+  featureSnapshotId: string;
 
   // Recovery
   muscleRecovery: MuscleRecoveryStatus[];
@@ -372,6 +373,8 @@ export interface TrainingProfile {
     avgRepsDeviation: number;   // average reps deviation
     exercisesCompleted: number; // total exercises completed from prescriptions
     exercisesSkipped: number;   // total exercises skipped
+    avgSessionOutcomeScore: number; // 0-1 post-session label average
+    outcomeSampleSize: number;  // number of post-session labels used
   };
 
   // #4: Individual muscle recovery rates (learned from performance-after-rest)
@@ -3560,6 +3563,17 @@ function computeImbalanceAlerts(volumeStatuses: MuscleVolumeStatus[]): Imbalance
 
 // ─── Main Entry Point ───────────────────────────────────────────────────────
 
+function createFeatureSnapshotId(parts: Array<string | number | null | undefined>): string {
+  const seed = parts.map(p => (p == null ? 'null' : String(p))).join('|');
+  // Lightweight stable hash for replay/attribution metadata (not cryptographic).
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return `fs_${(hash >>> 0).toString(36)}`;
+}
+
 export async function computeTrainingProfile(userId: string): Promise<TrainingProfile> {
   const supabase = requireSupabase();
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
@@ -3568,12 +3582,22 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     fetchHealthHistory(userId),
     fetchEnrichedExercises(),
     supabase.from('user_preferences').select('*').eq('user_id', userId).maybeSingle(),
-    supabase.from('model_feedback').select('feedback_data')
-      .eq('user_id', userId).eq('feedback_type', 'pattern_observation')
-      .gte('created_at', thirtyDaysAgo).order('created_at', { ascending: false }).limit(10)
-      .then(r => r).catch(() => ({ data: null, error: null })),
+    (async () => {
+      try {
+        return await supabase
+          .from('model_feedback')
+          .select('feedback_data, feedback_source, feedback_quality, verified_by_user')
+          .eq('user_id', userId)
+          .eq('feedback_type', 'pattern_observation')
+          .gte('created_at', thirtyDaysAgo)
+          .order('created_at', { ascending: false })
+          .limit(10);
+      } catch {
+        return { data: null, error: null } as any;
+      }
+    })(),
     getAllConnectedAccounts(userId).catch(() => [] as any[]),
-  ]);
+  ]) as [WorkoutRecord[], HealthRecord[], EnrichedExercise[], any, any, any[]];
   const userGender = prefsResult?.data?.gender ?? null;
   const userRecoverySpeed = prefsResult?.data?.recovery_speed != null ? Number(prefsResult.data.recovery_speed) : 1.0;
   const userExperienceLevel: string | null = prefsResult?.data?.experience_level ?? null;
@@ -3733,7 +3757,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const recentWorkouts14d = workouts.filter(w => w.date >= twoWeeksAgo);
   for (const w of recentWorkouts14d) {
     const groupsThisSession = new Set<string>();
-    for (const ex of (w.exercises ?? [])) {
+    for (const ex of (w.workout_exercises ?? [])) {
       const groups = exToGroups.get((ex.exercise_name ?? '').toLowerCase());
       if (groups) for (const g of groups) groupsThisSession.add(g);
     }
@@ -3775,10 +3799,19 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const totalWorkoutCount = workouts.length;
   const healthDataDays = new Set(health.map(h => h.date)).size;
   const connectedWearables = (connectedAccounts ?? []).map((a: any) => a.provider as string);
+  const featureSnapshotId = createFeatureSnapshotId([
+    userId,
+    workouts.length,
+    workouts[workouts.length - 1]?.date ?? null,
+    health.length,
+    health[health.length - 1]?.date ?? null,
+    (feedbackResult?.data ?? []).length,
+  ]);
 
   return {
     userId,
     computedAt: new Date().toISOString(),
+    featureSnapshotId,
 
     muscleRecovery,
     recoveryContext: recoveryCtx,
@@ -3850,6 +3883,16 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     consistencyScore: Math.round(consistencyScore * 100) / 100,
     muscleGroupFrequency,
     llmPatternObservations: (feedbackResult?.data ?? [])
+      .filter((r: any) => {
+        // Keep legacy rows with no provenance metadata, but exclude unverified model-only observations.
+        const source = r?.feedback_source ?? null;
+        const quality = r?.feedback_quality ?? null;
+        const verified = r?.verified_by_user === true;
+        if (!source && !quality && !verified) return true;
+        if (verified) return true;
+        if (quality === 'verified' || quality === 'trusted') return true;
+        return source !== 'model_review';
+      })
       .map((r: any) => r.feedback_data)
       .filter((d: any) => d && typeof d.pattern === 'string'),
 
@@ -4830,7 +4873,15 @@ function computeSleepVolumeModifier(health: HealthRecord[]): TrainingProfile['sl
 
 // #1: Compute prescribed vs actual compliance from generated_workouts
 async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord[]) {
-  const defaultResult = { complianceRate: 1, avgWeightDeviation: 0, avgRepsDeviation: 0, exercisesCompleted: 0, exercisesSkipped: 0 };
+  const defaultResult = {
+    complianceRate: 1,
+    avgWeightDeviation: 0,
+    avgRepsDeviation: 0,
+    exercisesCompleted: 0,
+    exercisesSkipped: 0,
+    avgSessionOutcomeScore: 0,
+    outcomeSampleSize: 0,
+  };
   try {
     const supabase = requireSupabase();
     const linkedWorkouts = workouts.filter(w => (w as any).generated_workout_id);
@@ -4843,6 +4894,12 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
       .in('id', genIds.slice(0, 20));
 
     if (!generated || generated.length === 0) return defaultResult;
+
+    const { data: outcomes } = await supabase
+      .from('workout_outcomes')
+      .select('generated_workout_id, session_outcome_score')
+      .eq('user_id', userId)
+      .in('generated_workout_id', genIds.slice(0, 20));
 
     let totalPrescribed = 0, totalCompleted = 0, totalSkipped = 0;
     let weightDeviations: number[] = [], repsDeviations: number[] = [];
@@ -4874,12 +4931,18 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
       }
     }
 
+    const outcomeScores = (outcomes ?? [])
+      .map((o: any) => Number(o?.session_outcome_score))
+      .filter((s: number) => Number.isFinite(s) && s >= 0 && s <= 1);
+
     return {
       complianceRate: totalPrescribed > 0 ? totalCompleted / totalPrescribed : 1,
       avgWeightDeviation: weightDeviations.length > 0 ? mean(weightDeviations) : 0,
       avgRepsDeviation: repsDeviations.length > 0 ? mean(repsDeviations) : 0,
       exercisesCompleted: totalCompleted,
       exercisesSkipped: totalSkipped,
+      avgSessionOutcomeScore: outcomeScores.length > 0 ? mean(outcomeScores) : 0,
+      outcomeSampleSize: outcomeScores.length,
     };
   } catch {
     return defaultResult;

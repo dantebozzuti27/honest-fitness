@@ -3,13 +3,28 @@
  */
 
 import express from 'express'
+import { createClient } from '@supabase/supabase-js'
 import { processML } from '../engines/ml/index.js'
 import { generateAIWorkoutPlan, generateAINutritionPlan, generateAIWeeklySummary, generateAIInsights, generateAIPageInsights, interpretPrompt } from '../engines/ai/index.js'
 import { getFromDatabase } from '../database/index.js'
 import { mlLimiter } from '../middleware/rateLimiter.js'
-import { logError } from '../utils/logger.js'
+import { logError, logMetric } from '../utils/logger.js'
 
 export const mlRouter = express.Router()
+let metricsSupabase = null
+let metricsSupabaseInit = false
+
+function getMetricsSupabase() {
+  if (metricsSupabase) return metricsSupabase
+  if (metricsSupabaseInit) return null
+  metricsSupabaseInit = true
+
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return null
+  metricsSupabase = createClient(url, key)
+  return metricsSupabase
+}
 
 // Apply ML rate limiter to all ML routes
 mlRouter.use(mlLimiter)
@@ -157,6 +172,71 @@ mlRouter.post('/interpret', async (req, res, next) => {
     res.json({
       success: true,
       interpretation
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+// Basic weekly model-quality telemetry for user-facing diagnostics
+mlRouter.get('/metrics/model-quality', async (req, res, next) => {
+  try {
+    const userId = req.userId
+    const days = Math.max(1, Math.min(90, Number(req.query?.days) || 7))
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+    const supabase = getMetricsSupabase()
+    if (!supabase) {
+      return res.status(500).json({ success: false, message: 'Metrics DB client unavailable' })
+    }
+
+    const [{ data: outcomes, error: outcomesError }, { data: workouts, error: workoutsError }] = await Promise.all([
+      supabase
+        .from('workout_outcomes')
+        .select('session_outcome_score, outcome_notes, workout_date')
+        .eq('user_id', userId)
+        .gte('workout_date', startDate),
+      supabase
+        .from('workouts')
+        .select('id, generated_workout_id, date')
+        .eq('user_id', userId)
+        .gte('date', startDate)
+    ])
+
+    if (outcomesError) throw outcomesError
+    if (workoutsError) throw workoutsError
+
+    const scores = (outcomes || [])
+      .map(o => Number(o.session_outcome_score))
+      .filter(v => Number.isFinite(v))
+
+    const confidenceBuckets = { high: 0, medium: 0, low: 0, unknown: 0 }
+    for (const o of (outcomes || [])) {
+      const note = String(o.outcome_notes || '').toLowerCase()
+      if (note.includes('high_confidence')) confidenceBuckets.high++
+      else if (note.includes('medium_confidence')) confidenceBuckets.medium++
+      else if (note.includes('low_confidence')) confidenceBuckets.low++
+      else confidenceBuckets.unknown++
+    }
+
+    const linkedGenerated = (workouts || []).filter(w => !!w.generated_workout_id).length
+    const totalWorkouts = (workouts || []).length
+    const generatedCoverage = totalWorkouts > 0 ? linkedGenerated / totalWorkouts : 0
+    const avgOutcomeScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0
+
+    logMetric('model_quality_avg_outcome_score', avgOutcomeScore, { userId, days })
+    logMetric('model_quality_generated_coverage', generatedCoverage, { userId, days })
+
+    res.json({
+      success: true,
+      windowDays: days,
+      summary: {
+        avgOutcomeScore,
+        outcomeSampleSize: scores.length,
+        totalWorkouts,
+        generatedCoverage
+      },
+      confidenceBuckets
     })
   } catch (error) {
     next(error)

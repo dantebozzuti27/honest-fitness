@@ -21,7 +21,7 @@ import { uuidv4 } from '../utils/uuid';
 import { getExerciseMapping, getExerciseSFR } from './exerciseMuscleMap';
 import { estimateWeight as estimateWeightFromRatios } from './liftRatios';
 import { suggestSupersets, type SupersetSuggestion } from './supersetPairer';
-import { DEFAULT_MODEL_CONFIG, type ModelConfig } from './modelConfig';
+import { DEFAULT_MODEL_CONFIG, MODEL_CONFIG_VERSION, WORKOUT_ENGINE_VERSION, type ModelConfig } from './modelConfig';
 import { getSportProfile, type SportProfile, type SportSeason } from './sportProfiles';
 import { getLocalDate } from '../utils/dateUtils';
 import { normalizeEquipment } from '../utils/formatUtils';
@@ -136,6 +136,7 @@ export interface ExerciseDecision {
 export interface GeneratedWorkout {
   id: string;
   date: string;
+  featureSnapshotId?: string;
   trainingGoal: string;
   estimatedDurationMinutes: number;
   muscleGroupsFocused: string[];
@@ -2790,6 +2791,7 @@ function stepGenerateRationale(
   return {
     id: generateId(),
     date: getLocalDate(),
+    featureSnapshotId: profile.featureSnapshotId,
     trainingGoal: prefs.training_goal,
     estimatedDurationMinutes: Math.round(totalDuration),
     muscleGroupsFocused,
@@ -3308,6 +3310,11 @@ export async function saveGeneratedWorkout(
         status: workout.recoveryStatus,
         deload: workout.deloadActive,
         adjustments: workout.adjustmentsSummary,
+        model_metadata: {
+          config_version: MODEL_CONFIG_VERSION,
+          engine_version: WORKOUT_ENGINE_VERSION,
+          feature_snapshot_id: workout.featureSnapshotId ?? null,
+        },
       },
       exercises: workout.exercises,
       rationale: workout.sessionRationale,

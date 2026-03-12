@@ -57,3 +57,18 @@ export function logDebug(message, data = null) {
   }
 }
 
+/**
+ * Log a structured metric event for lightweight telemetry.
+ */
+export function logMetric(name, value, tags = {}) {
+  if (currentLogLevel >= LOG_LEVELS.INFO) {
+    console.log(JSON.stringify({
+      type: 'metric',
+      ts: new Date().toISOString(),
+      name,
+      value,
+      tags
+    }))
+  }
+}
+

@@ -89,6 +89,57 @@ inputRouter.post('/user', async (req, res, next) => {
   }
 })
 
+// Ingest model outcome events from client analytics queue
+inputRouter.post('/model-outcome-events', async (req, res, next) => {
+  try {
+    const userId = req.userId
+    const events = Array.isArray(req.body?.events) ? req.body.events : []
+
+    if (!supabase) {
+      return sendError(res, { status: 500, message: 'Database connection error' })
+    }
+    if (events.length === 0) {
+      return res.json({ success: true, inserted: 0 })
+    }
+
+    const rows = events
+      .slice(0, 100)
+      .map((evt) => {
+        const data = evt?.data || {}
+        const rawScore = data.outcomeScore ?? data.sessionOutcomeScore
+        const score = Number(rawScore)
+        const normalizedScore = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : null
+        const generatedWorkoutId = data.generatedWorkoutId || data.generated_workout_id || null
+        const eventType = typeof evt?.event === 'string' ? evt.event : 'model_outcome_unknown'
+        const workoutDate = typeof data.workoutDate === 'string' ? data.workoutDate : null
+        return {
+          user_id: userId,
+          generated_workout_id: generatedWorkoutId,
+          workout_date: workoutDate || new Date().toISOString().split('T')[0],
+          session_outcome_score: normalizedScore,
+          outcome_notes: eventType
+        }
+      })
+      .filter(r => r.generated_workout_id || r.session_outcome_score != null)
+
+    if (rows.length === 0) {
+      return res.json({ success: true, inserted: 0 })
+    }
+
+    const { error } = await supabase
+      .from('workout_outcomes')
+      .insert(rows)
+
+    if (error) {
+      throw new Error(`Failed to insert model outcome events: ${error.message}`)
+    }
+
+    return res.json({ success: true, inserted: rows.length })
+  } catch (error) {
+    next(error)
+  }
+})
+
 // Sync Fitbit data (with rate limiting)
 inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
   try {

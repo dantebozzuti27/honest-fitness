@@ -568,6 +568,32 @@ CREATE TABLE IF NOT EXISTS model_feedback (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Feedback provenance fields (idempotent)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'model_feedback' AND column_name = 'feedback_source'
+  ) THEN
+    ALTER TABLE model_feedback ADD COLUMN feedback_source TEXT
+      CHECK (feedback_source IN ('human', 'model_review', 'system_rule'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'model_feedback' AND column_name = 'feedback_quality'
+  ) THEN
+    ALTER TABLE model_feedback ADD COLUMN feedback_quality TEXT
+      CHECK (feedback_quality IN ('unverified', 'verified', 'trusted'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'model_feedback' AND column_name = 'verified_by_user'
+  ) THEN
+    ALTER TABLE model_feedback ADD COLUMN verified_by_user BOOLEAN DEFAULT false;
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_model_feedback_user
   ON model_feedback(user_id, created_at DESC);
 
@@ -590,4 +616,42 @@ CREATE POLICY "Users can update own model_feedback" ON model_feedback
 
 DROP POLICY IF EXISTS "Users can delete own model_feedback" ON model_feedback;
 CREATE POLICY "Users can delete own model_feedback" ON model_feedback
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- ============================================================================
+-- WORKOUT OUTCOMES TABLE
+-- Minimal post-session labels linked to generated workout prescriptions.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS workout_outcomes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  generated_workout_id UUID REFERENCES generated_workouts(id) ON DELETE SET NULL,
+  workout_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  session_outcome_score NUMERIC CHECK (session_outcome_score >= 0 AND session_outcome_score <= 1),
+  outcome_notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_workout_outcomes_user_date
+  ON workout_outcomes(user_id, workout_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_workout_outcomes_generated
+  ON workout_outcomes(generated_workout_id);
+
+ALTER TABLE workout_outcomes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own workout_outcomes" ON workout_outcomes;
+CREATE POLICY "Users can view own workout_outcomes" ON workout_outcomes
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own workout_outcomes" ON workout_outcomes;
+CREATE POLICY "Users can insert own workout_outcomes" ON workout_outcomes
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own workout_outcomes" ON workout_outcomes;
+CREATE POLICY "Users can update own workout_outcomes" ON workout_outcomes
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own workout_outcomes" ON workout_outcomes;
+CREATE POLICY "Users can delete own workout_outcomes" ON workout_outcomes
   FOR DELETE USING (auth.uid() = user_id);

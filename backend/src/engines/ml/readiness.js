@@ -24,14 +24,19 @@ export async function computeReadiness(userId, healthData) {
     activityScore * 0.2 +
     recoveryScore * 0.2
   )
+  const calibratedScore = calibrateReadinessScore(readiness, latest)
+  const confidenceScore = computeReadinessConfidence(latest)
   
   // Determine zone
   let zone = 'green'
-  if (readiness < 50) zone = 'red'
-  else if (readiness < 70) zone = 'yellow'
+  if (calibratedScore < 50) zone = 'red'
+  else if (calibratedScore < 70) zone = 'yellow'
   
   return {
     score: readiness,
+    calibratedScore,
+    confidence: confidenceScore >= 0.75 ? 'high' : confidenceScore >= 0.5 ? 'medium' : 'low',
+    confidenceScore,
     zone,
     components: {
       sleep: sleepScore,
@@ -47,6 +52,24 @@ export async function computeReadiness(userId, healthData) {
       restingHR: latest.resting_heart_rate
     }
   }
+}
+
+function calibrateReadinessScore(rawScore, latest) {
+  // Lightweight calibration map before full model migration.
+  let adjusted = rawScore
+  if (latest?.sleep_duration && latest.sleep_duration < 360) adjusted -= 5
+  if (latest?.hrv && latest.hrv < 25) adjusted -= 4
+  if (latest?.resting_heart_rate && latest.resting_heart_rate > 85) adjusted -= 4
+  return Math.max(0, Math.min(100, Math.round(adjusted)))
+}
+
+function computeReadinessConfidence(latest) {
+  let present = 0
+  if (latest?.sleep_duration != null) present++
+  if (latest?.hrv != null) present++
+  if (latest?.steps != null || latest?.active_calories != null) present++
+  if (latest?.resting_heart_rate != null) present++
+  return Math.max(0, Math.min(1, present / 4))
 }
 
 function calculateSleepScore(duration, efficiency) {

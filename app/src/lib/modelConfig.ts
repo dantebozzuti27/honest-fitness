@@ -161,6 +161,10 @@ export interface ModelConfig {
   deloadSignalCountThreshold: number;
 }
 
+// Version stamps persisted with generated workouts for reproducibility.
+export const MODEL_CONFIG_VERSION = '2026-03-12.1';
+export const WORKOUT_ENGINE_VERSION = '2026-03-12.1';
+
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery
   sleepReductionThreshold: 0.80,

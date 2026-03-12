@@ -97,6 +97,9 @@ export default function TodayWorkout() {
         user_id: user.id,
         feedback_type: 'pattern_observation' as const,
         feedback_data: obs,
+        feedback_source: 'model_review' as const,
+        feedback_quality: 'unverified' as const,
+        verified_by_user: false,
         workout_date: getLocalDate(),
       }))
       supabase.from('model_feedback').insert(rows)

@@ -12,12 +12,22 @@ export async function predictPerformance(userId, dataContext) {
   
   // Calculate progression trends
   const progression = calculateProgression(workouts)
+  const confidenceScore = calculateConfidenceScore(progression, workouts)
+  const confidenceLevel = confidenceScore >= 0.75 ? 'high' : confidenceScore >= 0.5 ? 'medium' : 'low'
+  const conservativeFallback = confidenceScore < 0.45
   
   // Predict next workout performance
   const predictedPerformance = {
     expectedVolume: progression.avgVolume * (1 + progression.trend * 0.05),
     expectedIntensity: progression.avgIntensity,
-    confidence: progression.consistency > 0.7 ? 'high' : 'medium'
+    confidence: confidenceLevel,
+    confidenceScore,
+    conservativeFallback
+  }
+
+  if (conservativeFallback) {
+    predictedPerformance.expectedVolume = progression.avgVolume * 0.95
+    predictedPerformance.expectedIntensity = Math.min(progression.avgIntensity, 6)
   }
   
   // Predict recovery needs
@@ -30,14 +40,25 @@ export async function predictPerformance(userId, dataContext) {
   }
 }
 
+function calculateConfidenceScore(progression, workouts) {
+  const consistency = Math.max(0, Math.min(1, progression.consistency || 0))
+  const density = Math.max(0, Math.min(1, workouts.length / 20))
+  // Penalize extreme trend magnitude as likely instability/noise.
+  const trendPenalty = Math.min(0.3, Math.abs(progression.trend || 0))
+  const raw = 0.15 + consistency * 0.6 + density * 0.25 - trendPenalty
+  return Math.max(0, Math.min(1, raw))
+}
+
+export function computeWorkoutVolume(workout) {
+  return workout?.workout_exercises?.reduce((sum, ex) => {
+    return sum + (ex.workout_sets?.reduce((setSum, set) => {
+      return setSum + ((set.weight || 0) * (set.reps || 0))
+    }, 0) || 0)
+  }, 0) || 0
+}
+
 function calculateProgression(workouts) {
-  const volumes = workouts.map(w => {
-    return w.workout_exercises?.reduce((sum, ex) => {
-      return sum + (ex.workout_sets?.reduce((setSum, set) => {
-        return setSum + ((set.weight || 0) * (set.reps || 0))
-      }, 0) || 0)
-    }, 0) || 0
-  })
+  const volumes = workouts.map(computeWorkoutVolume)
   
   const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length
   
@@ -66,6 +87,10 @@ function calculateProgression(workouts) {
     consistency,
     avgIntensity
   }
+}
+
+export function calculateProgressionForEval(workouts) {
+  return calculateProgression(workouts)
 }
 
 function predictRecovery(dataContext) {

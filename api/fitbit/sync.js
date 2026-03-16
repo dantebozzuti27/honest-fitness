@@ -419,9 +419,14 @@ export default async function handler(req, res) {
       // Don't fail - this is just for backward compatibility
     }
 
+    const coreMetrics = ['sleep_duration', 'resting_heart_rate', 'steps', 'hrv']
+    const populatedCount = coreMetrics.filter(k => fitbitData[k] != null).length
+    const partialFailure = populatedCount < coreMetrics.length && populatedCount > 0
+
     return res.status(200).json({
       success: true,
       synced: true,
+      partial_failure: partialFailure,
       date: date,
       data: fitbitData
     })

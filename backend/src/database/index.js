@@ -159,19 +159,28 @@ export async function getFromDatabase(type, userId, filters = {}) {
     .select('*')
     .eq('user_id', userId)
   
-  if (filters.startDate) {
-    query = query.gte('date', filters.startDate)
-  }
-  
-  if (filters.endDate) {
-    query = query.lte('date', filters.endDate)
+  if (type !== 'user') {
+    if (filters.startDate) {
+      query = query.gte('date', filters.startDate)
+    }
+    
+    if (filters.endDate) {
+      query = query.lte('date', filters.endDate)
+    }
   }
   
   if (filters.limit) {
     query = query.limit(filters.limit)
   }
   
-  query = query.order('date', { ascending: false })
+  // Canonical temporal contract: chronological ascending.
+  // Latest item is always at index `length - 1`.
+  if (type !== 'user') {
+    query = query.order('date', { ascending: true })
+    if (type === 'workout' || type === 'nutrition' || type === 'health') {
+      query = query.order('created_at', { ascending: true })
+    }
+  }
   
   const { data, error } = await query
   

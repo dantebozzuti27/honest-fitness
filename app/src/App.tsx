@@ -16,6 +16,7 @@ const Progress = lazy(() => import('./pages/Progress'))
 const TodayWorkout = lazy(() => import('./pages/TodayWorkout'))
 const HowItWorks = lazy(() => import('./pages/HowItWorks'))
 const ModelDashboard = lazy(() => import('./pages/ModelDashboard'))
+const OntologyDashboard = lazy(() => import('./pages/OntologyDashboard'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -80,6 +81,14 @@ export default function App() {
       .catch(() => {})
   }, [user])
 
+  // Schema capability health check on boot (sets flags for fallback query shapes)
+  useEffect(() => {
+    if (!user) return
+    import('./lib/schemaCapability')
+      .then(({ runSchemaCapabilityCheck }) => runSchemaCapabilityCheck().catch(() => {}))
+      .catch(() => {})
+  }, [user])
+
   // Fitbit token refresh + scheduled sync (midnight ET + app load)
   useEffect(() => {
     if (!user) return
@@ -121,12 +130,14 @@ export default function App() {
           <Route path="/workout" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />
           <Route path="/workout/active" element={<ProtectedRoute><ActiveWorkout /></ProtectedRoute>} />
           <Route path="/today" element={<ProtectedRoute><TodayWorkout /></ProtectedRoute>} />
+          <Route path="/today-workout" element={<Navigate to="/today" replace />} />
           <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
           <Route path="/progress" element={<ProtectedRoute><Progress /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/account" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/how-it-works" element={<ProtectedRoute><HowItWorks /></ProtectedRoute>} />
           <Route path="/model" element={<ProtectedRoute><ModelDashboard /></ProtectedRoute>} />
+          <Route path="/ontology" element={<ProtectedRoute><OntologyDashboard /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

@@ -17,13 +17,14 @@ import {
 } from '../lib/workoutEngine'
 import { requireSupabase } from '../lib/supabase'
 import { fetchWorkoutReview, fetchWorkoutValidation, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
-import { getActiveWeeklyPlanFromSupabase, saveWeeklyPlanDiffsToSupabase, saveWeeklyPlanToSupabase } from '../lib/supabaseDb'
+import { getActiveWeeklyPlanFromSupabase, saveWeeklyPlanToSupabase } from '../lib/supabaseDb'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import BackButton from '../components/BackButton'
 import Button from '../components/Button'
 import { getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
+import { evaluateSchemaGate, probeSchemaCapabilities } from '../lib/schemaCapability'
 import styles from './TodayWorkout.module.css'
 import s from '../styles/shared.module.css'
 
@@ -70,6 +71,11 @@ export default function TodayWorkout() {
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [llmValidation, setLlmValidation] = useState<WorkoutValidation | null>(null)
+  const [originalWorkout, setOriginalWorkout] = useState<GeneratedWorkout | null>(null)
+  const [adjustedWorkoutCandidate, setAdjustedWorkoutCandidate] = useState<GeneratedWorkout | null>(null)
+  const [adjustedValidation, setAdjustedValidation] = useState<WorkoutValidation | null>(null)
+  const [regeneratingWithLlm, setRegeneratingWithLlm] = useState(false)
+  const [selectedWorkoutVersion, setSelectedWorkoutVersion] = useState<'original' | 'adjusted'>('original')
   const llmValidationFiredRef = useRef(false)
   const regeneratingRef = useRef(false)
   const forceGenerateRef = useRef(false)
@@ -247,6 +253,8 @@ export default function TodayWorkout() {
 
       const byDate = new Map<string, any>()
       for (const w of workouts ?? []) {
+        const st = (w.session_type || w.sessionType || 'workout').toString().toLowerCase()
+        if (st !== 'workout') continue
         byDate.set(w.date, w)
       }
       return {
@@ -267,6 +275,24 @@ export default function TodayWorkout() {
     }
   }
 
+  const hasConsecutiveDuplicateTrainingDays = (plan: WeeklyPlan): boolean => {
+    const days = Array.isArray(plan?.days) ? plan.days : []
+    const getSig = (d: WeeklyPlanDay) =>
+      (d?.plannedWorkout?.exercises ?? [])
+        .filter((ex: any) => !ex?.isCardio)
+        .map((ex: any) => `${String(ex?.exerciseName || '').toLowerCase()}|${Number(ex?.sets) || 0}|${Number(ex?.targetReps) || 0}`)
+        .join(';;')
+    let prevSig: string | null = null
+    for (const d of days) {
+      if (d.isRestDay || d.dayStatus === 'completed') continue
+      const sig = getSig(d)
+      if (!sig) continue
+      if (prevSig && sig === prevSig) return true
+      prevSig = sig
+    }
+    return false
+  }
+
   const hydrateWeeklyPlan = async (tp: TrainingProfile, userRestDays: number[]) => {
     if (!user) return
     const weekStartDate = getWeekStartDate(new Date())
@@ -274,7 +300,20 @@ export default function TodayWorkout() {
     if (existing?.days?.length) {
       const validatedExisting = await annotateWeeklyPlanVerdicts(tp, existing as WeeklyPlan)
       const mergedExisting = await attachActualWeekWorkouts(validatedExisting)
-      setWeeklyPlan(mergedExisting)
+      if (hasConsecutiveDuplicateTrainingDays(mergedExisting)) {
+        let repaired = mergedExisting
+        let repairedDiffs: any[] = []
+        for (let i = 0; i < 2; i++) {
+          const next = await recomputeWeeklyPlanWithDiff(repaired, tp, userRestDays)
+          repaired = await attachActualWeekWorkouts(await annotateWeeklyPlanVerdicts(tp, next.plan))
+          repairedDiffs = next.diffs
+          if (!hasConsecutiveDuplicateTrainingDays(repaired)) break
+        }
+        setWeeklyPlan(repaired)
+        await saveWeeklyPlanToSupabase(user.id, repaired, repairedDiffs).catch(() => null)
+      } else {
+        setWeeklyPlan(mergedExisting)
+      }
       return
     }
     const generatedPlan = await generateWeeklyPlan(tp, userRestDays)
@@ -340,11 +379,6 @@ export default function TodayWorkout() {
   useEffect(() => {
     if (!llmValidation || !workout) return
 
-    if (llmValidation.immediate_corrections?.length) {
-      const { workout: updated } = applyImmediateCorrectionsToWorkout(workout, llmValidation.immediate_corrections)
-      setWorkout(updated)
-    }
-
     if (llmValidation.pattern_observations?.length && user) {
       const supabase = requireSupabase()
       const rows = llmValidation.pattern_observations.map(obs => ({
@@ -366,6 +400,14 @@ export default function TodayWorkout() {
     if (!user) return
     setViewState('loading')
     try {
+      const caps = await probeSchemaCapabilities().catch(() => null)
+      const gate = evaluateSchemaGate(caps)
+      if (!gate.ok) {
+        setErrorMsg(gate.message || 'Database schema is incompatible with this feature path.')
+        setViewState('error')
+        return
+      }
+
       const supabase = requireSupabase()
       // Use select('*') to avoid errors when specific columns don't exist in the schema
       const { data: prefsData, error: prefsError } = await supabase
@@ -439,6 +481,10 @@ export default function TodayWorkout() {
 
       const w = await generateWorkout(tp)
       setWorkout(w)
+      setOriginalWorkout(w)
+      setAdjustedWorkoutCandidate(null)
+      setAdjustedValidation(null)
+      setSelectedWorkoutVersion('original')
       setViewState('ready')
       saveGeneratedWorkout(user.id, w).catch(e => logError('Save generated workout failed (non-blocking)', e))
 
@@ -469,6 +515,10 @@ export default function TodayWorkout() {
         Object.keys(o).length > 0 ? o : undefined
       )
       setWorkout(w)
+      setOriginalWorkout(w)
+      setAdjustedWorkoutCandidate(null)
+      setAdjustedValidation(null)
+      setSelectedWorkoutVersion('original')
       setWorkoutReview(null)
       setReviewError(null)
       setLlmValidation(null)
@@ -487,8 +537,7 @@ export default function TodayWorkout() {
         for (const d of recomputed.diffs) diffMap[d.planDate] = d
         setWeeklyDiffsByDate(diffMap)
         if (user) {
-          const planId = await saveWeeklyPlanToSupabase(user.id, withActuals).catch(() => null)
-          if (planId) await saveWeeklyPlanDiffsToSupabase(user.id, planId, recomputed.diffs).catch(() => null)
+          await saveWeeklyPlanToSupabase(user.id, withActuals, recomputed.diffs).catch(() => null)
         }
       }
     } catch (err) {
@@ -518,6 +567,54 @@ export default function TodayWorkout() {
 
   const handleRegenerate = () => {
     regenerate(durationOverride, finishByTime)
+  }
+
+  const regenerateWithLlmAdjustments = async () => {
+    if (!cachedProfile || !workout || regeneratingWithLlm) return
+    setRegeneratingWithLlm(true)
+    try {
+      const baseline = originalWorkout || workout
+      let candidate = baseline
+      let validation = llmValidation ?? await fetchWorkoutValidation(cachedProfile, candidate)
+      const avoid = new Set<string>()
+      const ATTEMPTS = 4
+
+      for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+        if (validation.verdict === 'pass') break
+
+        for (const c of validation.immediate_corrections || []) {
+          const n = String(c.exerciseName || '').trim().toLowerCase()
+          if (n) avoid.add(n)
+        }
+
+        const o: SessionOverrides = {}
+        if (durationOverride != null) o.durationMinutes = durationOverride
+        if (finishByTime) o.finishByTime = finishByTime
+        if (avoid.size > 0) o.avoidExerciseNames = [...avoid]
+
+        candidate = await generateWorkout(cachedProfile, Object.keys(o).length > 0 ? o : undefined)
+        validation = await fetchWorkoutValidation(cachedProfile, candidate)
+
+        if (validation.immediate_corrections?.length) {
+          candidate = applyImmediateCorrectionsToWorkout(candidate, validation.immediate_corrections).workout
+          validation = await fetchWorkoutValidation(cachedProfile, candidate)
+        }
+      }
+
+      setAdjustedWorkoutCandidate(candidate)
+      setAdjustedValidation(validation)
+      setSelectedWorkoutVersion('original')
+      if (validation.verdict === 'pass') {
+        showToast('LLM-approved alternative ready. Choose between original and adjusted.', 'success')
+      } else {
+        showToast('Alternative generated with LLM guidance. Compare both versions.', 'info')
+      }
+    } catch (err) {
+      logError('LLM-adjusted regeneration failed', err)
+      showToast('Failed to regenerate with LLM adjustments', 'error')
+    } finally {
+      setRegeneratingWithLlm(false)
+    }
   }
 
   const estimateDisplayedMinutesForDay = (day: any): number => {
@@ -609,10 +706,7 @@ export default function TodayWorkout() {
       }
       setWeeklyDiffsByDate(prev => ({ ...prev, [selected.planDate]: diff }))
 
-      const planId = await saveWeeklyPlanToSupabase(user.id, updatedPlan).catch(() => null)
-      if (planId) {
-        await saveWeeklyPlanDiffsToSupabase(user.id, planId, [diff]).catch(() => null)
-      }
+      await saveWeeklyPlanToSupabase(user.id, updatedPlan, [diff]).catch(() => null)
       showToast(`${selected.dayName} regenerated`, 'success')
     } catch (err) {
       logError('Selected day regeneration error', err)
@@ -646,8 +740,7 @@ export default function TodayWorkout() {
         for (const d of recomputed.diffs) diffMap[d.planDate] = d
         setWeeklyDiffsByDate(diffMap)
         if (user) {
-          const planId = await saveWeeklyPlanToSupabase(user.id, withActuals).catch(() => null)
-          if (planId) await saveWeeklyPlanDiffsToSupabase(user.id, planId, recomputed.diffs).catch(() => null)
+          await saveWeeklyPlanToSupabase(user.id, withActuals, recomputed.diffs).catch(() => null)
         }
       }
     }
@@ -696,6 +789,10 @@ export default function TodayWorkout() {
       }
       const w = await generateWorkout(updatedProfile, Object.keys(o).length > 0 ? o : undefined)
       setWorkout(w)
+      setOriginalWorkout(w)
+      setAdjustedWorkoutCandidate(null)
+      setAdjustedValidation(null)
+      setSelectedWorkoutVersion('original')
       showToast(`Swapped ${exerciseName}`, 'success')
     } catch (err) {
       logError('Swap exercise error', err)
@@ -995,7 +1092,7 @@ export default function TodayWorkout() {
               )}
               {selectedDay.planDate === today && llmValidation?.immediate_corrections?.length ? (
                 <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Corrections Applied</div>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Corrections Suggested</div>
                   {llmValidation.immediate_corrections.map((c, ci) => (
                     <div key={ci} style={{ color: 'var(--text-secondary)' }}>
                       {c.exerciseName}: {c.fix} ({c.issue}) - {c.reason}
@@ -1824,6 +1921,50 @@ export default function TodayWorkout() {
 
         {/* AI Workout Review */}
         <div className={s.card} style={{ marginBottom: 12 }}>
+          {llmValidation && llmValidation.verdict !== 'pass' && (
+            <div style={{ marginBottom: 10, padding: 10, borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                LLM flags this workout ({llmValidation.verdict})
+              </div>
+              <Button
+                variant="secondary"
+                onClick={regenerateWithLlmAdjustments}
+                loading={regeneratingWithLlm}
+                style={{ fontSize: 12, padding: '6px 12px' }}
+              >
+                Regenerate with LLM Adjustments
+              </Button>
+            </div>
+          )}
+
+          {originalWorkout && adjustedWorkoutCandidate && (
+            <div style={{ marginBottom: 10, padding: 10, borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Choose workout version</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button
+                  variant={selectedWorkoutVersion === 'original' ? 'primary' : 'secondary'}
+                  onClick={() => {
+                    setWorkout(originalWorkout)
+                    setSelectedWorkoutVersion('original')
+                  }}
+                  style={{ fontSize: 12, padding: '6px 12px' }}
+                >
+                  Use Original ({Math.round(originalWorkout.estimatedDurationMinutes || 0)}m)
+                </Button>
+                <Button
+                  variant={selectedWorkoutVersion === 'adjusted' ? 'primary' : 'secondary'}
+                  onClick={() => {
+                    setWorkout(adjustedWorkoutCandidate)
+                    setSelectedWorkoutVersion('adjusted')
+                  }}
+                  style={{ fontSize: 12, padding: '6px 12px' }}
+                >
+                  Use LLM-Adjusted ({Math.round(adjustedWorkoutCandidate.estimatedDurationMinutes || 0)}m{adjustedValidation ? `, ${adjustedValidation.verdict}` : ''})
+                </Button>
+              </div>
+            </div>
+          )}
+
           {!workoutReview && !reviewLoading && !reviewError && (
             <div style={{ textAlign: 'center', padding: '8px 0' }}>
               <Button variant="secondary" onClick={runWorkoutReview} style={{ fontSize: 13, padding: '6px 16px' }}>

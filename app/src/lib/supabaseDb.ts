@@ -140,7 +140,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     day_of_week: workoutToSave.dayOfWeek ?? null,
     workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
     workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null,
-    generated_workout_id: workoutToSave.generatedWorkoutId || null,
+    generated_workout_id: isUuidV4(workoutToSave.generatedWorkoutId) ? workoutToSave.generatedWorkoutId : null,
     updated_at: new Date().toISOString()
   }
 
@@ -336,7 +336,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       }
       if (setsError) throw setsError
 
-      const generatedWorkoutId = workoutToSave.generatedWorkoutId || null
+      const generatedWorkoutId = isUuidV4(workoutToSave.generatedWorkoutId) ? workoutToSave.generatedWorkoutId : null
       const workoutDate = workoutToSave.date || getLocalDate()
       const scoreAccuracy = (target: number | null, actual: number | null) => {
         if (!Number.isFinite(target as number) || target == null || target <= 0) return null
@@ -364,6 +364,18 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
           ? accParts.reduce((a, b) => a + b, 0) / accParts.length
           : null
 
+        const idempotencyKey = [
+          workoutData.id,
+          exerciseData.id,
+          si + 1,
+          targetWeight ?? 'x',
+          actualWeight ?? 'x',
+          targetReps ?? 'x',
+          actualReps ?? 'x',
+          targetTimeSeconds ?? 'x',
+          actualTimeSeconds ?? 'x',
+        ].join(':')
+
         executionEvents.push({
           user_id: userId,
           workout_id: workoutData.id,
@@ -381,18 +393,33 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
           target_rir: targetRir,
           actual_rir: actualRir,
           execution_accuracy: executionAccuracy,
+          idempotency_key: idempotencyKey,
         })
       }
     }
   }
 
   if (executionEvents.length > 0) {
-    const { error: executionError } = await supabase
+    let { error: executionError } = await supabase
       .from('prescription_execution_events')
-      .insert(executionEvents)
+      .upsert(executionEvents, { onConflict: 'user_id,idempotency_key', ignoreDuplicates: true })
     if (executionError) {
-      // Non-fatal during rollout while migration propagates; workout save should not fail.
-      logWarn('Failed to persist prescription_execution_events', executionError)
+      // Fallback for older schema: strip idempotency key and try plain insert.
+      const emsg = `${executionError.message || ''}`.toLowerCase()
+      if (
+        executionError.code === '42703' ||
+        emsg.includes('column') ||
+        emsg.includes('constraint') ||
+        emsg.includes('on conflict')
+      ) {
+        const stripped = executionEvents.map(({ idempotency_key, ...rest }: any) => rest)
+        const retry = await supabase
+          .from('prescription_execution_events')
+          .insert(stripped)
+        executionError = retry.error
+      }
+      // Non-fatal while migration propagates.
+      if (executionError) logWarn('Failed to persist prescription_execution_events', executionError)
     }
   }
 
@@ -760,7 +787,7 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
     training_density: workout.trainingDensity != null ? Number(workout.trainingDensity) : null,
     workout_calories_burned: workout.workoutCaloriesBurned != null ? Number(workout.workoutCaloriesBurned) : null,
     workout_steps: workout.workoutSteps != null ? Number(workout.workoutSteps) : null,
-    generated_workout_id: workout.generatedWorkoutId || null,
+    generated_workout_id: isUuidV4(workout.generatedWorkoutId) ? workout.generatedWorkoutId : null,
     updated_at: new Date().toISOString()
   }
 
@@ -1449,6 +1476,7 @@ export async function saveUserPreferences(userId: string, prefs: any) {
   // ML-v2 training profile fields (snake_case — sent by Profile.tsx)
   const directFields = [
     'training_goal', 'session_duration_minutes', 'equipment_access',
+    'sport_focus', 'sport_season',
     'available_days_per_week', 'job_activity_level', 'injuries',
     'exercises_to_avoid', 'performance_goals', 'preferred_split',
     'date_of_birth', 'gender', 'height_feet', 'height_inches',
@@ -1472,6 +1500,10 @@ export async function saveUserPreferences(userId: string, prefs: any) {
   if (prefs.experienceLevel !== undefined) upsertData.experience_level = prefs.experienceLevel || null
   if (prefs.availableDays !== undefined) upsertData.available_days = prefs.availableDays || null
   if (prefs.sessionDuration !== undefined) upsertData.session_duration = prefs.sessionDuration || null
+  if (prefs.sessionDuration !== undefined && prefs.session_duration_minutes === undefined) {
+    const v = Number(prefs.sessionDuration)
+    upsertData.session_duration_minutes = Number.isFinite(v) && v > 0 ? v : null
+  }
   if (prefs.dateOfBirth !== undefined) upsertData.date_of_birth = prefs.dateOfBirth || null
   if (prefs.gender !== undefined) upsertData.gender = prefs.gender || null
   if (prefs.heightInches !== undefined) upsertData.height_inches = prefs.heightInches || null
@@ -1829,7 +1861,110 @@ export async function deleteActiveWorkoutSession(userId: string) {
 
 // ============ ADAPTIVE WEEKLY PLAN ============
 
-export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any) {
+function serializeWeeklyPlanDaysForRpc(userId: string, weeklyPlan: any): any[] {
+  return (weeklyPlan.days || []).map((d: any) => ({
+    weekly_plan_id: null,
+    user_id: userId,
+    plan_date: d.planDate,
+    day_of_week: d.dayOfWeek,
+    is_rest_day: !!d.isRestDay,
+    focus: d.focus || null,
+    muscle_groups: d.muscleGroups || [],
+    planned_workout: d.plannedWorkout || null,
+    estimated_minutes: d.estimatedMinutes || null,
+    confidence: d.plannedWorkout?.objectiveUtility?.utility ?? 0.5,
+    llm_verdict: d.llmVerdict && d.llmVerdict !== 'pending' ? d.llmVerdict : null,
+    llm_corrections: d.llmCorrections || null,
+    day_status: d.dayStatus || 'planned',
+    actual_workout_id: d.actualWorkoutId || null,
+    actual_workout: d.actualWorkout || null,
+    last_reconciled_at: d.dayStatus === 'completed' ? new Date().toISOString() : null,
+  }))
+}
+
+function serializeWeeklyDiffsForRpc(userId: string, diffs: any[] | undefined): any[] {
+  if (!Array.isArray(diffs) || diffs.length === 0) return []
+  return diffs.map((d: any) => ({
+    weekly_plan_id: null,
+    user_id: userId,
+    plan_date: d.planDate,
+    reason_codes: d.reasonCodes || [],
+    before_workout: d.beforeWorkout || null,
+    after_workout: d.afterWorkout || null,
+    diff_summary: d.diffSummary || {},
+  }))
+}
+
+async function ensureGeneratedWorkoutsForWeeklyPlan(userId: string, weeklyPlan: any): Promise<void> {
+  const days = Array.isArray(weeklyPlan?.days) ? weeklyPlan.days : []
+  for (const d of days) {
+    const pw = d?.plannedWorkout
+    if (!pw || !Array.isArray(pw.exercises)) continue
+    const plannedId = isUuidV4(pw.id) ? pw.id : uuidv4()
+    if (!isUuidV4(pw.id)) {
+      pw.id = plannedId
+    }
+    const row = {
+      id: plannedId,
+      user_id: userId,
+      date: d.planDate || pw.date || getLocalDate(),
+      training_goal: pw.trainingGoal || null,
+      session_duration_minutes: Number.isFinite(Number(pw.estimatedDurationMinutes))
+        ? Math.round(Number(pw.estimatedDurationMinutes))
+        : null,
+      recovery_status: {
+        status: pw.recoveryStatus ?? null,
+        deload: !!pw.deloadActive,
+        adjustments: Array.isArray(pw.adjustmentsSummary) ? pw.adjustmentsSummary : [],
+        model_metadata: {
+          feature_snapshot_id: pw.featureSnapshotId ?? null,
+          objective_utility: pw.objectiveUtility ?? null,
+        },
+      },
+      exercises: pw.exercises,
+      rationale: pw.sessionRationale || null,
+      adjustments: Array.isArray(pw.adjustmentsSummary) ? pw.adjustmentsSummary : [],
+    }
+    const { error } = await supabase.from('generated_workouts').insert(row)
+    if (error) {
+      // Ignore duplicates when ID already exists; surface other issues.
+      if (!(error.code === '23505' || `${error.message || ''}`.toLowerCase().includes('duplicate'))) {
+        logWarn('Failed to persist generated workout for weekly plan day', { date: row.date, error })
+      }
+    }
+  }
+}
+
+export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, diffs?: any[]) {
+  // Ensure planned-workout lineage exists in generated_workouts.
+  // This keeps generated_workout_id references valid for downstream ontology.
+  await ensureGeneratedWorkoutsForWeeklyPlan(userId, weeklyPlan).catch((e) =>
+    logWarn('Weekly plan generated_workouts persistence warning', e)
+  )
+
+  // Preferred path: single transactional RPC (version + days + diffs).
+  try {
+    const rpcDays = serializeWeeklyPlanDaysForRpc(userId, weeklyPlan)
+    const rpcDiffs = serializeWeeklyDiffsForRpc(userId, diffs)
+    const { data, error } = await supabase.rpc('save_weekly_plan_atomic', {
+      p_user_id: userId,
+      p_week_start_date: weeklyPlan.weekStartDate,
+      p_feature_snapshot_id: weeklyPlan.featureSnapshotId || null,
+      p_days: rpcDays,
+      p_diffs: rpcDiffs,
+    })
+    if (!error && data) return data as string
+    // If RPC is unavailable in older deployments, continue to legacy path.
+    if (!(error && (error.code === 'PGRST202' || `${error.message || ''}`.toLowerCase().includes('function')))) {
+      throw error
+    }
+  } catch (rpcErr: any) {
+    if (!(rpcErr?.code === 'PGRST202' || `${rpcErr?.message || ''}`.toLowerCase().includes('function'))) {
+      throw rpcErr
+    }
+  }
+
+  // Legacy fallback path (non-transactional across tables).
   const { data: existingActive } = await supabase
     .from('weekly_plan_versions')
     .select('id')
@@ -1837,14 +1972,6 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any) 
     .eq('week_start_date', weeklyPlan.weekStartDate)
     .eq('status', 'active')
     .maybeSingle()
-
-  if (existingActive?.id) {
-    await supabase
-      .from('weekly_plan_versions')
-      .update({ status: 'superseded' })
-      .eq('id', existingActive.id)
-      .eq('user_id', userId)
-  }
 
   const { data: version, error: versionError } = await supabase
     .from('weekly_plan_versions')
@@ -1888,7 +2015,22 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any) 
         .insert(strippedRows)
       daysError = retry.error
     }
-    if (daysError) throw daysError
+    if (daysError) {
+      await supabase.from('weekly_plan_versions').delete().eq('id', version.id).eq('user_id', userId)
+      throw daysError
+    }
+  }
+
+  if (existingActive?.id) {
+    await supabase
+      .from('weekly_plan_versions')
+      .update({ status: 'superseded' })
+      .eq('id', existingActive.id)
+      .eq('user_id', userId)
+  }
+
+  if (Array.isArray(diffs) && diffs.length > 0) {
+    await saveWeeklyPlanDiffsToSupabase(userId, version.id as string, diffs)
   }
 
   return version.id as string

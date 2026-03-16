@@ -102,6 +102,7 @@ inputRouter.post('/model-outcome-events', async (req, res, next) => {
       return res.json({ success: true, inserted: 0 })
     }
 
+    const seenKeys = new Set()
     const rows = events
       .slice(0, 100)
       .map((evt) => {
@@ -109,26 +110,47 @@ inputRouter.post('/model-outcome-events', async (req, res, next) => {
         const rawScore = data.outcomeScore ?? data.sessionOutcomeScore
         const score = Number(rawScore)
         const normalizedScore = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : null
-        const generatedWorkoutId = data.generatedWorkoutId || data.generated_workout_id || null
+        let generatedWorkoutId = data.generatedWorkoutId || data.generated_workout_id || null
         const eventType = typeof evt?.event === 'string' ? evt.event : 'model_outcome_unknown'
         const workoutDate = typeof data.workoutDate === 'string' ? data.workoutDate : null
+        const idempotencyKey = evt?.idempotencyKey || evt?.idempotency_key || data?.idempotencyKey || null
+        if (generatedWorkoutId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(generatedWorkoutId)) {
+          generatedWorkoutId = null
+        }
         return {
           user_id: userId,
           generated_workout_id: generatedWorkoutId,
           workout_date: workoutDate || new Date().toISOString().split('T')[0],
           session_outcome_score: normalizedScore,
-          outcome_notes: eventType
+          outcome_notes: eventType,
+          idempotency_key: idempotencyKey || `${generatedWorkoutId || 'anon'}:${workoutDate || 'nodate'}:${eventType}:${normalizedScore ?? 'x'}`
         }
       })
-      .filter(r => r.generated_workout_id || r.session_outcome_score != null)
+      .filter(r => {
+        if (!(r.generated_workout_id || r.session_outcome_score != null)) return false
+        const key = r.idempotency_key
+        if (seenKeys.has(key)) return false
+        seenKeys.add(key)
+        return true
+      })
 
     if (rows.length === 0) {
       return res.json({ success: true, inserted: 0 })
     }
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from('workout_outcomes')
-      .insert(rows)
+      .upsert(rows, { onConflict: 'user_id,idempotency_key', ignoreDuplicates: true })
+
+    // Backward compatibility if idempotency_key column is not migrated yet.
+    const emsg = `${error?.message || ''}`.toLowerCase()
+    if (error && (error.code === '42703' || emsg.includes('column') || emsg.includes('constraint') || emsg.includes('on conflict'))) {
+      const stripped = rows.map(({ idempotency_key, ...rest }) => rest)
+      const retry = await supabase
+        .from('workout_outcomes')
+        .insert(stripped)
+      error = retry.error
+    }
 
     if (error) {
       throw new Error(`Failed to insert model outcome events: ${error.message}`)

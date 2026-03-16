@@ -6,6 +6,7 @@ import { getMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metrics
 import { getFitbitDaily, getMostRecentFitbitData, getAllConnectedAccounts } from '../lib/wearables'
 import { getTodayEST, getYesterdayEST, getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
+import { ROUTES, openTodayWorkout } from '../utils/appRoutes'
 import Skeleton from '../components/Skeleton'
 import Button from '../components/Button'
 import { useToast } from '../hooks/useToast'
@@ -192,7 +193,7 @@ export default function Home() {
           )}
           {/* Hero CTA */}
           <div className={styles.todayHero}>
-            <Button unstyled className={styles.heroPrimary} onClick={() => navigate('/today')}>
+            <Button unstyled className={styles.heroPrimary} onClick={() => openTodayWorkout(navigate)}>
               <span className={styles.heroPrimaryLabel}>{getGreeting()}</span>
               <span className={styles.heroPrimaryValue}>
                 {todaysWorkouts.length > 0 ? 'Workout Complete' : "Today's Workout"}
@@ -253,21 +254,25 @@ export default function Home() {
             </Button>
 
             <div className={styles.quickGrid}>
-              <Button unstyled className={styles.quickCard} onClick={() => navigate('/workout/active', { state: { mode: 'picker', sessionType: 'workout' } })}>
+              <Button unstyled className={styles.quickCard} onClick={() => navigate(ROUTES.activeWorkout, { state: { mode: 'picker', sessionType: 'workout' } })}>
                 <span className={styles.quickCardTitle}>Manual Workout</span>
                 <span className={styles.quickCardSub}>Freestyle session</span>
               </Button>
-              <Button unstyled className={styles.quickCard} onClick={() => navigate('/workout')}>
+              <Button unstyled className={styles.quickCard} onClick={() => navigate(ROUTES.workoutRoot)}>
                 <span className={styles.quickCardTitle}>History</span>
                 <span className={styles.quickCardSub}>{recentWorkouts.length} recent sessions</span>
               </Button>
-              <Button unstyled className={styles.quickCard} onClick={() => navigate('/analytics')}>
+              <Button unstyled className={styles.quickCard} onClick={() => navigate(ROUTES.analytics)}>
                 <span className={styles.quickCardTitle}>Analytics</span>
                 <span className={styles.quickCardSub}>Trends & intelligence</span>
               </Button>
-              <Button unstyled className={styles.quickCard} onClick={() => navigate('/profile')}>
+              <Button unstyled className={styles.quickCard} onClick={() => navigate(ROUTES.profile)}>
                 <span className={styles.quickCardTitle}>Profile</span>
                 <span className={styles.quickCardSub}>Goals & preferences</span>
+              </Button>
+              <Button unstyled className={styles.quickCard} onClick={() => navigate(ROUTES.ontology)}>
+                <span className={styles.quickCardTitle}>Ontology</span>
+                <span className={styles.quickCardSub}>How entities connect</span>
               </Button>
             </div>
           </div>

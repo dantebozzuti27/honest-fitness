@@ -104,6 +104,7 @@ export async function fetchTrainingSummary(trainingProfile: any): Promise<Traini
 }
 
 export interface WorkoutValidation {
+  schema_version?: 'v1'
   immediate_corrections: {
     exerciseName: string
     issue: string
@@ -157,7 +158,12 @@ export async function fetchWorkoutValidation(trainingProfile: any, workoutData: 
 
   const json = await res.json()
   if (!json.success) throw new Error(json.error?.message || 'Unknown error')
-  return json.data as WorkoutValidation
+  const data = json.data as WorkoutValidation
+  // Contract discipline: only accept known schema versions.
+  if (data?.schema_version && data.schema_version !== 'v1') {
+    throw new Error(`Unsupported validation schema version: ${data.schema_version}`)
+  }
+  return data
 }
 
 export async function fetchWorkoutReview(trainingProfile: any, workoutData: any): Promise<WorkoutReview> {

@@ -32,17 +32,43 @@ export async function processML(userId, dataContext) {
       results.nutritionAnalysis = await analyzeNutritionTrends(userId, dataContext.nutrition)
     }
     
+    const modelDataQuality = Number(dataContext?.dataQuality?.score || 0)
+    const modelUsable = dataContext?.dataQuality?.usableForModel !== false && modelDataQuality >= 0.4
+
     // Compute readiness score
-    if (dataContext.health) {
+    if (dataContext.health && modelUsable) {
       results.readiness = await computeReadiness(userId, dataContext.health)
+    } else if (dataContext.health) {
+      results.readiness = {
+        score: null,
+        calibratedScore: null,
+        confidence: 'low',
+        confidenceScore: 0,
+        abstain: true,
+        confidenceReason: 'Wearable/public data quality below threshold'
+      }
     }
     
     // Detect anomalies
     results.anomalies = await detectAnomalies(userId, dataContext)
     
     // Predict performance
-    if (dataContext.workouts && dataContext.workouts.length > 0) {
+    if (dataContext.workouts && dataContext.workouts.length > 0 && modelUsable) {
       results.predictions = await predictPerformance(userId, dataContext)
+    } else if (dataContext.workouts && dataContext.workouts.length > 0) {
+      results.predictions = {
+        performance: {
+          expectedVolume: null,
+          expectedIntensity: null,
+          confidence: 'low',
+          confidenceScore: 0,
+          conservativeFallback: true,
+          abstain: true,
+          confidenceReason: 'Wearable/public data quality below threshold'
+        },
+        recovery: null,
+        trends: null
+      }
     }
     
     return results

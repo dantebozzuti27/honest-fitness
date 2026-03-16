@@ -5,6 +5,7 @@
  */
 
 import express from 'express'
+import crypto from 'crypto'
 import rateLimit from 'express-rate-limit'
 import { sendError, sendSuccess, wrapAsync } from '../utils/http.js'
 
@@ -133,6 +134,19 @@ const insightsLimiter = rateLimit({
 
 const validateCache = new Map()
 const CACHE_TTL_MS = 5 * 60 * 1000
+const VALIDATION_SCHEMA_VERSION = 'v1'
+
+/** Deterministic cache key for workout validation output. */
+function workoutValidationCacheKey(userId, workoutData, trainingProfile) {
+  try {
+    const modelVersion = process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    const payload = JSON.stringify({ w: workoutData, p: trainingProfile, mv: modelVersion, sv: VALIDATION_SCHEMA_VERSION })
+    const hash = crypto.createHash('sha256').update(payload).digest('hex').slice(0, 20)
+    return `${userId}:validate:${hash}`
+  } catch {
+    return `${userId}:validate:fallback:${VALIDATION_SCHEMA_VERSION}`
+  }
+}
 
 function summarizeProfileForLLM(profile) {
   return {
@@ -164,8 +178,8 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
     return sendError(res, { status: 400, message: 'Missing required fields: type, trainingProfile' })
   }
 
-  if (type === 'validate-workout' && req.userId) {
-    const cacheKey = `${req.userId}:validate`
+  if (type === 'validate-workout' && req.userId && workoutData) {
+    const cacheKey = workoutValidationCacheKey(req.userId, workoutData, trainingProfile)
     const cached = validateCache.get(cacheKey)
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       return sendSuccess(res, { data: cached.data, type, cached: true })
@@ -258,9 +272,11 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
         verdict: ['pass', 'minor_issues', 'major_issues'].includes(parsed.verdict)
           ? parsed.verdict
           : 'pass',
+        schema_version: VALIDATION_SCHEMA_VERSION,
       }
-      if (req.userId) {
-        validateCache.set(`${req.userId}:validate`, { data: safe, ts: Date.now() })
+      if (req.userId && workoutData) {
+        const cacheKey = workoutValidationCacheKey(req.userId, workoutData, trainingProfile)
+        validateCache.set(cacheKey, { data: safe, ts: Date.now() })
       }
       return sendSuccess(res, { data: safe, type })
     }
@@ -268,7 +284,7 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
     return sendSuccess(res, { data: parsed, type })
   } catch {
     if (type === 'validate-workout') {
-      return sendSuccess(res, { data: { immediate_corrections: [], pattern_observations: [], verdict: 'pass' }, type })
+      return sendSuccess(res, { data: { immediate_corrections: [], pattern_observations: [], verdict: 'pass', schema_version: VALIDATION_SCHEMA_VERSION }, type })
     }
     return sendSuccess(res, { data: { raw: content }, type })
   }

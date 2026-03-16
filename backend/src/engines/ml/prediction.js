@@ -2,27 +2,33 @@
  * Performance Prediction
  * Predicts future performance based on historical data
  */
+import { assertChronological, sortChronological } from './temporal.js'
 
 export async function predictPerformance(userId, dataContext) {
   if (!dataContext.workouts || dataContext.workouts.length < 5) {
     return null // Need at least 5 workouts for prediction
   }
   
-  const workouts = dataContext.workouts.slice(-20) // Last 20 workouts
+  const workouts = sortChronological(dataContext.workouts).slice(-20) // Last 20 workouts
+  assertChronological(workouts, 'workouts')
   
   // Calculate progression trends
   const progression = calculateProgression(workouts)
   const confidenceScore = calculateConfidenceScore(progression, workouts)
-  const confidenceLevel = confidenceScore >= 0.75 ? 'high' : confidenceScore >= 0.5 ? 'medium' : 'low'
-  const conservativeFallback = confidenceScore < 0.45
+  const calibratedConfidence = calibratePredictionConfidence(confidenceScore)
+  const confidenceLevel = calibratedConfidence >= 0.75 ? 'high' : calibratedConfidence >= 0.5 ? 'medium' : 'low'
+  const conservativeFallback = calibratedConfidence < 0.45
+  const abstain = calibratedConfidence < 0.35
   
   // Predict next workout performance
   const predictedPerformance = {
     expectedVolume: progression.avgVolume * (1 + progression.trend * 0.05),
     expectedIntensity: progression.avgIntensity,
     confidence: confidenceLevel,
-    confidenceScore,
-    conservativeFallback
+    confidenceScore: calibratedConfidence,
+    conservativeFallback,
+    abstain,
+    confidenceReason: abstain ? 'Insufficient stable history for confident progression forecast' : null
   }
 
   if (conservativeFallback) {
@@ -47,6 +53,15 @@ function calculateConfidenceScore(progression, workouts) {
   const trendPenalty = Math.min(0.3, Math.abs(progression.trend || 0))
   const raw = 0.15 + consistency * 0.6 + density * 0.25 - trendPenalty
   return Math.max(0, Math.min(1, raw))
+}
+
+function calibratePredictionConfidence(raw) {
+  if (!Number.isFinite(raw)) return 0
+  if (raw <= 0.2) return 0.12
+  if (raw <= 0.4) return 0.28
+  if (raw <= 0.6) return 0.5
+  if (raw <= 0.8) return 0.7
+  return 0.86
 }
 
 export function computeWorkoutVolume(workout) {
@@ -94,13 +109,16 @@ export function calculateProgressionForEval(workouts) {
 }
 
 function predictRecovery(dataContext) {
-  if (!dataContext.health) {
+  if (!dataContext.health || (Array.isArray(dataContext.health) && dataContext.health.length === 0)) {
     return { needsRest: false, recommendedActivity: 'moderate' }
   }
   
   const latest = Array.isArray(dataContext.health) 
     ? dataContext.health[dataContext.health.length - 1] 
     : dataContext.health
+  if (!latest || typeof latest !== 'object') {
+    return { needsRest: false, recommendedActivity: 'moderate' }
+  }
   
   let needsRest = false
   let recommendedActivity = 'moderate'

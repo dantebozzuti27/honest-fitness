@@ -45,6 +45,7 @@ mlRouter.post('/analyze', async (req, res, next) => {
     res.json({
       success: true,
       results: mlResults,
+      dataQuality: dataContext.dataQuality,
       processedAt: new Date().toISOString()
     })
   } catch (error) {
@@ -271,16 +272,42 @@ async function loadDataContext(userId, filters = {}) {
       })
     ])
     
+    const dataQuality = computeWearableDataQuality(health || [])
+
     return {
       workouts: workouts || [],
       nutrition: nutrition || [],
       health: health || [],
       user: user?.[0] || null,
-      weekData: filters.week || null
+      weekData: filters.week || null,
+      dataQuality
     }
   } catch (error) {
     logError('Error in loadDataContext', error)
     throw new Error(`Failed to load data context: ${error.message}`)
+  }
+}
+
+function computeWearableDataQuality(healthRows = []) {
+  const rows = Array.isArray(healthRows) ? healthRows : []
+  if (rows.length === 0) {
+    return { score: 0, completeness: 0, coverageDays: 0, usableForModel: false }
+  }
+
+  const core = ['sleep_duration', 'hrv', 'resting_heart_rate', 'steps']
+  const present = rows.map((r) => core.reduce((acc, k) => acc + (r?.[k] != null ? 1 : 0), 0) / core.length)
+  const completeness = present.reduce((a, b) => a + b, 0) / present.length
+
+  const dateSet = new Set(rows.map((r) => String(r?.date || '')).filter(Boolean))
+  const coverageDays = dateSet.size
+  const coverage = Math.max(0, Math.min(1, coverageDays / 21))
+
+  const score = Math.max(0, Math.min(1, completeness * 0.7 + coverage * 0.3))
+  return {
+    score,
+    completeness,
+    coverageDays,
+    usableForModel: score >= 0.4
   }
 }
 

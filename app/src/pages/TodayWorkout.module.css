@@ -21,7 +21,7 @@
 
 .content {
   padding: 16px;
-  padding-bottom: 120px;
+  padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -922,7 +922,7 @@
   display: flex;
   gap: 8px;
   position: fixed;
-  bottom: 72px;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   left: 16px;
   right: 16px;
   max-width: 600px;

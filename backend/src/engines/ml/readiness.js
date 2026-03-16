@@ -2,14 +2,18 @@
  * Readiness Score Computation
  * Combines HRV, sleep, training load, and other factors
  */
+import { assertChronological, sortChronological } from './temporal.js'
 
 export async function computeReadiness(userId, healthData) {
   if (!healthData) {
     return null
   }
   
+  const orderedHealth = Array.isArray(healthData) ? sortChronological(healthData) : [healthData]
+  assertChronological(orderedHealth, 'health')
+
   // Extract latest health metrics
-  const latest = Array.isArray(healthData) ? healthData[healthData.length - 1] : healthData
+  const latest = orderedHealth[orderedHealth.length - 1]
   
   // Component scores (0-100)
   const sleepScore = calculateSleepScore(latest.sleep_duration, latest.sleep_efficiency)
@@ -26,6 +30,8 @@ export async function computeReadiness(userId, healthData) {
   )
   const calibratedScore = calibrateReadinessScore(readiness, latest)
   const confidenceScore = computeReadinessConfidence(latest)
+  const calibratedConfidenceScore = calibrateReadinessConfidence(confidenceScore)
+  const abstain = calibratedConfidenceScore < 0.35
   
   // Determine zone
   let zone = 'green'
@@ -35,8 +41,10 @@ export async function computeReadiness(userId, healthData) {
   return {
     score: readiness,
     calibratedScore,
-    confidence: confidenceScore >= 0.75 ? 'high' : confidenceScore >= 0.5 ? 'medium' : 'low',
-    confidenceScore,
+    confidence: calibratedConfidenceScore >= 0.75 ? 'high' : calibratedConfidenceScore >= 0.5 ? 'medium' : 'low',
+    confidenceScore: calibratedConfidenceScore,
+    abstain,
+    confidenceReason: abstain ? 'Insufficient or low-quality recovery telemetry' : null,
     zone,
     components: {
       sleep: sleepScore,
@@ -70,6 +78,15 @@ function computeReadinessConfidence(latest) {
   if (latest?.steps != null || latest?.active_calories != null) present++
   if (latest?.resting_heart_rate != null) present++
   return Math.max(0, Math.min(1, present / 4))
+}
+
+function calibrateReadinessConfidence(raw) {
+  // Piecewise reliability mapping (bootstrapped; replace with learned calibration table later).
+  if (!Number.isFinite(raw)) return 0
+  if (raw <= 0.25) return 0.15
+  if (raw <= 0.5) return 0.35
+  if (raw <= 0.75) return 0.62
+  return 0.85
 }
 
 function calculateSleepScore(duration, efficiency) {

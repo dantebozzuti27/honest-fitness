@@ -19,6 +19,7 @@ import EmptyState from '../components/EmptyState'
 import Button from '../components/Button'
 import SearchField from '../components/SearchField'
 import BackButton from '../components/BackButton'
+import { ROUTES, openTodayWorkout } from '../utils/appRoutes'
 import styles from './Fitness.module.css'
 
 const TABS = ['Workout', 'Templates', 'History']
@@ -398,7 +399,7 @@ export default function Fitness() {
                     <>
                       <h3>Choose Workout Type</h3>
                       <div className={styles.workoutTypeOptions}>
-                        <Button unstyled className={styles.workoutTypeBtn} onClick={() => { setShowWorkoutStartModal(false); navigate('/today-workout') }}>
+                        <Button unstyled className={styles.workoutTypeBtn} onClick={() => { setShowWorkoutStartModal(false); openTodayWorkout(navigate) }}>
                           AI Generated
                         </Button>
                         <Button unstyled className={styles.workoutTypeBtn} onClick={() => setShowTemplateSelection(true)}>

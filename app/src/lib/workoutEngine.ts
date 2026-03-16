@@ -192,7 +192,7 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     primary_goal: data?.primary_goal ?? null,
     secondary_goal: data?.secondary_goal ?? null,
     session_duration_minutes: (() => {
-      const v = Number(data?.session_duration_minutes ?? DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes);
+      const v = Number(data?.session_duration_minutes ?? data?.session_duration ?? DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes);
       return Number.isFinite(v) && v > 0 ? v : DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes;
     })(),
     equipment_access: data?.equipment_access ?? 'full_gym',
@@ -3319,6 +3319,18 @@ export async function generateWeeklyPlan(
   const restSet = new Set(userRestDays);
 
   const days: WeeklyPlanDay[] = [];
+  const normalizeExerciseName = (name: string): string =>
+    String(name || '').trim().toLowerCase();
+  const exerciseNameSet = (w: GeneratedWorkout | null): Set<string> =>
+    new Set((w?.exercises ?? []).filter(ex => !ex.isCardio).map(ex => normalizeExerciseName(ex.exerciseName)).filter(Boolean));
+  const overlapRatio = (a: Set<string>, b: Set<string>): number => {
+    if (a.size === 0 && b.size === 0) return 0;
+    let overlap = 0;
+    for (const x of a) if (b.has(x)) overlap++;
+    return overlap / Math.max(a.size, b.size, 1);
+  };
+  const getRecentTrainingDays = (count: number): WeeklyPlanDay[] =>
+    days.filter(d => !d.isRestDay && !!d.plannedWorkout).slice(-count);
   const workoutSignature = (w: GeneratedWorkout | null): string => {
     if (!w) return 'rest';
     return (w.exercises ?? [])
@@ -3347,21 +3359,58 @@ export async function generateWeeklyPlan(
       });
       continue;
     }
+    const recentTrainingDays = getRecentTrainingDays(2);
+    const recentSignatures = new Set(recentTrainingDays.map(d0 => workoutSignature(d0.plannedWorkout)));
+    const recentExerciseNames = new Set<string>();
+    for (const prevDay of recentTrainingDays) {
+      for (const n of exerciseNameSet(prevDay.plannedWorkout)) recentExerciseNames.add(n);
+    }
+
     let plannedWorkout = await generateWorkout(profile, { planningDate: planDate });
     let signature = workoutSignature(plannedWorkout);
-    if (prevTrainingSignature && signature === prevTrainingSignature) {
-      const avoid = plannedWorkout.exercises
+
+    // Strong diversification pass:
+    // - avoid exact signature matches with prior training days
+    // - avoid high overlap with the immediately previous day
+    // - widen avoid-list progressively when necessary
+    const MAX_DIVERSIFY_ATTEMPTS = 3;
+    let attempt = 0;
+    while (attempt < MAX_DIVERSIFY_ATTEMPTS) {
+      const prevWorkout = recentTrainingDays.length > 0 ? recentTrainingDays[recentTrainingDays.length - 1].plannedWorkout : null;
+      const prevNameSet = exerciseNameSet(prevWorkout);
+      const currNameSet = exerciseNameSet(plannedWorkout);
+      const overlap = overlapRatio(currNameSet, prevNameSet);
+      const exactRepeat = (prevTrainingSignature && signature === prevTrainingSignature) || recentSignatures.has(signature);
+      const excessiveOverlap = overlap >= 0.7 && currNameSet.size >= 3;
+      if (!exactRepeat && !excessiveOverlap) break;
+
+      const baseAvoid = [...recentExerciseNames];
+      const currTop = (plannedWorkout.exercises ?? [])
         .filter(ex => !ex.isCardio)
-        .map(ex => ex.exerciseName)
-        .slice(0, 4);
-      if (avoid.length > 0) {
-        const regenerated = await generateWorkout(profile, { planningDate: planDate, avoidExerciseNames: avoid });
-        const regeneratedSignature = workoutSignature(regenerated);
-        if (regeneratedSignature !== prevTrainingSignature) {
-          plannedWorkout = regenerated;
-          signature = regeneratedSignature;
-        }
+        .slice(0, 6)
+        .map(ex => normalizeExerciseName(ex.exerciseName))
+        .filter(Boolean);
+      const avoidExerciseNames = [...new Set([...baseAvoid, ...currTop])].slice(0, 12);
+      if (avoidExerciseNames.length === 0) break;
+
+      const regenerated = await generateWorkout(profile, { planningDate: planDate, avoidExerciseNames });
+      const regeneratedSignature = workoutSignature(regenerated);
+      const regeneratedOverlap = overlapRatio(exerciseNameSet(regenerated), prevNameSet);
+
+      const isBetter =
+        regeneratedSignature !== signature &&
+        (!recentSignatures.has(regeneratedSignature)) &&
+        regeneratedOverlap < overlap;
+
+      if (isBetter || exactRepeat) {
+        plannedWorkout = regenerated;
+        signature = regeneratedSignature;
+      } else {
+        // Keep attempting with the updated candidate once more.
+        plannedWorkout = regenerated;
+        signature = regeneratedSignature;
       }
+      attempt++;
     }
     prevTrainingSignature = signature;
     days.push({

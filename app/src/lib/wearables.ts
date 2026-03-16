@@ -353,6 +353,7 @@ export async function syncFitbitData(userId: string, date: string | null = null)
       synced: true,
       date: targetDate,
       data: result.data || result,
+      partialFailure: result.partial_failure === true,
       warnings: result.warnings
     }
     
@@ -416,8 +417,8 @@ export async function mergeWearableDataToMetrics(userId: string, date: string | 
     body_fat_percentage: existingMetrics?.body_fat_percentage ?? null,
     source_provider: existingMetrics?.source_provider === 'manual' ? 'manual' : (fitbitData ? 'fitbit' : existingMetrics?.source_provider ?? 'manual'),
     source_data: {
-      ...(sd),
-      ...(existingMetrics?.source_data || {})
+      ...(existingMetrics?.source_data || {}),
+      ...(sd)
     },
     updated_at: new Date().toISOString()
   }

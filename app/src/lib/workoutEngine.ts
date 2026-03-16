@@ -2910,6 +2910,7 @@ export interface SessionOverrides {
   goalOverride?: string;
   gymProfile?: string;
   planningDate?: string; // YYYY-MM-DD for weekly planning
+  avoidExerciseNames?: string[];
 }
 
 interface LlmHints {
@@ -3089,6 +3090,15 @@ export async function generateWorkout(
   }
   if (overrides?.gymProfile) {
     prefs.active_gym_profile = overrides.gymProfile;
+  }
+  if (Array.isArray(overrides?.avoidExerciseNames) && overrides.avoidExerciseNames.length > 0) {
+    const existing = new Set((prefs.exercises_to_avoid ?? []).map(e => e.toLowerCase()));
+    for (const name of overrides.avoidExerciseNames) {
+      const n = String(name || '').trim().toLowerCase();
+      if (n && !existing.has(n)) {
+        prefs.exercises_to_avoid.push(n);
+      }
+    }
   }
 
   const cfg: ModelConfig = { ...DEFAULT_MODEL_CONFIG };
@@ -3309,6 +3319,13 @@ export async function generateWeeklyPlan(
   const restSet = new Set(userRestDays);
 
   const days: WeeklyPlanDay[] = [];
+  const workoutSignature = (w: GeneratedWorkout | null): string => {
+    if (!w) return 'rest';
+    return (w.exercises ?? [])
+      .map(ex => `${ex.exerciseName}|${ex.sets}|${ex.targetReps}|${ex.targetWeight ?? 'bw'}|${ex.isCardio ? ex.cardioDurationSeconds ?? 0 : 0}`)
+      .join(';;');
+  };
+  let prevTrainingSignature: string | null = null;
   for (const planDate of weekDates) {
     const d = new Date(`${planDate}T12:00:00`);
     const dow = d.getDay();
@@ -3330,7 +3347,23 @@ export async function generateWeeklyPlan(
       });
       continue;
     }
-    const plannedWorkout = await generateWorkout(profile, { planningDate: planDate });
+    let plannedWorkout = await generateWorkout(profile, { planningDate: planDate });
+    let signature = workoutSignature(plannedWorkout);
+    if (prevTrainingSignature && signature === prevTrainingSignature) {
+      const avoid = plannedWorkout.exercises
+        .filter(ex => !ex.isCardio)
+        .map(ex => ex.exerciseName)
+        .slice(0, 4);
+      if (avoid.length > 0) {
+        const regenerated = await generateWorkout(profile, { planningDate: planDate, avoidExerciseNames: avoid });
+        const regeneratedSignature = workoutSignature(regenerated);
+        if (regeneratedSignature !== prevTrainingSignature) {
+          plannedWorkout = regenerated;
+          signature = regeneratedSignature;
+        }
+      }
+    }
+    prevTrainingSignature = signature;
     days.push({
       planDate,
       dayOfWeek: dow,

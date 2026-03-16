@@ -228,13 +228,28 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
 
 async function fetchAllExercises(): Promise<EnrichedExercise[]> {
   const supabase = requireSupabase();
-  const { data, error } = await supabase
+  const primary = await supabase
     .from('exercise_library')
     .select('id, name, body_part, primary_muscles, secondary_muscles, stabilizer_muscles, movement_pattern, ml_exercise_type, force_type, difficulty, default_tempo, equipment')
     .eq('is_custom', false);
+  let data: any[] | null = (primary.data ?? null) as any[] | null;
+  let error: any = primary.error;
+
+  // Backward-compatible fallback for older schemas missing optional columns.
+  if (error && (error.code === '42703' || `${error.message || ''}`.toLowerCase().includes('column'))) {
+    const retry = await supabase
+      .from('exercise_library')
+      .select('id, name, body_part, primary_muscles, secondary_muscles, stabilizer_muscles, movement_pattern, ml_exercise_type, force_type, difficulty, default_tempo')
+      .eq('is_custom', false);
+    data = (retry.data ?? null) as any[] | null;
+    error = retry.error;
+  }
 
   if (error) throw error;
-  return (data ?? []) as EnrichedExercise[];
+  return ((data ?? []) as EnrichedExercise[]).map((ex: any) => ({
+    ...ex,
+    equipment: Array.isArray(ex?.equipment) ? ex.equipment : [],
+  }));
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

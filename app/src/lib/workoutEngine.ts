@@ -2427,6 +2427,7 @@ function stepApplyConstraints(
   let addedNewCount = 0;
   const maxNewExercises = 6;
   const MAX_ITERATIONS = 40;
+  const targetUnfilledMinutes = effectiveBudget >= 100 ? 4 : 6;
 
   for (let iter = 0; iter < MAX_ITERATIONS && remainingMinutes >= 3; iter++) {
     let bestValue = -1;
@@ -2526,6 +2527,129 @@ function stepApplyConstraints(
         restSeconds: rest,
         rationale: `Added to fill ${prefs.session_duration_minutes} min session (marginal value: ${bestValue.toFixed(2)})`,
         adjustments: [`Time expansion: added for ${sel.muscleGroup.replace(/_/g, ' ')} (value: ${bestValue.toFixed(2)})`],
+        isDeload: false,
+        isCardio: false,
+        cardioDurationSeconds: null,
+        cardioSpeed: null,
+        cardioIncline: null,
+        cardioSpeedLabel: null,
+        targetHrZone: null,
+        targetHrBpmRange: null,
+        warmupSets: null,
+        supersetGroupId: null,
+        supersetType: null,
+        impactScore: computeImpactScore(sel.exercise, role, effectiveGoal, secondaryGoal),
+        estimatedMinutes: estMin,
+      };
+
+      ordered.push(newEx);
+      usedNames.add(sel.exercise.name.toLowerCase());
+      remainingMinutes -= estMin;
+      addedNewCount++;
+    }
+  }
+
+  // ── Time-bank fill pass ────────────────────────────────────────────────
+  // Long sessions should land close to the requested budget.
+  // After the value-greedy loop finishes, use a bounded fill pass to reduce
+  // leftover time to a tight window (especially for 120-minute sessions).
+  for (let iter = 0; iter < 20 && remainingMinutes > targetUnfilledMinutes; iter++) {
+    type FillAction =
+      | { type: 'add_set'; exerciseIndex: number; cost: number; projected: number; score: number }
+      | { type: 'add_micro_exercise'; exercise: ExerciseSelection; cost: number; projected: number; score: number };
+
+    let bestFill: FillAction | null = null;
+
+    for (let i = 0; i < ordered.length; i++) {
+      const ex = ordered[i];
+      if (ex.isCardio) continue;
+      const hardCap = ex.exerciseRole === 'primary'
+        ? Math.max(getMaxSets(ex), 7)
+        : Math.max(getMaxSets(ex), 5);
+      if (ex.sets >= hardCap) continue;
+      const cost = timePerSet(ex);
+      if (cost <= 0 || cost > remainingMinutes) continue;
+      const projected = remainingMinutes - cost;
+      const score = Math.abs(projected - targetUnfilledMinutes);
+      if (!bestFill || score < bestFill.score) {
+        bestFill = { type: 'add_set', exerciseIndex: i, cost, projected, score };
+      }
+    }
+
+    if (remainingMinutes >= 3 && addedNewCount < (maxNewExercises + 2)) {
+      for (const sel of strengthPool) {
+        if (usedNames.has(sel.exercise.name.toLowerCase())) continue;
+        const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
+        const rest = getRestByExercise(sel.exercise, role, effectiveGoal);
+        const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+        const reps = tableRange.target;
+        const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+        const cost = estimateExerciseMinutes(1, rest, role, 0, reps, tempo);
+        if (cost > remainingMinutes) continue;
+        const projected = remainingMinutes - cost;
+        // Small bias toward filling with existing exercises before adding new.
+        const score = Math.abs(projected - targetUnfilledMinutes) + 0.2;
+        if (!bestFill || score < bestFill.score) {
+          bestFill = { type: 'add_micro_exercise', exercise: sel, cost, projected, score };
+        }
+      }
+    }
+
+    if (!bestFill) break;
+
+    if (bestFill.type === 'add_set') {
+      const ex = ordered[bestFill.exerciseIndex];
+      const oldSets = ex.sets;
+      const oldMin = ex.estimatedMinutes;
+      ex.sets += 1;
+      recalcTime(ex);
+      remainingMinutes -= (ex.estimatedMinutes - oldMin);
+      ex.adjustments.push(`Time-bank fill: ${oldSets} → ${ex.sets} sets (target slack ≤ ${targetUnfilledMinutes} min)`);
+    } else {
+      const sel = bestFill.exercise;
+      const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
+      const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+      const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+      const reps = pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target;
+      const sets = 1;
+      const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal);
+      const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+      const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
+      const fillExType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
+      const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
+      const rir = getRirTarget(role, effectiveGoal, false);
+
+      let targetWeight: number | null = null;
+      const prog = profile.exerciseProgressions.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+      if (prog) {
+        targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, fillExType);
+        if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
+          targetWeight = snapToPlate(prog.lastWeight * 0.75, equipment, fillExType);
+        }
+      } else if (pref?.learnedWeight != null) {
+        targetWeight = snapToPlate(pref.learnedWeight, equipment, fillExType);
+      }
+      const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
+
+      const newEx: GeneratedExercise = {
+        exerciseName: sel.exercise.name,
+        exerciseLibraryId: sel.exercise.id,
+        bodyPart: sel.exercise.body_part,
+        primaryMuscles: Array.isArray(sel.exercise.primary_muscles) ? sel.exercise.primary_muscles : [],
+        secondaryMuscles: Array.isArray(sel.exercise.secondary_muscles) ? sel.exercise.secondary_muscles : [],
+        movementPattern: sel.exercise.movement_pattern ?? 'unknown',
+        targetMuscleGroup: sel.muscleGroup,
+        exerciseRole: role,
+        sets,
+        targetReps: reps,
+        targetWeight: isBodyweight ? null : (targetWeight ? snapToPlate(targetWeight, equipment, fillExType) : null),
+        targetRir: rir,
+        rirLabel: getRirLabel(rir),
+        isBodyweight,
+        tempo,
+        restSeconds: rest,
+        rationale: `Added to tighten time-bank utilization for ${prefs.session_duration_minutes} min session`,
+        adjustments: [`Time-bank fill: added 1 set for ${sel.muscleGroup.replace(/_/g, ' ')} (target slack ≤ ${targetUnfilledMinutes} min)`],
         isDeload: false,
         isCardio: false,
         cardioDurationSeconds: null,

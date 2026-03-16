@@ -621,6 +621,18 @@ export default function TodayWorkout() {
     if (!day || day.isRestDay) return 0
     const pw = day.plannedWorkout
     if (!pw) return day.estimatedMinutes || 0
+    // Prefer engine-produced totals; fallback estimators are lossy and can
+    // under-report long sessions.
+    if (Number.isFinite(pw.estimatedDurationMinutes) && Number(pw.estimatedDurationMinutes) > 0) {
+      return Math.round(Number(pw.estimatedDurationMinutes))
+    }
+    if (Number.isFinite(day.estimatedMinutes) && Number(day.estimatedMinutes) > 0) {
+      return Math.round(Number(day.estimatedMinutes))
+    }
+    const fromExerciseMinutes = Array.isArray(pw.exercises)
+      ? Math.round(pw.exercises.reduce((sum: number, ex: any) => sum + (Number(ex?.estimatedMinutes) || 0), 0))
+      : 0
+    if (fromExerciseMinutes > 0) return fromExerciseMinutes
     const roughFromPrescription = Array.isArray(pw.exercises)
       ? Math.round(pw.exercises.reduce((sum: number, ex: any) => {
           if (ex?.isCardio) return sum + Math.max(5, Math.round((Number(ex.cardioDurationSeconds) || 0) / 60)) + 2
@@ -635,12 +647,7 @@ export default function TodayWorkout() {
         }, 0))
       : 0
     if (roughFromPrescription > 0) return roughFromPrescription
-    const fromExerciseMinutes = Array.isArray(pw.exercises)
-      ? Math.round(pw.exercises.reduce((sum: number, ex: any) => sum + (Number(ex?.estimatedMinutes) || 0), 0))
-      : 0
-    if (fromExerciseMinutes > 0) return fromExerciseMinutes
-    if (Number.isFinite(pw.estimatedDurationMinutes)) return Math.round(pw.estimatedDurationMinutes)
-    return day.estimatedMinutes || 0
+    return 0
   }
 
   const regenerateSelectedPlanDay = async () => {

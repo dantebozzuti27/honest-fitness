@@ -80,6 +80,109 @@ export default function TodayWorkout() {
     return getLocalDate(x)
   }
 
+  const isSchemaColumnError = (err: any): boolean => {
+    const msg = `${err?.message || ''}`.toLowerCase()
+    return err?.code === '42703' || msg.includes('column') || msg.includes('does not exist')
+  }
+
+  const workoutSelectCandidates = [
+    `
+      id,
+      date,
+      duration,
+      template_name,
+      workout_exercises(
+        id,
+        exercise_name,
+        body_part,
+        category,
+        workout_sets(
+          set_number,
+          weight,
+          reps,
+          time,
+          time_seconds,
+          is_warmup
+        )
+      )
+    `,
+    `
+      id,
+      date,
+      duration,
+      template_name,
+      workout_exercises(
+        id,
+        exercise_name,
+        body_part,
+        workout_sets(
+          set_number,
+          weight,
+          reps,
+          time,
+          time_seconds
+        )
+      )
+    `,
+    `
+      id,
+      date,
+      duration,
+      template_name,
+      workout_exercises(
+        id,
+        exercise_name,
+        body_part,
+        workout_sets(
+          set_number,
+          weight,
+          reps,
+          time
+        )
+      )
+    `,
+  ]
+
+  const fetchWorkoutsForDateRange = async (start: string, end: string): Promise<any[]> => {
+    if (!user) return []
+    const supabase = requireSupabase()
+    let lastErr: any = null
+    for (const sel of workoutSelectCandidates) {
+      const { data, error } = await supabase
+        .from('workouts')
+        .select(sel)
+        .eq('user_id', user.id)
+        .gte('date', start)
+        .lte('date', end)
+        .order('date', { ascending: true })
+      if (!error) return Array.isArray(data) ? data : []
+      lastErr = error
+      if (!isSchemaColumnError(error)) break
+    }
+    if (lastErr) throw lastErr
+    return []
+  }
+
+  const fetchWorkoutForDate = async (date: string): Promise<any | null> => {
+    if (!user) return null
+    const supabase = requireSupabase()
+    let lastErr: any = null
+    for (const sel of workoutSelectCandidates) {
+      const { data, error } = await supabase
+        .from('workouts')
+        .select(sel)
+        .eq('user_id', user.id)
+        .eq('date', date)
+        .limit(1)
+        .maybeSingle()
+      if (!error) return data ?? null
+      lastErr = error
+      if (!isSchemaColumnError(error)) break
+    }
+    if (lastErr) throw lastErr
+    return null
+  }
+
   const applyImmediateCorrectionsToWorkout = (
     baseWorkout: GeneratedWorkout,
     corrections: Array<{ exerciseName: string; issue: string; fix: string; newValue: number | null; reason: string }>
@@ -122,63 +225,7 @@ export default function TodayWorkout() {
     try {
       const start = plan.weekStartDate
       const end = plan.days[plan.days.length - 1]?.planDate || plan.weekStartDate
-      const supabase = requireSupabase()
-      let { data: workouts, error } = await supabase
-        .from('workouts')
-        .select(`
-          id,
-          date,
-          duration,
-          template_name,
-          workout_exercises (
-            id,
-            exercise_name,
-            body_part,
-            category,
-            workout_sets (
-              set_number,
-              weight,
-              reps,
-              time,
-              time_seconds,
-              is_warmup
-            )
-          )
-        `)
-        .eq('user_id', user.id)
-        .gte('date', start)
-        .lte('date', end)
-        .order('date', { ascending: true })
-      if (error && (error.code === '42703' || `${error.message || ''}`.toLowerCase().includes('column'))) {
-        const retry = await supabase
-          .from('workouts')
-          .select(`
-            id,
-            date,
-            duration,
-            template_name,
-            workout_exercises (
-              id,
-              exercise_name,
-              body_part,
-              category,
-              workout_sets (
-                set_number,
-                weight,
-                reps,
-                time,
-                time_seconds
-              )
-            )
-          `)
-          .eq('user_id', user.id)
-          .gte('date', start)
-          .lte('date', end)
-          .order('date', { ascending: true })
-        workouts = retry.data
-        error = retry.error
-      }
-      if (error) return plan
+      const workouts = await fetchWorkoutsForDateRange(start, end)
 
       const byDate = new Map<string, any>()
       for (const w of workouts ?? []) {
@@ -335,62 +382,7 @@ export default function TodayWorkout() {
       setProfile(tp)
 
       const today = getLocalDate()
-      let { data: existingWorkout, error: existingWorkoutError } = await supabase
-        .from('workouts')
-        .select(`
-          id,
-          date,
-          duration,
-          template_name,
-          workout_exercises(
-            id,
-            exercise_name,
-            body_part,
-            category,
-            workout_sets(
-              set_number,
-              weight,
-              reps,
-              time,
-              time_seconds,
-              is_warmup
-            )
-          )
-        `)
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .limit(1)
-        .maybeSingle()
-      if (existingWorkoutError && (existingWorkoutError.code === '42703' || `${existingWorkoutError.message || ''}`.toLowerCase().includes('column'))) {
-        const retry = await supabase
-          .from('workouts')
-          .select(`
-            id,
-            date,
-            duration,
-            template_name,
-            workout_exercises(
-              id,
-              exercise_name,
-              body_part,
-              category,
-              workout_sets(
-                set_number,
-                weight,
-                reps,
-                time,
-                time_seconds
-              )
-            )
-          `)
-          .eq('user_id', user.id)
-          .eq('date', today)
-          .limit(1)
-          .maybeSingle()
-        existingWorkout = retry.data
-        existingWorkoutError = retry.error
-      }
-      if (existingWorkoutError) throw existingWorkoutError
+      const existingWorkout = await fetchWorkoutForDate(today)
 
       const todayDone = !!(existingWorkout && !forceGenerateRef.current)
       const completedName = existingWorkout ? deriveWorkoutName(existingWorkout) : undefined

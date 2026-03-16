@@ -254,7 +254,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   advancedProgressionRate: 0.7,
 
   // Defaults & fallbacks
-  defaultSessionDurationMinutes: 60,
+  defaultSessionDurationMinutes: 120,
   defaultBodyWeightLbs: 160,
   minTrainingAgeDays: 3,
   maxCardioPctDefault: 0.30,

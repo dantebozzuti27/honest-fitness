@@ -3203,10 +3203,13 @@ export interface WeeklyPlanDay {
   planDate: string;
   dayOfWeek: number;
   dayName: string;
+  dayStatus?: 'planned' | 'adapted' | 'completed' | 'skipped';
   isRestDay: boolean;
   focus: string;
   muscleGroups: string[];
   plannedWorkout: GeneratedWorkout | null;
+  actualWorkoutId?: string | null;
+  actualWorkout?: any | null;
   estimatedExercises: number;
   estimatedMinutes: number;
   llmVerdict?: 'pass' | 'minor_issues' | 'major_issues' | 'pending';
@@ -3266,6 +3269,7 @@ export async function generateWeeklyPlan(
         planDate,
         dayOfWeek: dow,
         dayName: dayNames[dow],
+        dayStatus: 'planned',
         isRestDay: true,
         focus: 'Rest',
         muscleGroups: [],
@@ -3281,6 +3285,7 @@ export async function generateWeeklyPlan(
       planDate,
       dayOfWeek: dow,
       dayName: dayNames[dow],
+      dayStatus: 'planned',
       isRestDay: false,
       focus: p?.focus || plannedWorkout.trainingGoal.replace(/_/g, ' '),
       muscleGroups: p?.muscleGroups || plannedWorkout.muscleGroupsFocused,

@@ -52,13 +52,14 @@ export default function TodayWorkout() {
   const [regenerating, setRegenerating] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [prefsSet, setPrefsSet] = useState(true)
-  const [defaultDuration, setDefaultDuration] = useState(75)
+  const [defaultDuration, setDefaultDuration] = useState(120)
   const [durationOverride, setDurationOverride] = useState<number | null>(null)
   const [finishByTime, setFinishByTime] = useState('')
   const [cachedProfile, setCachedProfile] = useState<TrainingProfile | null>(null)
   const [weekPreview, setWeekPreview] = useState<DayPreview[]>([])
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null)
   const [weeklyDiffsByDate, setWeeklyDiffsByDate] = useState<Record<string, any>>({})
+  const [selectedPlanDate, setSelectedPlanDate] = useState<string>('')
   const [restDays, setRestDays] = useState<number[]>([])
   const [excludedExercises, setExcludedExercises] = useState<Set<string>>(new Set())
   const [showExclusionPicker, setShowExclusionPicker] = useState(false)
@@ -79,19 +80,109 @@ export default function TodayWorkout() {
     return x.toISOString().slice(0, 10)
   }
 
+  const applyImmediateCorrectionsToWorkout = (
+    baseWorkout: GeneratedWorkout,
+    corrections: Array<{ exerciseName: string; issue: string; fix: string; newValue: number | null; reason: string }>
+  ): { workout: GeneratedWorkout; appliedCount: number } => {
+    if (!Array.isArray(corrections) || corrections.length === 0) {
+      return { workout: baseWorkout, appliedCount: 0 }
+    }
+    const updated: GeneratedWorkout = { ...baseWorkout, exercises: [...baseWorkout.exercises] }
+    let appliedCount = 0
+    for (const corr of corrections) {
+      const idx = updated.exercises.findIndex(
+        e => e.exerciseName.toLowerCase() === String(corr.exerciseName || '').toLowerCase()
+      )
+      if (idx === -1) continue
+
+      if (corr.fix === 'sets' && typeof corr.newValue === 'number') {
+        updated.exercises[idx] = {
+          ...updated.exercises[idx],
+          sets: corr.newValue,
+          adjustments: [...(updated.exercises[idx].adjustments || []), `LLM correction: ${corr.issue} -> ${corr.newValue} sets (${corr.reason})`],
+        }
+        appliedCount += 1
+      } else if (corr.fix === 'weight' && typeof corr.newValue === 'number') {
+        updated.exercises[idx] = {
+          ...updated.exercises[idx],
+          targetWeight: corr.newValue,
+          adjustments: [...(updated.exercises[idx].adjustments || []), `LLM correction: ${corr.issue} -> ${corr.newValue} lbs (${corr.reason})`],
+        }
+        appliedCount += 1
+      } else if (corr.fix === 'remove') {
+        updated.exercises.splice(idx, 1)
+        appliedCount += 1
+      }
+    }
+    return { workout: updated, appliedCount }
+  }
+
+  const attachActualWeekWorkouts = async (plan: WeeklyPlan): Promise<WeeklyPlan> => {
+    if (!user || !plan?.days?.length) return plan
+    const start = plan.weekStartDate
+    const end = plan.days[plan.days.length - 1]?.planDate || plan.weekStartDate
+    const supabase = requireSupabase()
+    const { data: workouts } = await supabase
+      .from('workouts')
+      .select(`
+        id,
+        date,
+        duration,
+        template_name,
+        workout_exercises (
+          id,
+          exercise_name,
+          body_part,
+          category,
+          workout_sets (
+            set_number,
+            weight,
+            reps,
+            time,
+            time_seconds,
+            is_warmup
+          )
+        )
+      `)
+      .eq('user_id', user.id)
+      .gte('date', start)
+      .lte('date', end)
+      .order('date', { ascending: true })
+
+    const byDate = new Map<string, any>()
+    for (const w of workouts ?? []) {
+      byDate.set(w.date, w)
+    }
+    return {
+      ...plan,
+      days: plan.days.map(d => {
+        const actual = byDate.get(d.planDate)
+        if (!actual) return d
+        return {
+          ...d,
+          dayStatus: 'completed',
+          actualWorkoutId: actual.id,
+          actualWorkout: actual,
+        }
+      })
+    }
+  }
+
   const hydrateWeeklyPlan = async (tp: TrainingProfile, userRestDays: number[]) => {
     if (!user) return
     const weekStartDate = getWeekStartDate(new Date())
     const existing = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
     if (existing?.days?.length) {
       const validatedExisting = await annotateWeeklyPlanVerdicts(tp, existing as WeeklyPlan)
-      setWeeklyPlan(validatedExisting)
+      const mergedExisting = await attachActualWeekWorkouts(validatedExisting)
+      setWeeklyPlan(mergedExisting)
       return
     }
     const generatedPlan = await generateWeeklyPlan(tp, userRestDays)
     const validatedGenerated = await annotateWeeklyPlanVerdicts(tp, generatedPlan)
-    const planId = await saveWeeklyPlanToSupabase(user.id, validatedGenerated).catch(() => null)
-    setWeeklyPlan(validatedGenerated)
+    const mergedGenerated = await attachActualWeekWorkouts(validatedGenerated)
+    const planId = await saveWeeklyPlanToSupabase(user.id, mergedGenerated).catch(() => null)
+    setWeeklyPlan(mergedGenerated)
     if (planId) {
       setWeeklyDiffsByDate({})
     }
@@ -105,13 +196,21 @@ export default function TodayWorkout() {
       .slice(0, 2)
     if (targets.length === 0) return plan
 
-    const verdictMap = new Map<string, { verdict: 'pass' | 'minor_issues' | 'major_issues'; corrections: any[] }>()
+    const verdictMap = new Map<string, {
+      verdict: 'pass' | 'minor_issues' | 'major_issues';
+      corrections: any[];
+      correctedWorkout?: GeneratedWorkout | null;
+    }>()
     for (const t of targets) {
       try {
         const validation = await fetchWorkoutValidation(tp, t.plannedWorkout)
+        const corrected = validation.immediate_corrections?.length
+          ? applyImmediateCorrectionsToWorkout(t.plannedWorkout!, validation.immediate_corrections).workout
+          : t.plannedWorkout
         verdictMap.set(t.planDate, {
           verdict: validation.verdict,
           corrections: validation.immediate_corrections ?? [],
+          correctedWorkout: corrected,
         })
       } catch {
         // non-fatal
@@ -122,7 +221,7 @@ export default function TodayWorkout() {
       days: plan.days.map(d => {
         const v = verdictMap.get(d.planDate)
         if (!v) return d
-        return { ...d, llmVerdict: v.verdict, llmCorrections: v.corrections }
+        return { ...d, llmVerdict: v.verdict, llmCorrections: v.corrections, plannedWorkout: v.correctedWorkout ?? d.plannedWorkout, dayStatus: d.dayStatus === 'completed' ? 'completed' : (v.verdict === 'pass' ? (d.dayStatus || 'planned') : 'adapted') }
       })
     } as WeeklyPlan
   }
@@ -132,32 +231,18 @@ export default function TodayWorkout() {
   }, [user])
 
   useEffect(() => {
+    if (!weeklyPlan?.days?.length) return
+    if (selectedPlanDate && weeklyPlan.days.some(d => d.planDate === selectedPlanDate)) return
+    const today = getLocalDate()
+    const todayMatch = weeklyPlan.days.find(d => d.planDate === today)
+    setSelectedPlanDate(todayMatch?.planDate || weeklyPlan.days[0].planDate)
+  }, [weeklyPlan, selectedPlanDate])
+
+  useEffect(() => {
     if (!llmValidation || !workout) return
 
     if (llmValidation.immediate_corrections?.length) {
-      const updated = { ...workout, exercises: [...workout.exercises] }
-      for (const corr of llmValidation.immediate_corrections) {
-        const idx = updated.exercises.findIndex(
-          e => e.exerciseName.toLowerCase() === corr.exerciseName.toLowerCase()
-        )
-        if (idx === -1) continue
-
-        if (corr.fix === 'sets' && typeof corr.newValue === 'number') {
-          updated.exercises[idx] = {
-            ...updated.exercises[idx],
-            sets: corr.newValue,
-            adjustments: [...(updated.exercises[idx].adjustments || []), `LLM correction: ${corr.issue} → ${corr.newValue} sets (${corr.reason})`],
-          }
-        } else if (corr.fix === 'weight' && typeof corr.newValue === 'number') {
-          updated.exercises[idx] = {
-            ...updated.exercises[idx],
-            targetWeight: corr.newValue,
-            adjustments: [...(updated.exercises[idx].adjustments || []), `LLM correction: ${corr.issue} → ${corr.newValue} lbs (${corr.reason})`],
-          }
-        } else if (corr.fix === 'remove') {
-          updated.exercises.splice(idx, 1)
-        }
-      }
+      const { workout: updated } = applyImmediateCorrectionsToWorkout(workout, llmValidation.immediate_corrections)
       setWorkout(updated)
     }
 
@@ -290,12 +375,13 @@ export default function TodayWorkout() {
       if (weeklyPlan) {
         const recomputed = await recomputeWeeklyPlanWithDiff(weeklyPlan, cachedProfile, restDays)
         const withVerdicts = await annotateWeeklyPlanVerdicts(cachedProfile, recomputed.plan)
-        setWeeklyPlan(withVerdicts)
+        const withActuals = await attachActualWeekWorkouts(withVerdicts)
+        setWeeklyPlan(withActuals)
         const diffMap: Record<string, any> = {}
         for (const d of recomputed.diffs) diffMap[d.planDate] = d
         setWeeklyDiffsByDate(diffMap)
         if (user) {
-          const planId = await saveWeeklyPlanToSupabase(user.id, withVerdicts).catch(() => null)
+          const planId = await saveWeeklyPlanToSupabase(user.id, withActuals).catch(() => null)
           if (planId) await saveWeeklyPlanDiffsToSupabase(user.id, planId, recomputed.diffs).catch(() => null)
         }
       }
@@ -346,12 +432,13 @@ export default function TodayWorkout() {
       if (weeklyPlan) {
         const recomputed = await recomputeWeeklyPlanWithDiff(weeklyPlan, cachedProfile, next)
         const withVerdicts = await annotateWeeklyPlanVerdicts(cachedProfile, recomputed.plan)
-        setWeeklyPlan(withVerdicts)
+        const withActuals = await attachActualWeekWorkouts(withVerdicts)
+        setWeeklyPlan(withActuals)
         const diffMap: Record<string, any> = {}
         for (const d of recomputed.diffs) diffMap[d.planDate] = d
         setWeeklyDiffsByDate(diffMap)
         if (user) {
-          const planId = await saveWeeklyPlanToSupabase(user.id, withVerdicts).catch(() => null)
+          const planId = await saveWeeklyPlanToSupabase(user.id, withActuals).catch(() => null)
           if (planId) await saveWeeklyPlanDiffsToSupabase(user.id, planId, recomputed.diffs).catch(() => null)
         }
       }
@@ -552,81 +639,139 @@ export default function TodayWorkout() {
   const renderWeeklyPlanCards = () => {
     if (!weeklyPlan || weeklyPlan.days.length === 0) return null
     const today = getLocalDate()
+    const selectedDay = weeklyPlan.days.find(d => d.planDate === selectedPlanDate) || weeklyPlan.days[0]
+    if (!selectedDay) return null
+    const selectedDiff = selectedDay ? weeklyDiffsByDate[selectedDay.planDate] : null
+    const selectedVerdict = selectedDay
+      ? (selectedDay.planDate === today
+        ? (llmValidation?.verdict ?? selectedDay.llmVerdict ?? 'pending')
+        : (selectedDay.llmVerdict ?? 'pending'))
+      : 'pending'
+    const selectedVerdictColor =
+      selectedVerdict === 'pass' ? 'var(--success)'
+        : selectedVerdict === 'minor_issues' ? '#e6a800'
+          : selectedVerdict === 'major_issues' ? 'var(--danger)'
+            : 'var(--text-tertiary)'
+
     return (
       <div className={styles.weekPreview}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 className={styles.weekPreviewTitle}>Weekly Plan (Adaptive)</h3>
-          <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Auto-updates with daily context</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Select a day to inspect planned vs actual</span>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 6 }}>
           {weeklyPlan.days.map(day => {
-            const diff = weeklyDiffsByDate[day.planDate]
-            const verdict = day.planDate === today
-              ? (llmValidation?.verdict ?? day.llmVerdict ?? 'pending')
-              : (day.llmVerdict ?? 'pending')
-            const verdictColor =
-              verdict === 'pass' ? 'var(--success)'
-                : verdict === 'minor_issues' ? '#e6a800'
-                  : verdict === 'major_issues' ? 'var(--danger)'
-                    : 'var(--text-tertiary)'
+            const selected = day.planDate === selectedDay.planDate
+            const dayStatus = day.dayStatus || (day.actualWorkoutId ? 'completed' : 'planned')
             return (
-              <details key={day.planDate} className={styles.contextCard} open>
-                <summary>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <strong>{day.dayName}</strong>
-                    <span style={{ color: day.isRestDay ? 'var(--text-tertiary)' : 'var(--text-primary)' }}>
-                      {day.isRestDay ? 'Rest' : `${day.estimatedExercises} exercises · ${day.estimatedMinutes}m`}
-                    </span>
-                    <span style={{ color: verdictColor, fontSize: 12 }}>LLM: {verdict}</span>
-                    {diff && <span style={{ fontSize: 11, color: '#e6a800' }}>Updated</span>}
-                  </div>
-                </summary>
-                {day.isRestDay ? (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>Recovery day.</div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                    {(day.plannedWorkout?.exercises ?? []).map((ex: any, idx: number) => (
-                      <div key={`${day.planDate}-${idx}`} style={{ fontSize: 12, padding: '6px 8px', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
-                        <div style={{ fontWeight: 600 }}>{ex.exerciseName}</div>
-                        <div style={{ color: 'var(--text-secondary)' }}>
-                          {ex.isCardio
-                            ? `${Math.round((ex.cardioDurationSeconds ?? 1800) / 60)} min cardio`
-                            : `${ex.sets} x ${ex.targetReps}${ex.targetWeight ? ` @ ${ex.targetWeight} lb` : ''}${ex.targetRir != null ? ` (RIR ${ex.targetRir})` : ''}`}
-                        </div>
-                        {Array.isArray(ex.warmupSets) && ex.warmupSets.length > 0 && (
-                          <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
-                            Warmup: {ex.warmupSets.map((w: any) => `${w.weight}x${w.reps}`).join(' -> ')}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {diff && (
-                      <div style={{ fontSize: 12, padding: '8px', background: 'var(--surface-elevated)', borderRadius: 8 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 4 }}>Why changed</div>
-                        <div style={{ color: 'var(--text-secondary)' }}>Reasons: {(diff.reasonCodes || []).join(', ') || 'context update'}</div>
-                        <div style={{ color: 'var(--text-secondary)' }}>
-                          Deltas: {diff.diffSummary?.exerciseCountDelta ?? 0} exercises, {diff.diffSummary?.estimatedMinutesDelta ?? 0} min
-                        </div>
-                        {Array.isArray(diff.diffSummary?.changedExercises) && diff.diffSummary.changedExercises.length > 0 && (
-                          <div style={{ color: 'var(--text-secondary)' }}>Changed: {diff.diffSummary.changedExercises.join(', ')}</div>
-                        )}
-                      </div>
-                    )}
-                    {day.planDate === today && llmValidation?.immediate_corrections?.length ? (
-                      <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
-                        <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Corrections Applied</div>
-                        {llmValidation.immediate_corrections.map((c, ci) => (
-                          <div key={ci} style={{ color: 'var(--text-secondary)' }}>
-                            {c.exerciseName}: {c.fix} ({c.issue}) - {c.reason}
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </details>
+              <button
+                key={day.planDate}
+                onClick={() => setSelectedPlanDate(day.planDate)}
+                style={{
+                  padding: '8px 6px',
+                  borderRadius: 8,
+                  border: selected ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                  background: selected ? 'var(--surface-elevated)' : 'var(--surface-card)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 12 }}>{day.dayName.slice(0, 3)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{day.planDate.slice(5)}</div>
+                <div style={{ fontSize: 11, color: dayStatus === 'completed' ? 'var(--success)' : 'var(--text-secondary)' }}>
+                  {dayStatus === 'completed' ? 'completed' : day.isRestDay ? 'rest' : `${day.estimatedMinutes}m`}
+                </div>
+              </button>
             )
           })}
+        </div>
+        <div className={styles.contextCard} style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <strong>{selectedDay.dayName}</strong>
+            <span style={{ color: selectedDay.isRestDay ? 'var(--text-tertiary)' : 'var(--text-primary)' }}>
+              {selectedDay.isRestDay ? 'Rest' : `${selectedDay.estimatedExercises} exercises · ${selectedDay.estimatedMinutes}m`}
+            </span>
+            <span style={{ color: selectedVerdictColor, fontSize: 12 }}>LLM: {selectedVerdict}</span>
+            {selectedDiff && <span style={{ fontSize: 11, color: '#e6a800' }}>Updated</span>}
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+              Status: {selectedDay.dayStatus || (selectedDay.actualWorkoutId ? 'completed' : 'planned')}
+            </span>
+          </div>
+          {selectedDay.isRestDay ? (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>Recovery day.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+              {selectedDay.actualWorkout ? (
+                <>
+                  <div style={{ fontWeight: 600, fontSize: 12 }}>Actual workout completed</div>
+                  {(selectedDay.actualWorkout.workout_exercises ?? []).map((ex: any, idx: number) => {
+                    const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+                    const warmups = sets.filter((s: any) => s?.is_warmup === true)
+                    const working = sets.filter((s: any) => s?.is_warmup !== true)
+                    return (
+                      <div key={`${selectedDay.planDate}-actual-${idx}`} style={{ fontSize: 12, padding: '6px 8px', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
+                        <div style={{ fontWeight: 600 }}>{ex.exercise_name}</div>
+                        <div style={{ color: 'var(--text-secondary)' }}>
+                          {working.length > 0 ? `${working.length} working sets` : `${sets.length} sets`}
+                        </div>
+                        {working.length > 0 && (
+                          <div style={{ color: 'var(--text-secondary)' }}>
+                            {working.map((s: any) => `${s.weight || '-'}x${s.reps || '-'}`).join(' | ')}
+                          </div>
+                        )}
+                        {warmups.length > 0 && (
+                          <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
+                            Warmup: {warmups.map((s: any) => `${s.weight || '-'}x${s.reps || '-'}`).join(' -> ')}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </>
+              ) : (
+                <>
+                  <div style={{ fontWeight: 600, fontSize: 12 }}>Planned workout</div>
+                  {(selectedDay.plannedWorkout?.exercises ?? []).map((ex: any, idx: number) => (
+                    <div key={`${selectedDay.planDate}-${idx}`} style={{ fontSize: 12, padding: '6px 8px', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
+                      <div style={{ fontWeight: 600 }}>{ex.exerciseName}</div>
+                      <div style={{ color: 'var(--text-secondary)' }}>
+                        {ex.isCardio
+                          ? `${Math.round((ex.cardioDurationSeconds ?? 1800) / 60)} min cardio`
+                          : `${ex.sets} x ${ex.targetReps}${ex.targetWeight ? ` @ ${ex.targetWeight} lb` : ''}${ex.targetRir != null ? ` (RIR ${ex.targetRir})` : ''}`}
+                      </div>
+                      {Array.isArray(ex.warmupSets) && ex.warmupSets.length > 0 && (
+                        <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
+                          Warmup: {ex.warmupSets.map((w: any) => `${w.weight}x${w.reps}`).join(' -> ')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+              {selectedDiff && (
+                <div style={{ fontSize: 12, padding: '8px', background: 'var(--surface-elevated)', borderRadius: 8 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Why changed</div>
+                  <div style={{ color: 'var(--text-secondary)' }}>Reasons: {(selectedDiff.reasonCodes || []).join(', ') || 'context update'}</div>
+                  <div style={{ color: 'var(--text-secondary)' }}>
+                    Deltas: {selectedDiff.diffSummary?.exerciseCountDelta ?? 0} exercises, {selectedDiff.diffSummary?.estimatedMinutesDelta ?? 0} min
+                  </div>
+                  {Array.isArray(selectedDiff.diffSummary?.changedExercises) && selectedDiff.diffSummary.changedExercises.length > 0 && (
+                    <div style={{ color: 'var(--text-secondary)' }}>Changed: {selectedDiff.diffSummary.changedExercises.join(', ')}</div>
+                  )}
+                </div>
+              )}
+              {selectedDay.planDate === today && llmValidation?.immediate_corrections?.length ? (
+                <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Corrections Applied</div>
+                  {llmValidation.immediate_corrections.map((c, ci) => (
+                    <div key={ci} style={{ color: 'var(--text-secondary)' }}>
+                      {c.exerciseName}: {c.fix} ({c.issue}) - {c.reason}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     )

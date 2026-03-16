@@ -815,3 +815,39 @@ CREATE POLICY "Users can update own weekly_plan_diffs" ON weekly_plan_diffs
 DROP POLICY IF EXISTS "Users can delete own weekly_plan_diffs" ON weekly_plan_diffs;
 CREATE POLICY "Users can delete own weekly_plan_diffs" ON weekly_plan_diffs
   FOR DELETE USING (auth.uid() = user_id);
+
+-- Reconciliation columns for planned vs actual day state
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'weekly_plan_days' AND column_name = 'day_status'
+  ) THEN
+    ALTER TABLE weekly_plan_days ADD COLUMN day_status TEXT
+      CHECK (day_status IN ('planned', 'adapted', 'completed', 'skipped'))
+      DEFAULT 'planned';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'weekly_plan_days' AND column_name = 'actual_workout_id'
+  ) THEN
+    ALTER TABLE weekly_plan_days ADD COLUMN actual_workout_id UUID REFERENCES workouts(id) ON DELETE SET NULL;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'weekly_plan_days' AND column_name = 'actual_workout'
+  ) THEN
+    ALTER TABLE weekly_plan_days ADD COLUMN actual_workout JSONB;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'weekly_plan_days' AND column_name = 'last_reconciled_at'
+  ) THEN
+    ALTER TABLE weekly_plan_days ADD COLUMN last_reconciled_at TIMESTAMPTZ;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_weekly_plan_days_actual_workout_id
+  ON weekly_plan_days(actual_workout_id);

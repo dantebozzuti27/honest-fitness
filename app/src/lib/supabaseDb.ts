@@ -396,6 +396,45 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     }
   }
 
+  // Reconcile adaptive weekly plan day with completed workout payload.
+  try {
+    const workoutDate = workoutToSave.date || getLocalDate()
+    const actualWorkoutPayload = {
+      id: workoutData.id,
+      date: workoutDate,
+      duration: workoutToSave.duration ?? null,
+      templateName: workoutToSave.templateName || null,
+      exercises: Array.isArray(workoutToSave.exercises) ? workoutToSave.exercises : [],
+    }
+    const { data: activeVersion } = await supabase
+      .from('weekly_plan_versions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (activeVersion?.id) {
+      const { error: reconcileError } = await supabase
+        .from('weekly_plan_days')
+        .update({
+          day_status: 'completed',
+          actual_workout_id: workoutData.id,
+          actual_workout: actualWorkoutPayload,
+          last_reconciled_at: new Date().toISOString(),
+        })
+        .eq('weekly_plan_id', activeVersion.id)
+        .eq('user_id', userId)
+        .eq('plan_date', workoutDate)
+      if (reconcileError) {
+        // Non-fatal while schema rolls out.
+        logWarn('Failed to reconcile weekly_plan_days with completed workout', reconcileError)
+      }
+    }
+  } catch (reconcileErr) {
+    logWarn('Weekly plan reconciliation skipped', reconcileErr)
+  }
+
   invalidateSupabaseCache()
   return workoutData
 }
@@ -1832,12 +1871,23 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any) 
     confidence: d.plannedWorkout?.objectiveUtility?.utility ?? 0.5,
     llm_verdict: d.llmVerdict && d.llmVerdict !== 'pending' ? d.llmVerdict : null,
     llm_corrections: d.llmCorrections || null,
+    day_status: d.dayStatus || (d.isRestDay ? 'planned' : 'planned'),
+    actual_workout_id: d.actualWorkoutId || null,
+    actual_workout: d.actualWorkout || null,
+    last_reconciled_at: d.dayStatus === 'completed' ? new Date().toISOString() : null,
   }))
 
   if (rows.length > 0) {
-    const { error: daysError } = await supabase
+    let { error: daysError } = await supabase
       .from('weekly_plan_days')
       .insert(rows)
+    if (daysError && (daysError.code === '42703' || `${daysError.message || ''}`.toLowerCase().includes('column'))) {
+      const strippedRows = rows.map(({ day_status, actual_workout_id, actual_workout, last_reconciled_at, ...rest }: any) => rest)
+      const retry = await supabase
+        .from('weekly_plan_days')
+        .insert(strippedRows)
+      daysError = retry.error
+    }
     if (daysError) throw daysError
   }
 
@@ -1877,6 +1927,9 @@ export async function getActiveWeeklyPlanFromSupabase(userId: string, weekStartD
       focus: d.focus || '',
       muscleGroups: Array.isArray(d.muscle_groups) ? d.muscle_groups : [],
       plannedWorkout: d.planned_workout,
+      dayStatus: d.day_status || 'planned',
+      actualWorkoutId: d.actual_workout_id || null,
+      actualWorkout: d.actual_workout || null,
       estimatedExercises: Array.isArray(d.planned_workout?.exercises) ? d.planned_workout.exercises.length : 0,
       estimatedMinutes: d.estimated_minutes || d.planned_workout?.estimatedDurationMinutes || 0,
       llmVerdict: d.llm_verdict || 'pending',

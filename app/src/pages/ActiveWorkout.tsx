@@ -817,10 +817,13 @@ export default function ActiveWorkout() {
                 reps: s.target_reps != null ? String(s.target_reps) : (s.reps ?? ''),
                 time: s.time != null ? String(s.time) : '',
                 time_seconds: s.time_seconds != null ? String(s.time_seconds) : (isCardio && s.time ? String(s.time) : ''),
+                target_time: s.target_time != null ? String(s.target_time) : '',
+                target_time_seconds: s.target_time_seconds != null ? String(s.target_time_seconds) : '',
                 speed: s.speed != null ? String(s.speed) : '',
                 incline: s.incline != null ? String(s.incline) : '',
                 _target_weight: s.target_weight,
                 _target_reps: s.target_reps,
+                _target_time_seconds: s.target_time_seconds,
                 _tempo: s.tempo,
                 _is_bodyweight: s._is_bodyweight,
               }))
@@ -829,6 +832,8 @@ export default function ActiveWorkout() {
                 reps: ex.reps?.toString() || '',
                 time: ex.time != null ? String(ex.time) : '',
                 time_seconds: ex.time_seconds != null ? String(ex.time_seconds) : '',
+                target_time: ex.target_time != null ? String(ex.target_time) : '',
+                target_time_seconds: ex.target_time_seconds != null ? String(ex.target_time_seconds) : '',
                 speed: ex.speed != null ? String(ex.speed) : '',
                 incline: ex.incline != null ? String(ex.incline) : '',
               }))

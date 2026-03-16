@@ -886,10 +886,14 @@ export default function TodayWorkout() {
         set_number: warmupRows.length + i + 1,
         target_weight: ex.isBodyweight ? null : ex.targetWeight,
         target_reps: ex.targetReps,
+        target_time_seconds: ex.targetTimeSeconds ?? null,
+        target_time: ex.targetTimeSeconds != null ? String(ex.targetTimeSeconds) : '',
         tempo: ex.tempo,
         _is_bodyweight: ex.isBodyweight,
         weight: ex.isBodyweight ? 'BW' : (ex.targetWeight != null ? String(ex.targetWeight) : ''),
-        reps: String(ex.targetReps),
+        reps: ex.targetTimeSeconds != null ? '' : String(ex.targetReps),
+        time: '',
+        time_seconds: '',
       }))
 
       return {
@@ -1059,7 +1063,9 @@ export default function TodayWorkout() {
                       <div style={{ color: 'var(--text-secondary)' }}>
                         {ex.isCardio
                           ? `${Math.round((ex.cardioDurationSeconds ?? 1800) / 60)} min cardio`
-                          : `${ex.sets} x ${ex.targetReps}${ex.targetWeight ? ` @ ${ex.targetWeight} lb` : ''}${ex.targetRir != null ? ` (RIR ${ex.targetRir})` : ''}`}
+                          : ex.targetTimeSeconds != null
+                            ? `${ex.sets} x ${Math.round(ex.targetTimeSeconds)}s hold${ex.targetRir != null ? ` (RIR ${ex.targetRir})` : ''}`
+                            : `${ex.sets} x ${ex.targetReps}${ex.targetWeight ? ` @ ${ex.targetWeight} lb` : ''}${ex.targetRir != null ? ` (RIR ${ex.targetRir})` : ''}`}
                       </div>
                       {Array.isArray(ex.warmupSets) && ex.warmupSets.length > 0 && (
                         <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
@@ -1421,7 +1427,7 @@ export default function TodayWorkout() {
                           </>
                         ) : (
                           <>
-                            {ex.sets} × {ex.targetReps}
+                            {ex.targetTimeSeconds != null ? `${ex.sets} × ${Math.round(ex.targetTimeSeconds)}s hold` : `${ex.sets} × ${ex.targetReps}`}
                             {ex.isBodyweight ? ' (BW)' : ex.targetWeight != null ? ` @ ${ex.targetWeight} lbs` : ''}
                           </>
                         )}
@@ -1631,10 +1637,17 @@ export default function TodayWorkout() {
                                     <span>Epley formula</span>
                                     <span>{prog.bestSet.weight} × (1 + {prog.bestSet.reps}/30) = {Math.round(prog.bestSet.weight * (1 + prog.bestSet.reps / 30))}</span>
                                   </div>
-                                  <div className={styles.whyFactor}>
-                                    <span>Target: {ex.targetReps} reps @ RIR {ex.targetRir ?? '—'}</span>
-                                    <span>→ {ex.targetWeight} lbs (rounded to 5)</span>
-                                  </div>
+                                  {ex.targetTimeSeconds != null ? (
+                                    <div className={styles.whyFactor}>
+                                      <span>Target: {Math.round(ex.targetTimeSeconds)}s hold @ RIR {ex.targetRir ?? '—'}</span>
+                                      <span>Bodyweight hold</span>
+                                    </div>
+                                  ) : (
+                                    <div className={styles.whyFactor}>
+                                      <span>Target: {ex.targetReps} reps @ RIR {ex.targetRir ?? '—'}</span>
+                                      <span>→ {ex.targetWeight} lbs (rounded to 5)</span>
+                                    </div>
+                                  )}
                                   <div className={styles.whyFactor}>
                                     <span>Last working weight</span>
                                     <span>{prog.lastWeight} lbs</span>

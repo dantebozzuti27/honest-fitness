@@ -103,11 +103,23 @@ export interface GeneratedExercise {
   cardioSpeedLabel: string | null;
   targetHrZone: number | null;
   targetHrBpmRange: { min: number; max: number } | null;
+  targetTimeSeconds?: number | null;
   warmupSets: WarmupSet[] | null;
   supersetGroupId: number | null;
   supersetType: 'antagonist' | 'pre_exhaust' | 'compound_set' | null;
   impactScore: number | null;
   estimatedMinutes: number;
+}
+
+function isTimedHoldExercise(exerciseName: string): boolean {
+  const n = String(exerciseName || '').toLowerCase();
+  return n.includes('plank');
+}
+
+function getTimedHoldSeconds(goal: string): number {
+  if (goal === 'strength') return 45;
+  if (goal === 'endurance') return 75;
+  return 60;
 }
 
 export interface DecisionLogEntry {
@@ -1523,7 +1535,8 @@ function stepPrescribe(
   recoveryAdj: RecoveryAdjustment,
   cfg: ModelConfig,
   expProgressionScale: number = 1.0,
-  breakRampMultiplier: number = 1.0
+  breakRampMultiplier: number = 1.0,
+  planningDate?: Date
 ): GeneratedExercise[] {
   const goal = getEffectiveGoal(prefs);
   const secondaryGoal = prefs.secondary_goal;
@@ -1563,11 +1576,13 @@ function stepPrescribe(
       else if (exName.includes('treadmill') || exName.includes('walk') || exName.includes('run')) speedLabel = 'Speed (mph)';
       else if (speed != null) speedLabel = 'Intensity';
 
-      // Vary cardio prescription based on goal, recovery, and session context
-      // Use a deterministic session-index to cycle through cardio styles
-      const sessionIdx = (profile.exercisePreferences.find(
+      // Vary cardio prescription based on goal, recovery, and session context.
+      // Include planned day as a seed so weekly days don't collapse to the
+      // same exact cardio prescription when history is unchanged.
+      const planningSeed = planningDate ? planningDate.getDay() : new Date().getDay();
+      const sessionIdx = ((profile.exercisePreferences.find(
         p => p.exerciseName === sel.exercise.name.toLowerCase()
-      )?.totalSessions ?? 0) % 4;
+      )?.totalSessions ?? 0) + planningSeed) % 4;
 
       let targetHrZone: number | null = null;
 
@@ -1708,6 +1723,7 @@ function stepPrescribe(
     const equipment = (Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : []).map(normalizeEquipment);
     const exType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
     const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
+    const isTimedHold = isTimedHoldExercise(sel.exercise.name);
 
     // ── Learned-first prescription ──
     // Your actual training data is the primary source.
@@ -1944,7 +1960,15 @@ function stepPrescribe(
     }
 
     const impact = computeImpactScore(sel.exercise, role, goal, secondaryGoal);
-    const estMin = estimateExerciseMinutes(sets, restSeconds, role, warmupSets?.length ?? 0, targetReps, tempo);
+    const timedHoldSeconds = isTimedHold ? getTimedHoldSeconds(goal) : null;
+    const estMin = isTimedHold
+      ? Math.max(
+          2,
+          Math.round(
+            ((sets * (timedHoldSeconds ?? 0)) + (Math.max(0, sets - 1) * restSeconds) + ((warmupSets?.length ?? 0) * 30) + TRANSITION_TIME_SEC.strength) / 60
+          )
+        )
+      : estimateExerciseMinutes(sets, restSeconds, role, warmupSets?.length ?? 0, targetReps, tempo);
 
     return {
       exerciseName: sel.exercise.name,
@@ -1956,7 +1980,7 @@ function stepPrescribe(
       targetMuscleGroup: sel.muscleGroup,
       exerciseRole: role,
       sets,
-      targetReps,
+      targetReps: isTimedHold ? 0 : targetReps,
       targetWeight: isBodyweight ? null : (targetWeight ? snapToPlate(targetWeight, equipment, exType) : null),
       targetRir: rir,
       rirLabel: getRirLabel(rir),
@@ -1973,6 +1997,7 @@ function stepPrescribe(
       cardioSpeedLabel: null,
       targetHrZone: null,
       targetHrBpmRange: null,
+      targetTimeSeconds: timedHoldSeconds,
       warmupSets,
       supersetGroupId: null,
       supersetType: null,
@@ -2275,15 +2300,24 @@ function stepApplyConstraints(
   const keptCardio: GeneratedExercise[] = [];
 
   for (const ex of cardio) {
-    // Per-exercise cap: use user's pref or historical average, with a hard ceiling
+    // Per-exercise cap: allow long-session goals to exceed the old static 45-min
+    // ceiling while preserving a bounded upper safety limit.
     const cardioHist = profile.cardioHistory.find(c => c.exerciseName === ex.exerciseName.toLowerCase());
     const prefCardioDur = prefs.cardio_duration_minutes;
     const histAvgMin = cardioHist ? Math.round(cardioHist.avgDurationSeconds / 60) : null;
-    const perExerciseCap = Math.min(
-      prefCardioDur ?? histAvgMin ?? 30,
-      histAvgMin != null ? Math.round(histAvgMin * 1.3) : 45,
-      cfg.maxCardioPerExerciseMinutes
-    ) * 60; // convert to seconds
+    let perExerciseCapMin = cfg.maxCardioPerExerciseMinutes;
+    if (histAvgMin != null) perExerciseCapMin = Math.max(perExerciseCapMin, Math.round(histAvgMin * 1.3));
+    if (prefCardioDur != null) perExerciseCapMin = Math.max(perExerciseCapMin, prefCardioDur);
+
+    // On long sessions or cardio-priority goals, let cardio use most of the
+    // cardio budget instead of clipping near a static 45-minute cap.
+    if (prefs.session_duration_minutes >= 100 || goal === 'endurance' || goal === 'fat_loss') {
+      perExerciseCapMin = Math.max(perExerciseCapMin, Math.round(maxTotalCardioMin * 0.95));
+    }
+
+    // Absolute guardrail to avoid pathological durations.
+    perExerciseCapMin = Math.min(perExerciseCapMin, Math.max(120, prefs.session_duration_minutes));
+    const perExerciseCap = perExerciseCapMin * 60; // convert to seconds
 
     const originalSec = ex.cardioDurationSeconds ?? 1800;
     if (originalSec > perExerciseCap) {
@@ -3344,7 +3378,16 @@ export async function generateWorkout(
   }
 
   // Step 4: Prescribe sets/reps/weight/tempo
-  const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg, expProgressionScale * ageProgressionScale, breakRampMultiplier);
+  const prescribed = stepPrescribe(
+    exerciseSelections,
+    profile,
+    prefs,
+    recoveryAdj,
+    cfg,
+    expProgressionScale * ageProgressionScale,
+    breakRampMultiplier,
+    planningDate
+  );
 
   // Step 5: Apply session constraints (pass exercise pool + selections for expansion)
   const constrained = stepApplyConstraints(

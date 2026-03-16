@@ -752,6 +752,93 @@ export default function ExerciseCard({
                       className={styles.input}
                     />
                   </div>
+                ) : (Number(set?.target_time_seconds ?? set?._target_time_seconds) || 0) > 0 ? (
+                  <div className={styles.inputGroup} style={{ flex: 2 }}>
+                    <div className={styles.cardioTimerRow}>
+                      <div className={styles.cardioTimeInputs}>
+                        {(() => {
+                          const totalSeconds = Number(set?.time_seconds || 0)
+                          const safeTotal = Number.isFinite(totalSeconds) ? Math.max(0, Math.floor(totalSeconds)) : 0
+                          const mins = Math.floor(safeTotal / 60)
+                          const secs = safeTotal % 60
+                          const isTimerRunning = cardioTimerSetIdxRef.current === idx && cardioTimerStartMsRef.current != null
+                          return (
+                            <>
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                placeholder="min"
+                                value={Number.isFinite(mins) ? String(mins) : ''}
+                                disabled={Boolean(isTimerRunning)}
+                                onChange={(e) => {
+                                  const nextMins = Number(e.target.value || 0)
+                                  const safeMins = Number.isFinite(nextMins) ? Math.max(0, Math.floor(nextMins)) : 0
+                                  const total = safeMins * 60 + (Number.isFinite(secs) ? secs : 0)
+                                  onUpdateSet(idx, 'time_seconds', total)
+                                  onUpdateSet(idx, 'time', secondsToMMSSString(total))
+                                }}
+                                className={`${styles.input} ${styles.cardioMinInput}`}
+                              />
+                              <span className={styles.cardioColon}>:</span>
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                placeholder="sec"
+                                value={Number.isFinite(secs) ? String(secs).padStart(2, '0') : ''}
+                                disabled={Boolean(isTimerRunning)}
+                                onChange={(e) => {
+                                  const nextSecs = Number(e.target.value || 0)
+                                  const safeSecs = Number.isFinite(nextSecs) ? Math.max(0, Math.min(59, Math.floor(nextSecs))) : 0
+                                  const total = (Number.isFinite(mins) ? mins : 0) * 60 + safeSecs
+                                  onUpdateSet(idx, 'time_seconds', total)
+                                  onUpdateSet(idx, 'time', secondsToMMSSString(total))
+                                }}
+                                className={`${styles.input} ${styles.cardioSecInput}`}
+                              />
+                            </>
+                          )
+                        })()}
+                      </div>
+
+                      {idx === activeSet && (
+                        <button
+                          type="button"
+                          className={styles.cardioTimerIconBtn}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            const isTimerRunning = cardioTimerSetIdxRef.current === idx && cardioTimerStartMsRef.current != null
+                            if (isTimerRunning) {
+                              onUpdateSet(idx, 'time_seconds', cardioTimerSeconds)
+                              onUpdateSet(idx, 'time', secondsToMMSSString(cardioTimerSeconds))
+                              stopCardioTimer()
+                            } else {
+                              startCardioTimer(idx, 0)
+                            }
+                          }}
+                          title="Start/stop timer"
+                          aria-label="Start/stop timer"
+                        >
+                          {(cardioTimerSetIdxRef.current === idx && cardioTimerStartMsRef.current != null) ? '■' : '⏱'}
+                        </button>
+                      )}
+                    </div>
+                    <div className={styles.cardioSubTimer}>
+                      {(() => {
+                        const isTimerRunning = cardioTimerSetIdxRef.current === idx && cardioTimerStartMsRef.current != null
+                        const total = Number(set?.time_seconds || 0)
+                        const display = isTimerRunning ? cardioTimerSeconds : (Number.isFinite(total) ? Math.max(0, Math.floor(total)) : 0)
+                        const ts = Number(set?.target_time_seconds ?? set?._target_time_seconds)
+                        const targetLabel = Number.isFinite(ts) && ts > 0 ? secondsToMMSSString(ts) : ''
+                        return (
+                          <>
+                            {isTimerRunning ? 'Running' : 'Time'}: {secondsToMMSSString(display)}
+                            {targetLabel ? <span className={styles.cardioTarget}> · Target {targetLabel}</span> : null}
+                          </>
+                        )
+                      })()}
+                    </div>
+                  </div>
                 ) : (
                   <>
                     <div className={styles.inputGroup}>

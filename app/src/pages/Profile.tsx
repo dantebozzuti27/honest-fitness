@@ -380,7 +380,7 @@ export default function Profile() {
             : []
         setTrainingProfile({
           training_goal: prefs.training_goal || '',
-          session_duration_minutes: String(Math.max(120, Number(prefs.session_duration_minutes || 120))),
+          session_duration_minutes: String(Number(prefs.session_duration_minutes || 120)),
           equipment_access: prefs.equipment_access || '',
           available_days_per_week: String(prefs.available_days_per_week || ''),
           job_activity_level: prefs.job_activity_level || '',
@@ -425,7 +425,7 @@ export default function Profile() {
       const payload: Record<string, any> = {
         training_goal: trainingProfile.training_goal || null,
         session_duration_minutes: trainingProfile.session_duration_minutes
-          ? Math.max(120, Number(trainingProfile.session_duration_minutes))
+          ? Number(trainingProfile.session_duration_minutes)
           : 120,
         equipment_access: trainingProfile.equipment_access || null,
         available_days_per_week: trainingProfile.available_days_per_week ? Number(trainingProfile.available_days_per_week) : null,

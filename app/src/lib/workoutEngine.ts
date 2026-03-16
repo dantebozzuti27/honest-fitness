@@ -191,10 +191,10 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     training_goal: data?.training_goal ?? 'hypertrophy',
     primary_goal: data?.primary_goal ?? null,
     secondary_goal: data?.secondary_goal ?? null,
-    session_duration_minutes: Math.max(
-      120,
-      Number(data?.session_duration_minutes ?? DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes) || 120
-    ),
+    session_duration_minutes: (() => {
+      const v = Number(data?.session_duration_minutes ?? DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes);
+      return Number.isFinite(v) && v > 0 ? v : DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes;
+    })(),
     equipment_access: data?.equipment_access ?? 'full_gym',
     available_days_per_week: data?.available_days_per_week ?? 5,
     injuries: Array.isArray(rawInjuries) ? rawInjuries : [],

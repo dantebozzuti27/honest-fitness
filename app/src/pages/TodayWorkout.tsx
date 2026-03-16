@@ -381,7 +381,8 @@ export default function TodayWorkout() {
         setPrefsSet(false)
       }
       if (prefsData?.session_duration_minutes != null) {
-        setDefaultDuration(Math.max(120, Number(prefsData.session_duration_minutes) || 120))
+        const loaded = Number(prefsData.session_duration_minutes)
+        setDefaultDuration(Number.isFinite(loaded) && loaded > 0 ? loaded : 120)
       }
 
       const loadedRestDays: number[] = Array.isArray(prefsData?.rest_days) ? prefsData.rest_days : []

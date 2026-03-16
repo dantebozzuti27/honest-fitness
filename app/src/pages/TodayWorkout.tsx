@@ -369,13 +369,9 @@ export default function TodayWorkout() {
       const loadedRestDays: number[] = Array.isArray(prefsData?.rest_days) ? prefsData.rest_days : []
       setRestDays(loadedRestDays)
 
-      // Auto-populate finishByTime from saved weekday_deadlines
-      const deadlines = prefsData?.weekday_deadlines
-      if (deadlines && typeof deadlines === 'object' && !Array.isArray(deadlines)) {
-        const todayDow = String(new Date().getDay())
-        const todayDeadline = (deadlines as Record<string, string>)[todayDow]
-        if (todayDeadline) setFinishByTime(todayDeadline)
-      }
+      // Finish-by is now an explicit per-generation override in this screen.
+      // Do not auto-apply persisted weekday deadlines silently.
+      setFinishByTime('')
 
       const tp = await computeTrainingProfile(user.id)
       setCachedProfile(tp)

@@ -2143,7 +2143,8 @@ function stepApplyConstraints(
   existingSelections: ExerciseSelection[] = [],
   recoveryAdj?: RecoveryAdjustment,
   progressionScale: number = 1.0,
-  breakRampMultiplier: number = 1.0
+  breakRampMultiplier: number = 1.0,
+  planningDate?: Date
 ): GeneratedExercise[] {
   const cardio = exercises.filter(e => e.isCardio);
   const strength = exercises.filter(e => !e.isCardio);
@@ -2227,7 +2228,7 @@ function stepApplyConstraints(
   }
 
   // Time budget: hard ceiling for entire session (strength + cardio + transitions)
-  const availableMinutes = computeAvailableMinutes(prefs);
+  const availableMinutes = computeAvailableMinutes(prefs, planningDate);
 
   // Session fatigue adjustment
   const lateFatigueEffect = profile.sessionFatigueEffects.find(
@@ -2237,6 +2238,11 @@ function stepApplyConstraints(
   if (lateFatigueEffect && lateFatigueEffect.avgDelta < cfg.sessionFatigueThreshold) {
     // Scale adjustment proportional to how severe the observed fatigue is
     sessionFatigueAdj = Math.max(0.80, 1.0 + lateFatigueEffect.avgDelta);
+  }
+  if (prefs.session_duration_minutes >= 120) {
+    // Honor explicit long-session user budget; keep fatigue adjustments informational,
+    // but do not silently collapse a 120-minute target to ~90.
+    sessionFatigueAdj = Math.max(0.95, sessionFatigueAdj);
   }
 
   const effectiveBudget = Math.round(availableMinutes * sessionFatigueAdj);
@@ -3076,6 +3082,10 @@ export async function generateWorkout(
   if (overrides?.finishByTime) {
     const dayKey = String(new Date().getDay());
     prefs.weekday_deadlines = { ...prefs.weekday_deadlines, [dayKey]: overrides.finishByTime };
+  } else {
+    // Keep duration as canonical unless a finish-by deadline is explicitly requested
+    // for this generation run.
+    prefs.weekday_deadlines = {};
   }
   if (overrides?.gymProfile) {
     prefs.active_gym_profile = overrides.gymProfile;
@@ -3203,7 +3213,18 @@ export async function generateWorkout(
   const prescribed = stepPrescribe(exerciseSelections, profile, prefs, recoveryAdj, cfg, expProgressionScale * ageProgressionScale, breakRampMultiplier);
 
   // Step 5: Apply session constraints (pass exercise pool + selections for expansion)
-  const constrained = stepApplyConstraints(prescribed, prefs, profile, cfg, allExercises, exerciseSelections, recoveryAdj, expProgressionScale * ageProgressionScale, breakRampMultiplier);
+  const constrained = stepApplyConstraints(
+    prescribed,
+    prefs,
+    profile,
+    cfg,
+    allExercises,
+    exerciseSelections,
+    recoveryAdj,
+    expProgressionScale * ageProgressionScale,
+    breakRampMultiplier,
+    planningDate
+  );
 
   // Step 5b: Post-generation validation — catch absurd prescriptions
   const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes);

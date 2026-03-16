@@ -577,6 +577,21 @@ function generateWarmupRamp(
   }
 ): WarmupSet[] {
   const { warmupHistory, bodyWeightLbs, equipment, exerciseType, role } = opts ?? {};
+  const cfg = DEFAULT_MODEL_CONFIG;
+  const eqNorm = (equipment ?? []).map(normalizeEquipment);
+  const isBarbell = eqNorm.includes('barbell');
+
+  // Hard baseline for barbell warmups: fixed anchor ladder only.
+  if (isBarbell) {
+    const anchors = (cfg.barbellWarmupAnchors ?? [45, 95, 135, 185, 225, 275, 315, 365, 405, 455, 495])
+      .filter(a => a < workingWeight * 0.95);
+    if (anchors.length === 0) return [];
+    const selected = anchors.slice(-4); // keep ramp practical and easy to load/unload
+    return selected.map(a => ({
+      weight: a,
+      reps: a <= 95 ? 5 : a <= 185 ? 3 : 2,
+    }));
+  }
 
   // Relative intensity: how heavy is this working weight for this person?
   const bw = bodyWeightLbs ?? DEFAULT_MODEL_CONFIG.defaultBodyWeightLbs;
@@ -600,8 +615,7 @@ function generateWarmupRamp(
     return ramp;
   }
 
-  const eqNorm = (equipment ?? []).map(normalizeEquipment);
-  const isBarbell = eqNorm.includes('barbell');
+  // Non-barbell fallback (kept for edge cases where warmups are enabled).
   const isDumbbell = eqNorm.includes('dumbbell');
   const minLoad = isBarbell ? 45 : isDumbbell ? 10 : 20;
 
@@ -872,14 +886,15 @@ function stepSelectMuscleGroups(
   prefs: UserPreferences,
   recoveryAdj: RecoveryAdjustment,
   cfg: ModelConfig,
-  caloricPhaseScale: number = 1.0
+  caloricPhaseScale: number = 1.0,
+  dayOfWeekOverride?: number
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
 
   // Determine today's target groups from detected split or user preference
   const { detectedSplit, dayOfWeekPatterns } = profile;
-  const todayDow = new Date().getDay();
+  const todayDow = dayOfWeekOverride ?? new Date().getDay();
   const todayPattern = dayOfWeekPatterns[todayDow];
 
   let splitTargetGroups: Set<string> | null = null;
@@ -1484,6 +1499,8 @@ function stepPrescribe(
   const goal = getEffectiveGoal(prefs);
   const secondaryGoal = prefs.secondary_goal;
   const prioritySet = new Set(prefs.priority_muscles.map(m => m.toLowerCase()));
+  const lowerBodyGroups = new Set(['quadriceps', 'hamstrings', 'glutes', 'calves', 'adductors', 'abductors']);
+  let primaryLowerBarbellPrimed = false;
 
   const groupIndex: Record<string, number> = {};
 
@@ -1859,15 +1876,32 @@ function stepPrescribe(
       adjustments.push(`Plateau: ${plateau.suggestedStrategy}`);
     }
 
-    // Warmup ramp: any exercise with meaningful weight relative to the user's body weight
+    // Warmup baseline: primary compounds only, with anti-redundancy for lower-body barbell work.
     const isCompound = sel.exercise.ml_exercise_type === 'compound';
     const bw = prefs.body_weight_lbs ?? cfg.defaultBodyWeightLbs;
     const relativeLoad = targetWeight != null ? targetWeight / bw : 0;
-    const needsWarmup = targetWeight != null && targetWeight > 0 && (
-      role === 'primary'
-      || (isCompound && relativeLoad >= 0.30)
-      || relativeLoad >= 0.50
-    );
+    const eqNorm = equipment.map(normalizeEquipment);
+    const isBarbell = eqNorm.includes('barbell');
+    const movementPattern = (sel.exercise.movement_pattern ?? '').toLowerCase();
+    const isLowerPattern = movementPattern.includes('squat') || movementPattern.includes('hinge') || movementPattern.includes('lunge');
+    const isLowerBody = lowerBodyGroups.has(sel.muscleGroup) || isLowerPattern;
+
+    let needsWarmup = targetWeight != null && targetWeight > 0;
+    if (cfg.warmupPrimaryOnly) {
+      needsWarmup = needsWarmup && role === 'primary' && isCompound;
+    } else {
+      needsWarmup = needsWarmup && (
+        role === 'primary'
+        || (isCompound && relativeLoad >= 0.30)
+        || relativeLoad >= 0.50
+      );
+    }
+
+    if (needsWarmup && cfg.suppressRedundantLowerWarmups && primaryLowerBarbellPrimed && isLowerBody) {
+      needsWarmup = false;
+      adjustments.push('Warmup skipped: lower-body already primed by earlier primary movement');
+    }
+
     const warmupSets = needsWarmup
       ? generateWarmupRamp(targetWeight!, {
           bodyWeightLbs: prefs.body_weight_lbs,
@@ -1876,6 +1910,9 @@ function stepPrescribe(
           role,
         })
       : null;
+    if (warmupSets && warmupSets.length > 0 && role === 'primary' && isBarbell && isLowerBody) {
+      primaryLowerBarbellPrimed = true;
+    }
 
     const impact = computeImpactScore(sel.exercise, role, goal, secondaryGoal);
     const estMin = estimateExerciseMinutes(sets, restSeconds, role, warmupSets?.length ?? 0, targetReps, tempo);
@@ -2042,10 +2079,16 @@ function computeMarginalValue(
 /**
  * Compute available session time, accounting for weekday deadlines.
  */
-function computeAvailableMinutes(prefs: UserPreferences): number {
+function computeAvailableMinutes(prefs: UserPreferences, planningDate?: Date): number {
   const now = new Date();
-  const dayKey = String(now.getDay());
+  const targetDate = planningDate ?? now;
+  const dayKey = String(targetDate.getDay());
   const deadline = prefs.weekday_deadlines[dayKey];
+
+  // For future planned days, show full intended budget and let day-of recalc adapt.
+  const isFuturePlan = targetDate.toDateString() !== now.toDateString()
+    && targetDate.getTime() > now.getTime();
+  if (isFuturePlan) return prefs.session_duration_minutes;
 
   if (deadline) {
     const [h, m] = deadline.split(':').map(Number);
@@ -2507,7 +2550,8 @@ function stepGenerateRationale(
   profile: TrainingProfile,
   prefs: UserPreferences,
   skippedGroups: Array<{ muscleGroup: string; reason: string }>,
-  exerciseDecisions: ExerciseDecision[]
+  exerciseDecisions: ExerciseDecision[],
+  planningDate?: Date
 ): GeneratedWorkout {
   const muscleGroupsFocused = muscleGroups.map(g => g.muscleGroup);
   const muscleReasons = muscleGroups.map(g => `${g.muscleGroup}: ${g.reason}`);
@@ -2527,7 +2571,7 @@ function stepGenerateRationale(
     ? `Detected split: ${profile.detectedSplit.type.replace(/_/g, ' ')} (${Math.round(profile.detectedSplit.confidence * 100)}% confidence)`
     : 'No clear split detected — using volume-based selection';
 
-  const todayDow = new Date().getDay();
+  const todayDow = (planningDate ?? new Date()).getDay();
   const todayPattern = profile.dayOfWeekPatterns[todayDow];
   const dayInfo = todayPattern && !todayPattern.isRestDay
     ? `Typical ${todayPattern.dayName}: ${todayPattern.muscleGroupsTypical.slice(0, 4).join(', ')} (${Math.round(todayPattern.frequency * 100)}% of weeks)`
@@ -2542,7 +2586,7 @@ function stepGenerateRationale(
     ? `${effectiveGoal} (primary) + ${prefs.secondary_goal} (secondary, 30%)`
     : effectiveGoal;
 
-  const availMin = computeAvailableMinutes(prefs);
+  const availMin = computeAvailableMinutes(prefs, planningDate);
   const timeNote = availMin < prefs.session_duration_minutes
     ? `Time-constrained: ${availMin} min available (deadline active)`
     : `Session budget: ${prefs.session_duration_minutes} min`;
@@ -2806,7 +2850,7 @@ function stepGenerateRationale(
 
   return {
     id: generateId(),
-    date: getLocalDate(),
+    date: planningDate ? planningDate.toISOString().slice(0, 10) : getLocalDate(),
     featureSnapshotId: profile.featureSnapshotId,
     trainingGoal: prefs.training_goal,
     estimatedDurationMinutes: Math.round(totalDuration),
@@ -2830,6 +2874,7 @@ export interface SessionOverrides {
   finishByTime?: string; // "HH:MM"
   goalOverride?: string;
   gymProfile?: string;
+  planningDate?: string; // YYYY-MM-DD for weekly planning
 }
 
 interface LlmHints {
@@ -2985,6 +3030,9 @@ export async function generateWorkout(
   profile: TrainingProfile,
   overrides?: SessionOverrides
 ): Promise<GeneratedWorkout> {
+  const planningDate = overrides?.planningDate ? new Date(`${overrides.planningDate}T12:00:00`) : new Date();
+  const planningDow = planningDate.getDay();
+
   const [prefs, allExercises] = await Promise.all([
     fetchUserPreferences(profile.userId),
     fetchAllExercises(),
@@ -3086,7 +3134,7 @@ export async function generateWorkout(
   }
 
   // Step 2: Select muscle groups
-  const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg, caloricPhaseScale);
+  const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg, caloricPhaseScale, planningDow);
 
   // Parse LLM pattern observations into actionable hints
   const llmHints = parseLlmPatternObservations(profile.llmPatternObservations);
@@ -3132,7 +3180,7 @@ export async function generateWorkout(
   const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes);
 
   // Step 6: Generate rationale + decision log
-  const workout = stepGenerateRationale(validated, muscleGroups, recoveryAdj, profile, prefs, skippedGroups, exerciseDecisions);
+  const workout = stepGenerateRationale(validated, muscleGroups, recoveryAdj, profile, prefs, skippedGroups, exerciseDecisions, planningDate);
 
   return workout;
 }
@@ -3149,6 +3197,148 @@ export interface DayPreview {
   estimatedExercises: number;
   estimatedMinutes: number;
   isToday: boolean;
+}
+
+export interface WeeklyPlanDay {
+  planDate: string;
+  dayOfWeek: number;
+  dayName: string;
+  isRestDay: boolean;
+  focus: string;
+  muscleGroups: string[];
+  plannedWorkout: GeneratedWorkout | null;
+  estimatedExercises: number;
+  estimatedMinutes: number;
+  llmVerdict?: 'pass' | 'minor_issues' | 'major_issues' | 'pending';
+  llmCorrections?: Array<{ exerciseName: string; issue: string; fix: string; newValue: number | null; reason: string }>;
+}
+
+export interface WeeklyPlanDiff {
+  planDate: string;
+  reasonCodes: string[];
+  beforeWorkout: GeneratedWorkout | null;
+  afterWorkout: GeneratedWorkout | null;
+  diffSummary: {
+    exerciseCountDelta: number;
+    estimatedMinutesDelta: number;
+    changedExercises: string[];
+  };
+}
+
+export interface WeeklyPlan {
+  weekStartDate: string;
+  featureSnapshotId: string;
+  days: WeeklyPlanDay[];
+}
+
+function getWeekDatesMondaySunday(baseDate: Date): string[] {
+  const anchor = new Date(baseDate);
+  const dow = anchor.getDay(); // 0=Sun
+  const shiftToMonday = dow === 0 ? -6 : 1 - dow;
+  anchor.setDate(anchor.getDate() + shiftToMonday);
+  const days: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(anchor);
+    d.setDate(anchor.getDate() + i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+export async function generateWeeklyPlan(
+  profile: TrainingProfile,
+  userRestDays: number[] = []
+): Promise<WeeklyPlan> {
+  const weekDates = getWeekDatesMondaySunday(new Date());
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const preview = generateWeekPreview(profile, userRestDays, false);
+  const previewByDow = new Map<number, DayPreview>(preview.map(p => [p.dayOfWeek, p]));
+  const restSet = new Set(userRestDays);
+
+  const days: WeeklyPlanDay[] = [];
+  for (const planDate of weekDates) {
+    const d = new Date(`${planDate}T12:00:00`);
+    const dow = d.getDay();
+    const p = previewByDow.get(dow);
+    const isRest = restSet.size > 0 ? restSet.has(dow) : !!p?.isRestDay;
+    if (isRest) {
+      days.push({
+        planDate,
+        dayOfWeek: dow,
+        dayName: dayNames[dow],
+        isRestDay: true,
+        focus: 'Rest',
+        muscleGroups: [],
+        plannedWorkout: null,
+        estimatedExercises: 0,
+        estimatedMinutes: 0,
+        llmVerdict: 'pending',
+      });
+      continue;
+    }
+    const plannedWorkout = await generateWorkout(profile, { planningDate: planDate });
+    days.push({
+      planDate,
+      dayOfWeek: dow,
+      dayName: dayNames[dow],
+      isRestDay: false,
+      focus: p?.focus || plannedWorkout.trainingGoal.replace(/_/g, ' '),
+      muscleGroups: p?.muscleGroups || plannedWorkout.muscleGroupsFocused,
+      plannedWorkout,
+      estimatedExercises: plannedWorkout.exercises.length,
+      estimatedMinutes: plannedWorkout.estimatedDurationMinutes,
+      llmVerdict: 'pending',
+    });
+  }
+
+  return {
+    weekStartDate: weekDates[0],
+    featureSnapshotId: profile.featureSnapshotId,
+    days,
+  };
+}
+
+export async function recomputeWeeklyPlanWithDiff(
+  previousPlan: WeeklyPlan,
+  profile: TrainingProfile,
+  userRestDays: number[] = []
+): Promise<{ plan: WeeklyPlan; diffs: WeeklyPlanDiff[] }> {
+  const recomputed = await generateWeeklyPlan(profile, userRestDays);
+  const prevByDate = new Map(previousPlan.days.map(d => [d.planDate, d]));
+  const diffs: WeeklyPlanDiff[] = [];
+  for (const day of recomputed.days) {
+    const prev = prevByDate.get(day.planDate);
+    if (!prev) continue;
+    const prevW = prev.plannedWorkout;
+    const nextW = day.plannedWorkout;
+    if (!prevW && !nextW) continue;
+    const prevNames = new Set((prevW?.exercises ?? []).map(e => e.exerciseName.toLowerCase()));
+    const nextNames = new Set((nextW?.exercises ?? []).map(e => e.exerciseName.toLowerCase()));
+    const changedExercises = [...nextNames].filter(n => !prevNames.has(n)).slice(0, 6);
+    const exerciseCountDelta = (nextW?.exercises.length ?? 0) - (prevW?.exercises.length ?? 0);
+    const estimatedMinutesDelta = (nextW?.estimatedDurationMinutes ?? 0) - (prevW?.estimatedDurationMinutes ?? 0);
+    const reasonCodes: string[] = [];
+    if ((prevW?.recoveryStatus ?? '') !== (nextW?.recoveryStatus ?? '')) reasonCodes.push('recovery');
+    if (exerciseCountDelta !== 0) reasonCodes.push('volume');
+    if (changedExercises.length > 0) reasonCodes.push('exercise_swap');
+    if (estimatedMinutesDelta !== 0) reasonCodes.push('duration');
+    if ((prevW?.objectiveUtility?.adherenceScore ?? 0) !== (nextW?.objectiveUtility?.adherenceScore ?? 0)) reasonCodes.push('compliance');
+    if ((prevW?.objectiveUtility?.utility ?? 0) !== (nextW?.objectiveUtility?.utility ?? 0)) reasonCodes.push('objective_utility');
+    if (reasonCodes.length === 0) continue;
+
+    diffs.push({
+      planDate: day.planDate,
+      reasonCodes,
+      beforeWorkout: prevW ?? null,
+      afterWorkout: nextW ?? null,
+      diffSummary: {
+        exerciseCountDelta,
+        estimatedMinutesDelta,
+        changedExercises,
+      },
+    });
+  }
+  return { plan: recomputed, diffs };
 }
 
 export function generateWeekPreview(

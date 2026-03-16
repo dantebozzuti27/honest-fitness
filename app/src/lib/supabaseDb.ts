@@ -1788,3 +1788,115 @@ export async function deleteActiveWorkoutSession(userId: string) {
  * Delete a feed item
  */
 
+// ============ ADAPTIVE WEEKLY PLAN ============
+
+export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any) {
+  const { data: existingActive } = await supabase
+    .from('weekly_plan_versions')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('week_start_date', weeklyPlan.weekStartDate)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (existingActive?.id) {
+    await supabase
+      .from('weekly_plan_versions')
+      .update({ status: 'superseded' })
+      .eq('id', existingActive.id)
+      .eq('user_id', userId)
+  }
+
+  const { data: version, error: versionError } = await supabase
+    .from('weekly_plan_versions')
+    .insert({
+      user_id: userId,
+      week_start_date: weeklyPlan.weekStartDate,
+      status: 'active',
+      feature_snapshot_id: weeklyPlan.featureSnapshotId || null,
+    })
+    .select('id')
+    .single()
+  if (versionError) throw versionError
+
+  const rows = (weeklyPlan.days || []).map((d: any) => ({
+    weekly_plan_id: version.id,
+    user_id: userId,
+    plan_date: d.planDate,
+    day_of_week: d.dayOfWeek,
+    is_rest_day: !!d.isRestDay,
+    focus: d.focus || null,
+    muscle_groups: d.muscleGroups || [],
+    planned_workout: d.plannedWorkout || null,
+    estimated_minutes: d.estimatedMinutes || null,
+    confidence: d.plannedWorkout?.objectiveUtility?.utility ?? 0.5,
+    llm_verdict: d.llmVerdict && d.llmVerdict !== 'pending' ? d.llmVerdict : null,
+    llm_corrections: d.llmCorrections || null,
+  }))
+
+  if (rows.length > 0) {
+    const { error: daysError } = await supabase
+      .from('weekly_plan_days')
+      .insert(rows)
+    if (daysError) throw daysError
+  }
+
+  return version.id as string
+}
+
+export async function getActiveWeeklyPlanFromSupabase(userId: string, weekStartDate: string) {
+  const { data: version, error: versionError } = await supabase
+    .from('weekly_plan_versions')
+    .select('id, week_start_date, feature_snapshot_id, created_at')
+    .eq('user_id', userId)
+    .eq('week_start_date', weekStartDate)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (versionError) throw versionError
+  if (!version) return null
+
+  const { data: days, error: daysError } = await supabase
+    .from('weekly_plan_days')
+    .select('*')
+    .eq('weekly_plan_id', version.id)
+    .eq('user_id', userId)
+    .order('plan_date', { ascending: true })
+  if (daysError) throw daysError
+
+  return {
+    id: version.id,
+    weekStartDate: version.week_start_date,
+    featureSnapshotId: version.feature_snapshot_id,
+    days: (days || []).map((d: any) => ({
+      planDate: d.plan_date,
+      dayOfWeek: d.day_of_week,
+      dayName: new Date(`${d.plan_date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long' }),
+      isRestDay: d.is_rest_day,
+      focus: d.focus || '',
+      muscleGroups: Array.isArray(d.muscle_groups) ? d.muscle_groups : [],
+      plannedWorkout: d.planned_workout,
+      estimatedExercises: Array.isArray(d.planned_workout?.exercises) ? d.planned_workout.exercises.length : 0,
+      estimatedMinutes: d.estimated_minutes || d.planned_workout?.estimatedDurationMinutes || 0,
+      llmVerdict: d.llm_verdict || 'pending',
+      llmCorrections: d.llm_corrections || null,
+    })),
+  }
+}
+
+export async function saveWeeklyPlanDiffsToSupabase(userId: string, weeklyPlanId: string, diffs: any[]) {
+  if (!Array.isArray(diffs) || diffs.length === 0) return
+  const rows = diffs.map((d: any) => ({
+    weekly_plan_id: weeklyPlanId,
+    user_id: userId,
+    plan_date: d.planDate,
+    reason_codes: d.reasonCodes || [],
+    before_workout: d.beforeWorkout || null,
+    after_workout: d.afterWorkout || null,
+    diff_summary: d.diffSummary || {},
+  }))
+  const { error } = await supabase.from('weekly_plan_diffs').insert(rows)
+  if (error) throw error
+}
+

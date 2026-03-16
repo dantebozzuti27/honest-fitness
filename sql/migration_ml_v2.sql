@@ -704,3 +704,114 @@ CREATE POLICY "Users can update own prescription_execution_events" ON prescripti
 DROP POLICY IF EXISTS "Users can delete own prescription_execution_events" ON prescription_execution_events;
 CREATE POLICY "Users can delete own prescription_execution_events" ON prescription_execution_events
   FOR DELETE USING (auth.uid() = user_id);
+
+-- ============================================================================
+-- ADAPTIVE WEEKLY PLAN TABLES
+-- Stores full day-by-day prescriptions and transparent revision diffs.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS weekly_plan_versions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  week_start_date DATE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'superseded')),
+  feature_snapshot_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_plan_versions_user_week_status
+  ON weekly_plan_versions(user_id, week_start_date, status);
+
+CREATE INDEX IF NOT EXISTS idx_weekly_plan_versions_user_created
+  ON weekly_plan_versions(user_id, created_at DESC);
+
+ALTER TABLE weekly_plan_versions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own weekly_plan_versions" ON weekly_plan_versions;
+CREATE POLICY "Users can view own weekly_plan_versions" ON weekly_plan_versions
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own weekly_plan_versions" ON weekly_plan_versions;
+CREATE POLICY "Users can insert own weekly_plan_versions" ON weekly_plan_versions
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own weekly_plan_versions" ON weekly_plan_versions;
+CREATE POLICY "Users can update own weekly_plan_versions" ON weekly_plan_versions
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own weekly_plan_versions" ON weekly_plan_versions;
+CREATE POLICY "Users can delete own weekly_plan_versions" ON weekly_plan_versions
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE TABLE IF NOT EXISTS weekly_plan_days (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  weekly_plan_id UUID NOT NULL REFERENCES weekly_plan_versions(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  plan_date DATE NOT NULL,
+  day_of_week INTEGER NOT NULL CHECK (day_of_week >= 0 AND day_of_week <= 6),
+  is_rest_day BOOLEAN NOT NULL DEFAULT false,
+  focus TEXT,
+  muscle_groups JSONB NOT NULL DEFAULT '[]'::jsonb,
+  planned_workout JSONB,
+  estimated_minutes INTEGER,
+  confidence NUMERIC DEFAULT 0.5,
+  llm_verdict TEXT CHECK (llm_verdict IN ('pass', 'minor_issues', 'major_issues')),
+  llm_corrections JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_plan_days_unique
+  ON weekly_plan_days(weekly_plan_id, plan_date);
+
+CREATE INDEX IF NOT EXISTS idx_weekly_plan_days_user_date
+  ON weekly_plan_days(user_id, plan_date);
+
+ALTER TABLE weekly_plan_days ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own weekly_plan_days" ON weekly_plan_days;
+CREATE POLICY "Users can view own weekly_plan_days" ON weekly_plan_days
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own weekly_plan_days" ON weekly_plan_days;
+CREATE POLICY "Users can insert own weekly_plan_days" ON weekly_plan_days
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own weekly_plan_days" ON weekly_plan_days;
+CREATE POLICY "Users can update own weekly_plan_days" ON weekly_plan_days
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own weekly_plan_days" ON weekly_plan_days;
+CREATE POLICY "Users can delete own weekly_plan_days" ON weekly_plan_days
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE TABLE IF NOT EXISTS weekly_plan_diffs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  weekly_plan_id UUID NOT NULL REFERENCES weekly_plan_versions(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  plan_date DATE NOT NULL,
+  reason_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  before_workout JSONB,
+  after_workout JSONB,
+  diff_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_weekly_plan_diffs_user_date
+  ON weekly_plan_diffs(user_id, plan_date, created_at DESC);
+
+ALTER TABLE weekly_plan_diffs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own weekly_plan_diffs" ON weekly_plan_diffs;
+CREATE POLICY "Users can view own weekly_plan_diffs" ON weekly_plan_diffs
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own weekly_plan_diffs" ON weekly_plan_diffs;
+CREATE POLICY "Users can insert own weekly_plan_diffs" ON weekly_plan_diffs
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own weekly_plan_diffs" ON weekly_plan_diffs;
+CREATE POLICY "Users can update own weekly_plan_diffs" ON weekly_plan_diffs
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own weekly_plan_diffs" ON weekly_plan_diffs;
+CREATE POLICY "Users can delete own weekly_plan_diffs" ON weekly_plan_diffs
+  FOR DELETE USING (auth.uid() = user_id);

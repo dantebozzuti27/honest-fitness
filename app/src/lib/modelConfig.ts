@@ -159,6 +159,11 @@ export interface ModelConfig {
   // ── Deload Trigger Thresholds ───────────────────────────────────────
   deloadRegressingExerciseThreshold: number;
   deloadSignalCountThreshold: number;
+
+  // ── Warmup Baselines ─────────────────────────────────────────────────
+  warmupPrimaryOnly: boolean;
+  barbellWarmupAnchors: number[];
+  suppressRedundantLowerWarmups: boolean;
 }
 
 // Version stamps persisted with generated workouts for reproducibility.
@@ -259,4 +264,9 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Deload triggers
   deloadRegressingExerciseThreshold: 5,
   deloadSignalCountThreshold: 3,
+
+  // Warmup baselines
+  warmupPrimaryOnly: true,
+  barbellWarmupAnchors: [45, 95, 135, 185, 225, 275, 315, 365, 405, 455, 495],
+  suppressRedundantLowerWarmups: true,
 };

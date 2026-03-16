@@ -757,6 +757,136 @@ interface RecoveryAdjustment {
   isDeload: boolean;
 }
 
+interface FatLossControllerAdjustment {
+  active: boolean;
+  tier: 'none' | 'on_track' | 'slow_loss' | 'stalled' | 'too_fast';
+  cardioDurationMultiplier: number;
+  cardioIntensityMultiplier: number;
+  strengthVolumeMultiplier: number;
+  restSecondsMultiplier: number;
+  reason: string;
+}
+
+function computeFatLossController(profile: TrainingProfile, prefs: UserPreferences): FatLossControllerAdjustment {
+  const effectiveGoal = getEffectiveGoal(prefs);
+  const fatLossActive = effectiveGoal === 'fat_loss' || prefs.secondary_goal === 'fat_loss';
+  if (!fatLossActive) {
+    return {
+      active: false,
+      tier: 'none',
+      cardioDurationMultiplier: 1.0,
+      cardioIntensityMultiplier: 1.0,
+      strengthVolumeMultiplier: 1.0,
+      restSecondsMultiplier: 1.0,
+      reason: '',
+    };
+  }
+
+  const readiness = profile.fitnessFatigueModel?.readiness ?? 0.75;
+  const adherence = profile.prescribedVsActual?.complianceRate
+    ?? profile.canonicalModelContext?.adherenceScore
+    ?? 0.5;
+  const slope = Number(profile.bodyWeightTrend?.slope ?? 0); // lbs/week
+  const currentWeight = profile.bodyWeightTrend?.currentWeight ?? prefs.body_weight_lbs ?? null;
+
+  if (currentWeight == null || !Number.isFinite(currentWeight)) {
+    return {
+      active: true,
+      tier: 'none',
+      cardioDurationMultiplier: 1.0,
+      cardioIntensityMultiplier: 1.0,
+      strengthVolumeMultiplier: 1.0,
+      restSecondsMultiplier: 1.0,
+      reason: 'Fat-loss controller: no reliable bodyweight signal yet; holding dose until trend is measurable.',
+    };
+  }
+
+  const sustainableRate = currentWeight * 0.005; // 0.5% BW/week
+  const aggressiveRate = currentWeight * 0.01;   // 1.0% BW/week
+
+  let out: FatLossControllerAdjustment;
+  if (slope <= -aggressiveRate) {
+    out = {
+      active: true,
+      tier: 'too_fast',
+      cardioDurationMultiplier: 0.85,
+      cardioIntensityMultiplier: 0.95,
+      strengthVolumeMultiplier: 0.95,
+      restSecondsMultiplier: 1.05,
+      reason: `Fat-loss controller: loss rate ${Math.abs(slope).toFixed(2)} lbs/wk is above 1.0% BW/wk; easing load to protect lean mass.`,
+    };
+  } else if (slope <= -sustainableRate) {
+    out = {
+      active: true,
+      tier: 'on_track',
+      cardioDurationMultiplier: 1.0,
+      cardioIntensityMultiplier: 1.0,
+      strengthVolumeMultiplier: 1.0,
+      restSecondsMultiplier: 1.0,
+      reason: `Fat-loss controller: on-track at ${Math.abs(slope).toFixed(2)} lbs/wk; maintaining current training dose.`,
+    };
+  } else if (slope < 0) {
+    if (adherence < 0.6) {
+      out = {
+        active: true,
+        tier: 'slow_loss',
+        cardioDurationMultiplier: 1.0,
+        cardioIntensityMultiplier: 1.0,
+        strengthVolumeMultiplier: 1.0,
+        restSecondsMultiplier: 1.0,
+        reason: `Fat-loss controller: slow loss (${Math.abs(slope).toFixed(2)} lbs/wk) but adherence ${Math.round(adherence * 100)}%; holding dose until adherence improves.`,
+      };
+    } else {
+      out = {
+        active: true,
+        tier: 'slow_loss',
+        cardioDurationMultiplier: 1.15,
+        cardioIntensityMultiplier: 1.05,
+        strengthVolumeMultiplier: 1.03,
+        restSecondsMultiplier: 0.95,
+        reason: `Fat-loss controller: slow loss (${Math.abs(slope).toFixed(2)} lbs/wk); increasing cardio/training density moderately.`,
+      };
+    }
+  } else {
+    // Flat or gaining during fat-loss goal
+    const severeStall = slope >= 0.25;
+    if (adherence < 0.6) {
+      out = {
+        active: true,
+        tier: 'stalled',
+        cardioDurationMultiplier: 1.05,
+        cardioIntensityMultiplier: 1.0,
+        strengthVolumeMultiplier: 1.0,
+        restSecondsMultiplier: 0.98,
+        reason: `Fat-loss controller: weight is not dropping (${slope.toFixed(2)} lbs/wk) but adherence ${Math.round(adherence * 100)}%; applying only small increases.`,
+      };
+    } else {
+      out = {
+        active: true,
+        tier: 'stalled',
+        cardioDurationMultiplier: severeStall ? 1.40 : 1.30,
+        cardioIntensityMultiplier: severeStall ? 1.12 : 1.08,
+        strengthVolumeMultiplier: severeStall ? 1.06 : 1.04,
+        restSecondsMultiplier: severeStall ? 0.90 : 0.93,
+        reason: `Fat-loss controller: stalled/gaining (${slope.toFixed(2)} lbs/wk); escalating cardio and density to restore deficit.`,
+      };
+    }
+  }
+
+  // Recovery guardrails: do not force hard escalation on low-readiness days.
+  if (readiness < 0.65) {
+    out.cardioIntensityMultiplier = Math.min(out.cardioIntensityMultiplier, 1.0);
+    out.strengthVolumeMultiplier = Math.min(out.strengthVolumeMultiplier, 1.0);
+    out.restSecondsMultiplier = Math.max(out.restSecondsMultiplier, 1.0);
+    if (readiness < 0.50) {
+      out.cardioDurationMultiplier = Math.min(out.cardioDurationMultiplier, 1.10);
+    }
+    out.reason += ` Recovery guardrail active (readiness ${Math.round(readiness * 100)}%).`;
+  }
+
+  return out;
+}
+
 function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): RecoveryAdjustment {
   const reasons: string[] = [];
   let volumeMultiplier = 1.0;
@@ -1536,7 +1666,8 @@ function stepPrescribe(
   cfg: ModelConfig,
   expProgressionScale: number = 1.0,
   breakRampMultiplier: number = 1.0,
-  planningDate?: Date
+  planningDate?: Date,
+  fatLossController?: FatLossControllerAdjustment
 ): GeneratedExercise[] {
   const goal = getEffectiveGoal(prefs);
   const secondaryGoal = prefs.secondary_goal;
@@ -1663,6 +1794,29 @@ function stepPrescribe(
         }
       }
 
+      if (fatLossController?.active) {
+        const oldDuration = duration;
+        duration = Math.max(8 * 60, Math.round(duration * fatLossController.cardioDurationMultiplier));
+        if (duration !== oldDuration) {
+          adjustments.push(`Fat-loss controller (${fatLossController.tier}): duration ${Math.round(oldDuration / 60)} → ${Math.round(duration / 60)} min`);
+        }
+        if (speed != null && fatLossController.cardioIntensityMultiplier !== 1.0) {
+          const oldSpeed = speed;
+          speed = Math.round(speed * fatLossController.cardioIntensityMultiplier * 10) / 10;
+          if (speed !== oldSpeed) {
+            adjustments.push(`Fat-loss controller: ${speedLabel ?? 'intensity'} ${oldSpeed} → ${speed}`);
+          }
+        }
+        if (incline != null && fatLossController.cardioIntensityMultiplier > 1.0) {
+          const oldIncline = incline;
+          const add = fatLossController.cardioIntensityMultiplier >= 1.1 ? 1.0 : 0.5;
+          incline = Math.round(Math.min(incline + add, 15) * 10) / 10;
+          if (incline !== oldIncline) {
+            adjustments.push(`Fat-loss controller: incline ${oldIncline} → ${incline}`);
+          }
+        }
+      }
+
       let targetHrBpmRange: { min: number; max: number } | null = null;
       const maxHr = prefs.age ? (220 - prefs.age) : null;
       if (maxHr && targetHrZone) {
@@ -1762,8 +1916,14 @@ function stepPrescribe(
     } else {
       restSeconds = tableRest;
     }
+    let restAdjustedByFatLossController: { from: number; to: number } | null = null;
     if (profile.sleepVolumeModifier?.restTimeMultiplier) {
       restSeconds = Math.round(restSeconds * profile.sleepVolumeModifier.restTimeMultiplier);
+    }
+    if (fatLossController?.active && fatLossController.restSecondsMultiplier !== 1.0) {
+      const oldRest = restSeconds;
+      restSeconds = Math.max(30, Math.round(restSeconds * fatLossController.restSecondsMultiplier));
+      if (restSeconds !== oldRest) restAdjustedByFatLossController = { from: oldRest, to: restSeconds };
     }
 
     const rir = getRirTarget(role, goal, recoveryAdj.isDeload);
@@ -1776,6 +1936,9 @@ function stepPrescribe(
 
     let targetWeight: number | null = null;
     const adjustments: string[] = [];
+    if (restAdjustedByFatLossController) {
+      adjustments.push(`Fat-loss controller: rest ${restAdjustedByFatLossController.from}s → ${restAdjustedByFatLossController.to}s`);
+    }
 
     // Source annotation: tell user where each prescription value came from
     if (hasLearnedData) {
@@ -3340,6 +3503,15 @@ export async function generateWorkout(
     }
   }
 
+  // Closed-loop fat-loss controller: compare goal progress vs actual trend and
+  // modulate cardio/training dose when weight loss is off target.
+  const fatLossController = computeFatLossController(profile, prefs);
+  if (fatLossController.active) {
+    recoveryAdj.volumeMultiplier *= fatLossController.strengthVolumeMultiplier;
+    recoveryAdj.volumeMultiplier = Math.max(cfg.volumeMultiplierFloor, recoveryAdj.volumeMultiplier);
+    recoveryAdj.adjustmentReasons.push(fatLossController.reason);
+  }
+
   // Step 2: Select muscle groups
   const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg, caloricPhaseScale, planningDow);
 
@@ -3386,7 +3558,8 @@ export async function generateWorkout(
     cfg,
     expProgressionScale * ageProgressionScale,
     breakRampMultiplier,
-    planningDate
+    planningDate,
+    fatLossController
   );
 
   // Step 5: Apply session constraints (pass exercise pool + selections for expansion)

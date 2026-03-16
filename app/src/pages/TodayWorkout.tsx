@@ -63,7 +63,7 @@ export default function TodayWorkout() {
   const [restDays, setRestDays] = useState<number[]>([])
   const [excludedExercises, setExcludedExercises] = useState<Set<string>>(new Set())
   const [showExclusionPicker, setShowExclusionPicker] = useState(false)
-  const [completedWorkout, setCompletedWorkout] = useState<{ id: string; date: string; duration: number; template_name: string; workout_exercises?: { body_part: string }[] } | null>(null)
+  const [completedWorkout, setCompletedWorkout] = useState<any | null>(null)
   const [workoutReview, setWorkoutReview] = useState<WorkoutReview | null>(null)
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
@@ -77,7 +77,7 @@ export default function TodayWorkout() {
     const dow = x.getDay()
     const shiftToMonday = dow === 0 ? -6 : 1 - dow
     x.setDate(x.getDate() + shiftToMonday)
-    return x.toISOString().slice(0, 10)
+    return getLocalDate(x)
   }
 
   const applyImmediateCorrectionsToWorkout = (
@@ -119,52 +119,57 @@ export default function TodayWorkout() {
 
   const attachActualWeekWorkouts = async (plan: WeeklyPlan): Promise<WeeklyPlan> => {
     if (!user || !plan?.days?.length) return plan
-    const start = plan.weekStartDate
-    const end = plan.days[plan.days.length - 1]?.planDate || plan.weekStartDate
-    const supabase = requireSupabase()
-    const { data: workouts } = await supabase
-      .from('workouts')
-      .select(`
-        id,
-        date,
-        duration,
-        template_name,
-        workout_exercises (
+    try {
+      const start = plan.weekStartDate
+      const end = plan.days[plan.days.length - 1]?.planDate || plan.weekStartDate
+      const supabase = requireSupabase()
+      const { data: workouts, error } = await supabase
+        .from('workouts')
+        .select(`
           id,
-          exercise_name,
-          body_part,
-          category,
-          workout_sets (
-            set_number,
-            weight,
-            reps,
-            time,
-            time_seconds,
-            is_warmup
+          date,
+          duration,
+          template_name,
+          workout_exercises (
+            id,
+            exercise_name,
+            body_part,
+            category,
+            workout_sets (
+              set_number,
+              weight,
+              reps,
+              time,
+              time_seconds,
+              is_warmup
+            )
           )
-        )
-      `)
-      .eq('user_id', user.id)
-      .gte('date', start)
-      .lte('date', end)
-      .order('date', { ascending: true })
+        `)
+        .eq('user_id', user.id)
+        .gte('date', start)
+        .lte('date', end)
+        .order('date', { ascending: true })
+      if (error) return plan
 
-    const byDate = new Map<string, any>()
-    for (const w of workouts ?? []) {
-      byDate.set(w.date, w)
-    }
-    return {
-      ...plan,
-      days: plan.days.map(d => {
-        const actual = byDate.get(d.planDate)
-        if (!actual) return d
-        return {
-          ...d,
-          dayStatus: 'completed',
-          actualWorkoutId: actual.id,
-          actualWorkout: actual,
-        }
-      })
+      const byDate = new Map<string, any>()
+      for (const w of workouts ?? []) {
+        byDate.set(w.date, w)
+      }
+      return {
+        ...plan,
+        days: plan.days.map(d => {
+          const actual = byDate.get(d.planDate)
+          if (!actual) return d
+          return {
+            ...d,
+            dayStatus: 'completed',
+            actualWorkoutId: actual.id,
+            actualWorkout: actual,
+          }
+        })
+      }
+    } catch {
+      return plan
     }
   }
 
@@ -303,7 +308,26 @@ export default function TodayWorkout() {
       const today = getLocalDate()
       const { data: existingWorkout } = await supabase
         .from('workouts')
-        .select('id, date, duration, template_name, workout_exercises(body_part)')
+        .select(`
+          id,
+          date,
+          duration,
+          template_name,
+          workout_exercises(
+            id,
+            exercise_name,
+            body_part,
+            category,
+            workout_sets(
+              set_number,
+              weight,
+              reps,
+              time,
+              time_seconds,
+              is_warmup
+            )
+          )
+        `)
         .eq('user_id', user.id)
         .eq('date', today)
         .limit(1)
@@ -318,6 +342,22 @@ export default function TodayWorkout() {
         completedName
       ))
       await hydrateWeeklyPlan(tp, loadedRestDays)
+      if (existingWorkout) {
+        setWeeklyPlan(prev => {
+          if (!prev?.days?.length) return prev
+          return {
+            ...prev,
+            days: prev.days.map(d => d.planDate === today
+              ? {
+                  ...d,
+                  dayStatus: 'completed',
+                  actualWorkoutId: existingWorkout.id,
+                  actualWorkout: existingWorkout,
+                }
+              : d),
+          }
+        })
+      }
 
       if (todayDone) {
         setCompletedWorkout(existingWorkout)
@@ -858,28 +898,6 @@ export default function TodayWorkout() {
           </div>
         </div>
 
-        {weekPreview.length > 0 && (
-          <div className={styles.weekPreview} style={{ padding: '0 var(--space-lg)' }}>
-            <h3 className={styles.weekPreviewTitle}>This Week</h3>
-            <div className={styles.weekDays}>
-              {weekPreview.map(day => {
-                const isRest = restDays.includes(day.dayOfWeek) || (restDays.length === 0 && day.isRestDay)
-                return (
-                  <div
-                    key={day.dayOfWeek}
-                    className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${isRest ? styles.weekDayRest : ''}`}
-                  >
-                    <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
-                    <div className={styles.weekDayFocus} style={day.isCompleted ? { color: 'var(--success)' } : undefined}>
-                      {day.isCompleted ? `✓ ${day.focus}` : isRest ? 'Rest' : (day.focus || (day.muscleGroups.length > 0 ? day.muscleGroups.slice(0, 2).map(g => g.replace(/_/g, ' ')).join(', ') : 'Full Body'))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
         {renderWeeklyPlanCards()}
 
         {toast && <Toast message={toast.message} type={toast.type} duration={toast.duration} onClose={hideToast} />}
@@ -955,8 +973,8 @@ export default function TodayWorkout() {
         {weekPreview.length > 0 && (
           <div className={styles.weekPreview}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 className={styles.weekPreviewTitle}>This Week</h3>
-              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Tap to toggle rest/workout</span>
+              <h3 className={styles.weekPreviewTitle}>Rest Day Overrides</h3>
+              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Tap to toggle rest/workout (navigator is below)</span>
             </div>
             <div className={styles.weekDays}>
               {weekPreview.map(day => {

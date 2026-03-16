@@ -2850,7 +2850,7 @@ function stepGenerateRationale(
 
   return {
     id: generateId(),
-    date: planningDate ? planningDate.toISOString().slice(0, 10) : getLocalDate(),
+    date: planningDate ? getLocalDate(planningDate) : getLocalDate(),
     featureSnapshotId: profile.featureSnapshotId,
     trainingGoal: prefs.training_goal,
     estimatedDurationMinutes: Math.round(totalDuration),
@@ -3243,7 +3243,7 @@ function getWeekDatesMondaySunday(baseDate: Date): string[] {
   for (let i = 0; i < 7; i++) {
     const d = new Date(anchor);
     d.setDate(anchor.getDate() + i);
-    days.push(d.toISOString().slice(0, 10));
+    days.push(getLocalDate(d));
   }
   return days;
 }

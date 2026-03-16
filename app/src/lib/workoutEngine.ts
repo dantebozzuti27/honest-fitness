@@ -191,7 +191,10 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     training_goal: data?.training_goal ?? 'hypertrophy',
     primary_goal: data?.primary_goal ?? null,
     secondary_goal: data?.secondary_goal ?? null,
-    session_duration_minutes: data?.session_duration_minutes ?? DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes,
+    session_duration_minutes: Math.max(
+      120,
+      Number(data?.session_duration_minutes ?? DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes) || 120
+    ),
     equipment_access: data?.equipment_access ?? 'full_gym',
     available_days_per_week: data?.available_days_per_week ?? 5,
     injuries: Array.isArray(rawInjuries) ? rawInjuries : [],
@@ -899,8 +902,19 @@ function stepSelectMuscleGroups(
 
   let splitTargetGroups: Set<string> | null = null;
 
-  // User's preferred split overrides auto-detection
-  if (prefs.preferred_split && SPLIT_MUSCLE_MAPPING[prefs.preferred_split]) {
+  // For explicit day planning (weekly plan), prioritize the day-of-week pattern
+  // so each day gets distinct focus rather than repeating nextRecommended.
+  if (dayOfWeekOverride != null && todayPattern && !todayPattern.isRestDay && todayPattern.muscleGroupsTypical.length > 0) {
+    splitTargetGroups = new Set(todayPattern.muscleGroupsTypical);
+  } else if (dayOfWeekOverride != null && detectedSplit.typicalRotation.length > 0) {
+    // If no explicit day pattern is available, rotate weekly focus by weekday
+    // so generated weekly plans do not repeat the same exact day focus.
+    const mondayBased = (todayDow + 6) % 7;
+    const splitName = detectedSplit.typicalRotation[mondayBased % detectedSplit.typicalRotation.length];
+    const groups = SPLIT_MUSCLE_MAPPING[splitName];
+    if (groups?.length) splitTargetGroups = new Set(groups);
+  } else if (prefs.preferred_split && SPLIT_MUSCLE_MAPPING[prefs.preferred_split]) {
+    // User's preferred split overrides auto-detection
     // Use preferred split pattern with the detected rotation to pick today's focus
     if (detectedSplit.nextRecommended.length > 0) {
       splitTargetGroups = new Set<string>();

@@ -123,7 +123,7 @@ export default function TodayWorkout() {
       const start = plan.weekStartDate
       const end = plan.days[plan.days.length - 1]?.planDate || plan.weekStartDate
       const supabase = requireSupabase()
-      const { data: workouts, error } = await supabase
+      let { data: workouts, error } = await supabase
         .from('workouts')
         .select(`
           id,
@@ -149,6 +149,35 @@ export default function TodayWorkout() {
         .gte('date', start)
         .lte('date', end)
         .order('date', { ascending: true })
+      if (error && (error.code === '42703' || `${error.message || ''}`.toLowerCase().includes('column'))) {
+        const retry = await supabase
+          .from('workouts')
+          .select(`
+            id,
+            date,
+            duration,
+            template_name,
+            workout_exercises (
+              id,
+              exercise_name,
+              body_part,
+              category,
+              workout_sets (
+                set_number,
+                weight,
+                reps,
+                time,
+                time_seconds
+              )
+            )
+          `)
+          .eq('user_id', user.id)
+          .gte('date', start)
+          .lte('date', end)
+          .order('date', { ascending: true })
+        workouts = retry.data
+        error = retry.error
+      }
       if (error) return plan
 
       const byDate = new Map<string, any>()
@@ -286,8 +315,8 @@ export default function TodayWorkout() {
       } else if (!prefsError && !prefsData) {
         setPrefsSet(false)
       }
-      if (prefsData?.session_duration_minutes) {
-        setDefaultDuration(Number(prefsData.session_duration_minutes))
+      if (prefsData?.session_duration_minutes != null) {
+        setDefaultDuration(Math.max(120, Number(prefsData.session_duration_minutes) || 120))
       }
 
       const loadedRestDays: number[] = Array.isArray(prefsData?.rest_days) ? prefsData.rest_days : []
@@ -306,7 +335,7 @@ export default function TodayWorkout() {
       setProfile(tp)
 
       const today = getLocalDate()
-      const { data: existingWorkout } = await supabase
+      let { data: existingWorkout, error: existingWorkoutError } = await supabase
         .from('workouts')
         .select(`
           id,
@@ -332,6 +361,36 @@ export default function TodayWorkout() {
         .eq('date', today)
         .limit(1)
         .maybeSingle()
+      if (existingWorkoutError && (existingWorkoutError.code === '42703' || `${existingWorkoutError.message || ''}`.toLowerCase().includes('column'))) {
+        const retry = await supabase
+          .from('workouts')
+          .select(`
+            id,
+            date,
+            duration,
+            template_name,
+            workout_exercises(
+              id,
+              exercise_name,
+              body_part,
+              category,
+              workout_sets(
+                set_number,
+                weight,
+                reps,
+                time,
+                time_seconds
+              )
+            )
+          `)
+          .eq('user_id', user.id)
+          .eq('date', today)
+          .limit(1)
+          .maybeSingle()
+        existingWorkout = retry.data
+        existingWorkoutError = retry.error
+      }
+      if (existingWorkoutError) throw existingWorkoutError
 
       const todayDone = !!(existingWorkout && !forceGenerateRef.current)
       const completedName = existingWorkout ? deriveWorkoutName(existingWorkout) : undefined

@@ -767,6 +767,91 @@ interface FatLossControllerAdjustment {
   reason: string;
 }
 
+interface HighCapacityPushAdjustment {
+  active: boolean;
+  tier: 'none' | 'moderate' | 'aggressive';
+  volumeMultiplier: number;
+  progressionMultiplier: number;
+  restSecondsMultiplier: number;
+  rirDelta: number;
+  reason: string;
+}
+
+function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreferences): HighCapacityPushAdjustment {
+  const exp = String(prefs.experience_level || '').toLowerCase();
+  const advancedFlag = exp.includes('advanced') || exp.includes('elite') || exp.includes('expert');
+  const athleteScore = Number(profile.athleteProfile?.overallScore ?? 0);
+  const strengthPcts = Array.isArray(profile.strengthPercentiles) ? profile.strengthPercentiles : [];
+  const avgStrengthPct = strengthPcts.length > 0
+    ? strengthPcts.reduce((s, p) => s + Number(p.percentile || 0), 0) / strengthPcts.length
+    : 0;
+  const adherence = profile.prescribedVsActual?.complianceRate
+    ?? profile.canonicalModelContext?.adherenceScore
+    ?? 0.5;
+  const readiness = profile.fitnessFatigueModel?.readiness ?? 0.75;
+  const goal = getEffectiveGoal(prefs);
+
+  const capabilitySignal = advancedFlag || athleteScore >= 75 || avgStrengthPct >= 70;
+  if (!capabilitySignal) {
+    return {
+      active: false,
+      tier: 'none',
+      volumeMultiplier: 1.0,
+      progressionMultiplier: 1.0,
+      restSecondsMultiplier: 1.0,
+      rirDelta: 0,
+      reason: '',
+    };
+  }
+
+  // If readiness/adherence are poor, do not force high-capacity progression.
+  if (readiness < 0.65 || adherence < 0.6) {
+    return {
+      active: false,
+      tier: 'none',
+      volumeMultiplier: 1.0,
+      progressionMultiplier: 1.0,
+      restSecondsMultiplier: 1.0,
+      rirDelta: 0,
+      reason: `High-capacity mode gated off (readiness ${Math.round(readiness * 100)}%, adherence ${Math.round(adherence * 100)}%).`,
+    };
+  }
+
+  const aggressive = readiness >= 0.82 && adherence >= 0.75 && (athleteScore >= 80 || avgStrengthPct >= 75);
+  let out: HighCapacityPushAdjustment = aggressive
+    ? {
+        active: true,
+        tier: 'aggressive',
+        volumeMultiplier: 1.15,
+        progressionMultiplier: 1.30,
+        restSecondsMultiplier: 0.85,
+        rirDelta: -2,
+        reason: 'High-capacity mode (aggressive): increasing volume, progression pressure, and proximity to failure.',
+      }
+    : {
+        active: true,
+        tier: 'moderate',
+        volumeMultiplier: 1.08,
+        progressionMultiplier: 1.15,
+        restSecondsMultiplier: 0.92,
+        rirDelta: -1,
+        reason: 'High-capacity mode (moderate): pushing volume and intensity beyond conservative defaults.',
+      };
+
+  // Goal-specific shaping: keep fat-loss pushes more recovery-safe.
+  if (goal === 'fat_loss') {
+    out = {
+      ...out,
+      volumeMultiplier: Math.min(out.volumeMultiplier, aggressive ? 1.10 : 1.06),
+      restSecondsMultiplier: Math.max(out.restSecondsMultiplier, aggressive ? 0.88 : 0.94),
+      rirDelta: Math.max(out.rirDelta, -1),
+      reason: `${out.reason} Fat-loss guardrail: capped push to preserve lean mass.`,
+    };
+  }
+
+  return out;
+}
+
 function computeFatLossController(profile: TrainingProfile, prefs: UserPreferences): FatLossControllerAdjustment {
   const effectiveGoal = getEffectiveGoal(prefs);
   const fatLossActive = effectiveGoal === 'fat_loss' || prefs.secondary_goal === 'fat_loss';
@@ -1667,7 +1752,8 @@ function stepPrescribe(
   expProgressionScale: number = 1.0,
   breakRampMultiplier: number = 1.0,
   planningDate?: Date,
-  fatLossController?: FatLossControllerAdjustment
+  fatLossController?: FatLossControllerAdjustment,
+  highCapacityPush?: HighCapacityPushAdjustment
 ): GeneratedExercise[] {
   const goal = getEffectiveGoal(prefs);
   const secondaryGoal = prefs.secondary_goal;
@@ -1898,6 +1984,16 @@ function stepPrescribe(
     let sets = hasLearnedData && pref.learnedSets != null
       ? Math.round(pref.learnedSets)
       : tableSets;
+    let setsAdjustedByHighCapacity: { from: number; to: number } | null = null;
+    if (highCapacityPush?.active && !recoveryAdj.isDeload) {
+      const oldSets = sets;
+      if (role === 'primary' || role === 'secondary') {
+        sets = Math.max(2, Math.min(8, Math.round(sets * highCapacityPush.volumeMultiplier)));
+      } else if (role === 'isolation') {
+        sets = Math.max(2, Math.min(6, Math.round(sets * Math.max(1.0, highCapacityPush.volumeMultiplier - 0.05))));
+      }
+      if (sets !== oldSets) setsAdjustedByHighCapacity = { from: oldSets, to: sets };
+    }
 
     // #4: Compliance Feedback — adjust reps if user consistently exceeds prescription
     if (profile.prescribedVsActual) {
@@ -1925,8 +2021,17 @@ function stepPrescribe(
       restSeconds = Math.max(30, Math.round(restSeconds * fatLossController.restSecondsMultiplier));
       if (restSeconds !== oldRest) restAdjustedByFatLossController = { from: oldRest, to: restSeconds };
     }
+    let restAdjustedByHighCapacity: { from: number; to: number } | null = null;
+    if (highCapacityPush?.active && !recoveryAdj.isDeload && highCapacityPush.restSecondsMultiplier !== 1.0) {
+      const oldRest = restSeconds;
+      restSeconds = Math.max(30, Math.round(restSeconds * highCapacityPush.restSecondsMultiplier));
+      if (restSeconds !== oldRest) restAdjustedByHighCapacity = { from: oldRest, to: restSeconds };
+    }
 
-    const rir = getRirTarget(role, goal, recoveryAdj.isDeload);
+    let rir = getRirTarget(role, goal, recoveryAdj.isDeload);
+    if (highCapacityPush?.active && !recoveryAdj.isDeload && highCapacityPush.rirDelta !== 0) {
+      rir = Math.max(0, Math.min(4, rir + highCapacityPush.rirDelta));
+    }
     const tempo = getTempo(sel.exercise.default_tempo, goal, sel.exercise.ml_exercise_type);
 
     // Weight determination: progression data > learned weight > lift ratios > null
@@ -1936,8 +2041,14 @@ function stepPrescribe(
 
     let targetWeight: number | null = null;
     const adjustments: string[] = [];
+    if (setsAdjustedByHighCapacity) {
+      adjustments.push(`High-capacity mode: sets ${setsAdjustedByHighCapacity.from} → ${setsAdjustedByHighCapacity.to}`);
+    }
     if (restAdjustedByFatLossController) {
       adjustments.push(`Fat-loss controller: rest ${restAdjustedByFatLossController.from}s → ${restAdjustedByFatLossController.to}s`);
+    }
+    if (restAdjustedByHighCapacity) {
+      adjustments.push(`High-capacity mode: rest ${restAdjustedByHighCapacity.from}s → ${restAdjustedByHighCapacity.to}s`);
     }
 
     // Source annotation: tell user where each prescription value came from
@@ -3512,6 +3623,17 @@ export async function generateWorkout(
     recoveryAdj.adjustmentReasons.push(fatLossController.reason);
   }
 
+  const highCapacityPush = computeHighCapacityPush(profile, prefs);
+  if (highCapacityPush.active) {
+    recoveryAdj.volumeMultiplier *= highCapacityPush.volumeMultiplier;
+    recoveryAdj.volumeMultiplier = Math.max(cfg.volumeMultiplierFloor, recoveryAdj.volumeMultiplier);
+    recoveryAdj.adjustmentReasons.push(highCapacityPush.reason);
+  } else if (highCapacityPush.reason) {
+    recoveryAdj.adjustmentReasons.push(highCapacityPush.reason);
+  }
+
+  const progressionScale = expProgressionScale * ageProgressionScale * (highCapacityPush.active ? highCapacityPush.progressionMultiplier : 1.0);
+
   // Step 2: Select muscle groups
   const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg, caloricPhaseScale, planningDow);
 
@@ -3556,10 +3678,11 @@ export async function generateWorkout(
     prefs,
     recoveryAdj,
     cfg,
-    expProgressionScale * ageProgressionScale,
+    progressionScale,
     breakRampMultiplier,
     planningDate,
-    fatLossController
+    fatLossController,
+    highCapacityPush
   );
 
   // Step 5: Apply session constraints (pass exercise pool + selections for expansion)
@@ -3571,7 +3694,7 @@ export async function generateWorkout(
     allExercises,
     exerciseSelections,
     recoveryAdj,
-    expProgressionScale * ageProgressionScale,
+    progressionScale,
     breakRampMultiplier,
     planningDate
   );

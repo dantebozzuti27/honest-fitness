@@ -17,7 +17,7 @@ import {
 } from '../lib/workoutEngine'
 import { requireSupabase } from '../lib/supabase'
 import { fetchWorkoutReview, fetchWorkoutValidation, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
-import { getActiveWeeklyPlanFromSupabase, saveWeeklyPlanToSupabase } from '../lib/supabaseDb'
+import { getActiveWeeklyPlanFromSupabase, saveLlmValidationArtifact, saveWeeklyPlanToSupabase } from '../lib/supabaseDb'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import BackButton from '../components/BackButton'
@@ -191,12 +191,26 @@ export default function TodayWorkout() {
     return null
   }
 
+  const resolveKnownOneRm = (tp: TrainingProfile | null | undefined, exerciseName: string): number | null => {
+    if (!tp || !exerciseName) return null
+    const name = exerciseName.trim().toLowerCase()
+    const exact = tp.exerciseProgressions.find(p => p.exerciseName.trim().toLowerCase() === name)
+    if (exact?.estimated1RM && Number.isFinite(exact.estimated1RM)) return Number(exact.estimated1RM)
+    const partial = tp.exerciseProgressions.find(p => {
+      const n = p.exerciseName.trim().toLowerCase()
+      return n.includes(name) || name.includes(n)
+    })
+    if (partial?.estimated1RM && Number.isFinite(partial.estimated1RM)) return Number(partial.estimated1RM)
+    return null
+  }
+
   const applyImmediateCorrectionsToWorkout = (
     baseWorkout: GeneratedWorkout,
-    corrections: Array<{ exerciseName: string; issue: string; fix: string; newValue: number | null; reason: string }>
-  ): { workout: GeneratedWorkout; appliedCount: number } => {
+    corrections: Array<{ exerciseName: string; issue: string; fix: string; newValue: number | null; reason: string }>,
+    options?: { trainingProfile?: TrainingProfile | null; sessionBudgetMinutes?: number | null }
+  ): { workout: GeneratedWorkout; appliedCount: number; rejectedCount: number } => {
     if (!Array.isArray(corrections) || corrections.length === 0) {
-      return { workout: baseWorkout, appliedCount: 0 }
+      return { workout: baseWorkout, appliedCount: 0, rejectedCount: 0 }
     }
     const updated: GeneratedWorkout = { ...baseWorkout, exercises: [...baseWorkout.exercises] }
     const estimateExerciseMinutesFromPrescription = (ex: any): number => {
@@ -213,12 +227,43 @@ export default function TodayWorkout() {
       const warmupMinutes = warmups * 0.5
       return Math.max(3, Math.round(workMinutes + restMinutes + warmupMinutes))
     }
+    const workoutDurationMinutes = () => Math.round(updated.exercises.reduce((sum, ex) => sum + (Number((ex as any).estimatedMinutes) || 0), 0))
+    const sessionBudget = Number(options?.sessionBudgetMinutes)
     let appliedCount = 0
+    let rejectedCount = 0
     for (const corr of corrections) {
       const idx = updated.exercises.findIndex(
         e => e.exerciseName.toLowerCase() === String(corr.exerciseName || '').toLowerCase()
       )
       if (idx === -1) continue
+      const current = updated.exercises[idx]
+      const issueText = String(corr.issue || '').toLowerCase()
+      const knownOneRm = resolveKnownOneRm(options?.trainingProfile ?? null, current.exerciseName)
+
+      let valid = true
+      if (corr.fix === 'weight') {
+        if (typeof corr.newValue !== 'number' || !Number.isFinite(corr.newValue) || corr.newValue <= 0) valid = false
+        if (valid && issueText.includes('1rm')) {
+          const currentTarget = Number(current.targetWeight ?? NaN)
+          // Only accept if deterministic predicate is true.
+          if (!Number.isFinite(currentTarget) || !Number.isFinite(knownOneRm as number)) valid = false
+          else if (!(currentTarget > Number(knownOneRm))) valid = false
+        }
+      } else if (corr.fix === 'remove') {
+        if (issueText.includes('session time') || issueText.includes('time budget') || issueText.includes('duration')) {
+          if (!(Number.isFinite(sessionBudget) && workoutDurationMinutes() > Number(sessionBudget))) valid = false
+        }
+      } else if (corr.fix === 'sets') {
+        if (!(typeof corr.newValue === 'number' && Number.isFinite(corr.newValue) && corr.newValue >= 1 && corr.newValue <= 12)) valid = false
+      }
+      if (!valid) {
+        rejectedCount += 1
+        updated.exercises[idx] = {
+          ...current,
+          adjustments: [...(current.adjustments || []), `Rejected LLM correction: ${corr.issue} (${corr.fix}) — predicate failed`],
+        }
+        continue
+      }
 
       if (corr.fix === 'sets' && typeof corr.newValue === 'number') {
         updated.exercises[idx] = {
@@ -229,10 +274,13 @@ export default function TodayWorkout() {
         }
         appliedCount += 1
       } else if (corr.fix === 'weight' && typeof corr.newValue === 'number') {
+        const boundedWeight = Number.isFinite(knownOneRm as number)
+          ? Math.min(corr.newValue, Number(knownOneRm))
+          : corr.newValue
         updated.exercises[idx] = {
           ...updated.exercises[idx],
-          targetWeight: corr.newValue,
-          adjustments: [...(updated.exercises[idx].adjustments || []), `LLM correction: ${corr.issue} -> ${corr.newValue} lbs (${corr.reason})`],
+          targetWeight: boundedWeight,
+          adjustments: [...(updated.exercises[idx].adjustments || []), `LLM correction: ${corr.issue} -> ${boundedWeight} lbs (${corr.reason})`],
         }
         appliedCount += 1
       } else if (corr.fix === 'remove') {
@@ -241,7 +289,7 @@ export default function TodayWorkout() {
       }
     }
     updated.estimatedDurationMinutes = Math.round(updated.exercises.reduce((sum, ex) => sum + (Number((ex as any).estimatedMinutes) || 0), 0))
-    return { workout: updated, appliedCount }
+    return { workout: updated, appliedCount, rejectedCount }
   }
 
   const attachActualWeekWorkouts = async (plan: WeeklyPlan): Promise<WeeklyPlan> => {
@@ -293,11 +341,20 @@ export default function TodayWorkout() {
     return false
   }
 
+  const isWeeklyPlanStale = (existing: WeeklyPlan, tp: TrainingProfile): boolean => {
+    if (!existing) return true
+    if (existing.featureSnapshotId !== tp.featureSnapshotId) return true
+    const plannedDays = (existing.days || []).filter(d => !d.isRestDay && d.plannedWorkout)
+    // If policy metadata is missing from many days, force a fresh plan so new logic becomes visible.
+    const missingPolicyState = plannedDays.filter(d => !d.plannedWorkout?.policyState).length
+    return plannedDays.length > 0 && missingPolicyState >= Math.ceil(plannedDays.length / 2)
+  }
+
   const hydrateWeeklyPlan = async (tp: TrainingProfile, userRestDays: number[]) => {
     if (!user) return
     const weekStartDate = getWeekStartDate(new Date())
     const existing = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
-    if (existing?.days?.length) {
+    if (existing?.days?.length && !isWeeklyPlanStale(existing as WeeklyPlan, tp)) {
       const validatedExisting = await annotateWeeklyPlanVerdicts(tp, existing as WeeklyPlan)
       const mergedExisting = await attachActualWeekWorkouts(validatedExisting)
       if (hasConsecutiveDuplicateTrainingDays(mergedExisting)) {
@@ -331,7 +388,6 @@ export default function TodayWorkout() {
     const targets = plan.days
       .filter(d => !d.isRestDay && d.plannedWorkout)
       .filter(d => d.planDate >= today)
-      .slice(0, 2)
     if (targets.length === 0) return plan
 
     const verdictMap = new Map<string, {
@@ -343,7 +399,10 @@ export default function TodayWorkout() {
       try {
         const validation = await fetchWorkoutValidation(tp, t.plannedWorkout)
         const corrected = validation.immediate_corrections?.length
-          ? applyImmediateCorrectionsToWorkout(t.plannedWorkout!, validation.immediate_corrections).workout
+          ? applyImmediateCorrectionsToWorkout(t.plannedWorkout!, validation.immediate_corrections, {
+              trainingProfile: tp,
+              sessionBudgetMinutes: tp.avgSessionDuration,
+            }).workout
           : t.plannedWorkout
         verdictMap.set(t.planDate, {
           verdict: validation.verdict,
@@ -377,9 +436,9 @@ export default function TodayWorkout() {
   }, [weeklyPlan, selectedPlanDate])
 
   useEffect(() => {
-    if (!llmValidation || !workout) return
+    if (!llmValidation || !workout || !user) return
 
-    if (llmValidation.pattern_observations?.length && user) {
+    if (llmValidation.pattern_observations?.length) {
       const supabase = requireSupabase()
       const rows = llmValidation.pattern_observations.map(obs => ({
         user_id: user.id,
@@ -393,7 +452,14 @@ export default function TodayWorkout() {
       supabase.from('model_feedback').insert(rows)
         .then(({ error }) => { if (error) logError('Failed to store pattern observations', error) })
     }
-  }, [llmValidation])
+
+    saveLlmValidationArtifact(user.id, workout.id || null, llmValidation, {
+      selectedVersion: selectedWorkoutVersion,
+      rationale: llmValidation.verdict === 'pass'
+        ? 'Validation pass'
+        : `Validation flagged ${llmValidation.verdict}`,
+    }).catch(e => logError('Failed to persist LLM validation artifact', e))
+  }, [llmValidation, workout, user, selectedWorkoutVersion])
 
   // Initial load: fetch prefs, compute profile, generate first workout
   const initialLoad = async () => {
@@ -499,19 +565,34 @@ export default function TodayWorkout() {
     }
   }
 
+  const refreshTrainingProfile = async (): Promise<TrainingProfile | null> => {
+    if (!user) return null
+    try {
+      const fresh = await computeTrainingProfile(user.id)
+      setCachedProfile(fresh)
+      setProfile(fresh)
+      return fresh
+    } catch (err) {
+      logError('Profile refresh failed', err)
+      return cachedProfile
+    }
+  }
+
   // Regeneration: reuses cached profile, only re-runs workout generation
   const regenerate = async (duration: number | null, finishBy: string) => {
-    if (!cachedProfile || regeneratingRef.current) return
+    if (regeneratingRef.current) return
     regeneratingRef.current = true
     setRegenerating(true)
 
     try {
+      const activeProfile = await refreshTrainingProfile()
+      if (!activeProfile) return
       const o: SessionOverrides = {}
       if (duration != null) o.durationMinutes = duration
       if (finishBy) o.finishByTime = finishBy
 
       const w = await generateWorkout(
-        cachedProfile,
+        activeProfile,
         Object.keys(o).length > 0 ? o : undefined
       )
       setWorkout(w)
@@ -526,11 +607,11 @@ export default function TodayWorkout() {
       showToast('Workout regenerated', 'success')
 
       llmValidationFiredRef.current = true
-      fetchWorkoutValidation(cachedProfile, w).then(setLlmValidation).catch(e => logError('LLM workout validation failed (non-blocking)', e))
+      fetchWorkoutValidation(activeProfile, w).then(setLlmValidation).catch(e => logError('LLM workout validation failed (non-blocking)', e))
 
       if (weeklyPlan) {
-        const recomputed = await recomputeWeeklyPlanWithDiff(weeklyPlan, cachedProfile, restDays)
-        const withVerdicts = await annotateWeeklyPlanVerdicts(cachedProfile, recomputed.plan)
+        const recomputed = await recomputeWeeklyPlanWithDiff(weeklyPlan, activeProfile, restDays)
+        const withVerdicts = await annotateWeeklyPlanVerdicts(activeProfile, recomputed.plan)
         const withActuals = await attachActualWeekWorkouts(withVerdicts)
         setWeeklyPlan(withActuals)
         const diffMap: Record<string, any> = {}
@@ -570,12 +651,14 @@ export default function TodayWorkout() {
   }
 
   const regenerateWithLlmAdjustments = async () => {
-    if (!cachedProfile || !workout || regeneratingWithLlm) return
+    if (!workout || regeneratingWithLlm) return
     setRegeneratingWithLlm(true)
     try {
+      const activeProfile = await refreshTrainingProfile()
+      if (!activeProfile) return
       const baseline = originalWorkout || workout
       let candidate = baseline
-      let validation = llmValidation ?? await fetchWorkoutValidation(cachedProfile, candidate)
+      let validation = llmValidation ?? await fetchWorkoutValidation(activeProfile, candidate)
       const avoid = new Set<string>()
       const ATTEMPTS = 4
 
@@ -592,12 +675,15 @@ export default function TodayWorkout() {
         if (finishByTime) o.finishByTime = finishByTime
         if (avoid.size > 0) o.avoidExerciseNames = [...avoid]
 
-        candidate = await generateWorkout(cachedProfile, Object.keys(o).length > 0 ? o : undefined)
-        validation = await fetchWorkoutValidation(cachedProfile, candidate)
+        candidate = await generateWorkout(activeProfile, Object.keys(o).length > 0 ? o : undefined)
+        validation = await fetchWorkoutValidation(activeProfile, candidate)
 
         if (validation.immediate_corrections?.length) {
-          candidate = applyImmediateCorrectionsToWorkout(candidate, validation.immediate_corrections).workout
-          validation = await fetchWorkoutValidation(cachedProfile, candidate)
+          candidate = applyImmediateCorrectionsToWorkout(candidate, validation.immediate_corrections, {
+            trainingProfile: activeProfile,
+            sessionBudgetMinutes: durationOverride ?? defaultDuration ?? activeProfile.avgSessionDuration,
+          }).workout
+          validation = await fetchWorkoutValidation(activeProfile, candidate)
         }
       }
 
@@ -651,11 +737,13 @@ export default function TodayWorkout() {
   }
 
   const regenerateSelectedPlanDay = async () => {
-    if (!weeklyPlan || !cachedProfile || !selectedPlanDate || !user) return
+    if (!weeklyPlan || !selectedPlanDate || !user) return
     const selected = weeklyPlan.days.find(d => d.planDate === selectedPlanDate)
     if (!selected || selected.isRestDay || selected.dayStatus === 'completed') return
     setRegeneratingDay(true)
     try {
+      const activeProfile = await refreshTrainingProfile()
+      if (!activeProfile) return
       const today = getLocalDate()
       const duration = durationOverride ?? defaultDuration
       const overrides: SessionOverrides = {
@@ -665,17 +753,20 @@ export default function TodayWorkout() {
       if (selected.planDate === today && finishByTime) {
         overrides.finishByTime = finishByTime
       }
-      let nextWorkout = await generateWorkout(cachedProfile, overrides)
+      let nextWorkout = await generateWorkout(activeProfile, overrides)
 
       // Run LLM validation immediately for the selected day and apply immediate corrections.
       let dayVerdict: 'pass' | 'minor_issues' | 'major_issues' | 'pending' = 'pending'
       let dayCorrections: any[] = []
       try {
-        const validation = await fetchWorkoutValidation(cachedProfile, nextWorkout)
+        const validation = await fetchWorkoutValidation(activeProfile, nextWorkout)
         dayVerdict = validation.verdict
         dayCorrections = validation.immediate_corrections ?? []
         if (dayCorrections.length > 0) {
-          nextWorkout = applyImmediateCorrectionsToWorkout(nextWorkout, dayCorrections).workout
+          nextWorkout = applyImmediateCorrectionsToWorkout(nextWorkout, dayCorrections, {
+            trainingProfile: activeProfile,
+            sessionBudgetMinutes: duration,
+          }).workout
         }
       } catch {
         // non-fatal
@@ -730,17 +821,18 @@ export default function TodayWorkout() {
       : [...restDays, dow].sort()
     setRestDays(next)
 
-    if (cachedProfile) {
+    const activeProfile = await refreshTrainingProfile()
+    if (activeProfile) {
       const hasDoneToday = !!completedWorkout
       setWeekPreview(generateWeekPreview(
-        cachedProfile,
+        activeProfile,
         next,
         hasDoneToday,
         completedWorkout ? deriveWorkoutName(completedWorkout) : undefined
       ))
       if (weeklyPlan) {
-        const recomputed = await recomputeWeeklyPlanWithDiff(weeklyPlan, cachedProfile, next)
-        const withVerdicts = await annotateWeeklyPlanVerdicts(cachedProfile, recomputed.plan)
+        const recomputed = await recomputeWeeklyPlanWithDiff(weeklyPlan, activeProfile, next)
+        const withVerdicts = await annotateWeeklyPlanVerdicts(activeProfile, recomputed.plan)
         const withActuals = await attachActualWeekWorkouts(withVerdicts)
         setWeeklyPlan(withActuals)
         const diffMap: Record<string, any> = {}
@@ -1352,6 +1444,24 @@ export default function TodayWorkout() {
               </span>
             </div>
           </div>
+          {profile?.canonicalModelContext && (
+            <div style={{
+              marginTop: 10,
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: profile.canonicalModelContext.evidenceConfidence >= 0.65
+                ? 'rgba(34,197,94,0.12)'
+                : 'rgba(230,168,0,0.14)',
+              color: profile.canonicalModelContext.evidenceConfidence >= 0.65
+                ? 'var(--success)'
+                : '#e6a800',
+              fontSize: 12,
+              fontWeight: 600,
+            }}>
+              Evidence confidence: {Math.round(profile.canonicalModelContext.evidenceConfidence * 100)}%
+              {profile.canonicalModelContext.evidenceConfidence < 0.65 ? ' — sparse or noisy data, utility is regressed toward neutral.' : ''}
+            </div>
+          )}
           {workout.deloadActive && (
             <div className={styles.deloadBanner}>
               DELOAD WEEK — Volume reduced to 50%, maintaining intensity
@@ -1966,6 +2076,12 @@ export default function TodayWorkout() {
                   onClick={() => {
                     setWorkout(originalWorkout)
                     setSelectedWorkoutVersion('original')
+                    if (user && llmValidation) {
+                      saveLlmValidationArtifact(user.id, originalWorkout.id || null, llmValidation, {
+                        selectedVersion: 'original',
+                        rationale: 'User selected original workout after LLM comparison.',
+                      }).catch(e => logError('Failed to persist selected original artifact', e))
+                    }
                   }}
                   style={{ fontSize: 12, padding: '6px 12px' }}
                 >
@@ -1976,6 +2092,15 @@ export default function TodayWorkout() {
                   onClick={() => {
                     setWorkout(adjustedWorkoutCandidate)
                     setSelectedWorkoutVersion('adjusted')
+                    if (user) {
+                      saveGeneratedWorkout(user.id, adjustedWorkoutCandidate).catch(e => logError('Save adjusted generated workout failed', e))
+                    }
+                    if (user && adjustedValidation) {
+                      saveLlmValidationArtifact(user.id, adjustedWorkoutCandidate.id || null, adjustedValidation, {
+                        selectedVersion: 'adjusted',
+                        rationale: 'User selected LLM-adjusted workout.',
+                      }).catch(e => logError('Failed to persist selected adjusted artifact', e))
+                    }
                   }}
                   style={{ fontSize: 12, padding: '6px 12px' }}
                 >

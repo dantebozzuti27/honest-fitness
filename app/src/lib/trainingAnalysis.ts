@@ -281,6 +281,7 @@ export interface TrainingProfile {
     progressionScore: number;
     sessionFitScore: number;
     recoveryReadinessScore: number;
+    evidenceConfidence: number;
     objectiveUtility: number;
   };
 
@@ -2964,6 +2965,29 @@ function median(values: number[]): number {
 /**
  * Compute cardio exercise history — duration trends, intensity (speed/level/incline).
  */
+const MIN_CARDIO_SET_SECONDS = 15;
+const MAX_CARDIO_SET_SECONDS = 4 * 60 * 60;
+const MAX_CARDIO_SPEED = 40;
+const MAX_CARDIO_INCLINE = 40;
+
+function sanitizeCardioSetSeconds(raw: unknown): number | null {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+
+  // Legacy guard: some clients persisted milliseconds as `time`.
+  const seconds = n > 86_400 && n <= 86_400_000 ? n / 1000 : n;
+  if (!Number.isFinite(seconds)) return null;
+  if (seconds < MIN_CARDIO_SET_SECONDS || seconds > MAX_CARDIO_SET_SECONDS) return null;
+  return Math.round(seconds);
+}
+
+function sanitizeCardioMetric(raw: unknown, maxValue: number): number | null {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n > maxValue) return null;
+  return Math.round(n * 10) / 10;
+}
+
 function computeCardioHistory(
   workouts: WorkoutRecord[],
   exercises: EnrichedExercise[]
@@ -2991,7 +3015,7 @@ function computeCardioHistory(
       const key = ex.exercise_name.toLowerCase();
       if (cardioNames.has(key)) continue;
       const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : [];
-      const hasTime = sets.some(s => s.time != null && s.time > 0);
+      const hasTime = sets.some(s => sanitizeCardioSetSeconds(s.time) != null);
       const hasWeightOrReps = sets.some(s =>
         (s.weight != null && Number(s.weight) > 0) || (s.reps != null && Number(s.reps) > 0)
       );
@@ -3025,9 +3049,14 @@ function computeCardioHistory(
       const sessIncline: number[] = [];
 
       for (const s of ex.workout_sets) {
-        if (s.time != null && s.time > 0) totalTime += s.time;
-        if (s.speed != null && s.speed > 0) sessSpeed.push(s.speed);
-        if (s.incline != null && s.incline > 0) sessIncline.push(s.incline);
+        const setSeconds = sanitizeCardioSetSeconds(s.time);
+        if (setSeconds != null) totalTime += setSeconds;
+
+        const speed = sanitizeCardioMetric(s.speed, MAX_CARDIO_SPEED);
+        if (speed != null) sessSpeed.push(speed);
+
+        const incline = sanitizeCardioMetric(s.incline, MAX_CARDIO_INCLINE);
+        if (incline != null) sessIncline.push(incline);
       }
 
       if (totalTime > 0) d.durations.push(totalTime);
@@ -3594,20 +3623,24 @@ function computeCanonicalModelContext(
     progressionScore: number;
     sessionFitScore: number;
     recoveryReadinessScore: number;
+    evidenceConfidence: number;
   }
 ): TrainingProfile['canonicalModelContext'] {
   const adherence = clamp01(profileSignals.adherenceScore);
   const progression = clamp01(profileSignals.progressionScore);
   const fit = clamp01(profileSignals.sessionFitScore);
   const readiness = clamp01(profileSignals.recoveryReadinessScore);
+  const evidenceConfidence = clamp01(profileSignals.evidenceConfidence);
   // Objective redesign: optimize long-horizon utility around adherence + progression + fit.
-  const utility = clamp01(adherence * 0.5 + progression * 0.35 + fit * 0.15);
+  const utilityBase = adherence * 0.5 + progression * 0.35 + fit * 0.15;
+  const utility = clamp01((utilityBase * evidenceConfidence) + (0.5 * (1 - evidenceConfidence)));
   return {
-    version: 'utility_v1',
+    version: 'utility_v2',
     adherenceScore: adherence,
     progressionScore: progression,
     sessionFitScore: fit,
     recoveryReadinessScore: readiness,
+    evidenceConfidence,
     objectiveUtility: utility,
   };
 }
@@ -3858,11 +3891,19 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     (prescribedVsActual.avgSetExecutionAccuracy * 0.6) +
     (prescribedVsActual.avgSessionOutcomeScore * 0.4)
   );
+  const complianceEvidence = prescribedVsActual.exercisesCompleted + prescribedVsActual.exercisesSkipped;
+  const adherenceEvidenceConfidence = clamp01(complianceEvidence / 30);
+  const executionEvidenceConfidence = clamp01((prescribedVsActual.executionSampleSize + prescribedVsActual.outcomeSampleSize) / 30);
+  const evidenceConfidence = clamp01((adherenceEvidenceConfidence * 0.6) + (executionEvidenceConfidence * 0.4));
+  const adherenceScore = (prescribedVsActual.complianceRate * evidenceConfidence) + (0.5 * (1 - evidenceConfidence));
+  const fitScore = (sessionFitScore * executionEvidenceConfidence) + (0.5 * (1 - executionEvidenceConfidence));
+
   const canonicalModelContext = computeCanonicalModelContext({
-    adherenceScore: prescribedVsActual.complianceRate,
+    adherenceScore,
     progressionScore,
-    sessionFitScore,
+    sessionFitScore: fitScore,
     recoveryReadinessScore: fitnessFatigueResult.readiness,
+    evidenceConfidence,
   });
 
   return {
@@ -4932,7 +4973,7 @@ function computeSleepVolumeModifier(health: HealthRecord[]): TrainingProfile['sl
 // #1: Compute prescribed vs actual compliance from generated_workouts
 async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord[]) {
   const defaultResult = {
-    complianceRate: 1,
+    complianceRate: 0.5,
     avgWeightDeviation: 0,
     avgRepsDeviation: 0,
     exercisesCompleted: 0,
@@ -5004,7 +5045,7 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
       .filter((s: number) => Number.isFinite(s) && s >= 0 && s <= 1);
 
     return {
-      complianceRate: totalPrescribed > 0 ? totalCompleted / totalPrescribed : 1,
+      complianceRate: totalPrescribed > 0 ? totalCompleted / totalPrescribed : 0.5,
       avgWeightDeviation: weightDeviations.length > 0 ? mean(weightDeviations) : 0,
       avgRepsDeviation: repsDeviations.length > 0 ? mean(repsDeviations) : 0,
       exercisesCompleted: totalCompleted,

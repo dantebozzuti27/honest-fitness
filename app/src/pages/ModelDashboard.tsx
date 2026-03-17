@@ -14,6 +14,8 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
+import { requireSupabase } from '../lib/supabase'
+import { apiUrl } from '../lib/urlConfig'
 import BackButton from '../components/BackButton'
 import Spinner from '../components/Spinner'
 import { logError } from '../utils/logger'
@@ -27,6 +29,34 @@ type PipelineNodeData = {
   num: number
   label: string
   preview: string
+}
+
+type PolicyEpisodeSummary = {
+  sampleSize: number
+  promoteReady: boolean
+  promoteReadyCount: number
+}
+
+type PolicyEpisodeEval = {
+  episode_key: string
+  status: string
+  metrics: {
+    sampleSize: number
+    avgObjective: number
+    avgRegret: number
+    avgAdherence: number
+  }
+  promoteReady: boolean
+}
+
+type ReplayScenarioSummary = {
+  id: string
+  scenario_name: string
+  status: string
+  baseline_policy_version: string
+  candidate_policy_version: string
+  created_at: string
+  config?: Record<string, unknown>
 }
 
 const PipelineNode = memo(({ data, selected }: NodeProps & { data: PipelineNodeData }) => (
@@ -157,6 +187,26 @@ function buildEdges(p: TrainingProfile): Edge[] {
     { ...base, id: 'e9-11',  source: '9',  target: '11', label: 'validated' },
     { ...base, id: 'e10-11', source: '10', target: '11', label: `${obs} observations` },
   ]
+}
+
+async function fetchAuthedJson(path: string, init?: RequestInit): Promise<any> {
+  const supabase = requireSupabase()
+  const { data } = await supabase.auth.getSession()
+  const token = data?.session?.access_token
+  if (!token) throw new Error('Not authenticated')
+  const res = await fetch(apiUrl(path), {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(init?.headers || {}),
+    },
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.message || err?.error?.message || `Request failed (${res.status})`)
+  }
+  return res.json()
 }
 
 /* ── Panel content renderer ── */
@@ -1366,6 +1416,11 @@ export default function ModelDashboard() {
   const [profile, setProfile] = useState<TrainingProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const [policySummary, setPolicySummary] = useState<PolicyEpisodeSummary | null>(null)
+  const [policyEpisodes, setPolicyEpisodes] = useState<PolicyEpisodeEval[]>([])
+  const [latestReplay, setLatestReplay] = useState<ReplayScenarioSummary | null>(null)
+  const [provenanceEvents, setProvenanceEvents] = useState<any[]>([])
+  const [runningReplay, setRunningReplay] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -1374,6 +1429,67 @@ export default function ModelDashboard() {
       .catch(e => logError('ModelDashboard profile load failed', e))
       .finally(() => setLoading(false))
   }, [user])
+
+  const loadPolicyTelemetry = useCallback(async () => {
+    if (!user) return
+    try {
+      const [evalRes, latestReplayRes, provenanceRes] = await Promise.all([
+        fetchAuthedJson('/api/ml/policy/episodes/evaluate?limit=12').catch(() => null),
+        (async () => {
+          const sb = requireSupabase()
+          const { data } = await sb
+            .from('replay_scenarios')
+            .select('id, scenario_name, status, baseline_policy_version, candidate_policy_version, created_at, config')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          return data || null
+        })().catch(() => null),
+        (async () => {
+          const sb = requireSupabase()
+          const { data } = await sb
+            .from('decision_provenance_events')
+            .select('event_date, source_type, decision_stage, decision_key, confidence, policy_version')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(20)
+          return data || []
+        })().catch(() => []),
+      ])
+      if (evalRes?.success) {
+        setPolicySummary(evalRes.summary || null)
+        setPolicyEpisodes(Array.isArray(evalRes.episodes) ? evalRes.episodes : [])
+      }
+      setLatestReplay(latestReplayRes)
+      setProvenanceEvents(Array.isArray(provenanceRes) ? provenanceRes : [])
+    } catch (e) {
+      logError('ModelDashboard telemetry load failed', e)
+    }
+  }, [user])
+
+  useEffect(() => {
+    loadPolicyTelemetry()
+  }, [loadPolicyTelemetry])
+
+  const runReplay = useCallback(async () => {
+    if (runningReplay) return
+    setRunningReplay(true)
+    try {
+      await fetchAuthedJson('/api/ml/policy/replay', {
+        method: 'POST',
+        body: JSON.stringify({
+          baselinePolicyVersion: 'policy_v3_pid_fusion',
+          candidatePolicyVersion: 'policy_v3_pid_fusion_candidate',
+        }),
+      })
+      await loadPolicyTelemetry()
+    } catch (e) {
+      logError('Replay run failed', e)
+    } finally {
+      setRunningReplay(false)
+    }
+  }, [loadPolicyTelemetry, runningReplay])
 
   const onSelectionChange = useCallback(({ nodes }: OnSelectionChangeParams) => {
     if (nodes.length > 0) {
@@ -1424,6 +1540,60 @@ export default function ModelDashboard() {
             <Controls showInteractive={false} />
           </ReactFlow>
         </div>
+        {!selectedNode && (
+        <div className={S.panel}>
+          <div className={S.panelHeader}>
+            <p className={S.panelTitle}>Policy State and Replay/Regret</p>
+            <p className={S.panelSubtitle}>Live policy telemetry, evaluator readiness, and provenance stream</p>
+          </div>
+          <div className={S.panelBody}>
+            <div className={S.summary}>
+              Episode evaluator: {policySummary?.sampleSize ?? 0} episodes, {policySummary?.promoteReadyCount ?? 0} promotion-ready.
+            </div>
+            <div className={S.decisionTree}>
+              <div className={S.decisionTreeTitle}>Policy Episode Evaluator</div>
+              {policyEpisodes.slice(0, 5).map((ep) => (
+                <div key={ep.episode_key} className={`${S.decisionBranch} ${ep.promoteReady ? S.decisionBranchActive : ''}`}>
+                  <div className={`${S.branchIndicator} ${ep.promoteReady ? S.branchIndicatorActive : ''}`} />
+                  <div>
+                    <span className={S.branchCondition}>{ep.episode_key}</span>
+                    <span className={S.branchResult}>
+                      {' '}objective {Math.round((ep.metrics.avgObjective || 0) * 100)}%, regret {(ep.metrics.avgRegret || 0).toFixed(3)}, adherence {Math.round((ep.metrics.avgAdherence || 0) * 100)}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className={S.decisionTree}>
+              <div className={S.decisionTreeTitle}>Replay/Regret</div>
+              <div className={`${S.decisionBranch} ${latestReplay?.status === 'completed' ? S.decisionBranchActive : ''}`}>
+                <div className={`${S.branchIndicator} ${latestReplay?.status === 'completed' ? S.branchIndicatorActive : ''}`} />
+                <div>
+                  <span className={S.branchCondition}>{latestReplay?.scenario_name || 'No replay scenario yet'}</span>
+                  <span className={S.branchResult}> status: {latestReplay?.status || 'n/a'}</span>
+                </div>
+              </div>
+              <button className={S.primaryBtn} onClick={runReplay} disabled={runningReplay}>
+                {runningReplay ? 'Running replay...' : 'Run Replay/Regret Simulation'}
+              </button>
+            </div>
+
+            <div className={S.decisionTree}>
+              <div className={S.decisionTreeTitle}>Decision Provenance Explorer</div>
+              {provenanceEvents.slice(0, 10).map((ev, idx) => (
+                <div key={`${ev.event_date}-${ev.decision_key}-${idx}`} className={S.decisionBranch}>
+                  <div className={S.branchIndicator} />
+                  <div>
+                    <span className={S.branchCondition}>{ev.source_type} / {ev.decision_stage} / {ev.decision_key}</span>
+                    <span className={S.branchResult}> conf {Math.round((Number(ev.confidence) || 0) * 100)}%, policy {ev.policy_version || 'n/a'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        )}
         {selectedNode && PANEL_META[selectedNode] && (
           <div className={S.panel}>
             <div className={S.panelHeader} style={{ position: 'relative' }}>

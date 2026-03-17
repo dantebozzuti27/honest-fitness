@@ -5,6 +5,7 @@
 import express from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { processML } from '../engines/ml/index.js'
+import { computeReplayRows, evaluateEpisodeMetrics, summarizeReplayPromotion } from '../engines/ml/policyReplay.js'
 import { generateAIWorkoutPlan, generateAINutritionPlan, generateAIWeeklySummary, generateAIInsights, generateAIPageInsights, interpretPrompt } from '../engines/ai/index.js'
 import { getFromDatabase } from '../database/index.js'
 import { mlLimiter } from '../middleware/rateLimiter.js'
@@ -24,6 +25,15 @@ function getMetricsSupabase() {
   if (!url || !key) return null
   metricsSupabase = createClient(url, key)
   return metricsSupabase
+}
+
+function isFlagEnabled(flagName, fallback = true) {
+  const raw = process.env?.[flagName]
+  if (raw == null) return fallback
+  const normalized = String(raw).trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return fallback
 }
 
 // Apply ML rate limiter to all ML routes
@@ -238,6 +248,187 @@ mlRouter.get('/metrics/model-quality', async (req, res, next) => {
         generatedCoverage
       },
       confidenceBuckets
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+// Evaluate intervention episodes and compute policy-improvement readiness.
+mlRouter.get('/policy/episodes/evaluate', async (req, res, next) => {
+  try {
+    const userId = req.userId
+    const supabase = getMetricsSupabase()
+    if (!supabase) {
+      return res.status(500).json({ success: false, message: 'Metrics DB client unavailable' })
+    }
+
+    const limit = Math.max(1, Math.min(100, Number(req.query?.limit) || 30))
+    const { data: episodes, error: episodesError } = await supabase
+      .from('intervention_episodes')
+      .select('id, episode_key, status, started_on, ended_on, active_policy_params')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    if (episodesError) throw episodesError
+
+    if (!episodes?.length) {
+      return res.json({ success: true, episodes: [], summary: { promoteReady: false, sampleSize: 0 } })
+    }
+
+    const episodeIds = episodes.map(e => e.id)
+    const { data: outcomes, error: outcomesError } = await supabase
+      .from('intervention_episode_outcomes')
+      .select('intervention_episode_id, objective_score, regret_score, adherence_score, measured_on')
+      .eq('user_id', userId)
+      .in('intervention_episode_id', episodeIds)
+    if (outcomesError) throw outcomesError
+
+    const evaluated = evaluateEpisodeMetrics(episodes, outcomes)
+
+    const promoteCount = evaluated.filter(e => e.promoteReady).length
+    res.json({
+      success: true,
+      episodes: evaluated,
+      summary: {
+        sampleSize: evaluated.length,
+        promoteReady: promoteCount > 0,
+        promoteReadyCount: promoteCount,
+      }
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+// Replay/regret execution over historical outcomes with promotion gating.
+mlRouter.post('/policy/replay', async (req, res, next) => {
+  try {
+    const userId = req.userId
+    const supabase = getMetricsSupabase()
+    if (!supabase) {
+      return res.status(500).json({ success: false, message: 'Metrics DB client unavailable' })
+    }
+    if (!isFlagEnabled('HF_ENABLE_REPLAY_PROMOTIONS', true)) {
+      return res.status(403).json({ success: false, message: 'Replay promotions disabled by runtime flag' })
+    }
+
+    const baselinePolicyVersion = String(req.body?.baselinePolicyVersion || 'policy_v3_pid_fusion')
+    const candidatePolicyVersion = String(req.body?.candidatePolicyVersion || `${baselinePolicyVersion}_candidate`)
+    const dateEnd = String(req.body?.dateEnd || new Date().toISOString().slice(0, 10))
+    const dateStart = String(
+      req.body?.dateStart || new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    )
+
+    const { data: scenario, error: scenarioError } = await supabase
+      .from('replay_scenarios')
+      .insert({
+        user_id: userId,
+        scenario_name: `Replay ${candidatePolicyVersion}`,
+        baseline_policy_version: baselinePolicyVersion,
+        candidate_policy_version: candidatePolicyVersion,
+        date_start: dateStart,
+        date_end: dateEnd,
+        status: 'running',
+        config: { mode: 'counterfactual_simple_v1' },
+      })
+      .select('id')
+      .single()
+    if (scenarioError) throw scenarioError
+
+    const { data: outcomes, error: outcomesError } = await supabase
+      .from('workout_outcomes')
+      .select('workout_date, session_outcome_score')
+      .eq('user_id', userId)
+      .gte('workout_date', dateStart)
+      .lte('workout_date', dateEnd)
+      .order('workout_date', { ascending: true })
+    if (outcomesError) throw outcomesError
+
+    const rows = computeReplayRows(
+      outcomes || [],
+      userId,
+      scenario.id,
+      baselinePolicyVersion,
+      candidatePolicyVersion
+    )
+
+    if (rows.length > 0) {
+      const { error: resultsError } = await supabase.from('replay_results').insert(rows)
+      if (resultsError) throw resultsError
+    }
+
+    const { avgRegretDelta, promote } = summarizeReplayPromotion(rows)
+
+    if (promote && rows.length > 0) {
+      await supabase
+        .from('replay_results')
+        .update({ promoted: true })
+        .eq('replay_scenario_id', scenario.id)
+        .eq('user_id', userId)
+    }
+
+    await supabase
+      .from('replay_scenarios')
+      .update({
+        status: 'completed',
+        config: {
+          mode: 'counterfactual_simple_v1',
+          sampleSize: rows.length,
+          avgRegretDelta,
+          promote,
+        },
+      })
+      .eq('id', scenario.id)
+      .eq('user_id', userId)
+
+    res.json({
+      success: true,
+      replayScenarioId: scenario.id,
+      summary: {
+        sampleSize: rows.length,
+        avgRegretDelta,
+        promote,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+mlRouter.get('/policy/replay/:scenarioId', async (req, res, next) => {
+  try {
+    const userId = req.userId
+    const scenarioId = req.params.scenarioId
+    const supabase = getMetricsSupabase()
+    if (!supabase) {
+      return res.status(500).json({ success: false, message: 'Metrics DB client unavailable' })
+    }
+
+    const [{ data: scenario, error: scenarioError }, { data: results, error: resultsError }] = await Promise.all([
+      supabase
+        .from('replay_scenarios')
+        .select('*')
+        .eq('id', scenarioId)
+        .eq('user_id', userId)
+        .maybeSingle(),
+      supabase
+        .from('replay_results')
+        .select('workout_date, baseline_score, candidate_score, regret_delta, promoted')
+        .eq('replay_scenario_id', scenarioId)
+        .eq('user_id', userId)
+        .order('workout_date', { ascending: true })
+    ])
+    if (scenarioError) throw scenarioError
+    if (resultsError) throw resultsError
+    if (!scenario) {
+      return res.status(404).json({ success: false, message: 'Replay scenario not found' })
+    }
+
+    res.json({
+      success: true,
+      scenario,
+      results: results || [],
     })
   } catch (error) {
     next(error)

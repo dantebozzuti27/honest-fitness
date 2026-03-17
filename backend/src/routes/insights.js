@@ -7,6 +7,7 @@
 import express from 'express'
 import crypto from 'crypto'
 import rateLimit from 'express-rate-limit'
+import { createClient } from '@supabase/supabase-js'
 import { sendError, sendSuccess, wrapAsync } from '../utils/http.js'
 
 export const insightsRouter = express.Router()
@@ -135,6 +136,37 @@ const insightsLimiter = rateLimit({
 const validateCache = new Map()
 const CACHE_TTL_MS = 5 * 60 * 1000
 const VALIDATION_SCHEMA_VERSION = 'v1'
+let insightsSupabase = null
+let insightsSupabaseInit = false
+
+function getInsightsSupabase() {
+  if (insightsSupabase) return insightsSupabase
+  if (insightsSupabaseInit) return null
+  insightsSupabaseInit = true
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return null
+  insightsSupabase = createClient(url, key)
+  return insightsSupabase
+}
+
+function classifyValidationRejections(parsed) {
+  const classes = new Set()
+  for (const correction of (parsed?.immediate_corrections || [])) {
+    const issue = String(correction?.issue || '').toLowerCase()
+    const fix = String(correction?.fix || '').toLowerCase()
+    if (issue.includes('1rm') || issue.includes('too heavy') || fix === 'weight') classes.add('load_prescription')
+    if (issue.includes('time') || issue.includes('budget')) classes.add('time_budget')
+    if (issue.includes('set') || fix === 'sets') classes.add('set_volume')
+    if (fix === 'remove') classes.add('exercise_removal')
+    if (fix === 'reorder') classes.add('exercise_ordering')
+    if (!issue && fix) classes.add(`fix_${fix}`)
+  }
+  if (classes.size === 0 && parsed?.verdict && parsed.verdict !== 'pass') {
+    classes.add('general_quality')
+  }
+  return [...classes]
+}
 
 /** Deterministic cache key for workout validation output. */
 function workoutValidationCacheKey(userId, workoutData, trainingProfile) {
@@ -262,6 +294,7 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
     const parsed = JSON.parse(jsonStr)
 
     if (type === 'validate-workout') {
+      const rejectionClasses = classifyValidationRejections(parsed)
       const safe = {
         immediate_corrections: Array.isArray(parsed.immediate_corrections)
           ? parsed.immediate_corrections.slice(0, 3).filter(c => c && typeof c.exerciseName === 'string')
@@ -272,7 +305,27 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
         verdict: ['pass', 'minor_issues', 'major_issues'].includes(parsed.verdict)
           ? parsed.verdict
           : 'pass',
+        rejection_classes: rejectionClasses,
         schema_version: VALIDATION_SCHEMA_VERSION,
+      }
+      const db = getInsightsSupabase()
+      if (db && req.userId) {
+        const generatedWorkoutId = workoutData && typeof workoutData.id === 'string' ? workoutData.id : null
+        db
+          .from('llm_validation_artifacts')
+          .insert({
+            user_id: req.userId,
+            generated_workout_id: generatedWorkoutId,
+            verdict: safe.verdict,
+            rejection_classes: rejectionClasses,
+            rationale: parsed?.summary || null,
+            immediate_corrections: safe.immediate_corrections,
+            pattern_observations: safe.pattern_observations,
+            schema_version: VALIDATION_SCHEMA_VERSION,
+            model_version: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+          })
+          .then(() => {})
+          .catch(() => {})
       }
       if (req.userId && workoutData) {
         const cacheKey = workoutValidationCacheKey(req.userId, workoutData, trainingProfile)

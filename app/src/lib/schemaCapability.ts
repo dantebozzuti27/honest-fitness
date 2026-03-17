@@ -25,6 +25,32 @@ export type SchemaGateResult = {
 }
 
 let capabilities: SchemaCapabilities | null = null
+const CAP_CACHE_KEY = 'schema_capabilities_v1'
+const CAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+
+function readCachedCapabilities(): SchemaCapabilities | null {
+  try {
+    if (typeof window === 'undefined') return null
+    const raw = window.localStorage.getItem(CAP_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as SchemaCapabilities
+    if (!parsed || typeof parsed !== 'object') return null
+    if (!Number.isFinite(parsed.probedAt)) return null
+    if (Date.now() - parsed.probedAt > CAP_CACHE_TTL_MS) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeCachedCapabilities(next: SchemaCapabilities): void {
+  try {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(CAP_CACHE_KEY, JSON.stringify(next))
+  } catch {
+    // best-effort cache write only
+  }
+}
 
 async function probeColumn(table: string, column: string): Promise<boolean> {
   try {
@@ -33,7 +59,7 @@ async function probeColumn(table: string, column: string): Promise<boolean> {
       .from(table)
       .select(column)
       .limit(1)
-    return !error || error.code !== '42703'
+    return !error
   } catch {
     return false
   }
@@ -43,8 +69,13 @@ async function probeColumn(table: string, column: string): Promise<boolean> {
  * Run schema capability probes. Safe to call multiple times; results cached.
  */
 export async function probeSchemaCapabilities(): Promise<SchemaCapabilities> {
-  if (capabilities && Date.now() - capabilities.probedAt < 60_000) {
+  if (capabilities && Date.now() - capabilities.probedAt < CAP_CACHE_TTL_MS) {
     return capabilities
+  }
+  const cached = readCachedCapabilities()
+  if (cached) {
+    capabilities = cached
+    return cached
   }
 
   const [workoutsSessionType, workoutsCategory, workoutsWarmup, workoutsGenId, exercisesEquip, prefsSport, planDayStatus] =
@@ -69,6 +100,7 @@ export async function probeSchemaCapabilities(): Promise<SchemaCapabilities> {
     probedAt: Date.now(),
   }
 
+  writeCachedCapabilities(capabilities)
   logDebug('Schema capabilities probed', capabilities)
   return capabilities
 }
@@ -85,6 +117,13 @@ export function getSchemaCapabilities(): SchemaCapabilities | null {
  */
 export function invalidateSchemaCapabilities(): void {
   capabilities = null
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(CAP_CACHE_KEY)
+    }
+  } catch {
+    // no-op
+  }
 }
 
 /** Alias for App boot — runs probe and returns. */

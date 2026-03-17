@@ -302,6 +302,24 @@
   font-style: italic;
 }
 
+.primaryBtn {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid #0f766e;
+  background: #0b2a27;
+  color: #bffcf3;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ── Section Label ── */
 .sectionLabel {
   font-size: 11px;

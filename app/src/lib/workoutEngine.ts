@@ -25,6 +25,7 @@ import { DEFAULT_MODEL_CONFIG, MODEL_CONFIG_VERSION, WORKOUT_ENGINE_VERSION, typ
 import { getSportProfile, type SportProfile, type SportSeason } from './sportProfiles';
 import { getLocalDate } from '../utils/dateUtils';
 import { normalizeEquipment } from '../utils/formatUtils';
+import { logWarn } from '../utils/logger';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -167,6 +168,31 @@ export interface GeneratedWorkout {
     sessionFitScore: number;
     utility: number;
   };
+  policyState?: {
+    policyVersion: string;
+    pid: {
+      error: number;
+      integral: number;
+      derivative: number;
+      controlSignal: number;
+    };
+    fusion: {
+      nutritionMultiplier: number;
+      readinessMultiplier: number;
+      strengthMultiplier: number;
+      progressionMultiplier: number;
+      confidence: number;
+    };
+    guardrails: string[];
+  };
+  decisionProvenance?: Array<{
+    sourceType: 'observed' | 'inferred' | 'policy' | 'learned';
+    stage: string;
+    key: string;
+    value: Record<string, unknown>;
+    confidence: number;
+  }>;
+  runtimeFlags?: Record<string, boolean>;
 }
 
 // ─── Data Fetching ──────────────────────────────────────────────────────────
@@ -759,11 +785,18 @@ interface RecoveryAdjustment {
 
 interface FatLossControllerAdjustment {
   active: boolean;
+  mode: 'none' | 'pid';
   tier: 'none' | 'on_track' | 'slow_loss' | 'stalled' | 'too_fast';
   cardioDurationMultiplier: number;
   cardioIntensityMultiplier: number;
   strengthVolumeMultiplier: number;
   restSecondsMultiplier: number;
+  pid: {
+    error: number;
+    integral: number;
+    derivative: number;
+    controlSignal: number;
+  };
   reason: string;
 }
 
@@ -775,6 +808,77 @@ interface HighCapacityPushAdjustment {
   restSecondsMultiplier: number;
   rirDelta: number;
   reason: string;
+}
+
+interface PolicyFusionAdjustment {
+  active: boolean;
+  nutritionMultiplier: number;
+  readinessMultiplier: number;
+  strengthMultiplier: number;
+  progressionMultiplier: number;
+  confidence: number;
+  reason: string;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function runtimeFlagEnabled(flag: string, defaultValue = true): boolean {
+  if (typeof window === 'undefined') return defaultValue;
+  try {
+    const v = window.localStorage.getItem(`hf.flag.${flag}`);
+    if (v == null) return defaultValue;
+    return v === '1' || v.toLowerCase() === 'true';
+  } catch {
+    return defaultValue;
+  }
+}
+
+function getNutritionAdherenceSignal(profile: TrainingProfile): number {
+  const cmc = profile.canonicalModelContext as any;
+  const fromContext = Number(cmc?.nutritionAdherenceScore);
+  if (Number.isFinite(fromContext)) return clampNumber(fromContext, 0, 1);
+
+  const fromCompliance = Number(profile.prescribedVsActual?.complianceRate ?? 0.7);
+  return clampNumber(fromCompliance, 0, 1);
+}
+
+function computePolicyFusion(
+  profile: TrainingProfile,
+  fatLossController: FatLossControllerAdjustment
+): PolicyFusionAdjustment {
+  const readiness = Number(profile.fitnessFatigueModel?.readiness ?? 0.75);
+  const adherence = Number(profile.prescribedVsActual?.complianceRate ?? 0.7);
+  const nutritionAdherence = getNutritionAdherenceSignal(profile);
+  const strengthSlope = Number(profile.rolling30DayTrends?.totalStrengthIndex?.slopePct ?? 0);
+  const strengthDirection = profile.rolling30DayTrends?.totalStrengthIndex?.direction ?? 'flat';
+
+  const readinessMultiplier = clampNumber(0.9 + readiness * 0.2, 0.9, 1.08);
+  const nutritionMultiplier = clampNumber(0.92 + nutritionAdherence * 0.16, 0.92, 1.08);
+  const strengthMultiplier = strengthDirection === 'down'
+    ? clampNumber(0.98 + (strengthSlope / 100), 0.90, 1.0)
+    : clampNumber(1.0 + (strengthSlope / 100), 1.0, 1.08);
+
+  // Confidence degrades when signals disagree strongly.
+  const agreement = 1 - Math.abs(readiness - nutritionAdherence);
+  const confidence = clampNumber((agreement * 0.4) + (adherence * 0.4) + (fatLossController.active ? 0.2 : 0.1), 0, 1);
+
+  const progressionMultiplier = clampNumber(
+    readinessMultiplier * nutritionMultiplier * (strengthDirection === 'down' ? 0.98 : 1.02),
+    0.9,
+    1.12
+  );
+
+  return {
+    active: true,
+    nutritionMultiplier,
+    readinessMultiplier,
+    strengthMultiplier,
+    progressionMultiplier,
+    confidence,
+    reason: `Policy fusion: nutrition ${(nutritionAdherence * 100).toFixed(0)}%, readiness ${(readiness * 100).toFixed(0)}%, strength ${strengthDirection}.`,
+  };
 }
 
 function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreferences): HighCapacityPushAdjustment {
@@ -858,11 +962,13 @@ function computeFatLossController(profile: TrainingProfile, prefs: UserPreferenc
   if (!fatLossActive) {
     return {
       active: false,
+      mode: 'none',
       tier: 'none',
       cardioDurationMultiplier: 1.0,
       cardioIntensityMultiplier: 1.0,
       strengthVolumeMultiplier: 1.0,
       restSecondsMultiplier: 1.0,
+      pid: { error: 0, integral: 0, derivative: 0, controlSignal: 0 },
       reason: '',
     };
   }
@@ -877,86 +983,63 @@ function computeFatLossController(profile: TrainingProfile, prefs: UserPreferenc
   if (currentWeight == null || !Number.isFinite(currentWeight)) {
     return {
       active: true,
+      mode: 'pid',
       tier: 'none',
       cardioDurationMultiplier: 1.0,
       cardioIntensityMultiplier: 1.0,
       strengthVolumeMultiplier: 1.0,
       restSecondsMultiplier: 1.0,
+      pid: { error: 0, integral: 0, derivative: 0, controlSignal: 0 },
       reason: 'Fat-loss controller: no reliable bodyweight signal yet; holding dose until trend is measurable.',
     };
   }
 
-  const sustainableRate = currentWeight * 0.005; // 0.5% BW/week
-  const aggressiveRate = currentWeight * 0.01;   // 1.0% BW/week
+  // PID-style controller:
+  // target slope is moderate/sustainable fat loss by default (~0.6% BW per week)
+  const targetSlope = -(currentWeight * 0.006);
+  const longTermSlopePct = Number(profile.rolling30DayTrends?.bodyWeight?.slopePct ?? 0);
+  const longTermSlopeLbs = Number.isFinite(longTermSlopePct) ? (currentWeight * (longTermSlopePct / 100)) : slope;
+  const error = slope - targetSlope;        // >0 means not losing fast enough
+  const integral = error + (longTermSlopeLbs - targetSlope) * 0.5;
+  const derivative = slope - longTermSlopeLbs;
 
-  let out: FatLossControllerAdjustment;
-  if (slope <= -aggressiveRate) {
-    out = {
-      active: true,
-      tier: 'too_fast',
-      cardioDurationMultiplier: 0.85,
-      cardioIntensityMultiplier: 0.95,
-      strengthVolumeMultiplier: 0.95,
-      restSecondsMultiplier: 1.05,
-      reason: `Fat-loss controller: loss rate ${Math.abs(slope).toFixed(2)} lbs/wk is above 1.0% BW/wk; easing load to protect lean mass.`,
-    };
-  } else if (slope <= -sustainableRate) {
-    out = {
-      active: true,
-      tier: 'on_track',
-      cardioDurationMultiplier: 1.0,
-      cardioIntensityMultiplier: 1.0,
-      strengthVolumeMultiplier: 1.0,
-      restSecondsMultiplier: 1.0,
-      reason: `Fat-loss controller: on-track at ${Math.abs(slope).toFixed(2)} lbs/wk; maintaining current training dose.`,
-    };
-  } else if (slope < 0) {
-    if (adherence < 0.6) {
-      out = {
-        active: true,
-        tier: 'slow_loss',
-        cardioDurationMultiplier: 1.0,
-        cardioIntensityMultiplier: 1.0,
-        strengthVolumeMultiplier: 1.0,
-        restSecondsMultiplier: 1.0,
-        reason: `Fat-loss controller: slow loss (${Math.abs(slope).toFixed(2)} lbs/wk) but adherence ${Math.round(adherence * 100)}%; holding dose until adherence improves.`,
-      };
-    } else {
-      out = {
-        active: true,
-        tier: 'slow_loss',
-        cardioDurationMultiplier: 1.15,
-        cardioIntensityMultiplier: 1.05,
-        strengthVolumeMultiplier: 1.03,
-        restSecondsMultiplier: 0.95,
-        reason: `Fat-loss controller: slow loss (${Math.abs(slope).toFixed(2)} lbs/wk); increasing cardio/training density moderately.`,
-      };
-    }
-  } else {
-    // Flat or gaining during fat-loss goal
-    const severeStall = slope >= 0.25;
-    if (adherence < 0.6) {
-      out = {
-        active: true,
-        tier: 'stalled',
-        cardioDurationMultiplier: 1.05,
-        cardioIntensityMultiplier: 1.0,
-        strengthVolumeMultiplier: 1.0,
-        restSecondsMultiplier: 0.98,
-        reason: `Fat-loss controller: weight is not dropping (${slope.toFixed(2)} lbs/wk) but adherence ${Math.round(adherence * 100)}%; applying only small increases.`,
-      };
-    } else {
-      out = {
-        active: true,
-        tier: 'stalled',
-        cardioDurationMultiplier: severeStall ? 1.40 : 1.30,
-        cardioIntensityMultiplier: severeStall ? 1.12 : 1.08,
-        strengthVolumeMultiplier: severeStall ? 1.06 : 1.04,
-        restSecondsMultiplier: severeStall ? 0.90 : 0.93,
-        reason: `Fat-loss controller: stalled/gaining (${slope.toFixed(2)} lbs/wk); escalating cardio and density to restore deficit.`,
-      };
-    }
+  const Kp = 0.35;
+  const Ki = 0.08;
+  const Kd = 0.16;
+  const controlRaw = (Kp * error) + (Ki * integral) + (Kd * derivative);
+  let controlSignal = clampNumber(controlRaw, -0.45, 0.50);
+
+  // Anti-windup and adherence-aware dampening.
+  if (adherence < 0.60) {
+    controlSignal = clampNumber(controlSignal, -0.20, 0.20);
   }
+
+  const cardioDurationMultiplier = clampNumber(1 + controlSignal * 0.95, 0.80, 1.50);
+  const cardioIntensityMultiplier = clampNumber(1 + controlSignal * 0.35, 0.90, 1.20);
+  const strengthVolumeMultiplier = clampNumber(1 + controlSignal * 0.20, 0.90, 1.10);
+  const restSecondsMultiplier = clampNumber(1 - controlSignal * 0.18, 0.88, 1.10);
+
+  let tier: FatLossControllerAdjustment['tier'] = 'on_track';
+  if (controlSignal > 0.20) tier = 'stalled';
+  else if (controlSignal > 0.06) tier = 'slow_loss';
+  else if (controlSignal < -0.16) tier = 'too_fast';
+
+  let out: FatLossControllerAdjustment = {
+    active: true,
+    mode: 'pid',
+    tier,
+    cardioDurationMultiplier,
+    cardioIntensityMultiplier,
+    strengthVolumeMultiplier,
+    restSecondsMultiplier,
+    pid: {
+      error,
+      integral,
+      derivative,
+      controlSignal,
+    },
+    reason: `Fat-loss PID: target ${targetSlope.toFixed(2)} lbs/wk, observed ${slope.toFixed(2)} lbs/wk, control ${controlSignal.toFixed(2)}.`,
+  };
 
   // Recovery guardrails: do not force hard escalation on low-readiness days.
   if (readiness < 0.65) {
@@ -3018,7 +3101,11 @@ function stepGenerateRationale(
   prefs: UserPreferences,
   skippedGroups: Array<{ muscleGroup: string; reason: string }>,
   exerciseDecisions: ExerciseDecision[],
-  planningDate?: Date
+  planningDate?: Date,
+  fatLossController?: FatLossControllerAdjustment,
+  highCapacityPush?: HighCapacityPushAdjustment,
+  policyFusion?: PolicyFusionAdjustment,
+  runtimeFlags?: Record<string, boolean>
 ): GeneratedWorkout {
   const muscleGroupsFocused = muscleGroups.map(g => g.muscleGroup);
   const muscleReasons = muscleGroups.map(g => `${g.muscleGroup}: ${g.reason}`);
@@ -3100,6 +3187,38 @@ function stepGenerateRationale(
         ? [`Volume multiplier: ${(recoveryAdj.volumeMultiplier * 100).toFixed(0)}%`, ...recoveryAdj.adjustmentReasons]
         : ['All recovery signals normal — no adjustments needed'],
   });
+  if (fatLossController?.active) {
+    decisionLog.push({
+      step: '1b',
+      label: 'Fat-Loss PID Controller',
+      details: [
+        fatLossController.reason,
+        `PID terms: e=${fatLossController.pid.error.toFixed(3)}, i=${fatLossController.pid.integral.toFixed(3)}, d=${fatLossController.pid.derivative.toFixed(3)}`,
+        `Control: ${fatLossController.pid.controlSignal.toFixed(3)} | cardio ×${fatLossController.cardioDurationMultiplier.toFixed(2)}, intensity ×${fatLossController.cardioIntensityMultiplier.toFixed(2)}`,
+      ],
+    });
+  }
+  if (highCapacityPush?.active || highCapacityPush?.reason) {
+    decisionLog.push({
+      step: '1c',
+      label: 'Capacity Push Policy',
+      details: [
+        highCapacityPush.reason || 'Capacity push inactive',
+        `Volume ×${highCapacityPush.volumeMultiplier.toFixed(2)}, progression ×${highCapacityPush.progressionMultiplier.toFixed(2)}, rest ×${highCapacityPush.restSecondsMultiplier.toFixed(2)}`,
+      ],
+    });
+  }
+  if (policyFusion?.active) {
+    decisionLog.push({
+      step: '1d',
+      label: 'Policy Fusion',
+      details: [
+        policyFusion.reason,
+        `Fusion multipliers: readiness ×${policyFusion.readinessMultiplier.toFixed(2)}, nutrition ×${policyFusion.nutritionMultiplier.toFixed(2)}, strength ×${policyFusion.strengthMultiplier.toFixed(2)}`,
+        `Progression ×${policyFusion.progressionMultiplier.toFixed(2)} (confidence ${(policyFusion.confidence * 100).toFixed(0)}%)`,
+      ],
+    });
+  }
 
   decisionLog.push({
     step: '2',
@@ -3331,6 +3450,19 @@ function stepGenerateRationale(
     muscleGroupDecisions,
     exerciseDecisions,
     objectiveUtility,
+    policyState: {
+      policyVersion: 'policy_v3_pid_fusion',
+      pid: fatLossController?.pid ?? { error: 0, integral: 0, derivative: 0, controlSignal: 0 },
+      fusion: {
+        nutritionMultiplier: policyFusion?.nutritionMultiplier ?? 1,
+        readinessMultiplier: policyFusion?.readinessMultiplier ?? 1,
+        strengthMultiplier: policyFusion?.strengthMultiplier ?? 1,
+        progressionMultiplier: policyFusion?.progressionMultiplier ?? 1,
+        confidence: policyFusion?.confidence ?? 0.5,
+      },
+      guardrails: recoveryAdj.adjustmentReasons.filter(r => r.toLowerCase().includes('guardrail')),
+    },
+    runtimeFlags,
   };
 }
 
@@ -3534,6 +3666,13 @@ export async function generateWorkout(
   }
 
   const cfg: ModelConfig = { ...DEFAULT_MODEL_CONFIG };
+  const runtimeFlags = {
+    pid_controller: runtimeFlagEnabled('pid_controller', true),
+    policy_learning: runtimeFlagEnabled('policy_learning', true),
+    replay_promotions: runtimeFlagEnabled('replay_promotions', true),
+    nutrition_feedback: runtimeFlagEnabled('nutrition_feedback', true),
+    llm_extended_validation: runtimeFlagEnabled('llm_extended_validation', true),
+  };
 
   // #7: Experience-level scaling — adjust volume and progression
   const expLevel = prefs.experience_level?.toLowerCase() ?? 'intermediate';
@@ -3617,10 +3756,22 @@ export async function generateWorkout(
   // Closed-loop fat-loss controller: compare goal progress vs actual trend and
   // modulate cardio/training dose when weight loss is off target.
   const fatLossController = computeFatLossController(profile, prefs);
-  if (fatLossController.active) {
-    recoveryAdj.volumeMultiplier *= fatLossController.strengthVolumeMultiplier;
+  const neutralFatLossController: FatLossControllerAdjustment = {
+    active: false,
+    mode: 'none',
+    tier: 'none',
+    cardioDurationMultiplier: 1,
+    cardioIntensityMultiplier: 1,
+    strengthVolumeMultiplier: 1,
+    restSecondsMultiplier: 1,
+    pid: { error: 0, integral: 0, derivative: 0, controlSignal: 0 },
+    reason: 'Fat-loss PID disabled by runtime flag.',
+  };
+  const effectiveFatLossController = runtimeFlags.pid_controller ? fatLossController : neutralFatLossController;
+  if (effectiveFatLossController.active) {
+    recoveryAdj.volumeMultiplier *= effectiveFatLossController.strengthVolumeMultiplier;
     recoveryAdj.volumeMultiplier = Math.max(cfg.volumeMultiplierFloor, recoveryAdj.volumeMultiplier);
-    recoveryAdj.adjustmentReasons.push(fatLossController.reason);
+    recoveryAdj.adjustmentReasons.push(effectiveFatLossController.reason);
   }
 
   const highCapacityPush = computeHighCapacityPush(profile, prefs);
@@ -3632,7 +3783,18 @@ export async function generateWorkout(
     recoveryAdj.adjustmentReasons.push(highCapacityPush.reason);
   }
 
-  const progressionScale = expProgressionScale * ageProgressionScale * (highCapacityPush.active ? highCapacityPush.progressionMultiplier : 1.0);
+  const policyFusion = computePolicyFusion(profile, effectiveFatLossController);
+  if (runtimeFlags.nutrition_feedback && policyFusion.active) {
+    const fusedVolume = policyFusion.readinessMultiplier * policyFusion.nutritionMultiplier * policyFusion.strengthMultiplier;
+    recoveryAdj.volumeMultiplier *= clampNumber(fusedVolume, 0.9, 1.12);
+    recoveryAdj.volumeMultiplier = Math.max(cfg.volumeMultiplierFloor, recoveryAdj.volumeMultiplier);
+    recoveryAdj.adjustmentReasons.push(policyFusion.reason);
+  }
+
+  const progressionScale = expProgressionScale
+    * ageProgressionScale
+    * (highCapacityPush.active ? highCapacityPush.progressionMultiplier : 1.0)
+    * (runtimeFlags.nutrition_feedback ? policyFusion.progressionMultiplier : 1.0);
 
   // Step 2: Select muscle groups
   const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg, caloricPhaseScale, planningDow);
@@ -3681,7 +3843,7 @@ export async function generateWorkout(
     progressionScale,
     breakRampMultiplier,
     planningDate,
-    fatLossController,
+    effectiveFatLossController,
     highCapacityPush
   );
 
@@ -3703,8 +3865,75 @@ export async function generateWorkout(
   const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes);
 
   // Step 6: Generate rationale + decision log
-  const workout = stepGenerateRationale(validated, muscleGroups, recoveryAdj, profile, prefs, skippedGroups, exerciseDecisions, planningDate);
+  const workout = stepGenerateRationale(
+    validated,
+    muscleGroups,
+    recoveryAdj,
+    profile,
+    prefs,
+    skippedGroups,
+    exerciseDecisions,
+    planningDate,
+    effectiveFatLossController,
+    highCapacityPush,
+    policyFusion,
+    runtimeFlags
+  );
 
+  const decisionProvenance = [
+    {
+      sourceType: 'observed' as const,
+      stage: 'recovery',
+      key: 'readiness',
+      value: { readiness: profile.fitnessFatigueModel?.readiness ?? null },
+      confidence: 0.95,
+    },
+    {
+      sourceType: 'inferred' as const,
+      stage: 'fat_loss_controller',
+      key: 'pid_state',
+      value: {
+        active: effectiveFatLossController.active,
+        tier: effectiveFatLossController.tier,
+        pid: effectiveFatLossController.pid,
+      },
+      confidence: 0.82,
+    },
+    {
+      sourceType: 'policy' as const,
+      stage: 'policy_fusion',
+      key: 'fusion',
+      value: {
+        readinessMultiplier: policyFusion.readinessMultiplier,
+        nutritionMultiplier: policyFusion.nutritionMultiplier,
+        strengthMultiplier: policyFusion.strengthMultiplier,
+        progressionMultiplier: policyFusion.progressionMultiplier,
+      },
+      confidence: policyFusion.confidence,
+    },
+    {
+      sourceType: 'learned' as const,
+      stage: 'exercise_learning',
+      key: 'preference_signal_count',
+      value: { count: profile.exercisePreferences?.length ?? 0 },
+      confidence: 0.7,
+    },
+  ];
+
+  workout.policyState = {
+    policyVersion: 'policy_v3_pid_fusion',
+    pid: effectiveFatLossController.pid,
+    fusion: {
+      nutritionMultiplier: policyFusion.nutritionMultiplier,
+      readinessMultiplier: policyFusion.readinessMultiplier,
+      strengthMultiplier: policyFusion.strengthMultiplier,
+      progressionMultiplier: policyFusion.progressionMultiplier,
+      confidence: policyFusion.confidence,
+    },
+    guardrails: recoveryAdj.adjustmentReasons.filter(r => /guardrail|gated|deload/i.test(r)),
+  };
+  workout.decisionProvenance = decisionProvenance;
+  workout.runtimeFlags = runtimeFlags;
   return workout;
 }
 
@@ -3792,6 +4021,12 @@ export async function generateWeeklyPlan(
     for (const x of a) if (b.has(x)) overlap++;
     return overlap / Math.max(a.size, b.size, 1);
   };
+  const noveltyRatio = (current: Set<string>, recent: Set<string>): number => {
+    if (current.size === 0) return 1;
+    let novel = 0;
+    for (const x of current) if (!recent.has(x)) novel++;
+    return novel / current.size;
+  };
   const getRecentTrainingDays = (count: number): WeeklyPlanDay[] =>
     days.filter(d => !d.isRestDay && !!d.plannedWorkout).slice(-count);
   const workoutSignature = (w: GeneratedWorkout | null): string => {
@@ -3836,34 +4071,44 @@ export async function generateWeeklyPlan(
     // - avoid exact signature matches with prior training days
     // - avoid high overlap with the immediately previous day
     // - widen avoid-list progressively when necessary
-    const MAX_DIVERSIFY_ATTEMPTS = 3;
+    const MAX_DIVERSIFY_ATTEMPTS = 5;
+    const OVERLAP_THRESHOLD = 0.6;
+    const MIN_NOVELTY_RATIO = 0.35;
     let attempt = 0;
     while (attempt < MAX_DIVERSIFY_ATTEMPTS) {
       const prevWorkout = recentTrainingDays.length > 0 ? recentTrainingDays[recentTrainingDays.length - 1].plannedWorkout : null;
       const prevNameSet = exerciseNameSet(prevWorkout);
       const currNameSet = exerciseNameSet(plannedWorkout);
       const overlap = overlapRatio(currNameSet, prevNameSet);
+      const novelty = noveltyRatio(currNameSet, recentExerciseNames);
       const exactRepeat = (prevTrainingSignature && signature === prevTrainingSignature) || recentSignatures.has(signature);
-      const excessiveOverlap = overlap >= 0.7 && currNameSet.size >= 3;
-      if (!exactRepeat && !excessiveOverlap) break;
+      const excessiveOverlap = overlap >= OVERLAP_THRESHOLD && currNameSet.size >= 3;
+      const lowNovelty = currNameSet.size >= 4 && novelty < MIN_NOVELTY_RATIO;
+      if (!exactRepeat && !excessiveOverlap && !lowNovelty) break;
 
       const baseAvoid = [...recentExerciseNames];
       const currTop = (plannedWorkout.exercises ?? [])
         .filter(ex => !ex.isCardio)
-        .slice(0, 6)
+        .slice(0, 8)
         .map(ex => normalizeExerciseName(ex.exerciseName))
         .filter(Boolean);
-      const avoidExerciseNames = [...new Set([...baseAvoid, ...currTop])].slice(0, 12);
+      const avoidExerciseNames = [...new Set([...baseAvoid, ...currTop])].slice(0, 16);
       if (avoidExerciseNames.length === 0) break;
 
       const regenerated = await generateWorkout(profile, { planningDate: planDate, avoidExerciseNames });
       const regeneratedSignature = workoutSignature(regenerated);
-      const regeneratedOverlap = overlapRatio(exerciseNameSet(regenerated), prevNameSet);
+      const regeneratedNames = exerciseNameSet(regenerated);
+      const regeneratedOverlap = overlapRatio(regeneratedNames, prevNameSet);
+      const regeneratedNovelty = noveltyRatio(regeneratedNames, recentExerciseNames);
 
       const isBetter =
         regeneratedSignature !== signature &&
         (!recentSignatures.has(regeneratedSignature)) &&
-        regeneratedOverlap < overlap;
+        (
+          regeneratedOverlap < overlap ||
+          regeneratedNovelty > novelty ||
+          (regeneratedOverlap <= OVERLAP_THRESHOLD && regeneratedNovelty >= MIN_NOVELTY_RATIO)
+        );
 
       if (isBetter || exactRepeat) {
         plannedWorkout = regenerated;
@@ -4130,4 +4375,84 @@ export async function saveGeneratedWorkout(
     });
 
   if (error) throw error;
+
+  // Provenance ledger emission (non-fatal if table not yet migrated).
+  try {
+    const provenanceRows = (workout.decisionProvenance || []).map((p) => ({
+      user_id: userId,
+      event_date: workout.date,
+      source_type: p.sourceType,
+      decision_stage: p.stage,
+      decision_key: p.key,
+      decision_value: p.value,
+      confidence: p.confidence,
+      generated_workout_id: workout.id,
+      model_version: WORKOUT_ENGINE_VERSION,
+      policy_version: workout.policyState?.policyVersion ?? 'policy_v3_pid_fusion',
+    }));
+    if (provenanceRows.length > 0) {
+      const { error: provenanceError } = await supabase
+        .from('decision_provenance_events')
+        .insert(provenanceRows);
+      if (provenanceError) {
+        logWarn('Decision provenance persistence skipped', provenanceError);
+      }
+    }
+  } catch (e) {
+    logWarn('Decision provenance persistence failed', e);
+  }
+
+  // Intervention episode memory (weekly bucket by goal + policy version).
+  try {
+    const episodeDate = workout.date || getLocalDate();
+    const weekKey = `${episodeDate.slice(0, 8)}01`; // stable monthly-style key for now
+    const episodeKey = `${workout.trainingGoal}:${workout.policyState?.policyVersion ?? 'policy_v3'}:${weekKey}`;
+
+    const episodePayload = {
+      user_id: userId,
+      episode_key: episodeKey,
+      started_on: episodeDate,
+      ended_on: null,
+      goal_context: { trainingGoal: workout.trainingGoal },
+      active_policy_params: workout.policyState ?? {},
+      safety_bounds: { runtimeFlags: workout.runtimeFlags ?? {} },
+      status: 'active',
+    };
+
+    const { data: episodeRow, error: episodeError } = await supabase
+      .from('intervention_episodes')
+      .upsert(episodePayload, { onConflict: 'user_id,episode_key' })
+      .select('id')
+      .single();
+    if (episodeError) {
+      logWarn('Intervention episode upsert skipped', episodeError);
+    } else if (episodeRow?.id) {
+      const controlSignal = Number(workout.policyState?.pid?.controlSignal ?? 0);
+      const objectiveScore = Number(workout.objectiveUtility?.utility ?? 0.5);
+      const regretScore = Math.max(0, 0.5 - objectiveScore);
+      const outcomePayload = {
+        user_id: userId,
+        intervention_episode_id: episodeRow.id,
+        measured_on: episodeDate,
+        adherence_score: Number(workout.objectiveUtility?.adherenceScore ?? null),
+        readiness_delta: Number(workout.policyState?.fusion?.readinessMultiplier ?? 1) - 1,
+        strength_delta: Number(workout.policyState?.fusion?.strengthMultiplier ?? 1) - 1,
+        weight_trend_delta: controlSignal,
+        objective_score: objectiveScore,
+        regret_score: regretScore,
+        summary: {
+          estimatedDurationMinutes: workout.estimatedDurationMinutes,
+          exerciseCount: workout.exercises.length,
+        },
+      };
+      const { error: outcomeError } = await supabase
+        .from('intervention_episode_outcomes')
+        .upsert(outcomePayload, { onConflict: 'intervention_episode_id,measured_on' });
+      if (outcomeError) {
+        logWarn('Intervention episode outcome persistence skipped', outcomeError);
+      }
+    }
+  } catch (e) {
+    logWarn('Intervention episode memory persistence failed', e);
+  }
 }

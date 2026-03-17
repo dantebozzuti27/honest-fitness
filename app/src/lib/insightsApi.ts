@@ -105,6 +105,7 @@ export async function fetchTrainingSummary(trainingProfile: any): Promise<Traini
 
 export interface WorkoutValidation {
   schema_version?: 'v1'
+  rejection_classes?: string[]
   immediate_corrections: {
     exerciseName: string
     issue: string
@@ -125,6 +126,7 @@ export async function fetchWorkoutValidation(trainingProfile: any, workoutData: 
 
   const exercises = workoutData.exercises || []
   const workoutSummary = {
+    id: workoutData.id ?? null,
     estimatedDurationMinutes: workoutData.estimatedDurationMinutes,
     trainingGoal: workoutData.trainingGoal,
     exercises: exercises.map((ex: any) => ({

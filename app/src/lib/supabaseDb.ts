@@ -1861,6 +1861,54 @@ export async function deleteActiveWorkoutSession(userId: string) {
 
 // ============ ADAPTIVE WEEKLY PLAN ============
 
+async function persistWeeklyPlanProvenance(userId: string, weeklyPlanId: string | null, weeklyPlan: any): Promise<void> {
+  try {
+    const rows = (weeklyPlan?.days || [])
+      .filter((d: any) => d?.plannedWorkout)
+      .flatMap((d: any) => {
+        const pw = d.plannedWorkout
+        const fromWorkout = Array.isArray(pw?.decisionProvenance) ? pw.decisionProvenance : []
+        if (fromWorkout.length === 0) {
+          return [{
+            user_id: userId,
+            event_date: d.planDate,
+            source_type: 'policy',
+            decision_stage: 'weekly_plan',
+            decision_key: 'scheduled_workout',
+            decision_value: {
+              date: d.planDate,
+              focus: d.focus || null,
+              estimatedMinutes: d.estimatedMinutes ?? pw.estimatedDurationMinutes ?? null,
+            },
+            confidence: 0.7,
+            generated_workout_id: pw.id || null,
+            weekly_plan_id: weeklyPlanId,
+            model_version: 'workout_engine',
+            policy_version: pw?.policyState?.policyVersion || 'policy_v3_pid_fusion',
+          }]
+        }
+        return fromWorkout.map((p: any) => ({
+          user_id: userId,
+          event_date: d.planDate,
+          source_type: p.sourceType,
+          decision_stage: p.stage,
+          decision_key: p.key,
+          decision_value: p.value ?? {},
+          confidence: p.confidence ?? 0.5,
+          generated_workout_id: pw.id || null,
+          weekly_plan_id: weeklyPlanId,
+          model_version: 'workout_engine',
+          policy_version: pw?.policyState?.policyVersion || 'policy_v3_pid_fusion',
+        }))
+      })
+    if (rows.length === 0) return
+    const { error } = await supabase.from('decision_provenance_events').insert(rows)
+    if (error) logWarn('Weekly plan provenance persistence skipped', error)
+  } catch (e) {
+    logWarn('Weekly plan provenance persistence failed', e)
+  }
+}
+
 function serializeWeeklyPlanDaysForRpc(userId: string, weeklyPlan: any): any[] {
   return (weeklyPlan.days || []).map((d: any) => ({
     weekly_plan_id: null,
@@ -1953,7 +2001,10 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
       p_days: rpcDays,
       p_diffs: rpcDiffs,
     })
-    if (!error && data) return data as string
+    if (!error && data) {
+      await persistWeeklyPlanProvenance(userId, data as string, weeklyPlan)
+      return data as string
+    }
     // If RPC is unavailable in older deployments, continue to legacy path.
     if (!(error && (error.code === 'PGRST202' || `${error.message || ''}`.toLowerCase().includes('function')))) {
       throw error
@@ -2033,6 +2084,7 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
     await saveWeeklyPlanDiffsToSupabase(userId, version.id as string, diffs)
   }
 
+  await persistWeeklyPlanProvenance(userId, version.id as string, weeklyPlan)
   return version.id as string
 }
 
@@ -2093,5 +2145,45 @@ export async function saveWeeklyPlanDiffsToSupabase(userId: string, weeklyPlanId
   }))
   const { error } = await supabase.from('weekly_plan_diffs').insert(rows)
   if (error) throw error
+}
+
+export async function saveLlmValidationArtifact(
+  userId: string,
+  generatedWorkoutId: string | null,
+  validation: any,
+  metadata?: { selectedVersion?: 'original' | 'adjusted'; rationale?: string | null }
+) {
+  const rejectionClasses = Array.isArray(validation?.rejection_classes) ? validation.rejection_classes : []
+  const row = {
+    user_id: userId,
+    generated_workout_id: generatedWorkoutId,
+    verdict: validation?.verdict || 'pass',
+    rejection_classes: rejectionClasses,
+    rationale: metadata?.rationale ?? null,
+    immediate_corrections: Array.isArray(validation?.immediate_corrections) ? validation.immediate_corrections : [],
+    pattern_observations: Array.isArray(validation?.pattern_observations) ? validation.pattern_observations : [],
+    schema_version: validation?.schema_version || 'v1',
+    model_version: 'gpt-4o-mini',
+  }
+  const { error } = await supabase.from('llm_validation_artifacts').insert(row)
+  if (error) {
+    logWarn('Failed to persist llm_validation_artifacts', error)
+  }
+
+  if (metadata?.selectedVersion) {
+    // Also mirror as provenance for lineage between reviewed and selected versions.
+    await supabase.from('decision_provenance_events').insert({
+      user_id: userId,
+      event_date: getLocalDate(),
+      source_type: 'policy',
+      decision_stage: 'llm_selection',
+      decision_key: 'selected_workout_version',
+      decision_value: { selectedVersion: metadata.selectedVersion },
+      confidence: validation?.verdict === 'pass' ? 0.85 : 0.65,
+      generated_workout_id: generatedWorkoutId,
+      model_version: 'llm_validator_v1',
+      policy_version: 'policy_v3_pid_fusion',
+    }).then(() => {}).catch(() => {})
+  }
 }
 

@@ -790,6 +790,12 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                   </span>
                 </div>
                 <div className={s.statCard}>
+                  <span className={s.statLabel}>Evidence</span>
+                  <span className={s.statValue} style={{ color: tp.canonicalModelContext.evidenceConfidence >= 0.65 ? 'var(--success)' : '#e6a800' }}>
+                    {Math.round(tp.canonicalModelContext.evidenceConfidence * 100)}%
+                  </span>
+                </div>
+                <div className={s.statCard}>
                   <span className={s.statLabel}>Adherence</span>
                   <span className={s.statValue}>{Math.round(tp.canonicalModelContext.adherenceScore * 100)}%</span>
                 </div>
@@ -802,6 +808,11 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
                   <span className={s.statValue}>{Math.round(tp.canonicalModelContext.sessionFitScore * 100)}%</span>
                 </div>
               </div>
+              {tp.canonicalModelContext.evidenceConfidence < 0.65 && (
+                <p style={{ margin: '8px 0 0', fontSize: 12, color: '#e6a800' }}>
+                  Low evidence confidence: utility is intentionally regressed toward neutral until more validated sessions are logged.
+                </p>
+              )}
             </div>
           )}
 

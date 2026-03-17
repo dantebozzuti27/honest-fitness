@@ -58,6 +58,54 @@ function fmtDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+function sanitizeDurationSeconds(raw: unknown): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  const seconds = n > 86_400 && n <= 86_400_000 ? n / 1000 : n
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 4 * 60 * 60) return 0
+  return Math.round(seconds)
+}
+
+function canonicalBodyPart(raw: unknown): string {
+  const key = String(raw || '').trim().toLowerCase().replace(/[_-]+/g, ' ')
+  if (!key) return 'Other'
+  const normalized = key.replace(/\s+/g, ' ')
+  const map: Record<string, string> = {
+    chest: 'Chest',
+    pec: 'Chest',
+    pecs: 'Chest',
+    back: 'Back',
+    lats: 'Back',
+    lat: 'Back',
+    'upper back': 'Back',
+    shoulders: 'Shoulders',
+    shoulder: 'Shoulders',
+    delts: 'Shoulders',
+    biceps: 'Arms',
+    bicep: 'Arms',
+    triceps: 'Arms',
+    tricep: 'Arms',
+    forearms: 'Arms',
+    forearm: 'Arms',
+    arms: 'Arms',
+    quadriceps: 'Legs',
+    quad: 'Legs',
+    quads: 'Legs',
+    hamstrings: 'Legs',
+    hamstring: 'Legs',
+    calves: 'Legs',
+    calf: 'Legs',
+    glutes: 'Legs',
+    glute: 'Legs',
+    legs: 'Legs',
+    core: 'Core',
+    abs: 'Core',
+    abdominals: 'Core',
+    cardio: 'Cardio',
+  }
+  return map[normalized] || normalized.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
 const tableStyle: React.CSSProperties = {
   width: '100%', borderCollapse: 'collapse', fontSize: 13,
 }
@@ -111,7 +159,7 @@ export default function Analytics() {
           w.workout_exercises?.forEach((ex: any) => {
             const validSets = (ex.workout_sets || []).filter((s: any) => s.weight || s.reps || s.time)
             if (validSets.length === 0) return
-            const bp = ex.body_part || 'Other'
+            const bp = canonicalBodyPart(ex.body_part)
             bodyPartSets[bp] = (bodyPartSets[bp] || 0) + validSets.length
             validSets.forEach((s: any) => {
               if (s.reps) bodyPartReps[bp] = (bodyPartReps[bp] || 0) + Number(s.reps)
@@ -164,15 +212,17 @@ export default function Analytics() {
 
   const totalVolume = useMemo(() => rangedWorkouts.reduce((sum, w) => sum + workoutVolume(w), 0), [rangedWorkouts])
   const avgDuration = useMemo(() => {
-    const withDur = rangedWorkouts.filter((w: any) => w.duration > 0)
-    return withDur.length ? Math.round(withDur.reduce((s: number, w: any) => s + w.duration, 0) / withDur.length) : 0
+    const durations = rangedWorkouts
+      .map((w: any) => sanitizeDurationSeconds(w.duration))
+      .filter((d: number) => d > 0)
+    return durations.length ? Math.round(durations.reduce((s: number, d: number) => s + d, 0) / durations.length) : 0
   }, [rangedWorkouts])
 
   const rangedBodyParts = useMemo(() => {
     const parts: Record<string, { sets: number; reps: number; volume: number }> = {}
     rangedWorkouts.forEach((w: any) => {
       ;(w.workout_exercises || []).forEach((ex: any) => {
-        const bp = ex.body_part || 'Other'
+        const bp = canonicalBodyPart(ex.body_part)
         if (!parts[bp]) parts[bp] = { sets: 0, reps: 0, volume: 0 }
         ;(ex.workout_sets || []).forEach((s: any) => {
           const weight = Number(s?.weight || 0)
@@ -300,7 +350,7 @@ export default function Analytics() {
                                 <td style={{ ...tdStyle, color: 'var(--text-secondary)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                   {w.template_name || 'Freestyle'}
                                 </td>
-                                <td style={tdRight}>{w.duration ? fmtDuration(w.duration) : '—'}</td>
+                                <td style={tdRight}>{sanitizeDurationSeconds(w.duration) ? fmtDuration(sanitizeDurationSeconds(w.duration)) : '—'}</td>
                                 <td style={tdRight}>{exercises.length}</td>
                                 <td style={tdRight}>{vol > 0 ? fmt(vol) : '—'}</td>
                               </tr>
@@ -332,7 +382,7 @@ export default function Analytics() {
                                             return (
                                               <tr key={j}>
                                                 <td style={{ ...tdStyle, fontWeight: 500 }}>{ex.exercise_name || ex.name || '—'}</td>
-                                                <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{ex.body_part || '—'}</td>
+                                                <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{canonicalBodyPart(ex.body_part) || '—'}</td>
                                                 <td style={tdRight}>{sets.filter((s: any) => s.weight || s.reps || s.time).length}</td>
                                                 <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11, fontFamily: 'var(--font-mono, monospace)' }}>
                                                   {setsStr || '—'}

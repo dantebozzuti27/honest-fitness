@@ -59,3 +59,109 @@ export interface ExerciseExecutionEventDTO {
   idempotency_key: string | null
 }
 
+export type DecisionSourceType = 'observed' | 'inferred' | 'policy' | 'learned'
+
+export interface DecisionProvenanceEventDTO {
+  id: UUID
+  user_id: UUID
+  event_date: string
+  source_type: DecisionSourceType
+  decision_stage: string
+  decision_key: string
+  decision_value: Record<string, unknown>
+  confidence: number | null
+  generated_workout_id: UUID | null
+  weekly_plan_id: UUID | null
+  model_version: string | null
+  policy_version: string | null
+  trace_id: UUID
+  created_at: string
+}
+
+export interface NutritionAdherenceSnapshotDTO {
+  id: UUID
+  user_id: UUID
+  snapshot_date: string
+  target_calories: number | null
+  actual_calories: number | null
+  target_protein_g: number | null
+  actual_protein_g: number | null
+  target_carbs_g: number | null
+  actual_carbs_g: number | null
+  target_fat_g: number | null
+  actual_fat_g: number | null
+  calorie_adherence_score: number | null
+  macro_adherence_score: number | null
+  source: 'manual' | 'derived' | 'imported'
+}
+
+export interface InterventionEpisodeDTO {
+  id: UUID
+  user_id: UUID
+  episode_key: string
+  started_on: string
+  ended_on: string | null
+  goal_context: Record<string, unknown>
+  active_policy_params: Record<string, unknown>
+  safety_bounds: Record<string, unknown>
+  status: 'active' | 'completed' | 'aborted'
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface InterventionEpisodeOutcomeDTO {
+  id: UUID
+  user_id: UUID
+  intervention_episode_id: UUID
+  measured_on: string
+  adherence_score: number | null
+  readiness_delta: number | null
+  strength_delta: number | null
+  weight_trend_delta: number | null
+  objective_score: number | null
+  regret_score: number | null
+  summary: Record<string, unknown>
+  created_at: string
+}
+
+export interface ReplayScenarioDTO {
+  id: UUID
+  user_id: UUID
+  scenario_name: string
+  baseline_policy_version: string
+  candidate_policy_version: string
+  date_start: string
+  date_end: string
+  config: Record<string, unknown>
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  created_at: string
+}
+
+export interface ReplayResultDTO {
+  id: UUID
+  user_id: UUID
+  replay_scenario_id: UUID
+  workout_date: string | null
+  baseline_score: number | null
+  candidate_score: number | null
+  regret_delta: number | null
+  promoted: boolean
+  result_payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface LlmValidationArtifactDTO {
+  id: UUID
+  user_id: UUID
+  generated_workout_id: UUID | null
+  verdict: 'pass' | 'minor_issues' | 'major_issues'
+  rejection_classes: string[]
+  rationale: string | null
+  immediate_corrections: Array<Record<string, unknown>>
+  pattern_observations: Array<Record<string, unknown>>
+  schema_version: string
+  model_version: string | null
+  created_at: string
+}
+

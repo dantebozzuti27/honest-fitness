@@ -15,6 +15,7 @@ test('evaluateEpisodeMetrics computes averages and promotion readiness', () => {
   assert.equal(result.promoteReady, true)
   assert.ok(result.metrics.avgObjective > 0.6)
   assert.ok(result.metrics.avgRegret < 0.08)
+  assert.ok(result.metrics.objectiveStd >= 0)
 })
 
 test('computeReplayRows boosts candidate score for pid candidates', () => {
@@ -39,4 +40,5 @@ test('summarizeReplayPromotion respects sample size and regret gate', () => {
   const summary = summarizeReplayPromotion(bigRows)
   assert.equal(summary.promote, true)
   assert.ok(summary.avgRegretDelta <= -0.02)
+  assert.ok(summary.ci95HalfWidth >= 0)
 })

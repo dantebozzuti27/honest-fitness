@@ -26,6 +26,12 @@ import { getSportProfile, type SportProfile, type SportSeason } from './sportPro
 import { getLocalDate } from '../utils/dateUtils';
 import { normalizeEquipment } from '../utils/formatUtils';
 import { logWarn } from '../utils/logger';
+import {
+  buildAdaptivePolicyContext,
+  optimizePrescription,
+  toCoachNarrative,
+  type AdaptiveExercise,
+} from './adaptiveLearningPolicy';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -184,6 +190,12 @@ export interface GeneratedWorkout {
       confidence: number;
     };
     guardrails: string[];
+    adaptive?: {
+      policyConfidence: number;
+      promoteReady: boolean;
+      priorsVersion: string;
+      stateVersion: string;
+    };
   };
   decisionProvenance?: Array<{
     sourceType: 'observed' | 'inferred' | 'policy' | 'learned';
@@ -3451,7 +3463,7 @@ function stepGenerateRationale(
     exerciseDecisions,
     objectiveUtility,
     policyState: {
-      policyVersion: 'policy_v3_pid_fusion',
+      policyVersion: 'policy_v4_adaptive_learning',
       pid: fatLossController?.pid ?? { error: 0, integral: 0, derivative: 0, controlSignal: 0 },
       fusion: {
         nutritionMultiplier: policyFusion?.nutritionMultiplier ?? 1,
@@ -3863,10 +3875,16 @@ export async function generateWorkout(
 
   // Step 5b: Post-generation validation — catch absurd prescriptions
   const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes);
+  const adaptiveContext = buildAdaptivePolicyContext(profile, {
+    training_goal: (prefs.training_goal as any) ?? 'hypertrophy',
+    experience_level: prefs.experience_level ?? null,
+    age: prefs.age ?? null,
+  });
+  const adapted = optimizePrescription(validated as unknown as AdaptiveExercise[], adaptiveContext) as unknown as GeneratedExercise[];
 
   // Step 6: Generate rationale + decision log
   const workout = stepGenerateRationale(
-    validated,
+    adapted,
     muscleGroups,
     recoveryAdj,
     profile,
@@ -3879,6 +3897,14 @@ export async function generateWorkout(
     policyFusion,
     runtimeFlags
   );
+  workout.sessionRationale = `${workout.sessionRationale} ${toCoachNarrative(adapted as unknown as AdaptiveExercise[], adaptiveContext)}`.trim();
+  workout.adjustmentsSummary = [
+    ...workout.adjustmentsSummary,
+    adaptiveContext.rationale,
+    adaptiveContext.promoteReady
+      ? 'Adaptive policy gate: promoted aggressive progression profile.'
+      : 'Adaptive policy gate: held conservative profile until evidence improves.',
+  ];
 
   const decisionProvenance = [
     {
@@ -3918,10 +3944,22 @@ export async function generateWorkout(
       value: { count: profile.exercisePreferences?.length ?? 0 },
       confidence: 0.7,
     },
+    {
+      sourceType: 'policy' as const,
+      stage: 'adaptive_policy',
+      key: 'adaptive_gate',
+      value: {
+        policyConfidence: adaptiveContext.policyConfidence,
+        promoteReady: adaptiveContext.promoteReady,
+        priorsVersion: adaptiveContext.scientificPriors.priorsVersion,
+        stateVersion: adaptiveContext.personalState.stateVersion,
+      },
+      confidence: adaptiveContext.policyConfidence,
+    },
   ];
 
   workout.policyState = {
-    policyVersion: 'policy_v3_pid_fusion',
+    policyVersion: 'policy_v4_adaptive_learning',
     pid: effectiveFatLossController.pid,
     fusion: {
       nutritionMultiplier: policyFusion.nutritionMultiplier,
@@ -3931,6 +3969,12 @@ export async function generateWorkout(
       confidence: policyFusion.confidence,
     },
     guardrails: recoveryAdj.adjustmentReasons.filter(r => /guardrail|gated|deload/i.test(r)),
+    adaptive: {
+      policyConfidence: adaptiveContext.policyConfidence,
+      promoteReady: adaptiveContext.promoteReady,
+      priorsVersion: adaptiveContext.scientificPriors.priorsVersion,
+      stateVersion: adaptiveContext.personalState.stateVersion,
+    },
   };
   workout.decisionProvenance = decisionProvenance;
   workout.runtimeFlags = runtimeFlags;
@@ -4388,7 +4432,7 @@ export async function saveGeneratedWorkout(
       confidence: p.confidence,
       generated_workout_id: workout.id,
       model_version: WORKOUT_ENGINE_VERSION,
-      policy_version: workout.policyState?.policyVersion ?? 'policy_v3_pid_fusion',
+      policy_version: workout.policyState?.policyVersion ?? 'policy_v4_adaptive_learning',
     }));
     if (provenanceRows.length > 0) {
       const { error: provenanceError } = await supabase
@@ -4406,7 +4450,7 @@ export async function saveGeneratedWorkout(
   try {
     const episodeDate = workout.date || getLocalDate();
     const weekKey = `${episodeDate.slice(0, 8)}01`; // stable monthly-style key for now
-    const episodeKey = `${workout.trainingGoal}:${workout.policyState?.policyVersion ?? 'policy_v3'}:${weekKey}`;
+    const episodeKey = `${workout.trainingGoal}:${workout.policyState?.policyVersion ?? 'policy_v4'}:${weekKey}`;
 
     const episodePayload = {
       user_id: userId,

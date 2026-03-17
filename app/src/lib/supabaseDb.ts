@@ -1884,7 +1884,7 @@ async function persistWeeklyPlanProvenance(userId: string, weeklyPlanId: string 
             generated_workout_id: pw.id || null,
             weekly_plan_id: weeklyPlanId,
             model_version: 'workout_engine',
-            policy_version: pw?.policyState?.policyVersion || 'policy_v3_pid_fusion',
+            policy_version: pw?.policyState?.policyVersion || 'policy_v4_adaptive_learning',
           }]
         }
         return fromWorkout.map((p: any) => ({
@@ -1898,7 +1898,7 @@ async function persistWeeklyPlanProvenance(userId: string, weeklyPlanId: string 
           generated_workout_id: pw.id || null,
           weekly_plan_id: weeklyPlanId,
           model_version: 'workout_engine',
-          policy_version: pw?.policyState?.policyVersion || 'policy_v3_pid_fusion',
+          policy_version: pw?.policyState?.policyVersion || 'policy_v4_adaptive_learning',
         }))
       })
     if (rows.length === 0) return
@@ -2182,7 +2182,7 @@ export async function saveLlmValidationArtifact(
       confidence: validation?.verdict === 'pass' ? 0.85 : 0.65,
       generated_workout_id: generatedWorkoutId,
       model_version: 'llm_validator_v1',
-      policy_version: 'policy_v3_pid_fusion',
+      policy_version: 'policy_v4_adaptive_learning',
     }).then(() => {}).catch(() => {})
   }
 }

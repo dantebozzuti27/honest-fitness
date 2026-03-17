@@ -18,7 +18,14 @@ export function evaluateEpisodeMetrics(episodes = [], outcomes = []) {
     const avgAdherence = sampleSize > 0
       ? rows.reduce((s, r) => s + (Number(r.adherence_score) || 0), 0) / sampleSize
       : 0
-    const promoteReady = sampleSize >= 3 && avgRegret <= 0.08 && avgObjective >= 0.55 && avgAdherence >= 0.6
+    const variance = sampleSize > 1
+      ? rows.reduce((s, r) => {
+          const x = Number(r.objective_score) || 0
+          return s + ((x - avgObjective) ** 2)
+        }, 0) / (sampleSize - 1)
+      : 0
+    const objectiveStd = Math.sqrt(Math.max(variance, 0))
+    const promoteReady = sampleSize >= 3 && avgRegret <= 0.08 && avgObjective >= 0.55 && avgAdherence >= 0.6 && objectiveStd <= 0.25
     return {
       ...ep,
       metrics: {
@@ -26,6 +33,7 @@ export function evaluateEpisodeMetrics(episodes = [], outcomes = []) {
         avgObjective,
         avgRegret,
         avgAdherence,
+        objectiveStd,
       },
       promoteReady,
     }
@@ -60,6 +68,15 @@ export function summarizeReplayPromotion(rows = []) {
   const avgRegretDelta = sampleSize > 0
     ? rows.reduce((s, r) => s + Number(r.regret_delta || 0), 0) / sampleSize
     : 0
-  const promote = sampleSize >= 8 && avgRegretDelta <= -0.02
-  return { sampleSize, avgRegretDelta, promote }
+  const variance = sampleSize > 1
+    ? rows.reduce((s, r) => {
+        const x = Number(r.regret_delta || 0)
+        return s + ((x - avgRegretDelta) ** 2)
+      }, 0) / (sampleSize - 1)
+    : 0
+  const std = Math.sqrt(Math.max(variance, 0))
+  const ci95HalfWidth = sampleSize > 0 ? 1.96 * (std / Math.sqrt(sampleSize)) : 0
+  const upperBound = avgRegretDelta + ci95HalfWidth
+  const promote = sampleSize >= 8 && avgRegretDelta <= -0.02 && upperBound < 0
+  return { sampleSize, avgRegretDelta, ci95HalfWidth, promote }
 }

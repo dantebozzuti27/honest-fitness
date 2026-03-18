@@ -386,6 +386,14 @@ export interface TrainingProfile {
     outcomeSampleSize: number;  // number of post-session labels used
     avgSetExecutionAccuracy: number; // 0-1 average set-level target vs actual fidelity
     executionSampleSize: number; // number of set-level labels used
+    muscleGroupExecutionDeltas: Record<string, {
+      completionRate: number;
+      avgWeightDeviation: number;
+      avgRepsDeviation: number;
+      sampleSize: number;
+      prescribedCount: number;
+      completedCount: number;
+    }>;
   };
 
   // #4: Individual muscle recovery rates (learned from performance-after-rest)
@@ -2255,8 +2263,8 @@ function computeHealthPercentiles(
 const BODY_REGIONS: { region: string; groups: string[] }[] = [
   { region: 'Upper Push', groups: ['chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'] },
   { region: 'Upper Pull', groups: ['back_lats', 'back_upper', 'posterior_deltoid', 'biceps'] },
-  { region: 'Lower Body', groups: ['quads', 'hamstrings', 'glutes', 'calves', 'hip_adductors'] },
-  { region: 'Core', groups: ['abs', 'obliques', 'erector_spinae'] },
+  { region: 'Lower Body', groups: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors', 'calves'] },
+  { region: 'Core', groups: ['core', 'erector_spinae'] },
 ];
 
 function computeAthleteProfile(
@@ -3879,7 +3887,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     (feedbackResult?.data ?? []).length,
   ]);
 
-  const prescribedVsActual = await computePrescribedVsActual(userId, workouts);
+  const prescribedVsActual = await computePrescribedVsActual(userId, workouts, exercises);
   const progressionScore = (() => {
     const eligible = exerciseProgressions.filter(p => p.sessionsTracked >= 3);
     if (eligible.length === 0) return 0.5;
@@ -4821,7 +4829,7 @@ const MOVEMENT_PATTERN_MAP: Record<string, string[]> = {
   hip_hinge: ['glutes', 'gluteus maximus', 'hamstrings', 'lower back', 'erector spinae'],
   knee_dominant: ['quadriceps', 'quads'],
   isolation_upper: ['biceps', 'triceps', 'forearms', 'lateral deltoid', 'rear deltoid', 'side delts', 'rear delts'],
-  isolation_lower: ['calves', 'adductors', 'abductors', 'hip flexors'],
+  isolation_lower: ['calves', 'adductors', 'abductors', 'hip_flexors'],
 };
 
 const EXERCISE_NAME_PATTERN_HINTS: Array<{ keywords: string[]; pattern: string }> = [
@@ -4971,7 +4979,7 @@ function computeSleepVolumeModifier(health: HealthRecord[]): TrainingProfile['sl
 }
 
 // #1: Compute prescribed vs actual compliance from generated_workouts
-async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord[]) {
+async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord[], exercises: EnrichedExercise[]) {
   const defaultResult = {
     complianceRate: 0.5,
     avgWeightDeviation: 0,
@@ -4982,6 +4990,14 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
     outcomeSampleSize: 0,
     avgSetExecutionAccuracy: 0,
     executionSampleSize: 0,
+    muscleGroupExecutionDeltas: {} as Record<string, {
+      completionRate: number;
+      avgWeightDeviation: number;
+      avgRepsDeviation: number;
+      sampleSize: number;
+      prescribedCount: number;
+      completedCount: number;
+    }>,
   };
   try {
     const supabase = requireSupabase();
@@ -4996,6 +5012,19 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
 
     if (!generated || generated.length === 0) return defaultResult;
 
+    const dominantGroupByExercise = new Map<string, string>();
+    for (const ex of exercises) {
+      const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+        .map(m => MUSCLE_HEAD_TO_GROUP[m])
+        .filter(Boolean);
+      if (groups.length > 0) dominantGroupByExercise.set(ex.name.toLowerCase(), groups[0]);
+    }
+    const getDominantGroup = (exerciseName: unknown): string | null => {
+      const key = String(exerciseName || '').toLowerCase().trim();
+      if (!key) return null;
+      return dominantGroupByExercise.get(key) ?? null;
+    };
+
     const { data: outcomes } = await supabase
       .from('workout_outcomes')
       .select('generated_workout_id, session_outcome_score')
@@ -5009,6 +5038,16 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
 
     let totalPrescribed = 0, totalCompleted = 0, totalSkipped = 0;
     let weightDeviations: number[] = [], repsDeviations: number[] = [];
+    const byGroup = new Map<string, {
+      prescribed: number;
+      completed: number;
+      weightDev: number[];
+      repsDev: number[];
+    }>();
+    const ensureGroup = (group: string) => {
+      if (!byGroup.has(group)) byGroup.set(group, { prescribed: 0, completed: 0, weightDev: [], repsDev: [] });
+      return byGroup.get(group)!;
+    };
 
     for (const gen of generated) {
       const actual = linkedWorkouts.find(w => (w as any).generated_workout_id === gen.id);
@@ -5019,17 +5058,28 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
       for (const pe of prescribedExercises) {
         if (!pe.exerciseName) continue;
         totalPrescribed++;
+        const group = getDominantGroup(pe.exerciseName);
+        if (group) ensureGroup(group).prescribed += 1;
         if (actualExNames.has(pe.exerciseName.toLowerCase())) {
           totalCompleted++;
+          if (group) ensureGroup(group).completed += 1;
           const actualEx = actual.workout_exercises.find(
             e => e.exercise_name.toLowerCase() === pe.exerciseName.toLowerCase()
           );
           if (actualEx && pe.targetWeight && pe.targetWeight > 0) {
             const actualSets = Array.isArray(actualEx.workout_sets) ? actualEx.workout_sets : [];
             const actualWeight = actualSets.find(s => s.weight)?.weight;
-            if (actualWeight) weightDeviations.push((actualWeight - pe.targetWeight) / pe.targetWeight);
+            if (actualWeight) {
+              const wDev = (actualWeight - pe.targetWeight) / pe.targetWeight;
+              weightDeviations.push(wDev);
+              if (group) ensureGroup(group).weightDev.push(wDev);
+            }
             const actualReps = actualSets.find(s => s.reps)?.reps;
-            if (actualReps && pe.targetReps) repsDeviations.push(actualReps - pe.targetReps);
+            if (actualReps && pe.targetReps) {
+              const rDev = actualReps - pe.targetReps;
+              repsDeviations.push(rDev);
+              if (group) ensureGroup(group).repsDev.push(rDev);
+            }
           }
         } else {
           totalSkipped++;
@@ -5044,6 +5094,20 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
       .map((e: any) => Number(e?.execution_accuracy))
       .filter((s: number) => Number.isFinite(s) && s >= 0 && s <= 1);
 
+    const muscleGroupExecutionDeltas = Object.fromEntries(
+      [...byGroup.entries()].map(([group, agg]) => {
+        const sampleSize = Math.max(agg.weightDev.length, agg.repsDev.length);
+        return [group, {
+          completionRate: agg.prescribed > 0 ? agg.completed / agg.prescribed : 0,
+          avgWeightDeviation: agg.weightDev.length > 0 ? mean(agg.weightDev) : 0,
+          avgRepsDeviation: agg.repsDev.length > 0 ? mean(agg.repsDev) : 0,
+          sampleSize,
+          prescribedCount: agg.prescribed,
+          completedCount: agg.completed,
+        }];
+      })
+    );
+
     return {
       complianceRate: totalPrescribed > 0 ? totalCompleted / totalPrescribed : 0.5,
       avgWeightDeviation: weightDeviations.length > 0 ? mean(weightDeviations) : 0,
@@ -5054,6 +5118,7 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
       outcomeSampleSize: outcomeScores.length,
       avgSetExecutionAccuracy: executionScores.length > 0 ? mean(executionScores) : 0,
       executionSampleSize: executionScores.length,
+      muscleGroupExecutionDeltas,
     };
   } catch {
     return defaultResult;

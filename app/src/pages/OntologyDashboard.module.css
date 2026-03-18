@@ -3,7 +3,8 @@
   min-height: 100dvh;
   background: var(--bg-primary);
   color: var(--text-primary);
-  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  /* Keep tail actions above bottom nav hit area */
+  padding-bottom: calc(156px + env(safe-area-inset-bottom, 0px));
 }
 
 .header {
@@ -64,6 +65,13 @@
   margin-top: 10px;
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.topActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .flowWrap {
@@ -146,6 +154,19 @@
   gap: 10px;
 }
 
+.biomechanicsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.biomechanicsCard {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, var(--bg-primary));
+  padding: 12px;
+}
+
 .entityCard {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -208,6 +229,12 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  /* Keep actions accessible above bottom nav on mobile */
+  position: sticky;
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg-secondary);
+  padding-top: 8px;
+  z-index: 2;
 }
 
 @media (max-width: 980px) {

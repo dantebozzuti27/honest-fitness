@@ -836,6 +836,19 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function deterministicHash(input: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function deterministicProbability(input: string): number {
+  return deterministicHash(input) / 4294967295;
+}
+
 function runtimeFlagEnabled(flag: string, defaultValue = true): boolean {
   if (typeof window === 'undefined') return defaultValue;
   try {
@@ -1215,11 +1228,246 @@ interface MuscleGroupSelection {
 const SPLIT_MUSCLE_MAPPING: Record<string, string[]> = {
   push: ['chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'],
   pull: ['back_lats', 'back_upper', 'biceps', 'posterior_deltoid', 'forearms'],
-  legs: ['quadriceps', 'hamstrings', 'glutes', 'calves'],
+  legs: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors', 'calves'],
   upper: ['chest', 'back_lats', 'back_upper', 'anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid', 'biceps', 'triceps'],
-  lower: ['quadriceps', 'hamstrings', 'glutes', 'calves'],
+  lower: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors', 'calves'],
   full: ['chest', 'back_lats', 'quadriceps', 'anterior_deltoid', 'biceps', 'triceps', 'hamstrings', 'glutes'],
 };
+
+function computeHipAbductorLoadSignal(profile: TrainingProfile): {
+  weeklyAmbulatoryHours: number;
+  externalHipLoadScore: number;
+  internalHipLoadScore: number;
+  abductorPriorityBoost: number;
+  adductorPriorityBoost: number;
+  adductorPriorityPenalty: number;
+  shouldFrontLoadAbductors: boolean;
+} {
+  const WEEKS_WINDOW = 4;
+  const cardio = profile.cardioHistory ?? [];
+  const ambulatory = cardio.filter(c =>
+    /walk|treadmill|incline|hike|stairmaster|stair master|stepmill|ruck/i.test(c.exerciseName)
+  );
+  const weeklyAmbulatoryHours = ambulatory.reduce((sum, c) => {
+    const weeklyMinutes = ((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW);
+    return sum + (weeklyMinutes / 60);
+  }, 0);
+  const inclineWeightedHours = ambulatory.reduce((sum, c) => {
+    const baseHours = (((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW)) / 60;
+    const incline = Number(c.avgIncline ?? 0);
+    const inclineFactor = incline > 0 ? (1 + Math.min(0.8, incline / 12)) : 1;
+    return sum + (baseHours * inclineFactor);
+  }, 0);
+  const stairHours = cardio
+    .filter(c => /stairmaster|stair master|stepmill/i.test(c.exerciseName))
+    .reduce((sum, c) => sum + ((((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW)) / 60), 0);
+
+  // External hip demand: gait/frontal-plane stabilization, especially incline/stairs.
+  const externalHipLoadScore = clampNumber(weeklyAmbulatoryHours * 0.55 + inclineWeightedHours * 0.35 + stairHours * 0.45, 0, 3);
+  // Internal hip demand: currently inferred from dedicated adduction/cardio signals (low until direct data exists).
+  const adductionSpecificHours = cardio
+    .filter(c => /adduct|copenhagen|lateral lunge|sumo/i.test(c.exerciseName))
+    .reduce((sum, c) => sum + ((((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW)) / 60), 0);
+  const internalHipLoadScore = clampNumber(adductionSpecificHours * 1.2 + Math.max(0, weeklyAmbulatoryHours - inclineWeightedHours) * 0.08, 0, 2.2);
+  const hipLoadImbalance = Math.max(0, externalHipLoadScore - internalHipLoadScore);
+
+  const abductorPriorityBoost = externalHipLoadScore >= 0.35
+    ? clampNumber(0.06 + externalHipLoadScore * 0.12, 0, 0.46)
+    : 0;
+  const adductorPriorityBoost = internalHipLoadScore >= 0.55
+    ? clampNumber(0.05 + internalHipLoadScore * 0.08, 0, 0.22)
+    : 0;
+  const adductorPriorityPenalty = hipLoadImbalance >= 0.6
+    ? clampNumber(hipLoadImbalance * 0.08, 0, 0.18)
+    : 0;
+  return {
+    weeklyAmbulatoryHours,
+    externalHipLoadScore,
+    internalHipLoadScore,
+    abductorPriorityBoost,
+    adductorPriorityBoost,
+    adductorPriorityPenalty,
+    shouldFrontLoadAbductors: externalHipLoadScore >= 0.9,
+  };
+}
+
+type CouplingSignal = {
+  priorityDelta: number;
+  reasons: string[];
+};
+
+function computeSystemCouplingSignals(
+  profile: TrainingProfile,
+  hipSignal: ReturnType<typeof computeHipAbductorLoadSignal>
+): Record<string, CouplingSignal> {
+  const byGroup: Record<string, CouplingSignal> = {};
+  const ensure = (group: string): CouplingSignal => {
+    if (!byGroup[group]) byGroup[group] = { priorityDelta: 0, reasons: [] };
+    return byGroup[group];
+  };
+  const add = (group: string, delta: number, reason: string) => {
+    const g = ensure(group);
+    g.priorityDelta += delta;
+    if (!g.reasons.includes(reason)) g.reasons.push(reason);
+  };
+
+  // Hip mechanics (external vs internal) are one component of whole-system coupling.
+  if (hipSignal.abductorPriorityBoost > 0) {
+    add('abductors', hipSignal.abductorPriorityBoost, `external-hip demand ${hipSignal.externalHipLoadScore.toFixed(2)}`);
+  }
+  if (hipSignal.adductorPriorityBoost > 0) {
+    add('adductors', hipSignal.adductorPriorityBoost, `internal-hip demand ${hipSignal.internalHipLoadScore.toFixed(2)}`);
+  }
+  if (hipSignal.adductorPriorityPenalty > 0) {
+    add('adductors', -hipSignal.adductorPriorityPenalty, `external/internal hip imbalance`);
+  }
+  if (hipSignal.weeklyAmbulatoryHours >= 3) {
+    const calfBoost = clampNumber((hipSignal.weeklyAmbulatoryHours - 2.5) * 0.03, 0, 0.12);
+    if (calfBoost > 0) add('calves', calfBoost, `ambulatory load ${hipSignal.weeklyAmbulatoryHours.toFixed(1)} h/wk`);
+  }
+
+  const patternMap: Record<string, string[]> = {
+    horizontal_push: ['chest', 'anterior_deltoid', 'triceps'],
+    vertical_push: ['anterior_deltoid', 'lateral_deltoid', 'triceps'],
+    horizontal_pull: ['back_upper', 'back_lats', 'posterior_deltoid', 'biceps', 'forearms'],
+    vertical_pull: ['back_lats', 'back_upper', 'biceps', 'forearms'],
+    hip_hinge: ['hamstrings', 'glutes', 'erector_spinae'],
+    knee_dominant: ['quadriceps', 'glutes', 'adductors', 'calves'],
+    isolation_upper: ['biceps', 'triceps', 'lateral_deltoid', 'posterior_deltoid', 'forearms'],
+    isolation_lower: ['calves', 'abductors', 'adductors', 'quadriceps', 'hamstrings'],
+    anti_rotation: ['core', 'erector_spinae', 'abductors'],
+    rotation: ['core', 'abductors', 'adductors'],
+  };
+
+  for (const p of profile.movementPatternFatigue ?? []) {
+    const impacted = patternMap[p.pattern] ?? [];
+    if (impacted.length === 0) continue;
+    if (p.fatigueLevel === 'high') {
+      for (const g of impacted) add(g, -0.12, `${p.pattern} fatigue high`);
+    } else if (p.fatigueLevel === 'moderate') {
+      for (const g of impacted) add(g, -0.06, `${p.pattern} fatigue moderate`);
+    } else if ((p.weeklySessionCount ?? 0) <= 1) {
+      for (const g of impacted) add(g, 0.03, `${p.pattern} freshness`);
+    }
+  }
+
+  for (const [group, freqRaw] of Object.entries(profile.muscleGroupFrequency ?? {})) {
+    const freq = Number(freqRaw || 0);
+    if (!Number.isFinite(freq)) continue;
+    if (freq >= 2.8) {
+      const penalty = clampNumber((freq - 2.8) * 0.09, 0, 0.2);
+      if (penalty > 0) add(group, -penalty, `high recent frequency ${freq.toFixed(1)}/wk`);
+    } else if (freq > 0 && freq < 0.8) {
+      const boost = clampNumber((0.8 - freq) * 0.12, 0, 0.1);
+      if (boost > 0) add(group, boost, `low recent frequency ${freq.toFixed(1)}/wk`);
+    }
+  }
+
+  // Antagonist ratio governance: keep key movement systems in a healthy corridor.
+  // These are soft constraints (priority nudges), not hard-coded templates.
+  const directSetsByGroup = new Map<string, number>();
+  for (const v of profile.muscleVolumeStatuses ?? []) {
+    const g = String(v?.muscleGroup ?? '').toLowerCase();
+    if (!g) continue;
+    const sets = Number(v?.weeklyDirectSets ?? 0);
+    directSetsByGroup.set(g, Number.isFinite(sets) ? Math.max(0, sets) : 0);
+  }
+  const sumSets = (groups: string[]): number =>
+    groups.reduce((s, g) => s + (directSetsByGroup.get(g) ?? 0), 0);
+  const applyRatioBalance = (
+    label: string,
+    numeratorGroups: string[],
+    denominatorGroups: string[],
+    minRatio: number,
+    maxRatio: number,
+    maxDelta: number
+  ) => {
+    const numSets = sumSets(numeratorGroups);
+    const denSets = sumSets(denominatorGroups);
+    const total = numSets + denSets;
+    if (total < 4) return; // low evidence; avoid noisy corrections
+
+    // Laplace smoothing avoids ratio blow-ups when one side is near zero.
+    const ratio = (numSets + 1) / (denSets + 1);
+    const reliability = clampNumber(total / 18, 0.25, 1);
+
+    if (ratio < minRatio) {
+      const gap = clampNumber((minRatio - ratio) / Math.max(minRatio, 0.01), 0, 1.5);
+      const delta = clampNumber(gap * maxDelta * reliability, 0.02, maxDelta);
+      for (const g of numeratorGroups) add(g, delta, `${label} ratio low (${ratio.toFixed(2)})`);
+      for (const g of denominatorGroups) add(g, -delta * 0.45, `${label} ratio low (${ratio.toFixed(2)})`);
+    } else if (ratio > maxRatio) {
+      const gap = clampNumber((ratio - maxRatio) / Math.max(maxRatio, 0.01), 0, 1.5);
+      const delta = clampNumber(gap * maxDelta * reliability, 0.02, maxDelta);
+      for (const g of numeratorGroups) add(g, -delta * 0.45, `${label} ratio high (${ratio.toFixed(2)})`);
+      for (const g of denominatorGroups) add(g, delta, `${label} ratio high (${ratio.toFixed(2)})`);
+    }
+  };
+
+  // Evidence-based corridors from injury-risk and posture/performance programming norms:
+  // - Posterior chain/pull should not lag pressing.
+  // - Knee-dominant and hip-dominant lower-body stress should be balanced.
+  applyRatioBalance('back:chest', ['back_lats', 'back_upper'], ['chest'], 1.05, 1.9, 0.16);
+  applyRatioBalance('hamstrings:quadriceps', ['hamstrings'], ['quadriceps'], 0.7, 1.35, 0.15);
+  applyRatioBalance(
+    'pull:push',
+    ['back_lats', 'back_upper', 'posterior_deltoid', 'biceps', 'forearms'],
+    ['chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'],
+    0.95,
+    1.8,
+    0.14
+  );
+  applyRatioBalance(
+    'vertical-pull:vertical-push',
+    ['back_lats', 'back_upper', 'biceps'],
+    ['anterior_deltoid', 'lateral_deltoid', 'triceps'],
+    0.9,
+    1.8,
+    0.12
+  );
+  applyRatioBalance(
+    'hip-dominant:knee-dominant',
+    ['hamstrings', 'glutes', 'erector_spinae', 'adductors'],
+    ['quadriceps', 'calves'],
+    0.9,
+    1.6,
+    0.13
+  );
+  applyRatioBalance(
+    'rear-delt:front-delt',
+    ['posterior_deltoid'],
+    ['anterior_deltoid'],
+    0.75,
+    2.0,
+    0.1
+  );
+
+  for (const [group, delta] of Object.entries(profile.prescribedVsActual?.muscleGroupExecutionDeltas ?? {})) {
+    const sample = Number(delta?.sampleSize ?? 0);
+    if (!Number.isFinite(sample) || sample < 2) continue;
+    const completionRate = clampNumber(Number(delta?.completionRate ?? 0), 0, 1);
+    const wDev = clampNumber(Number(delta?.avgWeightDeviation ?? 0), -0.5, 0.5);
+    const rDev = clampNumber(Number(delta?.avgRepsDeviation ?? 0), -8, 8);
+    const executionSignal = clampNumber((wDev * 0.9) + (rDev / 14), -0.45, 0.45);
+    const reliability = clampNumber(sample / 8, 0.25, 1);
+
+    // Strong positive execution + completion => capacity headroom, increase priority gradually.
+    if (completionRate >= 0.72 && executionSignal > 0.06) {
+      const boost = clampNumber(executionSignal * 0.22 * reliability, 0.02, 0.13);
+      add(group, boost, `execution outperformance (${Math.round(completionRate * 100)}% complete)`);
+    }
+
+    // Low completion or underperformance => scale back near-term stress on that group.
+    if (completionRate < 0.58 || executionSignal < -0.08) {
+      const missPenalty = clampNumber((0.62 - completionRate) * 0.22, 0, 0.12);
+      const underPenalty = executionSignal < 0 ? clampNumber(Math.abs(executionSignal) * 0.2 * reliability, 0.01, 0.14) : 0;
+      const penalty = Math.max(missPenalty, underPenalty);
+      if (penalty > 0) add(group, -penalty, `execution under-target (${Math.round(completionRate * 100)}% complete)`);
+    }
+  }
+
+  return byGroup;
+}
 
 function stepSelectMuscleGroups(
   profile: TrainingProfile,
@@ -1227,7 +1475,8 @@ function stepSelectMuscleGroups(
   recoveryAdj: RecoveryAdjustment,
   cfg: ModelConfig,
   caloricPhaseScale: number = 1.0,
-  dayOfWeekOverride?: number
+  dayOfWeekOverride?: number,
+  preferredGroups?: string[]
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
@@ -1236,8 +1485,11 @@ function stepSelectMuscleGroups(
   const { detectedSplit, dayOfWeekPatterns } = profile;
   const todayDow = dayOfWeekOverride ?? new Date().getDay();
   const todayPattern = dayOfWeekPatterns[todayDow];
+  const hipAbductorSignal = computeHipAbductorLoadSignal(profile);
+  const systemCouplingSignals = computeSystemCouplingSignals(profile, hipAbductorSignal);
 
   let splitTargetGroups: Set<string> | null = null;
+  const preferredGroupSet = new Set((preferredGroups ?? []).map(g => String(g).toLowerCase()).filter(Boolean));
 
   // For explicit day planning (weekly plan), prioritize the day-of-week pattern
   // so each day gets distinct focus rather than repeating nextRecommended.
@@ -1276,7 +1528,7 @@ function stepSelectMuscleGroups(
   // Running/stairmaster (high eccentric): 5% leg MRV reduction per hour/week
   // Cycling/elliptical (low eccentric): 2% reduction per hour/week
   // Walking: 0% interference
-  const LOWER_BODY_GROUPS = new Set(['quadriceps', 'hamstrings', 'glutes', 'calves']);
+  const LOWER_BODY_GROUPS = new Set(['quadriceps', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors']);
   let cardioInterferencePct = 0;
   const WEEKS_WINDOW = 4;
   const weeklyCardioMin = profile.cardioHistory.reduce((sum, c) => {
@@ -1359,6 +1611,10 @@ function stepSelectMuscleGroups(
     if (splitTargetGroups?.has(vol.muscleGroup)) {
       priority += cfg.splitMatchBoost;
     }
+    if (preferredGroupSet.has(vol.muscleGroup)) {
+      // Stabilize week-to-week split transitions by biasing toward anchored groups.
+      priority += 0.42;
+    }
 
     if (todayPattern?.muscleGroupsTypical.includes(vol.muscleGroup)) {
       priority += cfg.dayPatternBoost;
@@ -1403,6 +1659,16 @@ function stepSelectMuscleGroups(
       priority += 0.15;
     }
 
+    const couplingSignal = systemCouplingSignals[vol.muscleGroup];
+    if (couplingSignal) {
+      let couplingDelta = couplingSignal.priorityDelta;
+      if (vol.muscleGroup === 'adductors' && couplingDelta < 0 && prefs.priority_muscles.some(pm => pm.toLowerCase() === 'adductors')) {
+        // Respect explicit user preference even under coupling-based deprioritization.
+        couplingDelta = Math.max(0, couplingDelta + 0.12);
+      }
+      priority += couplingDelta;
+    }
+
     // Scale sets by duration: longer sessions can accommodate more volume per group
     const sessionDur = prefs.session_duration_minutes;
     const durationSetScale = sessionDur >= 120 ? 1.30 : sessionDur >= 90 ? 1.15 : sessionDur <= 45 ? 0.75 : 1.0;
@@ -1414,11 +1680,14 @@ function stepSelectMuscleGroups(
     const dayLabel = todayPattern?.muscleGroupsTypical.includes(vol.muscleGroup) ? ' [day pattern]' : '';
 
     if (setsNeeded > 0 || freshnessDays >= 5 || splitTargetGroups?.has(vol.muscleGroup)) {
+      const couplingTag = couplingSignal
+        ? ` [coupling ${couplingSignal.priorityDelta >= 0 ? '+' : ''}${couplingSignal.priorityDelta.toFixed(2)}: ${couplingSignal.reasons.slice(0, 2).join(', ')}]`
+        : '';
       const reason = splitTargetGroups?.has(vol.muscleGroup)
-        ? `Split: ${detectedSplit.nextRecommended.join('/')} day${dayLabel} — ${vol.weeklyDirectSets}/${effectiveTarget.toFixed(0)} weekly sets`
+        ? `Split: ${detectedSplit.nextRecommended.join('/')} day${dayLabel} — ${vol.weeklyDirectSets}/${effectiveTarget.toFixed(0)} weekly sets${couplingTag}`
         : freshnessDays >= 5
-          ? `Not trained in ${freshnessDays} days${splitLabel}`
-          : `${volumeDeficit.toFixed(0)} sets below target (${vol.weeklyDirectSets}/${effectiveTarget.toFixed(0)})${splitLabel}${dayLabel}`;
+          ? `Not trained in ${freshnessDays} days${splitLabel}${couplingTag}`
+          : `${volumeDeficit.toFixed(0)} sets below target (${vol.weeklyDirectSets}/${effectiveTarget.toFixed(0)})${splitLabel}${dayLabel}${couplingTag}`;
 
       candidates.push({
         muscleGroup: vol.muscleGroup,
@@ -1440,8 +1709,25 @@ function stepSelectMuscleGroups(
     : dur <= 75 ? 4
     : dur <= 100 ? 5
     : 6;
+  let selected = candidates.slice(0, maxGroups);
+  if (preferredGroupSet.size > 0 && selected.length > 0) {
+    const anchorCandidates = candidates.filter(c => preferredGroupSet.has(c.muscleGroup));
+    const nonAnchorSelected = selected.filter(c => !preferredGroupSet.has(c.muscleGroup));
+    const anchorSelected = selected.filter(c => preferredGroupSet.has(c.muscleGroup));
+    const minAnchorCount = Math.min(
+      anchorCandidates.length,
+      Math.max(1, Math.ceil(selected.length * 0.6))
+    );
+    if (anchorSelected.length < minAnchorCount) {
+      const needed = minAnchorCount - anchorSelected.length;
+      const fillAnchors = anchorCandidates
+        .filter(c => !anchorSelected.some(s => s.muscleGroup === c.muscleGroup))
+        .slice(0, needed);
+      selected = [...anchorSelected, ...fillAnchors, ...nonAnchorSelected].slice(0, maxGroups);
+    }
+  }
 
-  return { selected: candidates.slice(0, maxGroups), skipped };
+  return { selected, skipped };
 }
 
 // ─── Step 3: Select Exercises (Preference-Aware + Cardio) ───────────────────
@@ -1484,6 +1770,11 @@ function stepSelectExercises(
   const usedExercises = new Set<string>();
 
   for (const group of muscleGroups) {
+    const selectedHasHinge = selections.some(s => {
+      const pat = String(s.exercise.movement_pattern ?? '').toLowerCase();
+      const name = String(s.exercise.name || '').toLowerCase();
+      return pat.includes('hinge') || /(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning|deadlift)(\b|$)/.test(name);
+    });
     const groupExercises = strengthExercises.filter(ex => {
       if (avoidSet.has(ex.name.toLowerCase())) return false;
       if (usedExercises.has(ex.name.toLowerCase())) return false;
@@ -1578,6 +1869,19 @@ function stepSelectExercises(
           score -= 2;
           factors.push(`Ordering interference with ${lastSelected} (-2)`);
         }
+      }
+
+      const exName = String(ex.name || '').toLowerCase();
+      const exPattern = String(ex.movement_pattern || '').toLowerCase();
+      const isHinge = exPattern.includes('hinge') || /(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning|deadlift)(\b|$)/.test(exName);
+      const isKneeFlexion = exPattern.includes('knee_flex') || /(leg|hamstring)\s*curl|nordic/.test(exName);
+      if (selectedHasHinge && isHinge) {
+        score -= 6;
+        factors.push('Pattern diversity: hinge already selected (-6)');
+      }
+      if (selectedHasHinge && group.muscleGroup === 'hamstrings' && isKneeFlexion) {
+        score += 3;
+        factors.push('Pattern diversity: include knee-flexion hamstring work (+3)');
       }
 
       if (prefs.equipment_access === 'limited') {
@@ -2451,7 +2755,14 @@ function computeMarginalValue(
   currentExercises: GeneratedExercise[],
   volumeStatuses: MuscleVolumeStatus[],
   muscleGroupFrequency: Record<string, number>,
+  couplingSignals?: Record<string, CouplingSignal>,
 ): number {
+  const isHingeLike = (exerciseName: string, movementPattern: string | null | undefined): boolean => {
+    const pat = String(movementPattern ?? '').toLowerCase();
+    const name = String(exerciseName || '').toLowerCase();
+    return pat.includes('hinge') || /(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning|deadlift)(\b|$)/.test(name);
+  };
+  const hasHingeInSession = currentExercises.some(ex => isHingeLike(ex.exerciseName, ex.movementPattern));
   if (action.type === 'add_set') {
     const ex = currentExercises[action.exerciseIndex];
     const sfr = getExerciseSFR(ex.exerciseName);
@@ -2469,7 +2780,12 @@ function computeMarginalValue(
       else if (vol.status === 'above_mrv') volMod = 0.1;
     }
 
-    return stimulus * volMod;
+    const coupling = couplingSignals?.[(ex.targetMuscleGroup ?? '').toLowerCase()];
+    const couplingMod = coupling
+      ? clampNumber(1 + coupling.priorityDelta * 0.55, 0.72, 1.28)
+      : 1.0;
+    const hingeSetPenalty = (hasHingeInSession && isHingeLike(ex.exerciseName, ex.movementPattern) && ex.sets >= 4) ? 0.72 : 1.0;
+    return stimulus * volMod * couplingMod * hingeSetPenalty;
   }
 
   // add_exercise: value of bringing in a brand-new movement
@@ -2496,7 +2812,12 @@ function computeMarginalValue(
   );
   const varietyBonus = alreadyHasGroup ? 0.7 : 1.2;
 
-  return baseStimulus * volMod * freqBonus * varietyBonus;
+  const coupling = couplingSignals?.[group];
+  const couplingMod = coupling
+    ? clampNumber(1 + coupling.priorityDelta * 0.65, 0.68, 1.35)
+    : 1.0;
+  const hingeAddPenalty = (hasHingeInSession && isHingeLike(sel.exercise.name, sel.exercise.movement_pattern)) ? 0.62 : 1.0;
+  return baseStimulus * volMod * freqBonus * varietyBonus * couplingMod * hingeAddPenalty;
 }
 
 /**
@@ -2555,6 +2876,8 @@ function stepApplyConstraints(
   // This guarantees bench press never appears after lateral raises,
   // regardless of which muscle group each belongs to.
   const groupPriority = new Map<string, number>();
+  const hipAbductorSignal = computeHipAbductorLoadSignal(profile);
+  const systemCouplingSignals = computeSystemCouplingSignals(profile, hipAbductorSignal);
   strength.forEach((ex, i) => {
     if (!groupPriority.has(ex.targetMuscleGroup)) groupPriority.set(ex.targetMuscleGroup, i);
   });
@@ -2568,14 +2891,46 @@ function stepApplyConstraints(
     // Primary: compound tier (0) vs isolation tier (1000)
     // Within compounds: CNS demand (lower = heavier = first)
     // Within isolations: muscle group priority, then CNS demand
-    const sortKey = isCompound
+    let sortKey = isCompound
       ? cnsTier * 10 + histNudge
       : 1000 + gp * 20 + cnsTier * 5 + histNudge;
+    if (!isCompound && ex.targetMuscleGroup === 'abductors' && hipAbductorSignal.abductorPriorityBoost > 0) {
+      // Front-load hip-stability accessories when ambulatory load is high.
+      sortKey -= Math.round(220 + hipAbductorSignal.abductorPriorityBoost * 100);
+    }
+    if (!isCompound) {
+      const coupling = systemCouplingSignals[ex.targetMuscleGroup];
+      if (coupling && Math.abs(coupling.priorityDelta) > 0.02) {
+        // Positive coupling delta => earlier; negative => later.
+        sortKey -= coupling.priorityDelta * 120;
+        if (!Array.isArray(ex.adjustments)) ex.adjustments = [];
+        ex.adjustments.push(
+          `Coupling ordering: ${coupling.priorityDelta >= 0 ? 'earlier' : 'later'} (${coupling.reasons.slice(0, 2).join(', ')})`
+        );
+      }
+    }
     return { exercise: ex, sortKey };
   });
 
   scored.sort((a, b) => a.sortKey - b.sortKey);
   const ordered: GeneratedExercise[] = scored.map(s => s.exercise);
+  if (hipAbductorSignal.shouldFrontLoadAbductors) {
+    const abductorIdx = ordered.findIndex(ex =>
+      !ex.isCardio
+      && ex.targetMuscleGroup === 'abductors'
+      && (ex.exerciseRole === 'isolation' || ex.exerciseRole === 'secondary' || ex.exerciseRole === 'corrective')
+    );
+    if (abductorIdx > 1) {
+      const [abductor] = ordered.splice(abductorIdx, 1);
+      const firstIsolationIdx = ordered.findIndex(ex =>
+        ex.exerciseRole === 'isolation' || ex.exerciseRole === 'secondary' || ex.exerciseRole === 'corrective'
+      );
+      const insertIdx = firstIsolationIdx >= 0 ? Math.min(firstIsolationIdx, 2) : Math.min(1, ordered.length);
+      ordered.splice(insertIdx, 0, abductor);
+      if (!Array.isArray(abductor.adjustments)) abductor.adjustments = [];
+      abductor.adjustments.push(`Gait-load priming: moved earlier due to high ambulatory cardio (${hipAbductorSignal.weeklyAmbulatoryHours.toFixed(1)} h/wk)`);
+    }
+  }
 
   // #13: Enhanced interference avoidance — try multiple swaps and pick best
   for (let i = 0; i < ordered.length - 1; i++) {
@@ -2844,7 +3199,7 @@ function stepApplyConstraints(
       const cost = timePerSet(ex);
       if (cost > remainingMinutes) continue;
       const action: MarginalAction = { type: 'add_set', exerciseIndex: i };
-      const val = computeMarginalValue(action, ordered, volumeStatuses, mgFreq);
+      const val = computeMarginalValue(action, ordered, volumeStatuses, mgFreq, systemCouplingSignals);
       if (val > bestValue) {
         bestValue = val;
         bestAction = action;
@@ -2865,7 +3220,7 @@ function stepApplyConstraints(
         const cost = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
         if (cost > remainingMinutes) continue;
         const action: MarginalAction = { type: 'add_exercise', exercise: sel };
-        const val = computeMarginalValue(action, ordered, volumeStatuses, mgFreq);
+        const val = computeMarginalValue(action, ordered, volumeStatuses, mgFreq, systemCouplingSignals);
         if (val > bestValue) {
           bestValue = val;
           bestAction = action;
@@ -3072,6 +3427,61 @@ function stepApplyConstraints(
       usedNames.add(sel.exercise.name.toLowerCase());
       remainingMinutes -= estMin;
       addedNewCount++;
+    }
+  }
+
+  // Final duration stabilization to prevent large regeneration swings.
+  const totalMinutes = () =>
+    ordered.reduce((s, e) => s + e.estimatedMinutes, 0) + keptCardio.reduce((s, e) => s + e.estimatedMinutes, 0);
+  const lowerBound = Math.round(effectiveBudget * 0.9);
+  const upperBound = Math.round(effectiveBudget * 1.05);
+  let totalNow = totalMinutes();
+
+  if (totalNow > upperBound) {
+    const reducers = [...ordered]
+      .filter(ex => ex.exerciseRole !== 'primary' && ex.sets > 2)
+      .sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
+    for (const ex of reducers) {
+      if (totalNow <= upperBound) break;
+      const oldSets = ex.sets;
+      ex.sets = Math.max(2, ex.sets - 1);
+      recalcTime(ex);
+      if (ex.sets !== oldSets) ex.adjustments.push(`Duration stabilization: ${oldSets} -> ${ex.sets} sets`);
+      totalNow = totalMinutes();
+    }
+    for (const ex of keptCardio) {
+      if (totalNow <= upperBound) break;
+      const oldSec = ex.cardioDurationSeconds ?? 0;
+      const nextSec = Math.max(8 * 60, Math.round(oldSec * 0.9));
+      if (nextSec < oldSec) {
+        ex.cardioDurationSeconds = nextSec;
+        recalcTime(ex);
+        ex.adjustments.push(`Duration stabilization: ${Math.round(oldSec / 60)} -> ${Math.round(nextSec / 60)} min`);
+        totalNow = totalMinutes();
+      }
+    }
+  }
+
+  if (totalNow < lowerBound) {
+    const boosters = [...ordered]
+      .filter(ex => ex.exerciseRole !== 'primary' && ex.sets < Math.max(getMaxSets(ex), 5))
+      .sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
+    for (const ex of boosters) {
+      if (totalNow >= lowerBound) break;
+      const oldSets = ex.sets;
+      ex.sets += 1;
+      recalcTime(ex);
+      ex.adjustments.push(`Duration stabilization: ${oldSets} -> ${ex.sets} sets`);
+      totalNow = totalMinutes();
+    }
+    for (const ex of keptCardio) {
+      if (totalNow >= lowerBound) break;
+      const oldSec = ex.cardioDurationSeconds ?? 0;
+      const nextSec = Math.round(oldSec * 1.1);
+      ex.cardioDurationSeconds = nextSec;
+      recalcTime(ex);
+      ex.adjustments.push(`Duration stabilization: ${Math.round(oldSec / 60)} -> ${Math.round(nextSec / 60)} min`);
+      totalNow = totalMinutes();
     }
   }
 
@@ -3411,6 +3821,32 @@ function stepGenerateRationale(
   if (profile.prescribedVsActual && profile.prescribedVsActual.complianceRate < 1) {
     mlDetails.push(`Compliance: ${Math.round(profile.prescribedVsActual.complianceRate * 100)}% exercises completed`);
   }
+  const mgExecution = profile.prescribedVsActual?.muscleGroupExecutionDeltas ?? {};
+  const mgExecutionRows = Object.entries(mgExecution)
+    .filter(([, v]) => Number(v?.sampleSize ?? 0) >= 2)
+    .map(([group, v]) => {
+      const completion = clampNumber(Number(v?.completionRate ?? 0), 0, 1);
+      const weightDev = Number(v?.avgWeightDeviation ?? 0);
+      const repsDev = Number(v?.avgRepsDeviation ?? 0);
+      const score = (weightDev * 0.9) + (repsDev / 14);
+      return { group, completion, weightDev, repsDev, score, sample: Number(v?.sampleSize ?? 0) };
+    });
+  if (mgExecutionRows.length > 0) {
+    const topPositive = [...mgExecutionRows]
+      .filter(r => r.score > 0.05 && r.completion >= 0.7)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2);
+    const topNegative = [...mgExecutionRows]
+      .filter(r => r.score < -0.05 || r.completion < 0.58)
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 2);
+    if (topPositive.length > 0) {
+      mlDetails.push(`Execution coupling ↑: ${topPositive.map(r => `${r.group} (${Math.round(r.completion * 100)}% complete, Δw ${(r.weightDev * 100).toFixed(0)}%, Δr ${r.repsDev.toFixed(1)})`).join('; ')}`);
+    }
+    if (topNegative.length > 0) {
+      mlDetails.push(`Execution coupling ↓: ${topNegative.map(r => `${r.group} (${Math.round(r.completion * 100)}% complete, Δw ${(r.weightDev * 100).toFixed(0)}%, Δr ${r.repsDev.toFixed(1)})`).join('; ')}`);
+    }
+  }
   // Sport-specific context
   const sportCtx = getSportProfile(prefs.sport_focus);
   if (sportCtx) {
@@ -3487,6 +3923,7 @@ export interface SessionOverrides {
   gymProfile?: string;
   planningDate?: string; // YYYY-MM-DD for weekly planning
   avoidExerciseNames?: string[];
+  anchorMuscleGroups?: string[];
 }
 
 interface LlmHints {
@@ -3809,7 +4246,15 @@ export async function generateWorkout(
     * (runtimeFlags.nutrition_feedback ? policyFusion.progressionMultiplier : 1.0);
 
   // Step 2: Select muscle groups
-  const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(profile, prefs, recoveryAdj, cfg, caloricPhaseScale, planningDow);
+  const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(
+    profile,
+    prefs,
+    recoveryAdj,
+    cfg,
+    caloricPhaseScale,
+    planningDow,
+    overrides?.anchorMuscleGroups
+  );
 
   // Parse LLM pattern observations into actionable hints
   const llmHints = parseLlmPatternObservations(profile.llmPatternObservations);
@@ -3826,11 +4271,15 @@ export async function generateWorkout(
   // Sport prehab injection — add 1 prehab exercise per session when sport focus is set
   if (sportProfile && prefs.sport_season) {
     const season = sportProfile.seasonModifiers[prefs.sport_season];
-    if (season && Math.random() < season.prehabFrequency && sportProfile.prehabExercises.length > 0) {
+    const planKey = planningDate ? getLocalDate(planningDate) : getLocalDate();
+    const sportKey = prefs.sport_focus ?? sportProfile.label;
+    const injectRoll = deterministicProbability(`${profile.userId}:${planKey}:${sportKey}:${prefs.sport_season}:prehab`);
+    if (season && injectRoll < season.prehabFrequency && sportProfile.prehabExercises.length > 0) {
       const usedNames = new Set(exerciseSelections.map(s => s.exercise.name.toLowerCase()));
       const available = sportProfile.prehabExercises.filter(p => !usedNames.has(p.exerciseName));
       if (available.length > 0) {
-        const pick = available[Math.floor(Math.random() * available.length)];
+        const pickIdx = deterministicHash(`${profile.userId}:${planKey}:${sportKey}:prehab_pick`) % available.length;
+        const pick = available[pickIdx];
         const prehabEx = allExercises.find(e => e.name.toLowerCase() === pick.exerciseName);
         if (prehabEx) {
           exerciseSelections.push({
@@ -4028,6 +4477,70 @@ export interface WeeklyPlan {
   weekStartDate: string;
   featureSnapshotId: string;
   days: WeeklyPlanDay[];
+  planQuality?: {
+    avgConsecutiveOverlap: number;
+    avgAnchorCoverage: number;
+    avgNoveltyVsRecent: number;
+    recurrenceBlockEvents: number;
+    monotony: number;
+    generatedAt: string;
+  };
+}
+
+export function generateWeekPreviewFromPlan(
+  plan: WeeklyPlan | null,
+  todayCompleted: boolean = false,
+  todayCompletedName?: string
+): DayPreview[] {
+  if (!plan?.days?.length) return [];
+  const today = getLocalDate();
+  const mondayThroughSunday = [1, 2, 3, 4, 5, 6, 0];
+  const byDow = new Map<number, WeeklyPlanDay>();
+  for (const d of plan.days) byDow.set(d.dayOfWeek, d);
+
+  return mondayThroughSunday.map((dow) => {
+    const d = byDow.get(dow);
+    const dayName = d?.dayName ?? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dow];
+    const isToday = d?.planDate === today;
+    if (!d) {
+      return {
+        dayOfWeek: dow,
+        dayName,
+        isRestDay: true,
+        focus: 'Rest',
+        muscleGroups: [],
+        estimatedExercises: 0,
+        estimatedMinutes: 0,
+        isToday,
+      } as DayPreview;
+    }
+
+    if (isToday && todayCompleted) {
+      return {
+        dayOfWeek: d.dayOfWeek,
+        dayName: d.dayName,
+        isRestDay: false,
+        isCompleted: true,
+        focus: todayCompletedName || d.focus || 'Done',
+        muscleGroups: d.muscleGroups ?? [],
+        estimatedExercises: 0,
+        estimatedMinutes: 0,
+        isToday: true,
+      };
+    }
+
+    const estMin = Number(d.plannedWorkout?.estimatedDurationMinutes ?? d.estimatedMinutes ?? 0);
+    return {
+      dayOfWeek: d.dayOfWeek,
+      dayName: d.dayName,
+      isRestDay: d.isRestDay,
+      focus: d.focus || (d.muscleGroups ?? []).slice(0, 3).join(', ') || (d.isRestDay ? 'Rest' : 'Training'),
+      muscleGroups: d.muscleGroups ?? [],
+      estimatedExercises: Number(d.plannedWorkout?.exercises?.length ?? d.estimatedExercises ?? 0),
+      estimatedMinutes: Number.isFinite(estMin) ? Math.round(estMin) : 0,
+      isToday,
+    };
+  });
 }
 
 function getWeekDatesMondaySunday(baseDate: Date): string[] {
@@ -4055,10 +4568,27 @@ export async function generateWeeklyPlan(
   const restSet = new Set(userRestDays);
 
   const days: WeeklyPlanDay[] = [];
+  const weeklyExerciseCounts = new Map<string, number>();
+  const weeklyLastSeen = new Map<string, number>();
+  const weeklyFamilyCounts = new Map<string, number>();
+  const weeklyFamilyLastSeen = new Map<string, number>();
+  const noveltySamples: number[] = [];
+  const overlapSamples: number[] = [];
+  const anchorSamples: number[] = [];
+  let recurrenceBlockEvents = 0;
   const normalizeExerciseName = (name: string): string =>
     String(name || '').trim().toLowerCase();
+  const canonicalFamilyKey = (ex: GeneratedExercise): string | null => {
+    const name = normalizeExerciseName(ex.exerciseName);
+    const pat = String(ex.movementPattern ?? '').toLowerCase();
+    if (/(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning)(\b|$)/.test(name)) return 'hip_hinge';
+    if (pat.includes('hip_hinge') || pat.includes('hinge')) return 'hip_hinge';
+    return null;
+  };
   const exerciseNameSet = (w: GeneratedWorkout | null): Set<string> =>
     new Set((w?.exercises ?? []).filter(ex => !ex.isCardio).map(ex => normalizeExerciseName(ex.exerciseName)).filter(Boolean));
+  const exerciseFamilySet = (w: GeneratedWorkout | null): Set<string> =>
+    new Set((w?.exercises ?? []).filter(ex => !ex.isCardio).map(ex => canonicalFamilyKey(ex)).filter((v): v is string => !!v));
   const overlapRatio = (a: Set<string>, b: Set<string>): number => {
     if (a.size === 0 && b.size === 0) return 0;
     let overlap = 0;
@@ -4071,6 +4601,39 @@ export async function generateWeeklyPlan(
     for (const x of current) if (!recent.has(x)) novel++;
     return novel / current.size;
   };
+  const anchorCoverage = (workout: GeneratedWorkout | null, anchorGroups: string[]): number => {
+    if (!workout || anchorGroups.length === 0) return 0;
+    const focused = new Set((workout.muscleGroupsFocused ?? []).map(g => String(g || '').toLowerCase()));
+    if (focused.size === 0) return 0;
+    const anchors = anchorGroups.map(g => String(g || '').toLowerCase()).filter(Boolean);
+    if (anchors.length === 0) return 0;
+    let covered = 0;
+    for (const g of anchors) if (focused.has(g)) covered++;
+    return covered / anchors.length;
+  };
+  const candidateScore = (
+    workout: GeneratedWorkout | null,
+    overlap: number,
+    novelty: number,
+    recurrenceCount: number,
+    familyRecurrenceCount: number,
+    anchorGroups: string[]
+  ): number => {
+    const evidence = clampNumber(profile.canonicalModelContext?.evidenceConfidence ?? 0.5, 0, 1);
+    const adherence = clampNumber(profile.canonicalModelContext?.adherenceScore ?? profile.prescribedVsActual?.complianceRate ?? 0.5, 0, 1);
+    const anchorWeight = 0.35 + 0.20 * evidence;
+    const noveltyWeight = 0.25 + 0.20 * adherence;
+    const antiOverlapWeight = 0.25;
+    const recurrenceWeight = 0.30;
+    const familyPenalty = familyRecurrenceCount * 1.4;
+    const recurrencePenalty = (recurrenceCount + familyPenalty) / 6;
+    return (
+      anchorWeight * anchorCoverage(workout, anchorGroups)
+      + noveltyWeight * novelty
+      + antiOverlapWeight * (1 - overlap)
+      - recurrenceWeight * recurrencePenalty
+    );
+  };
   const getRecentTrainingDays = (count: number): WeeklyPlanDay[] =>
     days.filter(d => !d.isRestDay && !!d.plannedWorkout).slice(-count);
   const workoutSignature = (w: GeneratedWorkout | null): string => {
@@ -4080,7 +4643,8 @@ export async function generateWeeklyPlan(
       .join(';;');
   };
   let prevTrainingSignature: string | null = null;
-  for (const planDate of weekDates) {
+  for (let weekIdx = 0; weekIdx < weekDates.length; weekIdx++) {
+    const planDate = weekDates[weekIdx];
     const d = new Date(`${planDate}T12:00:00`);
     const dow = d.getDay();
     const p = previewByDow.get(dow);
@@ -4108,7 +4672,18 @@ export async function generateWeeklyPlan(
       for (const n of exerciseNameSet(prevDay.plannedWorkout)) recentExerciseNames.add(n);
     }
 
-    let plannedWorkout = await generateWorkout(profile, { planningDate: planDate });
+    const proactiveAvoid = [...weeklyExerciseCounts.entries()]
+      .filter(([, count]) => count >= 2)
+      .map(([name]) => name);
+    if ((weeklyFamilyCounts.get('hip_hinge') ?? 0) >= 1) {
+      proactiveAvoid.push('romanian deadlift', 'rdl', 'stiff leg deadlift', 'good morning');
+    }
+    let plannedWorkout = await generateWorkout(
+      profile,
+      proactiveAvoid.length > 0
+        ? { planningDate: planDate, avoidExerciseNames: proactiveAvoid, anchorMuscleGroups: p?.muscleGroups ?? [] }
+        : { planningDate: planDate, anchorMuscleGroups: p?.muscleGroups ?? [] }
+    );
     let signature = workoutSignature(plannedWorkout);
 
     // Strong diversification pass:
@@ -4119,16 +4694,45 @@ export async function generateWeeklyPlan(
     const OVERLAP_THRESHOLD = 0.6;
     const MIN_NOVELTY_RATIO = 0.35;
     let attempt = 0;
+    let bestWorkout = plannedWorkout;
+    let bestScore = -Infinity;
     while (attempt < MAX_DIVERSIFY_ATTEMPTS) {
       const prevWorkout = recentTrainingDays.length > 0 ? recentTrainingDays[recentTrainingDays.length - 1].plannedWorkout : null;
       const prevNameSet = exerciseNameSet(prevWorkout);
       const currNameSet = exerciseNameSet(plannedWorkout);
       const overlap = overlapRatio(currNameSet, prevNameSet);
       const novelty = noveltyRatio(currNameSet, recentExerciseNames);
+      const currFamilies = exerciseFamilySet(plannedWorkout);
+      const recurrenceViolations = [...currNameSet].filter((name) => {
+        const count = weeklyExerciseCounts.get(name) ?? 0;
+        const lastSeen = weeklyLastSeen.get(name);
+        const consecutive = lastSeen != null ? (weekIdx - lastSeen) <= 1 : false;
+        return count >= 2 || consecutive;
+      });
+      const familyViolations = [...currFamilies].filter((family) => {
+        const count = weeklyFamilyCounts.get(family) ?? 0;
+        const lastSeen = weeklyFamilyLastSeen.get(family);
+        const consecutive = lastSeen != null ? (weekIdx - lastSeen) <= 1 : false;
+        return count >= 2 || consecutive;
+      });
       const exactRepeat = (prevTrainingSignature && signature === prevTrainingSignature) || recentSignatures.has(signature);
       const excessiveOverlap = overlap >= OVERLAP_THRESHOLD && currNameSet.size >= 3;
       const lowNovelty = currNameSet.size >= 4 && novelty < MIN_NOVELTY_RATIO;
-      if (!exactRepeat && !excessiveOverlap && !lowNovelty) break;
+      const excessiveRecurrence = recurrenceViolations.length > 0 || familyViolations.length > 0;
+      if (excessiveRecurrence) recurrenceBlockEvents += 1;
+      const currScore = candidateScore(
+        plannedWorkout,
+        overlap,
+        novelty,
+        recurrenceViolations.length,
+        familyViolations.length,
+        p?.muscleGroups ?? []
+      );
+      if (currScore > bestScore) {
+        bestScore = currScore;
+        bestWorkout = plannedWorkout;
+      }
+      if (!exactRepeat && !excessiveOverlap && !lowNovelty && !excessiveRecurrence) break;
 
       const baseAvoid = [...recentExerciseNames];
       const currTop = (plannedWorkout.exercises ?? [])
@@ -4136,23 +4740,45 @@ export async function generateWeeklyPlan(
         .slice(0, 8)
         .map(ex => normalizeExerciseName(ex.exerciseName))
         .filter(Boolean);
-      const avoidExerciseNames = [...new Set([...baseAvoid, ...currTop])].slice(0, 16);
+      const avoidExerciseNames = [...new Set([...baseAvoid, ...currTop, ...recurrenceViolations])].slice(0, 20);
       if (avoidExerciseNames.length === 0) break;
 
-      const regenerated = await generateWorkout(profile, { planningDate: planDate, avoidExerciseNames });
+      const regenerated = await generateWorkout(profile, {
+        planningDate: planDate,
+        avoidExerciseNames,
+        anchorMuscleGroups: p?.muscleGroups ?? [],
+      });
       const regeneratedSignature = workoutSignature(regenerated);
       const regeneratedNames = exerciseNameSet(regenerated);
       const regeneratedOverlap = overlapRatio(regeneratedNames, prevNameSet);
       const regeneratedNovelty = noveltyRatio(regeneratedNames, recentExerciseNames);
+      const regeneratedFamilies = exerciseFamilySet(regenerated);
+      const regeneratedRecurrence = [...regeneratedNames].filter((name) => {
+        const count = weeklyExerciseCounts.get(name) ?? 0;
+        const lastSeen = weeklyLastSeen.get(name);
+        const consecutive = lastSeen != null ? (weekIdx - lastSeen) <= 1 : false;
+        return count >= 2 || consecutive;
+      });
+      const regeneratedFamilyRecurrence = [...regeneratedFamilies].filter((family) => {
+        const count = weeklyFamilyCounts.get(family) ?? 0;
+        const lastSeen = weeklyFamilyLastSeen.get(family);
+        const consecutive = lastSeen != null ? (weekIdx - lastSeen) <= 1 : false;
+        return count >= 2 || consecutive;
+      });
+      const regeneratedScore = candidateScore(
+        regenerated,
+        regeneratedOverlap,
+        regeneratedNovelty,
+        regeneratedRecurrence.length,
+        regeneratedFamilyRecurrence.length,
+        p?.muscleGroups ?? []
+      );
+      if (regeneratedScore > bestScore) {
+        bestScore = regeneratedScore;
+        bestWorkout = regenerated;
+      }
 
-      const isBetter =
-        regeneratedSignature !== signature &&
-        (!recentSignatures.has(regeneratedSignature)) &&
-        (
-          regeneratedOverlap < overlap ||
-          regeneratedNovelty > novelty ||
-          (regeneratedOverlap <= OVERLAP_THRESHOLD && regeneratedNovelty >= MIN_NOVELTY_RATIO)
-        );
+      const isBetter = regeneratedSignature !== signature && regeneratedScore >= currScore;
 
       if (isBetter || exactRepeat) {
         plannedWorkout = regenerated;
@@ -4164,7 +4790,29 @@ export async function generateWeeklyPlan(
       }
       attempt++;
     }
+    plannedWorkout = bestWorkout;
+    signature = workoutSignature(plannedWorkout);
     prevTrainingSignature = signature;
+    const prevGeneratedDay = [...days].reverse().find(d => !d.isRestDay && d.plannedWorkout);
+    const finalizedNames = exerciseNameSet(plannedWorkout);
+    if (prevGeneratedDay?.plannedWorkout) {
+      const prevFinalNames = exerciseNameSet(prevGeneratedDay.plannedWorkout);
+      overlapSamples.push(overlapRatio(finalizedNames, prevFinalNames));
+    }
+    const recentNamesForSample = new Set<string>();
+    for (const r of getRecentTrainingDays(2)) {
+      for (const n of exerciseNameSet(r.plannedWorkout)) recentNamesForSample.add(n);
+    }
+    noveltySamples.push(noveltyRatio(finalizedNames, recentNamesForSample));
+    anchorSamples.push(anchorCoverage(plannedWorkout, p?.muscleGroups ?? []));
+    for (const n of exerciseNameSet(plannedWorkout)) {
+      weeklyExerciseCounts.set(n, (weeklyExerciseCounts.get(n) ?? 0) + 1);
+      weeklyLastSeen.set(n, weekIdx);
+    }
+    for (const family of exerciseFamilySet(plannedWorkout)) {
+      weeklyFamilyCounts.set(family, (weeklyFamilyCounts.get(family) ?? 0) + 1);
+      weeklyFamilyLastSeen.set(family, weekIdx);
+    }
     days.push({
       planDate,
       dayOfWeek: dow,
@@ -4180,10 +4828,31 @@ export async function generateWeeklyPlan(
     });
   }
 
+  const trainingMinutes = days
+    .filter(d => !d.isRestDay)
+    .map(d => Number(d.estimatedMinutes || d.plannedWorkout?.estimatedDurationMinutes || 0))
+    .filter(v => Number.isFinite(v) && v > 0);
+  const avgMinutes = trainingMinutes.length > 0
+    ? trainingMinutes.reduce((s, v) => s + v, 0) / trainingMinutes.length
+    : 0;
+  const minuteStd = trainingMinutes.length > 1
+    ? Math.sqrt(trainingMinutes.reduce((s, v) => s + ((v - avgMinutes) ** 2), 0) / (trainingMinutes.length - 1))
+    : 0;
+  const monotony = minuteStd > 0 ? avgMinutes / minuteStd : 0;
+  const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
+
   return {
     weekStartDate: weekDates[0],
     featureSnapshotId: profile.featureSnapshotId,
     days,
+    planQuality: {
+      avgConsecutiveOverlap: Math.round(avg(overlapSamples) * 1000) / 1000,
+      avgAnchorCoverage: Math.round(avg(anchorSamples) * 1000) / 1000,
+      avgNoveltyVsRecent: Math.round(avg(noveltySamples) * 1000) / 1000,
+      recurrenceBlockEvents,
+      monotony: Math.round(monotony * 100) / 100,
+      generatedAt: new Date().toISOString(),
+    },
   };
 }
 

@@ -6,6 +6,7 @@ import {
   generateWorkout,
   saveGeneratedWorkout,
   generateWeekPreview,
+  generateWeekPreviewFromPlan,
   generateWeeklyPlan,
   recomputeWeeklyPlanWithDiff,
   type WeeklyPlan,
@@ -350,8 +351,8 @@ export default function TodayWorkout() {
     return plannedDays.length > 0 && missingPolicyState >= Math.ceil(plannedDays.length / 2)
   }
 
-  const hydrateWeeklyPlan = async (tp: TrainingProfile, userRestDays: number[]) => {
-    if (!user) return
+  const hydrateWeeklyPlan = async (tp: TrainingProfile, userRestDays: number[]): Promise<WeeklyPlan | null> => {
+    if (!user) return null
     const weekStartDate = getWeekStartDate(new Date())
     const existing = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
     if (existing?.days?.length && !isWeeklyPlanStale(existing as WeeklyPlan, tp)) {
@@ -368,10 +369,11 @@ export default function TodayWorkout() {
         }
         setWeeklyPlan(repaired)
         await saveWeeklyPlanToSupabase(user.id, repaired, repairedDiffs).catch(() => null)
+        return repaired
       } else {
         setWeeklyPlan(mergedExisting)
+        return mergedExisting
       }
-      return
     }
     const generatedPlan = await generateWeeklyPlan(tp, userRestDays)
     const validatedGenerated = await annotateWeeklyPlanVerdicts(tp, generatedPlan)
@@ -381,6 +383,7 @@ export default function TodayWorkout() {
     if (planId) {
       setWeeklyDiffsByDate({})
     }
+    return mergedGenerated
   }
 
   const annotateWeeklyPlanVerdicts = async (tp: TrainingProfile, plan: WeeklyPlan): Promise<WeeklyPlan> => {
@@ -434,6 +437,12 @@ export default function TodayWorkout() {
     const todayMatch = weeklyPlan.days.find(d => d.planDate === today)
     setSelectedPlanDate(todayMatch?.planDate || weeklyPlan.days[0].planDate)
   }, [weeklyPlan, selectedPlanDate])
+
+  useEffect(() => {
+    if (!weeklyPlan?.days?.length) return
+    const completedName = completedWorkout ? deriveWorkoutName(completedWorkout) : undefined
+    setWeekPreview(generateWeekPreviewFromPlan(weeklyPlan, !!completedWorkout, completedName))
+  }, [weeklyPlan, completedWorkout])
 
   useEffect(() => {
     if (!llmValidation || !workout || !user) return
@@ -515,7 +524,12 @@ export default function TodayWorkout() {
         todayDone,
         completedName
       ))
-      await hydrateWeeklyPlan(tp, loadedRestDays)
+      const hydratePromise = hydrateWeeklyPlan(tp, loadedRestDays)
+      void hydratePromise.then((hydrated) => {
+        if (hydrated?.days?.length) {
+          setWeekPreview(generateWeekPreviewFromPlan(hydrated, todayDone, completedName))
+        }
+      }).catch(() => null)
       if (existingWorkout) {
         setWeeklyPlan(prev => {
           if (!prev?.days?.length) return prev

@@ -165,3 +165,40 @@ export interface LlmValidationArtifactDTO {
   created_at: string
 }
 
+// Biomechanics ontology used by planning/policy layers.
+// This complements the persistence DTOs with first-principles structure.
+export type HipActionClass =
+  | 'abduction_external_rotation'
+  | 'adduction_internal_rotation'
+  | 'extension'
+  | 'flexion'
+
+export interface MuscleFunctionalRole {
+  muscle_group: string
+  prime_actions: HipActionClass[]
+  stabilizer_actions: HipActionClass[]
+  interactions: string[]
+}
+
+export interface CardioMechanicalLoadSignal {
+  source: 'walking' | 'incline_walking' | 'stairs' | 'running' | 'mixed'
+  frontal_plane_stability_load: number
+  sagittal_plane_load: number
+  external_rotation_bias: number
+  internal_rotation_bias: number
+}
+
+export interface BiomechanicsOntologySnapshot {
+  schema_version: string
+  updated_at: string
+  hip_roles: MuscleFunctionalRole[]
+}
+
+export interface MechanicalCouplingEdge {
+  source_group: string
+  target_group: string
+  coupling_kind: 'synergist_fatigue' | 'stability_transfer' | 'movement_pattern_overlap'
+  weight: number
+  rationale: string
+}
+

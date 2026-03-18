@@ -21,7 +21,8 @@
 
 .content {
   padding: 16px;
-  padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  /* Reserve enough scroll space for fixed CTA row + bottom nav */
+  padding-bottom: calc(168px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -922,7 +923,8 @@
   display: flex;
   gap: 8px;
   position: fixed;
-  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  /* Keep CTA row above persistent bottom navigation */
+  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
   left: 16px;
   right: 16px;
   max-width: 600px;

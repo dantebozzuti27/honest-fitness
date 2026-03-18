@@ -121,6 +121,51 @@ const RELATIONSHIP_FLOW = [
   'LLM validation -> ModelFeedback -> next TrainingProfile -> next GeneratedWorkout',
 ]
 
+const HIP_MECHANICS_ONTOLOGY = [
+  {
+    title: 'External Hip Chain',
+    description: 'Primary for gait stabilization under walking/incline/stairs. Biases abductors and external rotators early in the session when ambulatory load is high.',
+    muscles: ['abductors (glute med/min, TFL)', 'gluteus maximus', 'lateral core stabilizers'],
+    demandSignals: ['high weekly walking duration', 'incline treadmill', 'stair volume'],
+  },
+  {
+    title: 'Internal Hip Chain',
+    description: 'Primary for adduction/internal rotation control and frontal-plane force transfer. Trained via adductors + internal rotator dominated patterns.',
+    muscles: ['adductors', 'deep internal rotators', 'proximal hamstrings'],
+    demandSignals: ['lateral lunges', 'sumo patterns', 'copenhagen/adduction accessories'],
+  },
+  {
+    title: 'Coupled Load Propagation',
+    description: 'Hip demand shifts volume/recovery targets across lower-body groups. External-dominant ambulatory load increases abductor priority and can delay low-value adductor volume.',
+    muscles: ['abductors <-> adductors', 'glutes <-> hamstrings', 'hip complex <-> core'],
+    demandSignals: ['weekly cardio profile', 'current volume deficits', 'recovery readiness'],
+  },
+  {
+    title: 'Push-Pull Coupling',
+    description: 'Upper-body loading propagates through synergists: pressing affects triceps/anterior delts; pulling affects biceps/posterior chain and grip. Volume and recovery are coordinated across the chain.',
+    muscles: ['chest <-> anterior deltoid <-> triceps', 'back_lats/back_upper <-> biceps <-> forearms'],
+    demandSignals: ['horizontal/vertical push frequency', 'horizontal/vertical pull frequency', 'set-level execution drift'],
+  },
+  {
+    title: 'Hinge-Squat Coupling',
+    description: 'Lower-body compounds share recoverability limits. Hinge and knee-dominant stress jointly affect hamstrings, glutes, adductors, erectors, and quads across the week.',
+    muscles: ['hamstrings <-> glutes <-> erector_spinae', 'quadriceps <-> adductors <-> calves'],
+    demandSignals: ['movement pattern fatigue', 'weekly direct + indirect sets', 'session-duration budget'],
+  },
+  {
+    title: 'Core Transmission Layer',
+    description: 'Core/anti-rotation capacity acts as a bottleneck for force transfer in unilateral and heavy compound work; deficits propagate into ordering and stability-demand exercise selection.',
+    muscles: ['core <-> abductors/adductors', 'core <-> erector_spinae', 'core <-> upper/lower compounds'],
+    demandSignals: ['anti-rotation exposure', 'fatigue model readiness', 'rest-time compression pressure'],
+  },
+  {
+    title: 'Execution Feedback Coupling',
+    description: 'Set-level target vs actual performance updates future priorities by muscle group. Persistent overperformance increases progression pressure; misses reduce near-term stress to preserve adaptation quality.',
+    muscles: ['performed load/reps <-> target load/reps', 'muscle-group execution deltas <-> next-session prioritization'],
+    demandSignals: ['completion rate by muscle group', 'avg weight deviation', 'avg reps deviation', 'execution accuracy samples'],
+  },
+]
+
 const RELATION_EDGES: RelationEdgeDef[] = [
   {
     id: 'e-user-plan',
@@ -335,6 +380,14 @@ export default function OntologyDashboard() {
             This view explains how planning, generation, execution, and feedback are linked.
             It is the contract-level map for lineage and idempotency.
           </p>
+          <div className={styles.topActions}>
+            <Button variant="secondary" onClick={() => navigate(ROUTES.model)}>
+              Open ML Pipeline Dashboard
+            </Button>
+            <Button variant="secondary" onClick={() => navigate(ROUTES.today)}>
+              Open Today Workout
+            </Button>
+          </div>
           <div className={styles.flowList}>
             {RELATIONSHIP_FLOW.map((edge) => (
               <div key={edge} className={styles.flowItem}>{edge}</div>
@@ -421,6 +474,29 @@ export default function OntologyDashboard() {
               </ul>
             </article>
           ))}
+        </section>
+
+        <section className={styles.card}>
+          <h2 className={styles.sectionTitle}>Biomechanics Ontology (Whole-Body Coupling)</h2>
+          <p className={styles.body}>
+            This is the mechanistic ontology used by the planner to separate internal vs external hip demand and propagate load through push/pull/hinge/squat/core interactions into exercise ordering and weekly volume.
+          </p>
+          <div className={styles.biomechanicsGrid}>
+            {HIP_MECHANICS_ONTOLOGY.map((item) => (
+              <article key={item.title} className={styles.biomechanicsCard}>
+                <h3 className={styles.entityTitle}>{item.title}</h3>
+                <p className={styles.entityDesc}>{item.description}</p>
+                <div className={styles.relationTitle}>Muscles</div>
+                <ul className={styles.relations}>
+                  {item.muscles.map((muscle) => <li key={muscle}>{muscle}</li>)}
+                </ul>
+                <div className={styles.relationTitle}>Demand Signals</div>
+                <ul className={styles.relations}>
+                  {item.demandSignals.map((signal) => <li key={signal}>{signal}</li>)}
+                </ul>
+              </article>
+            ))}
+          </div>
         </section>
 
         <section className={styles.card}>

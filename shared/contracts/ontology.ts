@@ -1,6 +1,24 @@
 export type UUID = string
 
 export type PlanDayStatus = 'planned' | 'adapted' | 'completed' | 'skipped'
+export type CanonicalMuscleGroup =
+  | 'chest'
+  | 'back_lats'
+  | 'back_upper'
+  | 'anterior_deltoid'
+  | 'lateral_deltoid'
+  | 'posterior_deltoid'
+  | 'biceps'
+  | 'triceps'
+  | 'quadriceps'
+  | 'hamstrings'
+  | 'glutes'
+  | 'abductors'
+  | 'adductors'
+  | 'calves'
+  | 'core'
+  | 'forearms'
+  | 'erector_spinae'
 
 export interface WorkoutPlanVersionDTO {
   id: UUID
@@ -20,7 +38,7 @@ export interface WorkoutPlanDayDTO {
   day_status: PlanDayStatus
   is_rest_day: boolean
   focus: string | null
-  muscle_groups: string[]
+  muscle_groups: CanonicalMuscleGroup[]
   planned_workout: Record<string, unknown> | null
   estimated_minutes: number | null
   actual_workout_id: UUID | null
@@ -55,6 +73,12 @@ export interface ExerciseExecutionEventDTO {
   actual_reps: number | null
   target_time_seconds: number | null
   actual_time_seconds: number | null
+  target_rir?: number | null
+  actual_rir?: number | null
+  set_rpe?: number | null
+  is_unilateral?: boolean
+  load_interpretation?: 'per_hand_per_side' | 'total_both_per_side' | 'unknown' | null
+  reps_interpretation?: 'per_side' | 'total_reps' | null
   execution_accuracy: number | null
   idempotency_key: string | null
 }
@@ -174,7 +198,7 @@ export type HipActionClass =
   | 'flexion'
 
 export interface MuscleFunctionalRole {
-  muscle_group: string
+  muscle_group: CanonicalMuscleGroup
   prime_actions: HipActionClass[]
   stabilizer_actions: HipActionClass[]
   interactions: string[]
@@ -195,10 +219,43 @@ export interface BiomechanicsOntologySnapshot {
 }
 
 export interface MechanicalCouplingEdge {
-  source_group: string
-  target_group: string
+  source_group: CanonicalMuscleGroup
+  target_group: CanonicalMuscleGroup
   coupling_kind: 'synergist_fatigue' | 'stability_transfer' | 'movement_pattern_overlap'
   weight: number
   rationale: string
+}
+
+export interface CardioCapabilityProfileDTO {
+  id: UUID
+  user_id: UUID
+  modality: string
+  max_speed: number | null
+  comfortable_speed: number | null
+  max_incline: number | null
+  preferred_hr_zone_low: number | null
+  preferred_hr_zone_high: number | null
+  confidence_score: number | null
+  observed_sessions: number | null
+  metadata: Record<string, unknown>
+  updated_at: string
+  created_at: string
+}
+
+export interface SetTransformationAuditDTO {
+  id: UUID
+  user_id: UUID
+  workout_set_id: UUID | null
+  workout_id: UUID | null
+  exercise_name: string | null
+  original_weight: number | null
+  transformed_weight: number | null
+  original_load_interpretation: string | null
+  transformed_load_interpretation: string | null
+  reason: string
+  confidence: number | null
+  batch_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
 }
 

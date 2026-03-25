@@ -297,7 +297,15 @@ export default function ExerciseCard({
     cardioTimerStartMsRef.current = null
   }
 
+  const getSuggestedRestSeconds = () => {
+    const raw = Number(exercise?._prescription?.restSeconds)
+    if (!Number.isFinite(raw) || raw <= 0) return undefined
+    // Keep rest timers within a practical training range.
+    return Math.max(20, Math.min(600, Math.round(raw)))
+  }
+
   const handleNextSet = () => {
+    const suggestedRestSeconds = getSuggestedRestSeconds()
     // Stacked flow: alternate to the next exercise after *every* set.
     if (stacked && stackGroup && Array.isArray(stackMembers) && stackMembers.length > 1 && onStackNext) {
       const isLastSet = activeSet >= (exercise.sets.length - 1)
@@ -305,7 +313,7 @@ export default function ExerciseCard({
       if (!isLastSet) {
         setActiveSet(nextSetIndex)
       }
-      onStartRest?.()
+      onStartRest?.(suggestedRestSeconds)
       onStackNext({
         exerciseId: exercise.id,
         stackGroup,
@@ -316,11 +324,11 @@ export default function ExerciseCard({
 
     if (activeSet < exercise.sets.length - 1) {
       setActiveSet(activeSet + 1)
-      onStartRest()
+      onStartRest(suggestedRestSeconds)
     } else {
       // Last set - complete exercise and move to next
       onComplete()
-      onStartRest()
+      onStartRest(suggestedRestSeconds)
     }
   }
 
@@ -922,23 +930,25 @@ export default function ExerciseCard({
                   </>
                 )}
 
-                  {/* Generated workout target indicator */}
-                  {set._target_reps != null && (set._target_weight != null || set._is_bodyweight) && (
-                    <div className={styles.targetHint} title={`Model prescribed: ${set._target_reps} reps${set._is_bodyweight ? ' (bodyweight)' : ` @ ${set._target_weight} lbs`}${set._tempo ? ` (tempo: ${set._tempo})` : ''}`}>
-                      <span className={styles.targetLabel}>Rx</span>
-                      <span className={styles.targetValue}>{set._target_reps}{set._is_bodyweight ? ' BW' : `×${set._target_weight}`}</span>
-                    </div>
-                  )}
+                  <div className={styles.setActionRail}>
+                    {/* Generated workout target indicator */}
+                    {set._target_reps != null && (set._target_weight != null || set._is_bodyweight) && (
+                      <div className={styles.targetHint} title={`Model prescribed: ${set._target_reps} reps${set._is_bodyweight ? ' (bodyweight)' : ` @ ${set._target_weight} lbs`}${set._tempo ? ` (tempo: ${set._tempo})` : ''}`}>
+                        <span className={styles.targetLabel}>Rx</span>
+                        <span className={styles.targetValue}>{set._target_reps}{set._is_bodyweight ? ' BW' : `×${set._target_weight}`}</span>
+                      </div>
+                    )}
 
-                  {idx === activeSet && (
-                    <button
-                      type="button"
-                      className={`${styles.nextBtn} ${styles.setNextBtn}`}
-                      onClick={handleNextSet}
-                    >
-                      {idx === exercise.sets.length - 1 ? 'Complete' : 'Next'}
-                    </button>
-                  )}
+                    {idx === activeSet && (
+                      <button
+                        type="button"
+                        className={`${styles.nextBtn} ${styles.setNextBtn}`}
+                        onClick={handleNextSet}
+                      >
+                        {idx === exercise.sets.length - 1 ? 'Complete' : 'Next'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Elite set-entry quick actions (active set only) */}

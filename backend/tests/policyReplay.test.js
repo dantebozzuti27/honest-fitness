@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { computeReplayRows, evaluateEpisodeMetrics, summarizeReplayPromotion } from '../src/engines/ml/policyReplay.js'
+import { computeReplayRows, evaluateEpisodeMetrics, summarizeReplayPromotion, evaluatePromotionGate } from '../src/engines/ml/policyReplay.js'
 
 test('evaluateEpisodeMetrics computes averages and promotion readiness', () => {
   const episodes = [{ id: 'ep-1', episode_key: 'k1' }]
@@ -41,4 +41,37 @@ test('summarizeReplayPromotion respects sample size and regret gate', () => {
   assert.equal(summary.promote, true)
   assert.ok(summary.avgRegretDelta <= -0.02)
   assert.ok(summary.ci95HalfWidth >= 0)
+})
+
+test('evaluatePromotionGate blocks strict promotion on weak coherence', () => {
+  const replaySummary = { sampleSize: 10, avgRegretDelta: -0.03, ci95HalfWidth: 0.001, promote: true }
+  const decision = evaluatePromotionGate(
+    replaySummary,
+    { avgCoherenceScore: 0.58, plannerTotalMs: 2200, avgDiversifyAttempts: 1.4 },
+    { strict: true }
+  )
+  assert.equal(decision.promote, false)
+  assert.equal(decision.reason, 'coherence_gate_failed')
+})
+
+test('evaluatePromotionGate passes strict promotion when all gates pass', () => {
+  const replaySummary = { sampleSize: 10, avgRegretDelta: -0.03, ci95HalfWidth: 0.001, promote: true }
+  const decision = evaluatePromotionGate(
+    replaySummary,
+    { avgCoherenceScore: 0.8, plannerTotalMs: 1800, avgDiversifyAttempts: 1.6 },
+    { strict: true }
+  )
+  assert.equal(decision.promote, true)
+  assert.equal(decision.reason, 'all_gates_passed')
+})
+
+test('evaluatePromotionGate fails strict promotion when telemetry missing', () => {
+  const replaySummary = { sampleSize: 10, avgRegretDelta: -0.03, ci95HalfWidth: 0.001, promote: true }
+  const decision = evaluatePromotionGate(
+    replaySummary,
+    {},
+    { strict: true }
+  )
+  assert.equal(decision.promote, false)
+  assert.equal(decision.reason, 'quality_telemetry_missing')
 })

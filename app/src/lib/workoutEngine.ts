@@ -15,7 +15,14 @@
  */
 
 import { requireSupabase } from './supabase';
-import { VOLUME_GUIDELINES, MUSCLE_HEAD_TO_GROUP, getGuidelineForGroup } from './volumeGuidelines';
+import {
+  VOLUME_GUIDELINES,
+  MUSCLE_HEAD_TO_GROUP,
+  type CanonicalMuscleGroup,
+  getGuidelineForGroup,
+  normalizeMuscleGroupList,
+  normalizeMuscleGroupName,
+} from './volumeGuidelines';
 import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference, CardioHistory, ExerciseOrderProfile, MuscleVolumeStatus } from './trainingAnalysis';
 import { uuidv4 } from '../utils/uuid';
 import { getExerciseMapping, getExerciseSFR } from './exerciseMuscleMap';
@@ -74,6 +81,7 @@ export interface UserPreferences {
   rest_days: number[]; // 0=Sun, 1=Mon, ... 6=Sat
   sport_focus: string | null;
   sport_season: SportSeason | null;
+  hotel_mode: boolean;
 }
 
 export type ExerciseRole = 'primary' | 'secondary' | 'isolation' | 'corrective' | 'cardio';
@@ -205,11 +213,40 @@ export interface GeneratedWorkout {
     confidence: number;
   }>;
   runtimeFlags?: Record<string, boolean>;
+  perfTelemetry?: {
+    totalMs: number;
+    stagesMs: Record<string, number>;
+  };
 }
 
 // ─── Data Fetching ──────────────────────────────────────────────────────────
 
+const PREFS_CACHE_TTL_MS = 60 * 1000;
+const EXERCISE_CACHE_TTL_MS = 5 * 60 * 1000;
+const prefsCache = new Map<string, { at: number; value: UserPreferences }>();
+let exerciseCache: { at: number; value: EnrichedExercise[] } | null = null;
+
+function clonePrefs(prefs: UserPreferences): UserPreferences {
+  if (typeof structuredClone === 'function') return structuredClone(prefs);
+  return JSON.parse(JSON.stringify(prefs)) as UserPreferences;
+}
+
+function cloneExercises(exercises: EnrichedExercise[]): EnrichedExercise[] {
+  return exercises.map((ex) => ({
+    ...ex,
+    primary_muscles: Array.isArray(ex.primary_muscles) ? [...ex.primary_muscles] : [],
+    secondary_muscles: Array.isArray(ex.secondary_muscles) ? [...ex.secondary_muscles] : [],
+    stabilizer_muscles: Array.isArray(ex.stabilizer_muscles) ? [...ex.stabilizer_muscles] : [],
+    equipment: Array.isArray(ex.equipment) ? [...ex.equipment] : [],
+  }));
+}
+
 async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
+  const now = Date.now();
+  const cached = prefsCache.get(userId);
+  if (cached && (now - cached.at) <= PREFS_CACHE_TTL_MS) {
+    return clonePrefs(cached.value);
+  }
   const supabase = requireSupabase();
   const { data, error } = await supabase
     .from('user_preferences')
@@ -237,7 +274,7 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     }
   }
 
-  return {
+  const parsed: UserPreferences = {
     training_goal: data?.training_goal ?? 'hypertrophy',
     primary_goal: data?.primary_goal ?? null,
     secondary_goal: data?.secondary_goal ?? null,
@@ -273,10 +310,17 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     rest_days: Array.isArray(data?.rest_days) ? data.rest_days : [],
     sport_focus: data?.sport_focus ?? null,
     sport_season: data?.sport_season ?? null,
+    hotel_mode: Boolean(data?.hotel_mode),
   };
+  prefsCache.set(userId, { at: now, value: parsed });
+  return clonePrefs(parsed);
 }
 
 async function fetchAllExercises(): Promise<EnrichedExercise[]> {
+  const now = Date.now();
+  if (exerciseCache && (now - exerciseCache.at) <= EXERCISE_CACHE_TTL_MS) {
+    return cloneExercises(exerciseCache.value);
+  }
   const supabase = requireSupabase();
   const primary = await supabase
     .from('exercise_library')
@@ -296,10 +340,12 @@ async function fetchAllExercises(): Promise<EnrichedExercise[]> {
   }
 
   if (error) throw error;
-  return ((data ?? []) as EnrichedExercise[]).map((ex: any) => ({
+  const normalized = ((data ?? []) as EnrichedExercise[]).map((ex: any) => ({
     ...ex,
     equipment: Array.isArray(ex?.equipment) ? ex.equipment : [],
   }));
+  exerciseCache = { at: now, value: normalized };
+  return cloneExercises(normalized);
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -318,9 +364,24 @@ const REP_RANGE_TABLE: Record<string, Record<string, { min: number; max: number;
   strength:        { primary: { min: 3, max: 5, target: 4 },  secondary: { min: 5, max: 8, target: 6 },  isolation: { min: 8, max: 12, target: 10 } },
   hypertrophy:     { primary: { min: 6, max: 10, target: 8 }, secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
   fat_loss:        { primary: { min: 8, max: 12, target: 10 }, secondary: { min: 10, max: 15, target: 12 }, isolation: { min: 12, max: 20, target: 15 } },
-  endurance:       { primary: { min: 12, max: 15, target: 13 }, secondary: { min: 15, max: 20, target: 17 }, isolation: { min: 15, max: 25, target: 20 } },
+  endurance:       { primary: { min: 12, max: 15, target: 12 }, secondary: { min: 15, max: 20, target: 15 }, isolation: { min: 15, max: 25, target: 20 } },
   general_fitness: { primary: { min: 6, max: 10, target: 8 }, secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
 };
+
+function humanizeRepTarget(value: number, min: number, max: number): number {
+  const allowed = [3, 4, 5, 6, 8, 10, 12, 15, 20, 25].filter(v => v >= min && v <= max);
+  if (allowed.length === 0) return Math.max(min, Math.min(max, Math.round(value)));
+  let best = allowed[0];
+  let bestDist = Math.abs(value - best);
+  for (const candidate of allowed.slice(1)) {
+    const dist = Math.abs(value - candidate);
+    if (dist < bestDist) {
+      best = candidate;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
 
 function getRepRangeByRole(
   role: ExerciseRole,
@@ -474,6 +535,17 @@ function inferExerciseType(exercise: EnrichedExercise): string {
   // Default to isolation for unknown exercises — safer rest/volume programming
   // than incorrectly assuming compound (which gives less rest, higher CNS load)
   return 'isolation';
+}
+
+function inferCardioModality(exerciseName: string): 'walk' | 'run' | 'stair' | 'bike' | 'row' | 'elliptical' | 'other' {
+  const n = String(exerciseName || '').toLowerCase();
+  if (/stairmaster|stair master|stepmill/.test(n)) return 'stair';
+  if (/bike|cycle/.test(n)) return 'bike';
+  if (/row/.test(n)) return 'row';
+  if (/elliptical/.test(n)) return 'elliptical';
+  if (/run|jog|sprint/.test(n)) return 'run';
+  if (/walk|treadmill|incline|hike|ruck/.test(n)) return 'walk';
+  return 'other';
 }
 
 /**
@@ -1225,7 +1297,7 @@ interface MuscleGroupSelection {
   volumeTarget: string | null;
 }
 
-const SPLIT_MUSCLE_MAPPING: Record<string, string[]> = {
+const SPLIT_MUSCLE_MAPPING: Record<string, CanonicalMuscleGroup[]> = {
   push: ['chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'],
   pull: ['back_lats', 'back_upper', 'biceps', 'posterior_deltoid', 'forearms'],
   legs: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors', 'calves'],
@@ -1241,6 +1313,8 @@ function computeHipAbductorLoadSignal(profile: TrainingProfile): {
   abductorPriorityBoost: number;
   adductorPriorityBoost: number;
   adductorPriorityPenalty: number;
+  adaptiveSuppression: number;
+  suppressDirectIsolation: boolean;
   shouldFrontLoadAbductors: boolean;
 } {
   const WEEKS_WINDOW = 4;
@@ -1270,16 +1344,34 @@ function computeHipAbductorLoadSignal(profile: TrainingProfile): {
     .reduce((sum, c) => sum + ((((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW)) / 60), 0);
   const internalHipLoadScore = clampNumber(adductionSpecificHours * 1.2 + Math.max(0, weeklyAmbulatoryHours - inclineWeightedHours) * 0.08, 0, 2.2);
   const hipLoadImbalance = Math.max(0, externalHipLoadScore - internalHipLoadScore);
+  const volumeByGroup = new Map((profile.muscleVolumeStatuses ?? []).map(v => [String(v.muscleGroup || '').toLowerCase(), Number(v.weeklyDirectSets || 0)]));
+  const freqByGroup = profile.muscleGroupFrequency ?? {};
+  const abductorDirect = Math.max(0, Number(volumeByGroup.get('abductors') ?? 0));
+  const adductorDirect = Math.max(0, Number(volumeByGroup.get('adductors') ?? 0));
+  const hipDirectExposure = abductorDirect + adductorDirect;
+  const hipFreq = Math.max(0, Number(freqByGroup.abductors ?? 0)) + Math.max(0, Number(freqByGroup.adductors ?? 0));
+  const targetDirectBand = 8; // adaptive center for combined direct hip-isolation stimulus
+  const volumeSaturation = clampNumber((hipDirectExposure - targetDirectBand) / Math.max(targetDirectBand, 1), 0, 1.25);
+  const freqSaturation = clampNumber((hipFreq - 2.1) / 1.6, 0, 1.2);
+  const adaptiveSuppression = clampNumber(1 - (volumeSaturation * 0.55) - (freqSaturation * 0.45), 0.25, 1);
 
-  const abductorPriorityBoost = externalHipLoadScore >= 0.35
+  const abductorPriorityBoostRaw = externalHipLoadScore >= 0.35
     ? clampNumber(0.06 + externalHipLoadScore * 0.12, 0, 0.46)
     : 0;
-  const adductorPriorityBoost = internalHipLoadScore >= 0.55
+  const adductorPriorityBoostRaw = internalHipLoadScore >= 0.55
     ? clampNumber(0.05 + internalHipLoadScore * 0.08, 0, 0.22)
     : 0;
-  const adductorPriorityPenalty = hipLoadImbalance >= 0.6
+  const adductorPriorityPenaltyRaw = hipLoadImbalance >= 0.6
     ? clampNumber(hipLoadImbalance * 0.08, 0, 0.18)
     : 0;
+  const abductorPriorityBoost = clampNumber(abductorPriorityBoostRaw * adaptiveSuppression, 0, 0.46);
+  const adductorPriorityBoost = clampNumber(adductorPriorityBoostRaw * adaptiveSuppression, 0, 0.22);
+  const adductorPriorityPenalty = clampNumber(
+    adductorPriorityPenaltyRaw + (adaptiveSuppression < 0.7 ? (0.7 - adaptiveSuppression) * 0.12 : 0),
+    0,
+    0.24
+  );
+  const suppressDirectIsolation = hipDirectExposure >= (targetDirectBand * 1.25) || hipFreq >= 3.1;
   return {
     weeklyAmbulatoryHours,
     externalHipLoadScore,
@@ -1287,7 +1379,9 @@ function computeHipAbductorLoadSignal(profile: TrainingProfile): {
     abductorPriorityBoost,
     adductorPriorityBoost,
     adductorPriorityPenalty,
-    shouldFrontLoadAbductors: externalHipLoadScore >= 0.9,
+    adaptiveSuppression,
+    suppressDirectIsolation,
+    shouldFrontLoadAbductors: externalHipLoadScore >= 0.9 && adaptiveSuppression >= 0.7,
   };
 }
 
@@ -1320,6 +1414,11 @@ function computeSystemCouplingSignals(
   }
   if (hipSignal.adductorPriorityPenalty > 0) {
     add('adductors', -hipSignal.adductorPriorityPenalty, `external/internal hip imbalance`);
+  }
+  if (hipSignal.adaptiveSuppression < 0.95) {
+    const suppressionPenalty = clampNumber((1 - hipSignal.adaptiveSuppression) * 0.18, 0.01, 0.14);
+    add('abductors', -suppressionPenalty, `hip direct-dose saturation (${hipSignal.adaptiveSuppression.toFixed(2)})`);
+    add('adductors', -suppressionPenalty, `hip direct-dose saturation (${hipSignal.adaptiveSuppression.toFixed(2)})`);
   }
   if (hipSignal.weeklyAmbulatoryHours >= 3) {
     const calfBoost = clampNumber((hipSignal.weeklyAmbulatoryHours - 2.5) * 0.03, 0, 0.12);
@@ -1489,12 +1588,15 @@ function stepSelectMuscleGroups(
   const systemCouplingSignals = computeSystemCouplingSignals(profile, hipAbductorSignal);
 
   let splitTargetGroups: Set<string> | null = null;
-  const preferredGroupSet = new Set((preferredGroups ?? []).map(g => String(g).toLowerCase()).filter(Boolean));
+  const preferredGroupSet = new Set<string>(normalizeMuscleGroupList(preferredGroups ?? []));
+  const todayPatternGroups = normalizeMuscleGroupList(todayPattern?.muscleGroupsTypical ?? []);
+  const priorityMuscleSet = new Set<string>(normalizeMuscleGroupList(prefs.priority_muscles ?? []));
+  const isPriorityMuscle = (group: string) => priorityMuscleSet.has(group);
 
   // For explicit day planning (weekly plan), prioritize the day-of-week pattern
   // so each day gets distinct focus rather than repeating nextRecommended.
-  if (dayOfWeekOverride != null && todayPattern && !todayPattern.isRestDay && todayPattern.muscleGroupsTypical.length > 0) {
-    splitTargetGroups = new Set(todayPattern.muscleGroupsTypical);
+  if (dayOfWeekOverride != null && todayPattern && !todayPattern.isRestDay && todayPatternGroups.length > 0) {
+    splitTargetGroups = new Set(todayPatternGroups);
   } else if (dayOfWeekOverride != null && detectedSplit.typicalRotation.length > 0) {
     // If no explicit day pattern is available, rotate weekly focus by weekday
     // so generated weekly plans do not repeat the same exact day focus.
@@ -1518,16 +1620,16 @@ function stepSelectMuscleGroups(
       const groups = SPLIT_MUSCLE_MAPPING[rec];
       if (groups) groups.forEach(g => splitTargetGroups!.add(g));
     }
-  } else if (todayPattern && !todayPattern.isRestDay && todayPattern.muscleGroupsTypical.length > 0) {
+  } else if (todayPattern && !todayPattern.isRestDay && todayPatternGroups.length > 0) {
     // Fall back to day-of-week pattern
-    splitTargetGroups = new Set(todayPattern.muscleGroupsTypical);
+    splitTargetGroups = new Set(todayPatternGroups);
   }
 
   // ── Cardio-strength interference (Wilson et al. 2012 meta-analysis) ──
   // Heavy cardio reduces effective MRV for lower body muscles.
-  // Running/stairmaster (high eccentric): 5% leg MRV reduction per hour/week
-  // Cycling/elliptical (low eccentric): 2% reduction per hour/week
-  // Walking: 0% interference
+  // Running/stairmaster (high eccentric): high interference
+  // Cycling/elliptical/row and brisk incline walking: low interference
+  // Easy walking: near-zero interference
   const LOWER_BODY_GROUPS = new Set(['quadriceps', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors']);
   let cardioInterferencePct = 0;
   const WEEKS_WINDOW = 4;
@@ -1543,6 +1645,13 @@ function stepSelectMuscleGroups(
     const lowImpactCardio = profile.cardioHistory.filter(c =>
       /bike|cycle|elliptical|row/i.test(c.exerciseName)
     );
+    const briskWalkCardio = profile.cardioHistory.filter(c => {
+      const name = String(c.exerciseName || '').toLowerCase();
+      if (!/walk|treadmill|incline|hike|ruck/.test(name)) return false;
+      const speed = Number(c.avgSpeed ?? 0);
+      const incline = Number(c.avgIncline ?? 0);
+      return speed >= 3.8 || incline >= 4;
+    });
 
     const highImpactHours = highImpactCardio.reduce((s, c) =>
       s + (c.avgDurationSeconds / 60) * c.recentSessions / WEEKS_WINDOW / 60, 0
@@ -1550,11 +1659,21 @@ function stepSelectMuscleGroups(
     const lowImpactHours = lowImpactCardio.reduce((s, c) =>
       s + (c.avgDurationSeconds / 60) * c.recentSessions / WEEKS_WINDOW / 60, 0
     );
+    const briskWalkHours = briskWalkCardio.reduce((s, c) =>
+      s + (c.avgDurationSeconds / 60) * c.recentSessions / WEEKS_WINDOW / 60, 0
+    );
 
-    cardioInterferencePct = Math.min(cfg.maxCardioInterferencePct, highImpactHours * cfg.highImpactCardioInterferencePct + lowImpactHours * cfg.lowImpactCardioInterferencePct);
+    cardioInterferencePct = Math.min(
+      cfg.maxCardioInterferencePct,
+      highImpactHours * cfg.highImpactCardioInterferencePct
+      + (lowImpactHours + briskWalkHours) * cfg.lowImpactCardioInterferencePct
+    );
   }
 
-  for (const vol of profile.muscleVolumeStatuses) {
+  for (const rawVol of profile.muscleVolumeStatuses) {
+    const normalizedGroup = normalizeMuscleGroupName(rawVol.muscleGroup);
+    if (!normalizedGroup) continue;
+    const vol = { ...rawVol, muscleGroup: normalizedGroup };
     const guideline = getGuidelineForGroup(vol.muscleGroup);
     if (!guideline) continue;
 
@@ -1616,11 +1735,11 @@ function stepSelectMuscleGroups(
       priority += 0.42;
     }
 
-    if (todayPattern?.muscleGroupsTypical.includes(vol.muscleGroup)) {
+    if (todayPatternGroups.includes(vol.muscleGroup)) {
       priority += cfg.dayPatternBoost;
     }
 
-    if (prefs.priority_muscles.some(pm => pm.toLowerCase() === vol.muscleGroup)) {
+    if (isPriorityMuscle(vol.muscleGroup)) {
       priority += cfg.priorityMuscleBoost;
     }
 
@@ -1662,7 +1781,7 @@ function stepSelectMuscleGroups(
     const couplingSignal = systemCouplingSignals[vol.muscleGroup];
     if (couplingSignal) {
       let couplingDelta = couplingSignal.priorityDelta;
-      if (vol.muscleGroup === 'adductors' && couplingDelta < 0 && prefs.priority_muscles.some(pm => pm.toLowerCase() === 'adductors')) {
+      if (vol.muscleGroup === 'adductors' && couplingDelta < 0 && isPriorityMuscle('adductors')) {
         // Respect explicit user preference even under coupling-based deprioritization.
         couplingDelta = Math.max(0, couplingDelta + 0.12);
       }
@@ -1672,12 +1791,23 @@ function stepSelectMuscleGroups(
     // Scale sets by duration: longer sessions can accommodate more volume per group
     const sessionDur = prefs.session_duration_minutes;
     const durationSetScale = sessionDur >= 120 ? 1.30 : sessionDur >= 90 ? 1.15 : sessionDur <= 45 ? 0.75 : 1.0;
-    const setsNeeded = Math.ceil(
+    let setsNeeded = Math.ceil(
       Math.min(Math.max(volumeDeficit, 3), 12) * recoveryAdj.volumeMultiplier * durationSetScale
     );
+    if (vol.muscleGroup === 'abductors' || vol.muscleGroup === 'adductors') {
+      if (hipAbductorSignal.suppressDirectIsolation) {
+        setsNeeded = Math.max(2, Math.min(setsNeeded, 3));
+      } else if (hipAbductorSignal.adaptiveSuppression < 0.85) {
+        setsNeeded = Math.max(2, Math.round(setsNeeded * hipAbductorSignal.adaptiveSuppression));
+      }
+      if ((vol.daysSinceLastTrained ?? 99) <= 1) {
+        // Recovery-aware anti-chatter guard: avoid daily direct hip isolation.
+        priority -= 0.18;
+      }
+    }
 
     const splitLabel = splitTargetGroups?.has(vol.muscleGroup) ? ' [split match]' : '';
-    const dayLabel = todayPattern?.muscleGroupsTypical.includes(vol.muscleGroup) ? ' [day pattern]' : '';
+    const dayLabel = todayPatternGroups.includes(vol.muscleGroup) ? ' [day pattern]' : '';
 
     if (setsNeeded > 0 || freshnessDays >= 5 || splitTargetGroups?.has(vol.muscleGroup)) {
       const couplingTag = couplingSignal
@@ -1710,6 +1840,48 @@ function stepSelectMuscleGroups(
     : dur <= 100 ? 5
     : 6;
   let selected = candidates.slice(0, maxGroups);
+  const primaryMajorGroups = new Set([
+    'chest', 'back_lats', 'back_upper', 'quadriceps', 'hamstrings', 'glutes',
+    'anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid',
+  ]);
+  const accessoryMinorGroups = new Set([
+    'forearms', 'calves', 'abductors', 'adductors', 'core', 'erector_spinae',
+  ]);
+  const canTrainMajorCandidate = (c: MuscleGroupSelection): boolean => {
+    if (!primaryMajorGroups.has(c.muscleGroup)) return false;
+    if (c.recoveryPercent == null) return true;
+    // Human-coherence guard: allow moderately recovered major groups before overfilling with minors.
+    return c.recoveryPercent >= Math.max(55, Math.round(cfg.muscleReadyThreshold * 100) - 20);
+  };
+  if (!recoveryAdj.isDeload && selected.length > 0) {
+    const selectedMajorCount = selected.filter((s) => primaryMajorGroups.has(s.muscleGroup)).length;
+    const selectedMinorCount = selected.filter((s) => accessoryMinorGroups.has(s.muscleGroup)).length;
+    const majorPool = candidates.filter(canTrainMajorCandidate);
+    const selectedSet = new Set(selected.map((s) => s.muscleGroup));
+    // Guarantee at least one major driver unless truly unavailable.
+    if (selectedMajorCount === 0 && majorPool.length > 0) {
+      const replacement = majorPool.find((m) => !selectedSet.has(m.muscleGroup));
+      if (replacement) {
+        const replaceIdx = selected.findIndex((s) => accessoryMinorGroups.has(s.muscleGroup));
+        if (replaceIdx >= 0) selected[replaceIdx] = replacement;
+      }
+    }
+    // Avoid accessory-dominant sessions by capping minor-group share.
+    const maxMinorGroups = Math.max(1, Math.floor(selected.length / 2));
+    let workingMinorCount = selected.filter((s) => accessoryMinorGroups.has(s.muscleGroup)).length;
+    if (workingMinorCount > maxMinorGroups) {
+      for (const replacement of majorPool) {
+        if (workingMinorCount <= maxMinorGroups) break;
+        if (selectedSet.has(replacement.muscleGroup)) continue;
+        const idx = selected.findIndex((s) => accessoryMinorGroups.has(s.muscleGroup));
+        if (idx < 0) break;
+        selectedSet.delete(selected[idx].muscleGroup);
+        selected[idx] = replacement;
+        selectedSet.add(replacement.muscleGroup);
+        workingMinorCount -= 1;
+      }
+    }
+  }
   if (preferredGroupSet.size > 0 && selected.length > 0) {
     const anchorCandidates = candidates.filter(c => preferredGroupSet.has(c.muscleGroup));
     const nonAnchorSelected = selected.filter(c => !preferredGroupSet.has(c.muscleGroup));
@@ -1726,6 +1898,46 @@ function stepSelectMuscleGroups(
       selected = [...anchorSelected, ...fillAnchors, ...nonAnchorSelected].slice(0, maxGroups);
     }
   }
+  if (!recoveryAdj.isDeload) {
+    const primaryMajorGroups = new Set([
+      'chest', 'back_lats', 'back_upper', 'quadriceps', 'hamstrings', 'glutes',
+      'anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid',
+    ]);
+    const hasMajorSelected = selected.some((s) => primaryMajorGroups.has(s.muscleGroup));
+    if (!hasMajorSelected) {
+      const majorFallback = profile.muscleVolumeStatuses
+        .filter((v) => primaryMajorGroups.has(v.muscleGroup))
+        .map((v) => {
+          const rec = profile.muscleRecovery.find((r) => r.muscleGroup === v.muscleGroup);
+          return {
+            muscleGroup: v.muscleGroup,
+            recoveryPercent: rec?.recoveryPercent ?? 0,
+            daysSinceLastTrained: v.daysSinceLastTrained ?? 99,
+          };
+        })
+        .sort((a, b) => {
+          if (b.recoveryPercent !== a.recoveryPercent) return b.recoveryPercent - a.recoveryPercent;
+          return b.daysSinceLastTrained - a.daysSinceLastTrained;
+        })
+        .find((c) => c.recoveryPercent >= 45 && !selected.some((s) => s.muscleGroup === c.muscleGroup));
+      if (majorFallback) {
+        const maintenanceAnchor: MuscleGroupSelection = {
+          muscleGroup: majorFallback.muscleGroup,
+          priority: 0.35,
+          reason: `Recovery-aware maintenance anchor (${Math.round(majorFallback.recoveryPercent)}% recovered)`,
+          targetSets: 2,
+          recoveryPercent: majorFallback.recoveryPercent,
+          weeklyVolume: 0,
+          volumeTarget: 'maintenance',
+        };
+        if (selected.length >= maxGroups) {
+          selected[selected.length - 1] = maintenanceAnchor;
+        } else {
+          selected.push(maintenanceAnchor);
+        }
+      }
+    }
+  }
 
   return { selected, skipped };
 }
@@ -1736,8 +1948,40 @@ interface ExerciseSelection {
   exercise: EnrichedExercise;
   muscleGroup: string;
   sets: number;
+  effectiveSets: number;
   reason: string;
   isCardio?: boolean;
+}
+
+function nowMs(): number {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function estimateEffectiveSetWeight(exercise: EnrichedExercise, targetMuscleGroup: string): number {
+  const name = String(exercise.name || '');
+  const sfr = getExerciseSFR(name);
+  const type = String(exercise.ml_exercise_type || '').toLowerCase();
+  const pattern = String(exercise.movement_pattern || '').toLowerCase();
+  let weight = 1.0;
+
+  // SFR as a stimulus proxy: high-SFR movements contribute more per set.
+  if (Number.isFinite(sfr) && sfr > 0) {
+    weight *= clampNumber(0.82 + (sfr - 1) * 0.32, 0.72, 1.32);
+  }
+  if (type === 'compound') weight *= 1.08;
+  if (type === 'isolation') weight *= 0.92;
+
+  // Hinge compounds are highly fatiguing/systemic; cap direct-equivalent stimulus.
+  if (
+    targetMuscleGroup === 'hamstrings'
+    && (pattern.includes('hinge') || /(^|\b)(rdl|romanian deadlift|deadlift|good morning)(\b|$)/i.test(name))
+  ) {
+    weight *= 1.1;
+  }
+  return clampNumber(weight, 0.55, 1.45);
 }
 
 function stepSelectExercises(
@@ -1745,11 +1989,25 @@ function stepSelectExercises(
   allExercises: EnrichedExercise[],
   profile: TrainingProfile,
   prefs: UserPreferences,
-  cfg: ModelConfig
+  cfg: ModelConfig,
+  preferredExerciseNames: Set<string> = new Set()
 ): { selections: ExerciseSelection[]; decisions: ExerciseDecision[] } {
   const selections: ExerciseSelection[] = [];
   const decisions: ExerciseDecision[] = [];
   const avoidSet = new Set(prefs.exercises_to_avoid.map(e => e.toLowerCase()));
+  const hotelModeEnabled = Boolean(prefs.hotel_mode);
+  const isHotelModeStrengthAllowed = (ex: EnrichedExercise): boolean => {
+    if (!hotelModeEnabled) return true;
+    const eq = (Array.isArray(ex.equipment) ? ex.equipment : []).map(normalizeEquipment);
+    if (eq.includes('bodyweight')) return true;
+    if (eq.includes('dumbbell')) return true;
+    return false;
+  };
+  const isHotelModeCardioAllowed = (ex: EnrichedExercise): boolean => {
+    if (!hotelModeEnabled) return true;
+    const n = String(ex.name || '').toLowerCase();
+    return /treadmill/.test(n);
+  };
 
   // Build performance goal lookup — exercises with goals get priority
   const goalMap = new Map<string, PerformanceGoal>();
@@ -1762,6 +2020,14 @@ function stepSelectExercises(
   for (const p of profile.exercisePreferences) {
     prefMap.set(p.exerciseName, p);
   }
+  const yesterdayExerciseSet = new Set(
+    profile.exercisePreferences
+      .filter((p) => Number(p.lastUsedDaysAgo) <= 1 && Number(p.totalSessions) > 0)
+      .map((p) => String(p.exerciseName || '').toLowerCase().trim())
+      .filter(Boolean)
+  );
+  let yesterdayReuseCount = 0;
+  const maxYesterdayReuse = 1;
 
   const strengthExercises = allExercises.filter(ex =>
     ex.ml_exercise_type !== 'cardio' && ex.ml_exercise_type !== 'recovery'
@@ -1779,6 +2045,7 @@ function stepSelectExercises(
       if (avoidSet.has(ex.name.toLowerCase())) return false;
       if (usedExercises.has(ex.name.toLowerCase())) return false;
       if (isInjuryConflict(ex, prefs.injuries)) return false;
+      if (!isHotelModeStrengthAllowed(ex)) return false;
 
       const primaryGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
         .map(m => MUSCLE_HEAD_TO_GROUP[m])
@@ -1793,8 +2060,8 @@ function stepSelectExercises(
       const factors: string[] = [];
 
       if (ex.ml_exercise_type === 'compound') {
-        score += 2;
-        factors.push('Compound (+2)');
+        score += 8;
+        factors.push('Compound priority (+8)');
       }
 
       // Performance goal boost — if user has a specific target for this exercise
@@ -1803,12 +2070,16 @@ function stepSelectExercises(
         score += 6;
         factors.push(`Performance goal: ${goal.targetWeight} lbs × ${goal.targetReps} reps (+6)`);
       }
+      if (preferredExerciseNames.has(ex.name.toLowerCase())) {
+        score += 5;
+        factors.push('Weekly staple priority (+5)');
+      }
 
       // User preference is the DOMINANT signal — exercises they actually do
       const pref = prefMap.get(ex.name.toLowerCase());
       if (pref) {
         // No cap — higher recency = higher score, proportional to usage
-        const prefBonus = pref.recencyScore * 2.5;
+        const prefBonus = pref.recencyScore * 1.35;
         score += prefBonus;
         factors.push(`Your exercise (+${prefBonus.toFixed(1)}, ${pref.recentSessions} recent/${pref.totalSessions} total, recency: ${pref.recencyScore})`);
         if (pref.isStaple) {
@@ -1819,9 +2090,14 @@ function stepSelectExercises(
           score += 2;
           factors.push(`Used ${pref.lastUsedDaysAgo}d ago (+2)`);
         }
+        if (pref.lastUsedDaysAgo <= 1) {
+          score -= 12;
+          factors.push('Trained yesterday: recovery protection (-12)');
+        }
       } else {
-        score += cfg.neverUsedPenalty;
-        factors.push(`Never used in your training history (${cfg.neverUsedPenalty})`);
+        const adjustedNeverUsedPenalty = Math.max(-3, cfg.neverUsedPenalty);
+        score += adjustedNeverUsedPenalty;
+        factors.push(`Never used in your training history (${adjustedNeverUsedPenalty})`);
       }
 
       // #9: Exercise Novelty Cycling — stronger rotation penalties
@@ -1978,7 +2254,7 @@ function stepSelectExercises(
       });
     }
 
-    let remainingSets = group.targetSets;
+    let remainingStimulus = group.targetSets;
 
     // Determine max exercises from user's actual patterns for this group, scaled by session duration
     const userExercisesForGroup = scored.filter(s => {
@@ -1987,7 +2263,7 @@ function stepSelectExercises(
     }).length;
     const durationMin = prefs.session_duration_minutes;
     const durationBonus = durationMin >= 120 ? 2 : durationMin >= 90 ? 1 : 0;
-    const defaultMax = remainingSets <= 4 ? 1 + durationBonus : remainingSets <= 8 ? 2 + durationBonus : 3 + durationBonus;
+    const defaultMax = group.targetSets <= 4 ? 1 + durationBonus : group.targetSets <= 8 ? 2 + durationBonus : 3 + durationBonus;
     let maxExercisesPerGroup = userExercisesForGroup > 0
       ? Math.min(userExercisesForGroup + durationBonus, 5)
       : Math.min(defaultMax, 5);
@@ -2007,23 +2283,33 @@ function stepSelectExercises(
 
     let exerciseCount = 0;
     for (const item of ordered) {
-      if (exerciseCount >= maxExercises || remainingSets <= 0) break;
-
+      if (exerciseCount >= maxExercises || remainingStimulus <= 0) break;
+      const itemName = String(item.exercise.name || '').toLowerCase();
+      const isYesterdayExercise = yesterdayExerciseSet.has(itemName);
+      if (isYesterdayExercise && yesterdayReuseCount >= maxYesterdayReuse) continue;
+      const setWeight = estimateEffectiveSetWeight(item.exercise, group.muscleGroup);
+      const desiredStimulus = exerciseCount === 0
+        ? remainingStimulus * 0.62
+        : Math.min(remainingStimulus, Math.max(1.6, remainingStimulus * 0.5));
+      const setsForThisRaw = Math.ceil(desiredStimulus / Math.max(setWeight, 0.55));
       const setsForThis = exerciseCount === 0
-        ? Math.min(Math.ceil(remainingSets * 0.6), maxSetsPerExercise)
-        : Math.min(remainingSets, maxSetsPerExercise - 1);
+        ? Math.min(setsForThisRaw, maxSetsPerExercise)
+        : Math.min(setsForThisRaw, maxSetsPerExercise - 1);
+      const effectiveSets = Math.round(Math.max(0, setsForThis) * setWeight * 100) / 100;
 
       selections.push({
         exercise: item.exercise,
         muscleGroup: group.muscleGroup,
         sets: Math.max(2, setsForThis),
+        effectiveSets,
         reason: exerciseCount === 0
-          ? `Primary ${group.muscleGroup} exercise (score: ${item.score.toFixed(1)})`
-          : `Additional ${group.muscleGroup} volume (score: ${item.score.toFixed(1)})`,
+          ? `Primary ${group.muscleGroup} exercise (score: ${item.score.toFixed(1)}, stimulus/set: ${setWeight.toFixed(2)})`
+          : `Additional ${group.muscleGroup} volume (score: ${item.score.toFixed(1)}, stimulus/set: ${setWeight.toFixed(2)})`,
       });
 
       usedExercises.add(item.exercise.name.toLowerCase());
-      remainingSets -= setsForThis;
+      if (isYesterdayExercise) yesterdayReuseCount += 1;
+      remainingStimulus -= effectiveSets;
       exerciseCount++;
     }
   }
@@ -2057,6 +2343,7 @@ function stepSelectExercises(
         exercise: corrective,
         muscleGroup: 'posterior_deltoid',
         sets: cfg.correctiveSetsCount,
+        effectiveSets: cfg.correctiveSetsCount,
         reason: `Corrective: push:pull ratio is ${pushPullRatio.toFixed(1)}:1 — adding pulling work for shoulder health`,
       });
       usedExercises.add(corrective.name.toLowerCase());
@@ -2110,6 +2397,7 @@ function stepSelectExercises(
       }
     }
     if (!cardioEx || avoidSet.has(cardioEx.name.toLowerCase())) continue;
+    if (!isHotelModeCardioAllowed(cardioEx)) continue;
 
     const cardioHist = profile.cardioHistory.find(c => c.exerciseName === cardioPref.exerciseName);
     const durationInfo = cardioHist
@@ -2120,6 +2408,7 @@ function stepSelectExercises(
       exercise: cardioEx,
       muscleGroup: 'cardio',
       sets: 1,
+      effectiveSets: 1,
       reason: `Cardio — ${cardioPref.recentSessions} recent sessions${durationInfo ? `, ${durationInfo}` : ''}`,
       isCardio: true,
     });
@@ -2135,6 +2424,184 @@ function stepSelectExercises(
         `Recency score: ${cardioPref.recencyScore}`,
       ].filter(Boolean),
     });
+  }
+
+  // Cardio baseline invariant:
+  // if the goal/profile expects cardio and no cardio made it into selection, add one safe fallback modality.
+  const effectiveGoal = getEffectiveGoal(prefs);
+  const wantsCardioBaseline =
+    effectiveGoal === 'fat_loss'
+    || effectiveGoal === 'endurance'
+    || (Number(prefs.cardio_duration_minutes ?? 0) >= 12);
+  const hasSelectedCardio = selections.some((s) => Boolean(s.isCardio));
+  if (wantsCardioBaseline && !hasSelectedCardio) {
+    const cardioCandidates = allExercises
+      .filter((ex) => ex.ml_exercise_type === 'cardio')
+      .filter((ex) => !avoidSet.has(String(ex.name || '').toLowerCase()))
+      .filter((ex) => isHotelModeCardioAllowed(ex))
+      .sort((a, b) => {
+        const aName = String(a.name || '').toLowerCase();
+        const bName = String(b.name || '').toLowerCase();
+        const aPref = /treadmill|walk|incline|bike|elliptical|row/.test(aName) ? 1 : 0;
+        const bPref = /treadmill|walk|incline|bike|elliptical|row/.test(bName) ? 1 : 0;
+        return bPref - aPref;
+      });
+    const fallbackCardio = cardioCandidates[0];
+    if (fallbackCardio) {
+      selections.push({
+        exercise: fallbackCardio,
+        muscleGroup: 'cardio',
+        sets: 1,
+        effectiveSets: 1,
+        reason: `Cardio baseline enforced for ${effectiveGoal} goal`,
+        isCardio: true,
+      });
+      decisions.push({
+        exerciseName: fallbackCardio.name,
+        muscleGroup: 'cardio',
+        score: 8,
+        factors: [`Baseline cardio inserted: goal=${effectiveGoal}, cardio preference=${prefs.cardio_duration_minutes ?? 'n/a'} min`],
+      });
+    }
+  }
+
+  // Invariants: every generated workout should include
+  // (1) at least one compound and (2) at least one staple when available.
+  const stapleFamilyKey = (exerciseName: string): string => {
+    const n = String(exerciseName || '').trim().toLowerCase();
+    if (/(^|\b)(rdl|romanian deadlift)(\b|$)/.test(n)) return 'romanian_deadlift';
+    if (/leg\s*press|sled\s*press|45[\s-]*degree\s*leg\s*press/.test(n)) return 'leg_press';
+    return n;
+  };
+  const shouldExcludeStapleFamily = (familyKey: string): boolean =>
+    familyKey === 'romanian_deadlift';
+  const selectionHasCompound = () =>
+    selections.some((sel) => !sel.isCardio && inferExerciseType(sel.exercise) === 'compound');
+  const stapleFamilyAgg = new Map<string, {
+    familyKey: string;
+    names: Set<string>;
+    totalSessions: number;
+    recentSessions: number;
+    isStaple: boolean;
+    bestLastUsedDaysAgo: number;
+  }>();
+  for (const p of profile.exercisePreferences ?? []) {
+    const name = String(p.exerciseName || '').toLowerCase().trim();
+    if (!name) continue;
+    const familyKey = stapleFamilyKey(name);
+    const agg = stapleFamilyAgg.get(familyKey) ?? {
+      familyKey,
+      names: new Set<string>(),
+      totalSessions: 0,
+      recentSessions: 0,
+      isStaple: false,
+      bestLastUsedDaysAgo: 999,
+    };
+    agg.names.add(name);
+    agg.totalSessions += Number(p.totalSessions ?? 0);
+    agg.recentSessions += Number(p.recentSessions ?? 0);
+    agg.isStaple = agg.isStaple || Boolean(p.isStaple) || Number(p.recentSessions ?? 0) >= 2;
+    agg.bestLastUsedDaysAgo = Math.min(agg.bestLastUsedDaysAgo, Number(p.lastUsedDaysAgo ?? 999));
+    stapleFamilyAgg.set(familyKey, agg);
+  }
+  const strictStaplePool = [...stapleFamilyAgg.values()]
+    .filter((f) => !shouldExcludeStapleFamily(f.familyKey))
+    .filter((f) => f.isStaple || (f.totalSessions >= 12 && f.bestLastUsedDaysAgo <= 35))
+    .sort((a, b) => {
+      const stapleRank = Number(Boolean(b.isStaple)) - Number(Boolean(a.isStaple));
+      if (stapleRank !== 0) return stapleRank;
+      const recencyRank = (a.bestLastUsedDaysAgo ?? 999) - (b.bestLastUsedDaysAgo ?? 999);
+      if (recencyRank !== 0) return recencyRank;
+      return (b.totalSessions ?? 0) - (a.totalSessions ?? 0);
+    });
+  // Fallback: if strict staple criteria yields nothing, still force continuity
+  // from user's recurring exercises so each workout keeps at least one anchor.
+  const fallbackStaplePool = [...stapleFamilyAgg.values()]
+    .filter((f) => !shouldExcludeStapleFamily(f.familyKey))
+    .filter((f) => f.totalSessions >= 4 && f.bestLastUsedDaysAgo <= 84)
+    .sort((a, b) => {
+      const recencyRank = (a.bestLastUsedDaysAgo ?? 999) - (b.bestLastUsedDaysAgo ?? 999);
+      if (recencyRank !== 0) return recencyRank;
+      return (b.totalSessions ?? 0) - (a.totalSessions ?? 0);
+    });
+  const staplePool = strictStaplePool.length > 0 ? strictStaplePool : fallbackStaplePool;
+  const selectionNameSet = new Set(selections.map((s) => String(s.exercise.name || '').toLowerCase()));
+  const selectedFamilies = new Set([...selectionNameSet].map(stapleFamilyKey));
+  const stapleAlreadyIncluded = staplePool.some((f) => selectedFamilies.has(f.familyKey));
+  const canUseExercise = (ex: EnrichedExercise | null | undefined): ex is EnrichedExercise => {
+    if (!ex) return false;
+    const key = String(ex.name || '').toLowerCase();
+    if (!key) return false;
+    if (selectionNameSet.has(key)) return false;
+    if (avoidSet.has(key)) return false;
+    if (isInjuryConflict(ex, prefs.injuries)) return false;
+    if (hotelModeEnabled && ex.ml_exercise_type === 'cardio' && !isHotelModeCardioAllowed(ex)) return false;
+    if (hotelModeEnabled && ex.ml_exercise_type !== 'cardio' && !isHotelModeStrengthAllowed(ex)) return false;
+    return true;
+  };
+  const primaryGroupOf = (ex: EnrichedExercise): string => {
+    const heads = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : []).map((m) => String(m || '').toLowerCase());
+    for (const h of heads) {
+      const g = MUSCLE_HEAD_TO_GROUP[h];
+      if (g) return g;
+    }
+    return 'chest';
+  };
+  if (!selectionHasCompound()) {
+    const compoundCandidate = strengthExercises
+      .filter((ex) => canUseExercise(ex) && inferExerciseType(ex) === 'compound')
+      .map((ex) => {
+        const pref = prefMap.get(ex.name.toLowerCase());
+        const score = (pref?.recencyScore ?? 0) + (pref?.isStaple ? 1.5 : 0);
+        return { ex, score };
+      })
+      .sort((a, b) => b.score - a.score)[0]?.ex ?? null;
+    if (compoundCandidate) {
+      const mg = primaryGroupOf(compoundCandidate);
+      const setWeight = estimateEffectiveSetWeight(compoundCandidate, mg);
+      selections.unshift({
+        exercise: compoundCandidate,
+        muscleGroup: mg,
+        sets: 3,
+        effectiveSets: Math.round(3 * setWeight * 100) / 100,
+        reason: 'Invariant: ensured at least one compound movement',
+      });
+      selectionNameSet.add(compoundCandidate.name.toLowerCase());
+      decisions.push({
+        exerciseName: compoundCandidate.name,
+        muscleGroup: mg,
+        score: 10,
+        factors: ['Invariant rule: add one compound exercise per workout'],
+      });
+    }
+  }
+  if (!stapleAlreadyIncluded && staplePool.length > 0) {
+    const stapleCandidate = staplePool
+      .flatMap((f) => {
+        const exact = [...f.names]
+          .map((name) => allExercises.find((ex) => ex.name.toLowerCase() === name))
+          .filter((ex): ex is EnrichedExercise => Boolean(ex));
+        const family = allExercises.filter((ex) => stapleFamilyKey(ex.name) === f.familyKey);
+        return [...exact, ...family];
+      })
+      .find((ex) => canUseExercise(ex)) ?? null;
+    if (stapleCandidate) {
+      const mg = primaryGroupOf(stapleCandidate);
+      const setWeight = estimateEffectiveSetWeight(stapleCandidate, mg);
+      selections.push({
+        exercise: stapleCandidate,
+        muscleGroup: mg,
+        sets: 2,
+        effectiveSets: Math.round(2 * setWeight * 100) / 100,
+        reason: 'Invariant: ensured staple continuity',
+      });
+      decisions.push({
+        exerciseName: stapleCandidate.name,
+        muscleGroup: mg,
+        score: 9,
+        factors: ['Invariant rule: include at least one staple exercise each workout'],
+      });
+    }
   }
 
   return { selections, decisions };
@@ -2155,6 +2622,13 @@ function stepPrescribe(
   highCapacityPush?: HighCapacityPushAdjustment
 ): GeneratedExercise[] {
   const goal = getEffectiveGoal(prefs);
+  const hotelModeEnabled = Boolean(prefs.hotel_mode);
+  const clampHotelModeWeight = (weight: number | null, equipment: string[]): number | null => {
+    if (!hotelModeEnabled || weight == null) return weight;
+    const eqNorm = (equipment ?? []).map(normalizeEquipment);
+    if (eqNorm.includes('dumbbell')) return Math.min(weight, 50);
+    return weight;
+  };
   const secondaryGoal = prefs.secondary_goal;
   const prioritySet = new Set(prefs.priority_muscles.map(m => m.toLowerCase()));
   const lowerBodyGroups = new Set(['quadriceps', 'hamstrings', 'glutes', 'calves', 'adductors', 'abductors']);
@@ -2185,12 +2659,34 @@ function stepPrescribe(
       const adjustments: string[] = [];
 
       const exName = sel.exercise.name.toLowerCase();
+      const modality = inferCardioModality(exName);
+      const capability = (profile.cardioCapabilityProfiles ?? []).find(c => c.modality === modality);
       let speedLabel: string | null = null;
       if (exName.includes('stairmaster') || exName.includes('stair master')) speedLabel = 'Level';
       else if (exName.includes('bike') || exName.includes('cycle')) speedLabel = 'Resistance';
       else if (exName.includes('row')) speedLabel = 'Watts';
       else if (exName.includes('treadmill') || exName.includes('walk') || exName.includes('run')) speedLabel = 'Speed (mph)';
       else if (speed != null) speedLabel = 'Intensity';
+      const isRunLike = /run|jog|sprint/.test(exName);
+      const isWalkLike = !isRunLike && /walk|treadmill|incline/.test(exName);
+      const modalitySpeedCap = (() => {
+        const dbCap = capability?.maxSpeed != null && Number.isFinite(capability.maxSpeed)
+          ? Number(capability.maxSpeed)
+          : null;
+        if (isWalkLike) {
+          const histSpeed = Number(cardio?.avgSpeed ?? 0);
+          const comfortable = Number(capability?.comfortableSpeed ?? 0);
+          const base = comfortable > 0
+            ? comfortable + 0.4
+            : (histSpeed > 0 ? histSpeed + 0.45 : 4.6);
+          const inferred = clampNumber(base, 3.6, 5.8);
+          return dbCap != null ? Math.min(inferred, dbCap) : inferred;
+        }
+        if (dbCap != null) return dbCap;
+        if (/stairmaster|stair master|stepmill/.test(exName)) return 14;
+        if (/bike|cycle|elliptical/.test(exName)) return 16;
+        return null;
+      })();
 
       // Vary cardio prescription based on goal, recovery, and session context.
       // Include planned day as a seed so weekly days don't collapse to the
@@ -2301,6 +2797,35 @@ function stepPrescribe(
           }
         }
       }
+      if (speed != null && modalitySpeedCap != null && speed > modalitySpeedCap) {
+        const oldSpeed = speed;
+        speed = modalitySpeedCap;
+        adjustments.push(`Safety cap: ${speedLabel ?? 'intensity'} ${oldSpeed} → ${speed} (${isWalkLike ? 'walk-mode cap' : 'modality cap'})`);
+        if ((goal === 'fat_loss' || secondaryGoal === 'fat_loss') && targetHrZone != null && targetHrZone >= 2) {
+          if (incline != null) {
+            const oldIncline = incline;
+            incline = Math.round(Math.min(incline + 1.5, 15) * 10) / 10;
+            if (incline !== oldIncline) {
+              adjustments.push(`Fat-loss HR compensation: incline ${oldIncline} → ${incline}`);
+            }
+          } else {
+            const oldDuration = duration;
+            duration = Math.round(duration * 1.1);
+            adjustments.push(`Fat-loss HR compensation: duration ${Math.round(oldDuration / 60)} → ${Math.round(duration / 60)} min`);
+          }
+        }
+      }
+      if ((goal === 'fat_loss' || secondaryGoal === 'fat_loss') && capability) {
+        const zoneLow = capability.preferredHrZoneLow != null ? Math.round(capability.preferredHrZoneLow) : null;
+        const zoneHigh = capability.preferredHrZoneHigh != null ? Math.round(capability.preferredHrZoneHigh) : null;
+        if (zoneLow != null && zoneHigh != null && zoneLow >= 1 && zoneHigh <= 5 && zoneLow <= zoneHigh) {
+          const defaultZone = targetHrZone ?? zoneLow;
+          targetHrZone = Math.max(zoneLow, Math.min(zoneHigh, defaultZone));
+        }
+      }
+      if ((goal === 'fat_loss' || secondaryGoal === 'fat_loss') && targetHrZone != null && targetHrZone < 2) {
+        targetHrZone = 2;
+      }
 
       let targetHrBpmRange: { min: number; max: number } | null = null;
       const maxHr = prefs.age ? (220 - prefs.age) : null;
@@ -2401,6 +2926,7 @@ function stepPrescribe(
         targetReps = Math.min(targetReps + 1, tableRange.max);
       }
     }
+    targetReps = humanizeRepTarget(targetReps, tableRange.min, tableRange.max);
 
     // #2: Rest: prefer learned rest, with movement-pattern-aware fallback
     const tableRest = getRestByExercise(sel.exercise, role, goal);
@@ -2654,7 +3180,9 @@ function stepPrescribe(
       exerciseRole: role,
       sets,
       targetReps: isTimedHold ? 0 : targetReps,
-      targetWeight: isBodyweight ? null : (targetWeight ? snapToPlate(targetWeight, equipment, exType) : null),
+      targetWeight: isBodyweight
+        ? null
+        : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, exType), equipment) : null),
       targetRir: rir,
       rirLabel: getRirLabel(rir),
       isBodyweight,
@@ -2719,6 +3247,27 @@ function getCnsDemandTier(ex: GeneratedExercise): number {
   return 3;
 }
 
+function estimateGeneratedEffectiveSetWeight(ex: GeneratedExercise): number {
+  const name = String(ex.exerciseName || '');
+  const sfr = getExerciseSFR(name);
+  const role = String(ex.exerciseRole || '').toLowerCase();
+  const pattern = String(ex.movementPattern || '').toLowerCase();
+  const group = String(ex.targetMuscleGroup || '').toLowerCase();
+  let weight = 1.0;
+  if (Number.isFinite(sfr) && sfr > 0) {
+    weight *= clampNumber(0.82 + (sfr - 1) * 0.32, 0.72, 1.32);
+  }
+  if (role === 'primary' || role === 'secondary' || pattern === 'compound') weight *= 1.08;
+  if (role === 'isolation' || role === 'corrective') weight *= 0.92;
+  if (
+    group === 'hamstrings'
+    && (pattern.includes('hinge') || /(^|\b)(rdl|romanian deadlift|deadlift|good morning)(\b|$)/i.test(name))
+  ) {
+    weight *= 1.1;
+  }
+  return clampNumber(weight, 0.55, 1.45);
+}
+
 /**
  * Diminishing-returns stimulus curve per additional set.
  *
@@ -2756,6 +3305,8 @@ function computeMarginalValue(
   volumeStatuses: MuscleVolumeStatus[],
   muscleGroupFrequency: Record<string, number>,
   couplingSignals?: Record<string, CouplingSignal>,
+  actionCostMinutes: number = 1,
+  sessionStimulusByGroup?: Record<string, number>,
 ): number {
   const isHingeLike = (exerciseName: string, movementPattern: string | null | undefined): boolean => {
     const pat = String(movementPattern ?? '').toLowerCase();
@@ -2785,13 +3336,22 @@ function computeMarginalValue(
       ? clampNumber(1 + coupling.priorityDelta * 0.55, 0.72, 1.28)
       : 1.0;
     const hingeSetPenalty = (hasHingeInSession && isHingeLike(ex.exerciseName, ex.movementPattern) && ex.sets >= 4) ? 0.72 : 1.0;
-    return stimulus * volMod * couplingMod * hingeSetPenalty;
+    const recoveryMod = vol
+      ? clampNumber(0.78 + Math.min(1.2, (vol.daysSinceLastTrained ?? 0) / 3) * 0.22, 0.78, 1.12)
+      : 1.0;
+    const rawValue = stimulus * volMod * couplingMod * hingeSetPenalty * recoveryMod;
+    const timePenalty = Math.pow(Math.max(actionCostMinutes, 0.5), 0.65);
+    const group = String(ex.targetMuscleGroup ?? '').toLowerCase();
+    const priorStimulus = sessionStimulusByGroup?.[group] ?? 0;
+    const saturationMod = clampNumber(1 / (1 + priorStimulus * 0.28), 0.45, 1.0);
+    return (rawValue * saturationMod) / timePenalty;
   }
 
   // add_exercise: value of bringing in a brand-new movement
   const sel = action.exercise;
   const sfr = getExerciseSFR(sel.exercise.name);
-  const baseStimulus = sfrCurve(0, sfr);
+  const effectiveSetBudget = Math.max(1, Number(sel.effectiveSets || sel.sets || 1));
+  const baseStimulus = sfrCurve(0, sfr) * effectiveSetBudget;
 
   const group = (sel.muscleGroup ?? '').toLowerCase();
   const vol = volumeStatuses.find(v => v.muscleGroup.toLowerCase() === group);
@@ -2817,7 +3377,14 @@ function computeMarginalValue(
     ? clampNumber(1 + coupling.priorityDelta * 0.65, 0.68, 1.35)
     : 1.0;
   const hingeAddPenalty = (hasHingeInSession && isHingeLike(sel.exercise.name, sel.exercise.movement_pattern)) ? 0.62 : 1.0;
-  return baseStimulus * volMod * freqBonus * varietyBonus * couplingMod * hingeAddPenalty;
+  const recoveryMod = vol
+    ? clampNumber(0.8 + Math.min(1.3, (vol.daysSinceLastTrained ?? 0) / 3) * 0.2, 0.8, 1.15)
+    : 1.0;
+  const rawValue = baseStimulus * volMod * freqBonus * varietyBonus * couplingMod * hingeAddPenalty * recoveryMod;
+  const timePenalty = Math.pow(Math.max(actionCostMinutes, 0.5), 0.65);
+  const priorStimulus = sessionStimulusByGroup?.[group] ?? 0;
+  const saturationMod = clampNumber(1 / (1 + priorStimulus * 0.28), 0.45, 1.0);
+  return (rawValue * saturationMod) / timePenalty;
 }
 
 /**
@@ -3018,7 +3585,16 @@ function stepApplyConstraints(
     : goal === 'endurance' ? cfg.maxCardioPctDefault * 1.15
     : goal === 'strength' ? cfg.maxCardioPctDefault * 0.65
     : cfg.maxCardioPctDefault;
-  const maxTotalCardioMin = Math.round(effectiveBudget * maxCardioPct);
+  const profileCardioTargetMin = Number.isFinite(Number(prefs.cardio_duration_minutes))
+    ? Math.max(8, Math.round(Number(prefs.cardio_duration_minutes)))
+    : null;
+  // Profile cardio target is a ceiling unless the user is explicitly in endurance focus.
+  const maxTotalCardioMin = (() => {
+    const goalCap = Math.round(effectiveBudget * maxCardioPct);
+    if (goal === 'endurance') return goalCap;
+    if (profileCardioTargetMin == null) return goalCap;
+    return Math.max(8, Math.min(goalCap, Math.round(profileCardioTargetMin * 1.05)));
+  })();
 
   let totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   const keptCardio: GeneratedExercise[] = [];
@@ -3031,7 +3607,9 @@ function stepApplyConstraints(
     const histAvgMin = cardioHist ? Math.round(cardioHist.avgDurationSeconds / 60) : null;
     let perExerciseCapMin = cfg.maxCardioPerExerciseMinutes;
     if (histAvgMin != null) perExerciseCapMin = Math.max(perExerciseCapMin, Math.round(histAvgMin * 1.3));
-    if (prefCardioDur != null) perExerciseCapMin = Math.max(perExerciseCapMin, prefCardioDur);
+    if (prefCardioDur != null) perExerciseCapMin = goal === 'endurance'
+      ? Math.max(perExerciseCapMin, prefCardioDur)
+      : Math.min(perExerciseCapMin, Math.max(8, prefCardioDur));
 
     // On long sessions or cardio-priority goals, let cardio use most of the
     // cardio budget instead of clipping near a static 45-minute cap.
@@ -3076,6 +3654,31 @@ function stepApplyConstraints(
   totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   const strengthBudget = Math.max(effectiveBudget - totalCardioMin, cfg.minStrengthBudgetMinutes);
   totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
+  const stapleFamilyKey = (exerciseName: string): string => {
+    const n = String(exerciseName || '').trim().toLowerCase();
+    if (/(^|\b)(rdl|romanian deadlift)(\b|$)/.test(n)) return 'romanian_deadlift';
+    if (/leg\s*press|sled\s*press|45[\s-]*degree\s*leg\s*press/.test(n)) return 'leg_press';
+    return n;
+  };
+  const isCompoundGenerated = (ex: GeneratedExercise): boolean => {
+    const tier = getCnsDemandTier(ex);
+    return ex.movementPattern === 'compound' || tier <= 2;
+  };
+  const strictRequiredStapleFamilies = new Set(
+    (profile.exercisePreferences ?? [])
+      .filter((p: any) => Boolean(p?.isStaple) || ((Number(p?.totalSessions) || 0) >= 12 && (Number(p?.lastUsedDaysAgo) || 999) <= 35))
+      .map((p: any) => stapleFamilyKey(String(p?.exerciseName || '')))
+      .filter((k) => !!k && k !== 'romanian_deadlift')
+  );
+  const fallbackRequiredStapleFamilies = new Set(
+    (profile.exercisePreferences ?? [])
+      .filter((p: any) => (Number(p?.totalSessions) || 0) >= 4 && (Number(p?.lastUsedDaysAgo) || 999) <= 84)
+      .map((p: any) => stapleFamilyKey(String(p?.exerciseName || '')))
+      .filter((k) => !!k && k !== 'romanian_deadlift')
+  );
+  const requiredStapleFamilies = strictRequiredStapleFamilies.size > 0
+    ? strictRequiredStapleFamilies
+    : fallbackRequiredStapleFamilies;
 
   if (totalStrengthMin > strengthBudget) {
     // Phase 1: Compress rest on isolation and secondary exercises proportional to overshoot
@@ -3120,11 +3723,18 @@ function stepApplyConstraints(
     // Phase 3: Last resort — drop lowest-impact exercises entirely
     const sortedByImpact = [...ordered].sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
     const keepSet = new Set(ordered.map(e => e.exerciseName));
+    const keepExercises = () => ordered.filter(e => keepSet.has(e.exerciseName));
+    const compoundCount = () => keepExercises().filter(isCompoundGenerated).length;
+    const stapleFamilyCount = (familyKey: string) =>
+      keepExercises().filter(e => stapleFamilyKey(e.exerciseName) === familyKey).length;
 
     for (const ex of sortedByImpact) {
       if (totalStrengthMin <= strengthBudget) break;
       if (ex.exerciseRole === 'corrective') continue;
       if (keepSet.size <= cfg.minExercisesUnderTimePressure) break;
+      if (isCompoundGenerated(ex) && compoundCount() <= 1) continue;
+      const familyKey = stapleFamilyKey(ex.exerciseName);
+      if (requiredStapleFamilies.has(familyKey) && stapleFamilyCount(familyKey) <= 1) continue;
       keepSet.delete(ex.exerciseName);
       totalStrengthMin -= ex.estimatedMinutes;
     }
@@ -3142,6 +3752,12 @@ function stepApplyConstraints(
   totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   let remainingMinutes = effectiveBudget - totalStrengthMin - totalCardioMin;
+  const sessionStimulusByGroup: Record<string, number> = {};
+  const addSessionStimulus = (muscleGroup: string, stimulus: number) => {
+    const key = String(muscleGroup || '').toLowerCase();
+    if (!key) return;
+    sessionStimulusByGroup[key] = (sessionStimulusByGroup[key] ?? 0) + Math.max(0, stimulus);
+  };
 
   const timePerSet = (ex: GeneratedExercise) => ex.estimatedMinutes / Math.max(ex.sets, 1);
   const getMaxSets = (ex: GeneratedExercise): number => {
@@ -3161,6 +3777,18 @@ function stepApplyConstraints(
     ...keptCardio.map(e => e.exerciseName.toLowerCase()),
   ]);
   const avoidSet = new Set(prefs.exercises_to_avoid.map(e => e.toLowerCase()));
+  const hotelModeEnabled = Boolean(prefs.hotel_mode);
+  const isHotelModeStrengthAllowed = (ex: EnrichedExercise): boolean => {
+    if (!hotelModeEnabled) return true;
+    const eq = (Array.isArray(ex.equipment) ? ex.equipment : []).map(normalizeEquipment);
+    return eq.includes('bodyweight') || eq.includes('dumbbell');
+  };
+  const clampHotelModeWeight = (weight: number | null, equipment: string[]): number | null => {
+    if (!hotelModeEnabled || weight == null) return weight;
+    const eqNorm = (equipment ?? []).map(normalizeEquipment);
+    if (eqNorm.includes('dumbbell')) return Math.min(weight, 50);
+    return weight;
+  };
   const strengthPool: ExerciseSelection[] = (allExercises || [])
     .filter(ex =>
       ex.ml_exercise_type !== 'cardio'
@@ -3168,6 +3796,7 @@ function stepApplyConstraints(
       && !usedNames.has(ex.name.toLowerCase())
       && !avoidSet.has(ex.name.toLowerCase())
       && !isInjuryConflict(ex, prefs.injuries)
+      && isHotelModeStrengthAllowed(ex)
     )
     .map(ex => {
       const primaryGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
@@ -3176,10 +3805,19 @@ function stepApplyConstraints(
         exercise: ex,
         muscleGroup: primaryGroups[0] || 'other',
         sets: 0,
+        effectiveSets: 0,
         reason: 'time_expansion',
       };
     });
-
+  const selectedStrengthGroupSet = new Set(
+    (existingSelections ?? [])
+      .filter((s) => !s.isCardio)
+      .map((s) => String(s.muscleGroup || '').toLowerCase())
+      .filter(Boolean)
+  );
+  const expansionPool: ExerciseSelection[] = selectedStrengthGroupSet.size > 0
+    ? strengthPool.filter((s) => selectedStrengthGroupSet.has(String(s.muscleGroup || '').toLowerCase()))
+    : strengthPool;
   const effectiveGoal = getEffectiveGoal(prefs);
   const secondaryGoal = prefs.secondary_goal;
   let addedNewCount = 0;
@@ -3199,7 +3837,15 @@ function stepApplyConstraints(
       const cost = timePerSet(ex);
       if (cost > remainingMinutes) continue;
       const action: MarginalAction = { type: 'add_set', exerciseIndex: i };
-      const val = computeMarginalValue(action, ordered, volumeStatuses, mgFreq, systemCouplingSignals);
+      const val = computeMarginalValue(
+        action,
+        ordered,
+        volumeStatuses,
+        mgFreq,
+        systemCouplingSignals,
+        cost,
+        sessionStimulusByGroup,
+      );
       if (val > bestValue) {
         bestValue = val;
         bestAction = action;
@@ -3209,18 +3855,28 @@ function stepApplyConstraints(
 
     // Score: add each candidate new exercise (only if >= 5 min left and under cap)
     if (remainingMinutes >= 5 && addedNewCount < maxNewExercises) {
-      for (const sel of strengthPool) {
+      for (const sel of expansionPool) {
         if (usedNames.has(sel.exercise.name.toLowerCase())) continue;
         const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
         const sets = role === 'secondary' ? 3 : 2;
         const rest = getRestByExercise(sel.exercise, role, effectiveGoal);
         const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
-        const reps = tableRange.target;
+        const reps = humanizeRepTarget(tableRange.target, tableRange.min, tableRange.max);
         const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
         const cost = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
         if (cost > remainingMinutes) continue;
-        const action: MarginalAction = { type: 'add_exercise', exercise: sel };
-        const val = computeMarginalValue(action, ordered, volumeStatuses, mgFreq, systemCouplingSignals);
+        const effectiveSets = Math.round(estimateEffectiveSetWeight(sel.exercise, sel.muscleGroup) * sets * 100) / 100;
+        const scoringSel: ExerciseSelection = { ...sel, sets, effectiveSets };
+        const action: MarginalAction = { type: 'add_exercise', exercise: scoringSel };
+        const val = computeMarginalValue(
+          action,
+          ordered,
+          volumeStatuses,
+          mgFreq,
+          systemCouplingSignals,
+          cost,
+          sessionStimulusByGroup,
+        );
         if (val > bestValue) {
           bestValue = val;
           bestAction = action;
@@ -3239,13 +3895,18 @@ function stepApplyConstraints(
       const oldMin = ex.estimatedMinutes;
       recalcTime(ex);
       remainingMinutes -= (ex.estimatedMinutes - oldMin);
+      addSessionStimulus(ex.targetMuscleGroup, estimateGeneratedEffectiveSetWeight(ex));
       ex.adjustments.push(`Sets expanded: ${oldSets} → ${ex.sets} (marginal value: ${bestValue.toFixed(2)})`);
     } else {
       const sel = bestAction.exercise;
       const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
       const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
       const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
-      const reps = pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target;
+      const reps = humanizeRepTarget(
+        pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target,
+        tableRange.min,
+        tableRange.max
+      );
       const sets = pref?.learnedSets ? Math.min(Math.round(pref.learnedSets), 4) : (role === 'secondary' ? 3 : 2);
       const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal);
       const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
@@ -3277,7 +3938,9 @@ function stepApplyConstraints(
         exerciseRole: role,
         sets,
         targetReps: reps,
-        targetWeight: isBodyweight ? null : (targetWeight ? snapToPlate(targetWeight, equipment, fillExType) : null),
+        targetWeight: isBodyweight
+          ? null
+          : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, fillExType), equipment) : null),
         targetRir: rir,
         rirLabel: getRirLabel(rir),
         isBodyweight,
@@ -3303,6 +3966,7 @@ function stepApplyConstraints(
       ordered.push(newEx);
       usedNames.add(sel.exercise.name.toLowerCase());
       remainingMinutes -= estMin;
+      addSessionStimulus(newEx.targetMuscleGroup, estimateGeneratedEffectiveSetWeight(newEx) * newEx.sets);
       addedNewCount++;
     }
   }
@@ -3328,27 +3992,49 @@ function stepApplyConstraints(
       const cost = timePerSet(ex);
       if (cost <= 0 || cost > remainingMinutes) continue;
       const projected = remainingMinutes - cost;
-      const score = Math.abs(projected - targetUnfilledMinutes);
-      if (!bestFill || score < bestFill.score) {
+      const value = computeMarginalValue(
+        { type: 'add_set', exerciseIndex: i },
+        ordered,
+        volumeStatuses,
+        mgFreq,
+        systemCouplingSignals,
+        cost,
+        sessionStimulusByGroup,
+      );
+      const slackCloseness = 1 / (1 + Math.abs(projected - targetUnfilledMinutes));
+      const score = value * 0.78 + slackCloseness * 0.22;
+      if (!bestFill || score > bestFill.score) {
         bestFill = { type: 'add_set', exerciseIndex: i, cost, projected, score };
       }
     }
 
     if (remainingMinutes >= 3 && addedNewCount < (maxNewExercises + 2)) {
-      for (const sel of strengthPool) {
+      for (const sel of expansionPool) {
         if (usedNames.has(sel.exercise.name.toLowerCase())) continue;
         const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
         const rest = getRestByExercise(sel.exercise, role, effectiveGoal);
         const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
-        const reps = tableRange.target;
+        const reps = humanizeRepTarget(tableRange.target, tableRange.min, tableRange.max);
         const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
         const cost = estimateExerciseMinutes(1, rest, role, 0, reps, tempo);
         if (cost > remainingMinutes) continue;
         const projected = remainingMinutes - cost;
-        // Small bias toward filling with existing exercises before adding new.
-        const score = Math.abs(projected - targetUnfilledMinutes) + 0.2;
-        if (!bestFill || score < bestFill.score) {
-          bestFill = { type: 'add_micro_exercise', exercise: sel, cost, projected, score };
+        const effectiveSets = Math.round(estimateEffectiveSetWeight(sel.exercise, sel.muscleGroup) * 100) / 100;
+        const scoringSel: ExerciseSelection = { ...sel, sets: 1, effectiveSets };
+        const value = computeMarginalValue(
+          { type: 'add_exercise', exercise: scoringSel },
+          ordered,
+          volumeStatuses,
+          mgFreq,
+          systemCouplingSignals,
+          cost,
+          sessionStimulusByGroup,
+        );
+        const slackCloseness = 1 / (1 + Math.abs(projected - targetUnfilledMinutes));
+        // Bias toward existing exercises unless new movement has clearly better value.
+        const score = value * 0.72 + slackCloseness * 0.18 - 0.12;
+        if (!bestFill || score > bestFill.score) {
+          bestFill = { type: 'add_micro_exercise', exercise: scoringSel, cost, projected, score };
         }
       }
     }
@@ -3362,13 +4048,18 @@ function stepApplyConstraints(
       ex.sets += 1;
       recalcTime(ex);
       remainingMinutes -= (ex.estimatedMinutes - oldMin);
+      addSessionStimulus(ex.targetMuscleGroup, estimateGeneratedEffectiveSetWeight(ex));
       ex.adjustments.push(`Time-bank fill: ${oldSets} → ${ex.sets} sets (target slack ≤ ${targetUnfilledMinutes} min)`);
     } else {
       const sel = bestFill.exercise;
       const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
       const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
       const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
-      const reps = pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target;
+      const reps = humanizeRepTarget(
+        pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target,
+        tableRange.min,
+        tableRange.max
+      );
       const sets = 1;
       const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal);
       const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
@@ -3400,7 +4091,9 @@ function stepApplyConstraints(
         exerciseRole: role,
         sets,
         targetReps: reps,
-        targetWeight: isBodyweight ? null : (targetWeight ? snapToPlate(targetWeight, equipment, fillExType) : null),
+        targetWeight: isBodyweight
+          ? null
+          : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, fillExType), equipment) : null),
         targetRir: rir,
         rirLabel: getRirLabel(rir),
         isBodyweight,
@@ -3426,8 +4119,124 @@ function stepApplyConstraints(
       ordered.push(newEx);
       usedNames.add(sel.exercise.name.toLowerCase());
       remainingMinutes -= estMin;
+      addSessionStimulus(newEx.targetMuscleGroup, estimateGeneratedEffectiveSetWeight(newEx) * newEx.sets);
       addedNewCount++;
     }
+  }
+
+  // Hard challenge anchors after all expansion/fill passes.
+  const currentCompoundCount = () => ordered.filter(isCompoundGenerated).length;
+  const minCompoundsRequired = prefs.session_duration_minutes >= 75 ? 2 : 1;
+  const familyCovered = (family: string) => ordered.some((ex) => stapleFamilyKey(ex.exerciseName) === family);
+  const selectedGroupSet = new Set(
+    (existingSelections ?? [])
+      .map((s) => String(s?.muscleGroup || '').toLowerCase())
+      .filter(Boolean)
+  );
+  const recoveryReadyThresholdPct = cfg.muscleReadyThreshold * 100;
+  const isGroupRecoveredForAnchor = (group: string): boolean => {
+    const key = String(group || '').toLowerCase();
+    if (!key) return false;
+    const rec = (profile.muscleRecovery ?? []).find((r) => String(r.muscleGroup || '').toLowerCase() === key);
+    return rec ? rec.recoveryPercent >= recoveryReadyThresholdPct : true;
+  };
+  const isAnchorEligible = (sel: ExerciseSelection): boolean => {
+    const groupKey = String(sel?.muscleGroup || '').toLowerCase();
+    if (!groupKey) return false;
+    // Keep challenge anchors coherent with today's planned split focus.
+    if (selectedGroupSet.size > 0 && !selectedGroupSet.has(groupKey)) return false;
+    return isGroupRecoveredForAnchor(groupKey);
+  };
+  const buildGeneratedFromSelection = (sel: ExerciseSelection, forceSets?: number): GeneratedExercise => {
+    const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
+    const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+    const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+    const reps = humanizeRepTarget(
+      pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target,
+      tableRange.min,
+      tableRange.max
+    );
+    const sets = forceSets ?? (pref?.learnedSets ? Math.min(Math.round(pref.learnedSets), 4) : (role === 'secondary' ? 3 : 2));
+    const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal);
+    const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+    const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
+    const fillExType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
+    const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
+    const rir = getRirTarget(role, effectiveGoal, false);
+    let targetWeight: number | null = null;
+    const prog = profile.exerciseProgressions.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+    if (prog) {
+      targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, fillExType);
+      if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
+        targetWeight = snapToPlate(prog.lastWeight * 0.75, equipment, fillExType);
+      }
+    } else if (pref?.learnedWeight != null) {
+      targetWeight = snapToPlate(pref.learnedWeight, equipment, fillExType);
+    }
+    const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
+    return {
+      exerciseName: sel.exercise.name,
+      exerciseLibraryId: sel.exercise.id,
+      bodyPart: sel.exercise.body_part,
+      primaryMuscles: Array.isArray(sel.exercise.primary_muscles) ? sel.exercise.primary_muscles : [],
+      secondaryMuscles: Array.isArray(sel.exercise.secondary_muscles) ? sel.exercise.secondary_muscles : [],
+      movementPattern: sel.exercise.movement_pattern ?? 'unknown',
+      targetMuscleGroup: sel.muscleGroup,
+      exerciseRole: role,
+      sets,
+      targetReps: reps,
+      targetWeight: isBodyweight
+        ? null
+        : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, fillExType), equipment) : null),
+      targetRir: rir,
+      rirLabel: getRirLabel(rir),
+      isBodyweight,
+      tempo,
+      restSeconds: rest,
+      rationale: 'Challenge anchor reinforcement',
+      adjustments: ['Challenge floor: anchor exercise retained/added'],
+      isDeload: false,
+      isCardio: false,
+      cardioDurationSeconds: null,
+      cardioSpeed: null,
+      cardioIncline: null,
+      cardioSpeedLabel: null,
+      targetHrZone: null,
+      targetHrBpmRange: null,
+      warmupSets: null,
+      supersetGroupId: null,
+      supersetType: null,
+      impactScore: computeImpactScore(sel.exercise, role, effectiveGoal, secondaryGoal),
+      estimatedMinutes: estMin,
+    };
+  };
+  if (currentCompoundCount() < minCompoundsRequired) {
+    const compoundCandidates = strengthPool
+      .filter((sel) => !usedNames.has(sel.exercise.name.toLowerCase()))
+      .filter((sel) => isAnchorEligible(sel))
+      .filter((sel) => (sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise)) === 'compound');
+    for (const sel of compoundCandidates) {
+      if (currentCompoundCount() >= minCompoundsRequired) break;
+      const newEx = buildGeneratedFromSelection(sel, 3);
+      ordered.unshift(newEx);
+      usedNames.add(sel.exercise.name.toLowerCase());
+      remainingMinutes -= newEx.estimatedMinutes;
+      addSessionStimulus(newEx.targetMuscleGroup, estimateGeneratedEffectiveSetWeight(newEx) * newEx.sets);
+    }
+  }
+  for (const family of requiredStapleFamilies) {
+    if (familyCovered(family)) continue;
+    const sel = strengthPool.find((s) =>
+      !usedNames.has(s.exercise.name.toLowerCase())
+      && stapleFamilyKey(s.exercise.name) === family
+      && isAnchorEligible(s)
+    );
+    if (!sel) continue;
+    const newEx = buildGeneratedFromSelection(sel, 2);
+    ordered.push(newEx);
+    usedNames.add(sel.exercise.name.toLowerCase());
+    remainingMinutes -= newEx.estimatedMinutes;
+    addSessionStimulus(newEx.targetMuscleGroup, estimateGeneratedEffectiveSetWeight(newEx) * newEx.sets);
   }
 
   // Final duration stabilization to prevent large regeneration swings.
@@ -3534,6 +4343,10 @@ function stepGenerateRationale(
 
   const totalDuration = exercises.reduce(
     (sum, ex) => sum + ex.estimatedMinutes, 5
+  );
+  const finalDuration = Math.min(
+    Math.max(20, Math.round(prefs.session_duration_minutes)),
+    Math.max(0, Math.floor(totalDuration))
   );
 
   let recoveryStatus = 'Good';
@@ -3690,7 +4503,7 @@ function stepGenerateRationale(
 
   const orderingDetails: string[] = [
     `Session duration limit: ${prefs.session_duration_minutes} min`,
-    `Estimated duration: ${Math.round(totalDuration)} min`,
+    `Estimated duration: ${Math.round(finalDuration)} min`,
     `Muscle group order: ${groupOrder.join(' → ')}`,
   ];
   for (const ex of exercises) {
@@ -3887,7 +4700,7 @@ function stepGenerateRationale(
     date: planningDate ? getLocalDate(planningDate) : getLocalDate(),
     featureSnapshotId: profile.featureSnapshotId,
     trainingGoal: prefs.training_goal,
-    estimatedDurationMinutes: Math.round(totalDuration),
+    estimatedDurationMinutes: finalDuration,
     muscleGroupsFocused,
     exercises,
     sessionRationale,
@@ -3924,6 +4737,7 @@ export interface SessionOverrides {
   planningDate?: string; // YYYY-MM-DD for weekly planning
   avoidExerciseNames?: string[];
   anchorMuscleGroups?: string[];
+  preferredExerciseNames?: string[];
 }
 
 interface LlmHints {
@@ -3975,6 +4789,41 @@ function validateAndCorrect(
   sessionBudgetMin: number,
 ): GeneratedExercise[] {
   const corrections: string[] = [];
+  const finiteBudget = Number.isFinite(sessionBudgetMin) ? Math.max(20, Math.round(sessionBudgetMin)) : 60;
+
+  // Pareto guardrail: cap total exercises so plans stay focused and executable.
+  const maxExerciseCount = (() => {
+    if (finiteBudget <= 35) return 4;
+    if (finiteBudget <= 50) return 5;
+    if (finiteBudget <= 65) return 7;
+    if (finiteBudget <= 80) return 8;
+    if (finiteBudget <= 95) return 9;
+    if (finiteBudget <= 110) return 10;
+    if (finiteBudget <= 125) return 11;
+    return 12;
+  })();
+  if (exercises.length > maxExerciseCount) {
+    const ranked = exercises
+      .map((ex, idx) => {
+        const roleBase =
+          ex.exerciseRole === 'primary' ? 100 :
+            ex.exerciseRole === 'secondary' ? 70 :
+              ex.exerciseRole === 'isolation' ? 45 :
+                ex.exerciseRole === 'corrective' ? 35 :
+                  25;
+        const cardioPenalty = ex.isCardio ? -20 : 0;
+        const score = roleBase + (ex.impactScore ?? 0) + cardioPenalty;
+        return { idx, ex, score };
+      })
+      .sort((a, b) => b.score - a.score);
+    const keepIdx = new Set(ranked.slice(0, maxExerciseCount).map(r => r.idx));
+    const removed = exercises.filter((_, idx) => !keepIdx.has(idx));
+    if (removed.length > 0) {
+      exercises.splice(0, exercises.length, ...exercises.filter((_, idx) => keepIdx.has(idx)));
+      const removedNames = removed.map(ex => ex.exerciseName).slice(0, 6).join(', ');
+      corrections.push(`Exercise count cap applied: removed ${removed.length} (${removedNames})`);
+    }
+  }
 
   // Check B4.2: per-exercise set cap (weeklyTarget / frequency)
   for (const ex of exercises) {
@@ -4072,6 +4921,55 @@ function validateAndCorrect(
     }
   }
 
+  // Hard budget guardrail: never ship a session materially above the selected budget.
+  // This makes time constraints strict and predictable for users.
+  const hardMaxMin = Math.max(20, finiteBudget);
+  if (totalMin > hardMaxMin) {
+    const recalcAll = () => {
+      exercises.forEach(recalc);
+      totalMin = exercises.reduce((s, e) => s + e.estimatedMinutes, 0);
+    };
+
+    // 1) Trim cardio first (Pareto: keep strength quality, reduce conditioning overflow).
+    const cardioEx = exercises.filter(e => e.isCardio).sort((a, b) => (b.estimatedMinutes - a.estimatedMinutes));
+    for (const ex of cardioEx) {
+      if (totalMin <= hardMaxMin) break;
+      const old = ex.cardioDurationSeconds ?? 0;
+      const cutBySec = Math.min(old - 8 * 60, Math.max(0, Math.round((totalMin - hardMaxMin) * 60)));
+      if (cutBySec > 0) {
+        ex.cardioDurationSeconds = Math.max(8 * 60, old - cutBySec);
+        ex.adjustments.push(`Hard budget trim: cardio ${Math.round(old / 60)} → ${Math.round((ex.cardioDurationSeconds ?? old) / 60)} min`);
+        recalcAll();
+      }
+    }
+
+    // 2) Trim non-primary strength sets.
+    const nonPrimary = exercises
+      .filter(e => !e.isCardio && e.exerciseRole !== 'primary')
+      .sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
+    for (const ex of nonPrimary) {
+      if (totalMin <= hardMaxMin) break;
+      while (ex.sets > 2 && totalMin > hardMaxMin) {
+        const oldSets = ex.sets;
+        ex.sets -= 1;
+        recalcAll();
+        ex.adjustments.push(`Hard budget trim: ${oldSets} → ${ex.sets} sets`);
+      }
+    }
+
+    // 3) Last resort: trim primary sets down to 2 if still over budget.
+    const primaries = exercises.filter(e => !e.isCardio && e.exerciseRole === 'primary');
+    for (const ex of primaries) {
+      if (totalMin <= hardMaxMin) break;
+      while (ex.sets > 2 && totalMin > hardMaxMin) {
+        const oldSets = ex.sets;
+        ex.sets -= 1;
+        recalcAll();
+        ex.adjustments.push(`Hard budget trim (primary): ${oldSets} → ${ex.sets} sets`);
+      }
+    }
+  }
+
   return exercises;
 }
 
@@ -4079,13 +4977,21 @@ export async function generateWorkout(
   profile: TrainingProfile,
   overrides?: SessionOverrides
 ): Promise<GeneratedWorkout> {
+  const perfStart = nowMs();
+  const stageMarks: Record<string, number> = {};
+  const stageStart = (name: string) => ({ name, at: nowMs() });
+  const stageEnd = (token: { name: string; at: number }) => {
+    stageMarks[token.name] = Math.round((nowMs() - token.at) * 100) / 100;
+  };
   const planningDate = overrides?.planningDate ? new Date(`${overrides.planningDate}T12:00:00`) : new Date();
   const planningDow = planningDate.getDay();
 
+  const tFetch = stageStart('fetch_inputs');
   const [prefs, allExercises] = await Promise.all([
     fetchUserPreferences(profile.userId),
     fetchAllExercises(),
   ]);
+  stageEnd(tFetch);
 
   if (overrides?.goalOverride) {
     (prefs as any).training_goal = overrides.goalOverride;
@@ -4094,12 +5000,8 @@ export async function generateWorkout(
     prefs.session_duration_minutes = overrides.durationMinutes;
   }
   if (overrides?.finishByTime) {
-    const dayKey = String(new Date().getDay());
+    const dayKey = String(planningDow);
     prefs.weekday_deadlines = { ...prefs.weekday_deadlines, [dayKey]: overrides.finishByTime };
-  } else {
-    // Keep duration as canonical unless a finish-by deadline is explicitly requested
-    // for this generation run.
-    prefs.weekday_deadlines = {};
   }
   if (overrides?.gymProfile) {
     prefs.active_gym_profile = overrides.gymProfile;
@@ -4164,7 +5066,9 @@ export async function generateWorkout(
   }
 
   // Step 1: Recovery check
+  const tRecovery = stageStart('recovery_check');
   const recoveryAdj = stepRecoveryCheck(profile, cfg);
+  stageEnd(tRecovery);
 
   // #7: Apply experience-level volume scaling to recovery adjustment
   recoveryAdj.volumeMultiplier *= expVolumeScale * ageVolumeScale;
@@ -4246,6 +5150,7 @@ export async function generateWorkout(
     * (runtimeFlags.nutrition_feedback ? policyFusion.progressionMultiplier : 1.0);
 
   // Step 2: Select muscle groups
+  const tGroups = stageStart('select_muscle_groups');
   const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(
     profile,
     prefs,
@@ -4255,6 +5160,7 @@ export async function generateWorkout(
     planningDow,
     overrides?.anchorMuscleGroups
   );
+  stageEnd(tGroups);
 
   // Parse LLM pattern observations into actionable hints
   const llmHints = parseLlmPatternObservations(profile.llmPatternObservations);
@@ -4265,8 +5171,27 @@ export async function generateWorkout(
     }
   }
 
+  const preferredExerciseNames = new Set<string>();
+  for (const n of overrides?.preferredExerciseNames ?? []) {
+    const key = String(n || '').trim().toLowerCase();
+    if (key) preferredExerciseNames.add(key);
+  }
+  for (const n of llmHints.preferExercises ?? []) {
+    const key = String(n || '').trim().toLowerCase();
+    if (key) preferredExerciseNames.add(key);
+  }
+
   // Step 3: Select exercises
-  const { selections: exerciseSelections, decisions: exerciseDecisions } = stepSelectExercises(muscleGroups, allExercises, profile, prefs, cfg);
+  const tSelect = stageStart('select_exercises');
+  const { selections: exerciseSelections, decisions: exerciseDecisions } = stepSelectExercises(
+    muscleGroups,
+    allExercises,
+    profile,
+    prefs,
+    cfg,
+    preferredExerciseNames
+  );
+  stageEnd(tSelect);
 
   // Sport prehab injection — add 1 prehab exercise per session when sport focus is set
   if (sportProfile && prefs.sport_season) {
@@ -4286,6 +5211,7 @@ export async function generateWorkout(
             exercise: prehabEx,
             muscleGroup: 'core',
             sets: pick.sets,
+            effectiveSets: pick.sets,
             reason: `${sportProfile.label} prehab: ${pick.reason}`,
             isCardio: false,
           });
@@ -4295,6 +5221,7 @@ export async function generateWorkout(
   }
 
   // Step 4: Prescribe sets/reps/weight/tempo
+  const tPrescribe = stageStart('prescribe');
   const prescribed = stepPrescribe(
     exerciseSelections,
     profile,
@@ -4307,8 +5234,10 @@ export async function generateWorkout(
     effectiveFatLossController,
     highCapacityPush
   );
+  stageEnd(tPrescribe);
 
   // Step 5: Apply session constraints (pass exercise pool + selections for expansion)
+  const tConstraints = stageStart('apply_constraints');
   const constrained = stepApplyConstraints(
     prescribed,
     prefs,
@@ -4321,17 +5250,43 @@ export async function generateWorkout(
     breakRampMultiplier,
     planningDate
   );
+  stageEnd(tConstraints);
 
   // Step 5b: Post-generation validation — catch absurd prescriptions
+  const tValidate = stageStart('validate_adapt');
   const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes);
   const adaptiveContext = buildAdaptivePolicyContext(profile, {
     training_goal: (prefs.training_goal as any) ?? 'hypertrophy',
     experience_level: prefs.experience_level ?? null,
     age: prefs.age ?? null,
   });
-  const adapted = optimizePrescription(validated as unknown as AdaptiveExercise[], adaptiveContext) as unknown as GeneratedExercise[];
+  const adaptedRaw = optimizePrescription(validated as unknown as AdaptiveExercise[], adaptiveContext) as unknown as GeneratedExercise[];
+  const recalcEstimatedMinutes = (exercises: GeneratedExercise[]): GeneratedExercise[] => exercises.map((ex) => {
+    if (ex.isCardio) {
+      return {
+        ...ex,
+        estimatedMinutes: ((ex.cardioDurationSeconds ?? 1800) / 60) + (TRANSITION_TIME_SEC.cardio / 60),
+      };
+    }
+    return {
+      ...ex,
+      estimatedMinutes: estimateExerciseMinutes(
+        ex.sets,
+        ex.restSeconds,
+        ex.exerciseRole,
+        ex.warmupSets?.length ?? 0,
+        ex.targetReps,
+        ex.tempo
+      ),
+    };
+  });
+  const adaptedRecomputed = recalcEstimatedMinutes(adaptedRaw);
+  const adaptedValidated = validateAndCorrect(adaptedRecomputed, profile, prefs.session_duration_minutes);
+  const adapted = recalcEstimatedMinutes(adaptedValidated);
+  stageEnd(tValidate);
 
   // Step 6: Generate rationale + decision log
+  const tFinalize = stageStart('rationale_finalize');
   const workout = stepGenerateRationale(
     adapted,
     muscleGroups,
@@ -4425,8 +5380,13 @@ export async function generateWorkout(
       stateVersion: adaptiveContext.personalState.stateVersion,
     },
   };
+  stageEnd(tFinalize);
   workout.decisionProvenance = decisionProvenance;
   workout.runtimeFlags = runtimeFlags;
+  workout.perfTelemetry = {
+    totalMs: Math.round((nowMs() - perfStart) * 100) / 100,
+    stagesMs: stageMarks,
+  };
   return workout;
 }
 
@@ -4482,9 +5442,81 @@ export interface WeeklyPlan {
     avgAnchorCoverage: number;
     avgNoveltyVsRecent: number;
     recurrenceBlockEvents: number;
+    coherenceRejectEvents: number;
+    avgCoherenceScore: number;
+    plannerTotalMs: number;
+    avgDayPlannerMs: number;
+    avgDiversifyAttempts: number;
     monotony: number;
     generatedAt: string;
   };
+}
+
+function computeWorkoutGroupStimulus(workout: GeneratedWorkout | null): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!workout) return out;
+  for (const ex of workout.exercises ?? []) {
+    if (ex.isCardio) continue;
+    const group = normalizeMuscleGroupName(ex.targetMuscleGroup) ?? String(ex.targetMuscleGroup || '').toLowerCase();
+    if (!group) continue;
+    const eff = estimateGeneratedEffectiveSetWeight(ex) * Math.max(0, Number(ex.sets || 0));
+    out[group] = (out[group] ?? 0) + eff;
+  }
+  return out;
+}
+
+function evaluateWorkoutCoherence(
+  workout: GeneratedWorkout | null,
+  prevWorkout: GeneratedWorkout | null,
+  anchorGroups: string[],
+  weekIdx: number,
+  weeklyLastSeenByGroup: Map<string, number>,
+  weeklyStimulusByGroup: Map<string, number>,
+  profile: TrainingProfile,
+): { score: number; violations: string[] } {
+  if (!workout) return { score: 1, violations: [] };
+  const violations: string[] = [];
+  const stim = computeWorkoutGroupStimulus(workout);
+  const anchorSet = new Set(normalizeMuscleGroupList(anchorGroups ?? []));
+  const focused = new Set(normalizeMuscleGroupList(workout.muscleGroupsFocused ?? []));
+
+  if (anchorSet.size > 0) {
+    let covered = 0;
+    for (const g of anchorSet) if (focused.has(g)) covered++;
+    const coverage = covered / anchorSet.size;
+    if (coverage < 0.5) violations.push(`anchor_coverage_${coverage.toFixed(2)}`);
+  }
+
+  // Recovery spacing: prevent repeated high-dose direct work on adjacent days.
+  for (const [group, groupStim] of Object.entries(stim)) {
+    const lastSeen = weeklyLastSeenByGroup.get(group);
+    if (lastSeen != null && (weekIdx - lastSeen) <= 1 && groupStim >= 2.5) {
+      violations.push(`adjacent_high_dose_${group}`);
+    }
+  }
+
+  // Weekly overshoot guard against MAV drift while week is being built.
+  for (const [group, groupStim] of Object.entries(stim)) {
+    const vol = (profile.muscleVolumeStatuses ?? []).find(v => v.muscleGroup.toLowerCase() === group);
+    const current = weeklyStimulusByGroup.get(group) ?? 0;
+    if (vol && (current + groupStim) > (vol.mavHigh * 1.35)) {
+      violations.push(`weekly_overshoot_${group}`);
+    }
+  }
+
+  // Split coherence: avoid back-to-back heavy lower-body loading.
+  if (prevWorkout) {
+    const prevStim = computeWorkoutGroupStimulus(prevWorkout);
+    const lowerGroups = ['quadriceps', 'hamstrings', 'glutes', 'adductors', 'abductors', 'calves'];
+    const prevLower = lowerGroups.reduce((s, g) => s + (prevStim[g] ?? 0), 0);
+    const currLower = lowerGroups.reduce((s, g) => s + (stim[g] ?? 0), 0);
+    if (prevLower >= 6.5 && currLower >= 6.5) {
+      violations.push('back_to_back_heavy_lower');
+    }
+  }
+
+  const penalty = violations.length * 0.14;
+  return { score: clampNumber(1 - penalty, 0, 1), violations };
 }
 
 export function generateWeekPreviewFromPlan(
@@ -4561,6 +5593,7 @@ export async function generateWeeklyPlan(
   profile: TrainingProfile,
   userRestDays: number[] = []
 ): Promise<WeeklyPlan> {
+  const weeklyPlanStartMs = nowMs();
   const weekDates = getWeekDatesMondaySunday(new Date());
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const preview = generateWeekPreview(profile, userRestDays, false);
@@ -4572,12 +5605,90 @@ export async function generateWeeklyPlan(
   const weeklyLastSeen = new Map<string, number>();
   const weeklyFamilyCounts = new Map<string, number>();
   const weeklyFamilyLastSeen = new Map<string, number>();
+  const weeklyGroupLastSeen = new Map<string, number>();
+  const weeklyGroupStimulus = new Map<string, number>();
+  const weeklyRegionCounts = new Map<string, number>();
+  const weeklyRegionLastSeen = new Map<string, number>();
+  const weeklyStapleSeen = new Set<string>();
   const noveltySamples: number[] = [];
   const overlapSamples: number[] = [];
   const anchorSamples: number[] = [];
+  const coherenceSamples: number[] = [];
+  const dayPlannerMsSamples: number[] = [];
+  const diversifyAttemptSamples: number[] = [];
   let recurrenceBlockEvents = 0;
+  let coherenceRejectEvents = 0;
   const normalizeExerciseName = (name: string): string =>
     String(name || '').trim().toLowerCase();
+  const stapleFamilyKey = (exerciseName: string): string => {
+    const n = normalizeExerciseName(exerciseName);
+    if (/(^|\b)(rdl|romanian deadlift)(\b|$)/.test(n)) return 'romanian_deadlift';
+    if (/leg\s*press|sled\s*press|45[\s-]*degree\s*leg\s*press/.test(n)) return 'leg_press';
+    return n;
+  };
+  const shouldExcludeStapleFamily = (familyKey: string): boolean =>
+    familyKey === 'romanian_deadlift';
+  const stapleFamilyAgg = new Map<string, {
+    familyKey: string;
+    representativeName: string;
+    totalSessions: number;
+    recentSessions: number;
+    isStaple: boolean;
+    bestLastUsedDaysAgo: number;
+  }>();
+  for (const p of (profile.exercisePreferences ?? [])) {
+    const name = normalizeExerciseName(String((p as any)?.exerciseName || ''));
+    if (!name) continue;
+    const familyKey = stapleFamilyKey(name);
+    const agg = stapleFamilyAgg.get(familyKey) ?? {
+      familyKey,
+      representativeName: name,
+      totalSessions: 0,
+      recentSessions: 0,
+      isStaple: false,
+      bestLastUsedDaysAgo: 999,
+    };
+    const pLastUsed = Number((p as any)?.lastUsedDaysAgo ?? 999);
+    if (pLastUsed < agg.bestLastUsedDaysAgo) {
+      agg.bestLastUsedDaysAgo = pLastUsed;
+      agg.representativeName = name;
+    }
+    agg.totalSessions += Number((p as any)?.totalSessions ?? 0);
+    agg.recentSessions += Number((p as any)?.recentSessions ?? 0);
+    agg.isStaple = agg.isStaple || Boolean((p as any)?.isStaple) || Number((p as any)?.recentSessions ?? 0) >= 2;
+    stapleFamilyAgg.set(familyKey, agg);
+  }
+  const weeklyStrictStapleFamilies = [...stapleFamilyAgg.values()]
+    .filter((f) => !shouldExcludeStapleFamily(f.familyKey))
+    .filter((f) => f.isStaple || (f.totalSessions >= 12 && f.bestLastUsedDaysAgo <= 28))
+    .sort((a, b) => {
+      const stapleRank = (Number(Boolean(b?.isStaple)) - Number(Boolean(a?.isStaple)));
+      if (stapleRank !== 0) return stapleRank;
+      const recencyRank = (Number(a?.bestLastUsedDaysAgo) || 999) - (Number(b?.bestLastUsedDaysAgo) || 999);
+      if (recencyRank !== 0) return recencyRank;
+      return (Number(b?.totalSessions) || 0) - (Number(a?.totalSessions) || 0);
+    })
+    .map((f) => f.familyKey)
+    .filter(Boolean)
+    .slice(0, 12);
+  const weeklyFallbackStapleFamilies = [...stapleFamilyAgg.values()]
+    .filter((f) => !shouldExcludeStapleFamily(f.familyKey))
+    .filter((f) => f.totalSessions >= 4 && f.bestLastUsedDaysAgo <= 84)
+    .sort((a, b) => {
+      const recencyRank = (Number(a?.bestLastUsedDaysAgo) || 999) - (Number(b?.bestLastUsedDaysAgo) || 999);
+      if (recencyRank !== 0) return recencyRank;
+      return (Number(b?.totalSessions) || 0) - (Number(a?.totalSessions) || 0);
+    })
+    .map((f) => f.familyKey)
+    .filter(Boolean)
+    .slice(0, 12);
+  const weeklyStapleFamilies = weeklyStrictStapleFamilies.length > 0
+    ? weeklyStrictStapleFamilies
+    : weeklyFallbackStapleFamilies;
+  const weeklyStapleRepresentativeByFamily = new Map<string, string>(
+    [...stapleFamilyAgg.values()].map((f) => [f.familyKey, f.representativeName])
+  );
+  const weeklyStapleSet = new Set(weeklyStapleFamilies);
   const canonicalFamilyKey = (ex: GeneratedExercise): string | null => {
     const name = normalizeExerciseName(ex.exerciseName);
     const pat = String(ex.movementPattern ?? '').toLowerCase();
@@ -4585,10 +5696,30 @@ export async function generateWeeklyPlan(
     if (pat.includes('hip_hinge') || pat.includes('hinge')) return 'hip_hinge';
     return null;
   };
+  const regionalSubgroupKey = (ex: GeneratedExercise): string | null => {
+    const name = normalizeExerciseName(ex.exerciseName);
+    const group = String(ex.targetMuscleGroup || '').toLowerCase();
+    if (group === 'chest') {
+      if (/(^|\b)(incline|upper chest|clavicular)(\b|$)/.test(name)) return 'chest_upper';
+      if (/(^|\b)(decline|dip|low cable)(\b|$)/.test(name)) return 'chest_lower';
+      return 'chest_mid';
+    }
+    if (group === 'back_lats' || group === 'back_upper') {
+      if (/(^|\b)(lat pulldown|pull-up|pullup|chin-up|chinup|straight-arm pulldown)(\b|$)/.test(name)) return 'back_lats';
+      if (/(^|\b)(row|face pull|rear delt|trap)(\b|$)/.test(name)) return 'back_upper';
+      return 'back_mid';
+    }
+    if (group === 'quadriceps' || /(squat|leg press|lunge|split squat|step[-\s]*up)/.test(name)) return 'legs_quad_knee';
+    if (group === 'hamstrings' || /(rdl|romanian deadlift|deadlift|good morning|hamstring curl|nordic)/.test(name)) return 'legs_ham_hinge';
+    if (group === 'glutes' || /(hip thrust|bridge|kickback|abduction)/.test(name)) return 'legs_glute';
+    return null;
+  };
   const exerciseNameSet = (w: GeneratedWorkout | null): Set<string> =>
     new Set((w?.exercises ?? []).filter(ex => !ex.isCardio).map(ex => normalizeExerciseName(ex.exerciseName)).filter(Boolean));
   const exerciseFamilySet = (w: GeneratedWorkout | null): Set<string> =>
     new Set((w?.exercises ?? []).filter(ex => !ex.isCardio).map(ex => canonicalFamilyKey(ex)).filter((v): v is string => !!v));
+  const exerciseRegionSet = (w: GeneratedWorkout | null): Set<string> =>
+    new Set((w?.exercises ?? []).filter(ex => !ex.isCardio).map(ex => regionalSubgroupKey(ex)).filter((v): v is string => !!v));
   const overlapRatio = (a: Set<string>, b: Set<string>): number => {
     if (a.size === 0 && b.size === 0) return 0;
     let overlap = 0;
@@ -4642,8 +5773,28 @@ export async function generateWeeklyPlan(
       .map(ex => `${ex.exerciseName}|${ex.sets}|${ex.targetReps}|${ex.targetWeight ?? 'bw'}|${ex.isCardio ? ex.cardioDurationSeconds ?? 0 : 0}`)
       .join(';;');
   };
+  const normalizeGroups = (groups: string[] | null | undefined): string[] =>
+    normalizeMuscleGroupList(groups ?? []);
+  const groupOverlapRatio = (a: string[], b: string[]): number => {
+    if (a.length === 0 || b.length === 0) return 0;
+    const setA = new Set(a);
+    const setB = new Set(b);
+    let overlap = 0;
+    for (const g of setA) if (setB.has(g)) overlap += 1;
+    return overlap / Math.max(setA.size, setB.size, 1);
+  };
+  const rotationAnchorGroupsForDow = (dow: number): string[] => {
+    const rotation = Array.isArray(profile.detectedSplit?.typicalRotation)
+      ? profile.detectedSplit.typicalRotation
+      : [];
+    if (rotation.length === 0) return [];
+    const mondayBased = (dow + 6) % 7;
+    const splitName = rotation[mondayBased % rotation.length];
+    return normalizeGroups(SPLIT_MUSCLE_MAPPING[splitName] ?? []);
+  };
   let prevTrainingSignature: string | null = null;
   for (let weekIdx = 0; weekIdx < weekDates.length; weekIdx++) {
+    const dayStartMs = nowMs();
     const planDate = weekDates[weekIdx];
     const d = new Date(`${planDate}T12:00:00`);
     const dow = d.getDay();
@@ -4666,10 +5817,24 @@ export async function generateWeeklyPlan(
       continue;
     }
     const recentTrainingDays = getRecentTrainingDays(2);
+    const prevTrainingDay = recentTrainingDays.length > 0 ? recentTrainingDays[recentTrainingDays.length - 1] : null;
+    const prevGroups = normalizeGroups(prevTrainingDay?.muscleGroups ?? prevTrainingDay?.plannedWorkout?.muscleGroupsFocused ?? []);
+    let dayAnchorGroups = normalizeGroups(p?.muscleGroups ?? []);
+    if (dayAnchorGroups.length === 0) {
+      dayAnchorGroups = rotationAnchorGroupsForDow(dow);
+    }
+    if (groupOverlapRatio(dayAnchorGroups, prevGroups) >= 0.67) {
+      const rotated = rotationAnchorGroupsForDow(dow);
+      if (rotated.length > 0) dayAnchorGroups = rotated;
+    }
     const recentSignatures = new Set(recentTrainingDays.map(d0 => workoutSignature(d0.plannedWorkout)));
     const recentExerciseNames = new Set<string>();
     for (const prevDay of recentTrainingDays) {
       for (const n of exerciseNameSet(prevDay.plannedWorkout)) recentExerciseNames.add(n);
+    }
+    const recentRegions = new Set<string>();
+    for (const prevDay of recentTrainingDays) {
+      for (const r of exerciseRegionSet(prevDay.plannedWorkout)) recentRegions.add(r);
     }
 
     const proactiveAvoid = [...weeklyExerciseCounts.entries()]
@@ -4678,11 +5843,26 @@ export async function generateWeeklyPlan(
     if ((weeklyFamilyCounts.get('hip_hinge') ?? 0) >= 1) {
       proactiveAvoid.push('romanian deadlift', 'rdl', 'stiff leg deadlift', 'good morning');
     }
+    const preferredStaplesForDay = weeklyStapleFamilies
+      .filter((familyKey) => !weeklyStapleSeen.has(familyKey))
+      .map((familyKey) => weeklyStapleRepresentativeByFamily.get(familyKey) ?? familyKey)
+      .slice(0, 6);
+    const protectedStapleSet = new Set(preferredStaplesForDay);
+    const proactiveAvoidFiltered = proactiveAvoid.filter((name) => !protectedStapleSet.has(normalizeExerciseName(name)));
     let plannedWorkout = await generateWorkout(
       profile,
-      proactiveAvoid.length > 0
-        ? { planningDate: planDate, avoidExerciseNames: proactiveAvoid, anchorMuscleGroups: p?.muscleGroups ?? [] }
-        : { planningDate: planDate, anchorMuscleGroups: p?.muscleGroups ?? [] }
+      proactiveAvoidFiltered.length > 0
+        ? {
+            planningDate: planDate,
+            avoidExerciseNames: proactiveAvoidFiltered,
+            anchorMuscleGroups: dayAnchorGroups,
+            preferredExerciseNames: preferredStaplesForDay
+          }
+        : {
+            planningDate: planDate,
+            anchorMuscleGroups: dayAnchorGroups,
+            preferredExerciseNames: preferredStaplesForDay
+          }
     );
     let signature = workoutSignature(plannedWorkout);
 
@@ -4693,6 +5873,9 @@ export async function generateWeeklyPlan(
     const MAX_DIVERSIFY_ATTEMPTS = 5;
     const OVERLAP_THRESHOLD = 0.6;
     const MIN_NOVELTY_RATIO = 0.35;
+    const SOFT_OVERLAP_MARGIN = 0.08;
+    const SOFT_NOVELTY_MARGIN = 0.08;
+    const MIN_IMPROVEMENT_DELTA = 0.015;
     let attempt = 0;
     let bestWorkout = plannedWorkout;
     let bestScore = -Infinity;
@@ -4703,6 +5886,10 @@ export async function generateWeeklyPlan(
       const overlap = overlapRatio(currNameSet, prevNameSet);
       const novelty = noveltyRatio(currNameSet, recentExerciseNames);
       const currFamilies = exerciseFamilySet(plannedWorkout);
+      const currRegions = exerciseRegionSet(plannedWorkout);
+      const regionNovelty = noveltyRatio(currRegions, recentRegions);
+      const currStapleFamilies = new Set([...currNameSet].map((name) => stapleFamilyKey(name)));
+      const stapleHits = [...currStapleFamilies].filter((familyKey) => weeklyStapleSet.has(familyKey));
       const recurrenceViolations = [...currNameSet].filter((name) => {
         const count = weeklyExerciseCounts.get(name) ?? 0;
         const lastSeen = weeklyLastSeen.get(name);
@@ -4715,24 +5902,56 @@ export async function generateWeeklyPlan(
         const consecutive = lastSeen != null ? (weekIdx - lastSeen) <= 1 : false;
         return count >= 2 || consecutive;
       });
+      const regionViolations = [...currRegions].filter((region) => {
+        const count = weeklyRegionCounts.get(region) ?? 0;
+        const lastSeen = weeklyRegionLastSeen.get(region);
+        const consecutive = lastSeen != null ? (weekIdx - lastSeen) <= 1 : false;
+        return count >= 2 || consecutive;
+      });
       const exactRepeat = (prevTrainingSignature && signature === prevTrainingSignature) || recentSignatures.has(signature);
       const excessiveOverlap = overlap >= OVERLAP_THRESHOLD && currNameSet.size >= 3;
       const lowNovelty = currNameSet.size >= 4 && novelty < MIN_NOVELTY_RATIO;
-      const excessiveRecurrence = recurrenceViolations.length > 0 || familyViolations.length > 0;
+      const lowRegionalNovelty = currRegions.size >= 2 && regionNovelty < 0.34;
+      const excessiveRecurrence = recurrenceViolations.length > 0 || familyViolations.length > 0 || regionViolations.length > 0;
+      const coherence = evaluateWorkoutCoherence(
+        plannedWorkout,
+        prevWorkout,
+        dayAnchorGroups,
+        weekIdx,
+        weeklyGroupLastSeen,
+        weeklyGroupStimulus,
+        profile,
+      );
+      const coherenceViolation = coherence.violations.length > 0;
+      if (coherenceViolation) coherenceRejectEvents += 1;
       if (excessiveRecurrence) recurrenceBlockEvents += 1;
-      const currScore = candidateScore(
+      const stapleCoverageBonus = weeklyStapleSet.size > 0 ? clampNumber(stapleHits.length / 2, 0, 1) : 0;
+      const currScoreBase = candidateScore(
         plannedWorkout,
         overlap,
         novelty,
         recurrenceViolations.length,
         familyViolations.length,
-        p?.muscleGroups ?? []
+        dayAnchorGroups
       );
+      const currScore = (
+        currScoreBase
+        + 0.14 * stapleCoverageBonus
+        + 0.10 * regionNovelty
+        - 0.08 * regionViolations.length
+      ) * (0.78 + 0.22 * coherence.score);
       if (currScore > bestScore) {
         bestScore = currScore;
         bestWorkout = plannedWorkout;
       }
-      if (!exactRepeat && !excessiveOverlap && !lowNovelty && !excessiveRecurrence) break;
+      if (!exactRepeat && !excessiveOverlap && !lowNovelty && !lowRegionalNovelty && !excessiveRecurrence && !coherenceViolation) break;
+      const softPass = !exactRepeat
+        && !excessiveRecurrence
+        && !coherenceViolation
+        && !lowRegionalNovelty
+        && overlap < (OVERLAP_THRESHOLD + SOFT_OVERLAP_MARGIN)
+        && novelty >= Math.max(0.2, MIN_NOVELTY_RATIO - SOFT_NOVELTY_MARGIN);
+      if (attempt >= 1 && softPass) break;
 
       const baseAvoid = [...recentExerciseNames];
       const currTop = (plannedWorkout.exercises ?? [])
@@ -4740,19 +5959,36 @@ export async function generateWeeklyPlan(
         .slice(0, 8)
         .map(ex => normalizeExerciseName(ex.exerciseName))
         .filter(Boolean);
-      const avoidExerciseNames = [...new Set([...baseAvoid, ...currTop, ...recurrenceViolations])].slice(0, 20);
+      const regionViolationSet = new Set(regionViolations);
+      const regionRepeatNames = (plannedWorkout.exercises ?? [])
+        .filter(ex => !ex.isCardio && regionViolationSet.has(regionalSubgroupKey(ex) ?? ''))
+        .map(ex => normalizeExerciseName(ex.exerciseName))
+        .filter(Boolean);
+      const avoidExerciseNames = [...new Set([
+        ...baseAvoid,
+        ...currTop,
+        ...recurrenceViolations,
+        ...regionRepeatNames
+      ])]
+        .filter(name => !protectedStapleSet.has(name))
+        .slice(0, 20);
       if (avoidExerciseNames.length === 0) break;
 
       const regenerated = await generateWorkout(profile, {
         planningDate: planDate,
         avoidExerciseNames,
-        anchorMuscleGroups: p?.muscleGroups ?? [],
+        anchorMuscleGroups: dayAnchorGroups,
+        preferredExerciseNames: preferredStaplesForDay,
       });
       const regeneratedSignature = workoutSignature(regenerated);
       const regeneratedNames = exerciseNameSet(regenerated);
       const regeneratedOverlap = overlapRatio(regeneratedNames, prevNameSet);
       const regeneratedNovelty = noveltyRatio(regeneratedNames, recentExerciseNames);
       const regeneratedFamilies = exerciseFamilySet(regenerated);
+      const regeneratedRegions = exerciseRegionSet(regenerated);
+      const regeneratedRegionNovelty = noveltyRatio(regeneratedRegions, recentRegions);
+      const regeneratedStapleFamilies = new Set([...regeneratedNames].map((name) => stapleFamilyKey(name)));
+      const regeneratedStapleHits = [...regeneratedStapleFamilies].filter((familyKey) => weeklyStapleSet.has(familyKey));
       const regeneratedRecurrence = [...regeneratedNames].filter((name) => {
         const count = weeklyExerciseCounts.get(name) ?? 0;
         const lastSeen = weeklyLastSeen.get(name);
@@ -4765,17 +6001,46 @@ export async function generateWeeklyPlan(
         const consecutive = lastSeen != null ? (weekIdx - lastSeen) <= 1 : false;
         return count >= 2 || consecutive;
       });
-      const regeneratedScore = candidateScore(
+      const regeneratedRegionRecurrence = [...regeneratedRegions].filter((region) => {
+        const count = weeklyRegionCounts.get(region) ?? 0;
+        const lastSeen = weeklyRegionLastSeen.get(region);
+        const consecutive = lastSeen != null ? (weekIdx - lastSeen) <= 1 : false;
+        return count >= 2 || consecutive;
+      });
+      const regeneratedStapleCoverageBonus = weeklyStapleSet.size > 0
+        ? clampNumber(regeneratedStapleHits.length / 2, 0, 1)
+        : 0;
+      const regeneratedScoreBase = candidateScore(
         regenerated,
         regeneratedOverlap,
         regeneratedNovelty,
         regeneratedRecurrence.length,
         regeneratedFamilyRecurrence.length,
-        p?.muscleGroups ?? []
+        dayAnchorGroups
       );
+      const regeneratedScore = (
+        regeneratedScoreBase
+        + 0.14 * regeneratedStapleCoverageBonus
+        + 0.10 * regeneratedRegionNovelty
+        - 0.08 * regeneratedRegionRecurrence.length
+      ) * (0.78 + 0.22 * evaluateWorkoutCoherence(
+        regenerated,
+        prevWorkout,
+        dayAnchorGroups,
+        weekIdx,
+        weeklyGroupLastSeen,
+        weeklyGroupStimulus,
+        profile,
+      ).score);
       if (regeneratedScore > bestScore) {
         bestScore = regeneratedScore;
         bestWorkout = regenerated;
+      }
+      const negligibleGain = regeneratedScore <= (currScore + MIN_IMPROVEMENT_DELTA);
+      if (attempt >= 1 && negligibleGain && softPass) {
+        plannedWorkout = regeneratedScore >= currScore ? regenerated : plannedWorkout;
+        signature = workoutSignature(plannedWorkout);
+        break;
       }
 
       const isBetter = regeneratedSignature !== signature && regeneratedScore >= currScore;
@@ -4790,6 +6055,7 @@ export async function generateWeeklyPlan(
       }
       attempt++;
     }
+    diversifyAttemptSamples.push(attempt);
     plannedWorkout = bestWorkout;
     signature = workoutSignature(plannedWorkout);
     prevTrainingSignature = signature;
@@ -4804,14 +6070,34 @@ export async function generateWeeklyPlan(
       for (const n of exerciseNameSet(r.plannedWorkout)) recentNamesForSample.add(n);
     }
     noveltySamples.push(noveltyRatio(finalizedNames, recentNamesForSample));
-    anchorSamples.push(anchorCoverage(plannedWorkout, p?.muscleGroups ?? []));
+    anchorSamples.push(anchorCoverage(plannedWorkout, dayAnchorGroups));
+    const finalizedCoherence = evaluateWorkoutCoherence(
+      plannedWorkout,
+      prevGeneratedDay?.plannedWorkout ?? null,
+      dayAnchorGroups,
+      weekIdx,
+      weeklyGroupLastSeen,
+      weeklyGroupStimulus,
+      profile,
+    );
+    coherenceSamples.push(finalizedCoherence.score);
     for (const n of exerciseNameSet(plannedWorkout)) {
       weeklyExerciseCounts.set(n, (weeklyExerciseCounts.get(n) ?? 0) + 1);
       weeklyLastSeen.set(n, weekIdx);
+      const familyKey = stapleFamilyKey(n);
+      if (weeklyStapleSet.has(familyKey)) weeklyStapleSeen.add(familyKey);
+    }
+    for (const [group, dose] of Object.entries(computeWorkoutGroupStimulus(plannedWorkout))) {
+      weeklyGroupStimulus.set(group, (weeklyGroupStimulus.get(group) ?? 0) + dose);
+      weeklyGroupLastSeen.set(group, weekIdx);
     }
     for (const family of exerciseFamilySet(plannedWorkout)) {
       weeklyFamilyCounts.set(family, (weeklyFamilyCounts.get(family) ?? 0) + 1);
       weeklyFamilyLastSeen.set(family, weekIdx);
+    }
+    for (const region of exerciseRegionSet(plannedWorkout)) {
+      weeklyRegionCounts.set(region, (weeklyRegionCounts.get(region) ?? 0) + 1);
+      weeklyRegionLastSeen.set(region, weekIdx);
     }
     days.push({
       planDate,
@@ -4826,6 +6112,7 @@ export async function generateWeeklyPlan(
       estimatedMinutes: plannedWorkout.estimatedDurationMinutes,
       llmVerdict: 'pending',
     });
+    dayPlannerMsSamples.push(Math.round((nowMs() - dayStartMs) * 100) / 100);
   }
 
   const trainingMinutes = days
@@ -4850,6 +6137,11 @@ export async function generateWeeklyPlan(
       avgAnchorCoverage: Math.round(avg(anchorSamples) * 1000) / 1000,
       avgNoveltyVsRecent: Math.round(avg(noveltySamples) * 1000) / 1000,
       recurrenceBlockEvents,
+      coherenceRejectEvents,
+      avgCoherenceScore: Math.round(avg(coherenceSamples) * 1000) / 1000,
+      plannerTotalMs: Math.round((nowMs() - weeklyPlanStartMs) * 100) / 100,
+      avgDayPlannerMs: Math.round(avg(dayPlannerMsSamples) * 100) / 100,
+      avgDiversifyAttempts: Math.round(avg(diversifyAttemptSamples) * 100) / 100,
       monotony: Math.round(monotony * 100) / 100,
       generatedAt: new Date().toISOString(),
     },
@@ -4926,7 +6218,7 @@ export function generateWeekPreview(
       const checkDow = (todayDow - daysBack + 7) % 7;
       const pattern = dayOfWeekPatterns[checkDow];
       if (pattern && !pattern.isRestDay && daysBack > 0) {
-        const lastFocus = pattern.muscleGroupsTypical;
+        const lastFocus = normalizeMuscleGroupList(pattern.muscleGroupsTypical ?? []);
         for (let r = 0; r < rotation.length; r++) {
           const rotGroups = SPLIT_MUSCLE_MAPPING[rotation[r]];
           if (rotGroups && lastFocus.some(mg => rotGroups.includes(mg))) {

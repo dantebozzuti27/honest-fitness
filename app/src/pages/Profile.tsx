@@ -65,6 +65,7 @@ interface TrainingProfileData {
   rest_days: number[];
   sport_focus: string;
   sport_season: string;
+  hotel_mode: boolean;
 }
 
 const SPORT_OPTIONS = [
@@ -314,6 +315,7 @@ export default function Profile() {
     rest_days: [],
     sport_focus: '',
     sport_season: '',
+    hotel_mode: false,
   })
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
@@ -410,6 +412,7 @@ export default function Profile() {
           rest_days: Array.isArray(prefs.rest_days) ? prefs.rest_days : [],
           sport_focus: prefs.sport_focus || '',
           sport_season: prefs.sport_season || '',
+          hotel_mode: Boolean(prefs.hotel_mode),
         })
       }
       setProfileLoaded(true)
@@ -456,6 +459,7 @@ export default function Profile() {
         rest_days: trainingProfile.rest_days.length > 0 ? trainingProfile.rest_days : null,
         sport_focus: trainingProfile.sport_focus || null,
         sport_season: trainingProfile.sport_season || null,
+        hotel_mode: Boolean(trainingProfile.hotel_mode),
       }
       await saveUserPreferences(user.id, payload)
 
@@ -681,6 +685,22 @@ export default function Profile() {
                   onChange={e => setTrainingProfile(p => ({ ...p, equipment_access: e.target.value }))}
                   options={EQUIPMENT_OPTIONS}
                 />
+                <div style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--bg-tertiary)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', cursor: 'pointer' }}>
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Hotel Mode</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                        Restrict workouts to treadmill, bodyweight, and dumbbell exercises capped at 50 lbs.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={trainingProfile.hotel_mode}
+                      onChange={e => setTrainingProfile(p => ({ ...p, hotel_mode: e.target.checked }))}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                  </label>
+                </div>
                 <SelectField
                   label="Available Days Per Week"
                   value={trainingProfile.available_days_per_week}

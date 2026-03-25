@@ -95,18 +95,17 @@
 }
 
 .name {
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--text-primary);
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.name::-webkit-scrollbar {
-  display: none;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 
 .summary {
@@ -133,14 +132,9 @@
 .subline {
   font-size: 12px;
   color: var(--text-secondary);
-  white-space: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.subline::-webkit-scrollbar {
-  display: none;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .content {
@@ -419,8 +413,8 @@
   flex-direction: column;
   align-items: stretch;
   flex-wrap: nowrap;
-  gap: 10px;
-  padding: 10px;
+  gap: 8px;
+  padding: 10px 10px 12px;
   background: var(--glass-card-bg);
   border: 1px solid var(--glass-card-border);
   box-shadow: var(--glass-card-shadow);
@@ -434,7 +428,7 @@
 .setMainRow {
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   flex-wrap: nowrap;
   min-width: 0;
@@ -460,13 +454,20 @@
 }
 
 .setNumber {
-  width: 20px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
   font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--text-secondary);
   text-align: center;
   flex-shrink: 0;
-  line-height: 44px; /* align with input height */
+  line-height: 24px;
+  border: 1px solid var(--glass-form-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  margin-top: 10px;
 }
 
 .inputGroup {
@@ -646,10 +647,19 @@
 .setNextBtn {
   flex: 0 0 auto;
   min-height: 52px;
-  padding: 0 14px;
+  padding: 0 16px;
   border-radius: 12px;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.setActionRail {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 52px;
 }
 
 /* Stacks: never multi-line, never ellipses — allow horizontal scroll instead */
@@ -695,15 +705,36 @@
   box-shadow: var(--glass-form-shadow-focus);
 }
 
+@media (max-width: 760px) {
+  .setMainRow {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .setActionRail {
+    width: 100%;
+    margin-left: 32px;
+    justify-content: space-between;
+    min-height: 0;
+  }
+
+  .setNextBtn {
+    min-height: 48px;
+  }
+}
+
 /* Thumb-friendly active-set controls (narrow screens): let Next/Complete become a full-width CTA */
 @media (max-width: 520px) {
   .setRow.activeSet .setMainRow {
     flex-wrap: wrap;
     gap: 8px;
   }
+  .setRow.activeSet .setActionRail {
+    margin-left: 32px;
+    width: calc(100% - 32px);
+  }
   .setRow.activeSet .setNextBtn {
-    width: 100%;
-    flex-basis: 100%;
+    flex: 1 1 0;
     justify-content: center;
   }
 }
@@ -717,6 +748,7 @@
 
 .input[type="number"] {
   -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .nextBtn {
@@ -739,11 +771,11 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 6px;
+  padding: 4px 8px;
   background: var(--accent);
-  border-radius: 4px;
+  border-radius: 8px;
   flex-shrink: 0;
-  opacity: 0.8;
+  opacity: 0.95;
 }
 
 .targetLabel {
@@ -755,8 +787,8 @@
 }
 
 .targetValue {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 800;
   color: #fff;
   font-variant-numeric: tabular-nums;
 }

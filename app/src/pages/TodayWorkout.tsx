@@ -5,8 +5,6 @@ import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAna
 import {
   generateWorkout,
   saveGeneratedWorkout,
-  generateWeekPreview,
-  generateWeekPreviewFromPlan,
   generateWeeklyPlan,
   recomputeWeeklyPlanWithDiff,
   type WeeklyPlan,
@@ -14,7 +12,6 @@ import {
   type GeneratedWorkout,
   type ExerciseRole,
   type SessionOverrides,
-  type DayPreview
 } from '../lib/workoutEngine'
 import { requireSupabase } from '../lib/supabase'
 import { fetchWorkoutReview, fetchWorkoutValidation, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
@@ -26,6 +23,12 @@ import Button from '../components/Button'
 import { getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 import { evaluateSchemaGate, probeSchemaCapabilities } from '../lib/schemaCapability'
+import {
+  buildWeekGlanceCards,
+  estimateDisplayedMinutesForDay,
+  getSelectedPlanDay,
+  getDayStatus,
+} from '../lib/todayWorkoutFlow'
 import styles from './TodayWorkout.module.css'
 import s from '../styles/shared.module.css'
 
@@ -42,7 +45,14 @@ function deriveWorkoutName(w: { template_name?: string; workout_exercises?: { bo
   return w.template_name || 'Workout'
 }
 
-export default function TodayWorkout() {
+function isLikelyUnilateralExerciseName(name: string): boolean {
+  const n = String(name || '').toLowerCase()
+  return /single[\s-]*(arm|leg)|one[\s-]*(arm|leg)|unilateral|split squat|step[\s-]*up|cossack|single[\s-]*leg|single[\s-]*arm/.test(n)
+}
+
+type TodayWorkoutMode = 'today' | 'week'
+
+export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMode }) {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { toast, showToast, hideToast } = useToast()
@@ -59,7 +69,6 @@ export default function TodayWorkout() {
   const [durationOverride, setDurationOverride] = useState<number | null>(null)
   const [finishByTime, setFinishByTime] = useState('')
   const [cachedProfile, setCachedProfile] = useState<TrainingProfile | null>(null)
-  const [weekPreview, setWeekPreview] = useState<DayPreview[]>([])
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null)
   const [weeklyDiffsByDate, setWeeklyDiffsByDate] = useState<Record<string, any>>({})
   const [selectedPlanDate, setSelectedPlanDate] = useState<string>('')
@@ -80,6 +89,7 @@ export default function TodayWorkout() {
   const llmValidationFiredRef = useRef(false)
   const regeneratingRef = useRef(false)
   const forceGenerateRef = useRef(false)
+  const weeklyPlanRef = useRef<WeeklyPlan | null>(null)
 
   const getWeekStartDate = (d: Date): string => {
     const x = new Date(d)
@@ -346,6 +356,31 @@ export default function TodayWorkout() {
     if (!existing) return true
     if (existing.featureSnapshotId !== tp.featureSnapshotId) return true
     const plannedDays = (existing.days || []).filter(d => !d.isRestDay && d.plannedWorkout)
+    const activeSessionBudget = (() => {
+      const candidate = Number(durationOverride ?? defaultDuration ?? tp.avgSessionDuration)
+      if (!Number.isFinite(candidate) || candidate <= 0) return Math.round(tp.avgSessionDuration)
+      return Math.round(candidate)
+    })()
+    const maxExerciseCount = (() => {
+      if (activeSessionBudget <= 35) return 4
+      if (activeSessionBudget <= 50) return 5
+      if (activeSessionBudget <= 65) return 7
+      if (activeSessionBudget <= 80) return 8
+      if (activeSessionBudget <= 95) return 9
+      if (activeSessionBudget <= 110) return 10
+      if (activeSessionBudget <= 125) return 11
+      return 12
+    })()
+    const hasBudgetViolations = plannedDays.some(d => {
+      const estimated = Number(d.plannedWorkout?.estimatedDurationMinutes ?? d.estimatedMinutes ?? 0)
+      return Number.isFinite(estimated) && estimated > activeSessionBudget
+    })
+    if (hasBudgetViolations) return true
+    const hasExerciseCountViolations = plannedDays.some(d => {
+      const count = Array.isArray(d.plannedWorkout?.exercises) ? d.plannedWorkout.exercises.length : 0
+      return count > maxExerciseCount
+    })
+    if (hasExerciseCountViolations) return true
     // If policy metadata is missing from many days, force a fresh plan so new logic becomes visible.
     const missingPolicyState = plannedDays.filter(d => !d.plannedWorkout?.policyState).length
     return plannedDays.length > 0 && missingPolicyState >= Math.ceil(plannedDays.length / 2)
@@ -401,10 +436,15 @@ export default function TodayWorkout() {
     for (const t of targets) {
       try {
         const validation = await fetchWorkoutValidation(tp, t.plannedWorkout)
+        const activeSessionBudget = (() => {
+          const candidate = Number(durationOverride ?? defaultDuration ?? tp.avgSessionDuration)
+          if (!Number.isFinite(candidate) || candidate <= 0) return tp.avgSessionDuration
+          return Math.round(candidate)
+        })()
         const corrected = validation.immediate_corrections?.length
           ? applyImmediateCorrectionsToWorkout(t.plannedWorkout!, validation.immediate_corrections, {
               trainingProfile: tp,
-              sessionBudgetMinutes: tp.avgSessionDuration,
+              sessionBudgetMinutes: activeSessionBudget,
             }).workout
           : t.plannedWorkout
         verdictMap.set(t.planDate, {
@@ -426,6 +466,28 @@ export default function TodayWorkout() {
     } as WeeklyPlan
   }
 
+  const toDiffMap = (diffs: any[] = []): Record<string, any> => {
+    const out: Record<string, any> = {}
+    for (const d of diffs) out[d.planDate] = d
+    return out
+  }
+
+  const applyRecomputedPlan = async (
+    basePlan: WeeklyPlan,
+    tp: TrainingProfile,
+    userRestDays: number[]
+  ): Promise<WeeklyPlan> => {
+    const recomputed = await recomputeWeeklyPlanWithDiff(basePlan, tp, userRestDays)
+    const withVerdicts = await annotateWeeklyPlanVerdicts(tp, recomputed.plan)
+    const withActuals = await attachActualWeekWorkouts(withVerdicts)
+    setWeeklyPlan(withActuals)
+    setWeeklyDiffsByDate(toDiffMap(recomputed.diffs))
+    if (user) {
+      await saveWeeklyPlanToSupabase(user.id, withActuals, recomputed.diffs).catch(() => null)
+    }
+    return withActuals
+  }
+
   useEffect(() => {
     if (user) initialLoad()
   }, [user])
@@ -439,10 +501,8 @@ export default function TodayWorkout() {
   }, [weeklyPlan, selectedPlanDate])
 
   useEffect(() => {
-    if (!weeklyPlan?.days?.length) return
-    const completedName = completedWorkout ? deriveWorkoutName(completedWorkout) : undefined
-    setWeekPreview(generateWeekPreviewFromPlan(weeklyPlan, !!completedWorkout, completedName))
-  }, [weeklyPlan, completedWorkout])
+    weeklyPlanRef.current = weeklyPlan
+  }, [weeklyPlan])
 
   useEffect(() => {
     if (!llmValidation || !workout || !user) return
@@ -517,19 +577,20 @@ export default function TodayWorkout() {
       const existingWorkout = await fetchWorkoutForDate(today)
 
       const todayDone = !!(existingWorkout && !forceGenerateRef.current)
-      const completedName = existingWorkout ? deriveWorkoutName(existingWorkout) : undefined
-      setWeekPreview(generateWeekPreview(
-        tp,
-        loadedRestDays,
-        todayDone,
-        completedName
-      ))
       const hydratePromise = hydrateWeeklyPlan(tp, loadedRestDays)
-      void hydratePromise.then((hydrated) => {
-        if (hydrated?.days?.length) {
-          setWeekPreview(generateWeekPreviewFromPlan(hydrated, todayDone, completedName))
+      const quickFallbackTimer = setTimeout(async () => {
+        if (weeklyPlanRef.current?.days?.length) return
+        try {
+          const quickPlan = await generateWeeklyPlan(tp, loadedRestDays)
+          const quickMerged = await attachActualWeekWorkouts(quickPlan)
+          if (!weeklyPlanRef.current?.days?.length) {
+            setWeeklyPlan(quickMerged)
+          }
+        } catch {
+          // keep existing fallback UI; hard-fail is handled by retry action
         }
-      }).catch(() => null)
+      }, 3000)
+      void hydratePromise.finally(() => clearTimeout(quickFallbackTimer)).catch(() => clearTimeout(quickFallbackTimer))
       if (existingWorkout) {
         setWeeklyPlan(prev => {
           if (!prev?.days?.length) return prev
@@ -624,16 +685,7 @@ export default function TodayWorkout() {
       fetchWorkoutValidation(activeProfile, w).then(setLlmValidation).catch(e => logError('LLM workout validation failed (non-blocking)', e))
 
       if (weeklyPlan) {
-        const recomputed = await recomputeWeeklyPlanWithDiff(weeklyPlan, activeProfile, restDays)
-        const withVerdicts = await annotateWeeklyPlanVerdicts(activeProfile, recomputed.plan)
-        const withActuals = await attachActualWeekWorkouts(withVerdicts)
-        setWeeklyPlan(withActuals)
-        const diffMap: Record<string, any> = {}
-        for (const d of recomputed.diffs) diffMap[d.planDate] = d
-        setWeeklyDiffsByDate(diffMap)
-        if (user) {
-          await saveWeeklyPlanToSupabase(user.id, withActuals, recomputed.diffs).catch(() => null)
-        }
+        await applyRecomputedPlan(weeklyPlan, activeProfile, restDays)
       }
     } catch (err) {
       logError('Regeneration error', err)
@@ -715,39 +767,6 @@ export default function TodayWorkout() {
     } finally {
       setRegeneratingWithLlm(false)
     }
-  }
-
-  const estimateDisplayedMinutesForDay = (day: any): number => {
-    if (!day || day.isRestDay) return 0
-    const pw = day.plannedWorkout
-    if (!pw) return day.estimatedMinutes || 0
-    // Prefer engine-produced totals; fallback estimators are lossy and can
-    // under-report long sessions.
-    if (Number.isFinite(pw.estimatedDurationMinutes) && Number(pw.estimatedDurationMinutes) > 0) {
-      return Math.round(Number(pw.estimatedDurationMinutes))
-    }
-    if (Number.isFinite(day.estimatedMinutes) && Number(day.estimatedMinutes) > 0) {
-      return Math.round(Number(day.estimatedMinutes))
-    }
-    const fromExerciseMinutes = Array.isArray(pw.exercises)
-      ? Math.round(pw.exercises.reduce((sum: number, ex: any) => sum + (Number(ex?.estimatedMinutes) || 0), 0))
-      : 0
-    if (fromExerciseMinutes > 0) return fromExerciseMinutes
-    const roughFromPrescription = Array.isArray(pw.exercises)
-      ? Math.round(pw.exercises.reduce((sum: number, ex: any) => {
-          if (ex?.isCardio) return sum + Math.max(5, Math.round((Number(ex.cardioDurationSeconds) || 0) / 60)) + 2
-          const sets = Math.max(1, Number(ex?.sets) || 0)
-          const warmups = Array.isArray(ex?.warmupSets) ? ex.warmupSets.length : 0
-          const totalSets = sets + warmups
-          const repSeconds = ex?.exerciseRole === 'primary' ? 45 : ex?.exerciseRole === 'secondary' ? 38 : 32
-          const workMinutes = (totalSets * repSeconds) / 60
-          const restMinutes = (Math.max(0, sets - 1) * Math.max(30, Number(ex?.restSeconds) || 60)) / 60
-          const warmupMinutes = warmups * 0.5
-          return sum + Math.max(3, Math.round(workMinutes + restMinutes + warmupMinutes))
-        }, 0))
-      : 0
-    if (roughFromPrescription > 0) return roughFromPrescription
-    return 0
   }
 
   const regenerateSelectedPlanDay = async () => {
@@ -837,24 +856,8 @@ export default function TodayWorkout() {
 
     const activeProfile = await refreshTrainingProfile()
     if (activeProfile) {
-      const hasDoneToday = !!completedWorkout
-      setWeekPreview(generateWeekPreview(
-        activeProfile,
-        next,
-        hasDoneToday,
-        completedWorkout ? deriveWorkoutName(completedWorkout) : undefined
-      ))
       if (weeklyPlan) {
-        const recomputed = await recomputeWeeklyPlanWithDiff(weeklyPlan, activeProfile, next)
-        const withVerdicts = await annotateWeeklyPlanVerdicts(activeProfile, recomputed.plan)
-        const withActuals = await attachActualWeekWorkouts(withVerdicts)
-        setWeeklyPlan(withActuals)
-        const diffMap: Record<string, any> = {}
-        for (const d of recomputed.diffs) diffMap[d.planDate] = d
-        setWeeklyDiffsByDate(diffMap)
-        if (user) {
-          await saveWeeklyPlanToSupabase(user.id, withActuals, recomputed.diffs).catch(() => null)
-        }
+        await applyRecomputedPlan(weeklyPlan, activeProfile, next)
       }
     }
 
@@ -872,7 +875,7 @@ export default function TodayWorkout() {
 
   // #28: Swap exercise — regenerate with the current exercise excluded
   const handleSwapExercise = async (exerciseName: string) => {
-    if (!cachedProfile || !workout) return
+    if (!workout) return
     const newExcluded = new Set(excludedExercises)
     newExcluded.add(exerciseName.toLowerCase())
     setExcludedExercises(newExcluded)
@@ -890,17 +893,13 @@ export default function TodayWorkout() {
 
     setRegenerating(true)
     try {
+      const activeProfile = await refreshTrainingProfile()
+      if (!activeProfile) throw new Error('Training profile unavailable')
       const o: SessionOverrides = {}
       if (durationOverride != null) o.durationMinutes = durationOverride
       if (finishByTime) o.finishByTime = finishByTime
-
-      const updatedProfile = {
-        ...cachedProfile,
-        exercisePreferences: cachedProfile.exercisePreferences.filter(
-          p => !newExcluded.has(p.exerciseName)
-        ),
-      }
-      const w = await generateWorkout(updatedProfile, Object.keys(o).length > 0 ? o : undefined)
+      o.avoidExerciseNames = [...newExcluded]
+      const w = await generateWorkout(activeProfile, Object.keys(o).length > 0 ? o : undefined)
       setWorkout(w)
       setOriginalWorkout(w)
       setAdjustedWorkoutCandidate(null)
@@ -942,6 +941,9 @@ export default function TodayWorkout() {
   const handleStartWorkout = () => {
     if (!workout) return
     const exercises = workout.exercises.map(ex => {
+      const unilateralMeta = isLikelyUnilateralExerciseName(ex.exerciseName)
+        ? { _load_interpretation: 'per_hand_per_side', _reps_interpretation: 'per_side' }
+        : { _load_interpretation: 'unknown', _reps_interpretation: 'total_reps' }
       const prescription = {
         exerciseRole: ex.exerciseRole,
         targetRir: ex.targetRir,
@@ -986,6 +988,7 @@ export default function TodayWorkout() {
         reps: String(ws.reps),
         _is_warmup: true,
         _is_bodyweight: false,
+        ...unilateralMeta,
       }))
 
       const workingRows = Array.from({ length: ex.sets }, (_, i) => ({
@@ -1000,6 +1003,7 @@ export default function TodayWorkout() {
         reps: ex.targetTimeSeconds != null ? '' : String(ex.targetReps),
         time: '',
         time_seconds: '',
+        ...unilateralMeta,
       }))
 
       return {
@@ -1021,6 +1025,7 @@ export default function TodayWorkout() {
       generated_workout_id: workout.id,
       sessionRationale: workout.sessionRationale,
       templateName: workoutName,
+      hotelMode: Boolean(profile?.hotel_mode),
     }))
     navigate('/workout/active')
   }
@@ -1059,10 +1064,50 @@ export default function TodayWorkout() {
   }
 
   const renderWeeklyPlanCards = () => {
-    if (!weeklyPlan || weeklyPlan.days.length === 0) return null
+    if (!weeklyPlan || weeklyPlan.days.length === 0) {
+      const base = new Date()
+      const fallbackDays = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(base)
+        d.setDate(base.getDate() + i)
+        const iso = getLocalDate(d)
+        const dayName = d.toLocaleDateString('en-US', { weekday: 'long' })
+        return { planDate: iso, dayName }
+      })
+      return (
+        <div className={styles.weekPreview}>
+          <div className={styles.weekHeaderRow}>
+            <h3 className={styles.weekPreviewTitle}>Week At A Glance</h3>
+            <span className={styles.weekHint}>Loading...</span>
+          </div>
+          <div className={styles.weekGlanceGrid}>
+            {fallbackDays.map(day => (
+              <div key={day.planDate} className={styles.glanceDayCard}>
+                <div className={styles.glanceTopRow}>
+                  <span className={styles.glanceDow}>{day.dayName.slice(0, 3)}</span>
+                  <span className={styles.glanceDate}>{day.planDate.slice(5)}</span>
+                </div>
+                <div className={styles.glanceStatus}>Pending</div>
+              </div>
+            ))}
+          </div>
+          <div className={styles.selectedDayCompact}>
+            <div className={styles.selectedDayMain}>
+              <strong>Week plan is still hydrating</strong>
+              <span style={{ color: 'var(--text-tertiary)' }}>If this persists, tap retry.</span>
+            </div>
+            <div className={styles.selectedDayActions}>
+              <Button variant="secondary" onClick={initialLoad}>
+                Retry Week Load
+              </Button>
+            </div>
+          </div>
+        </div>
+      )
+    }
     const today = getLocalDate()
-    const selectedDay = weeklyPlan.days.find(d => d.planDate === selectedPlanDate) || weeklyPlan.days[0]
+    const selectedDay = getSelectedPlanDay(weeklyPlan, selectedPlanDate)
     if (!selectedDay) return null
+    const weekCards = buildWeekGlanceCards(weeklyPlan, restDays, selectedDay.planDate)
     const selectedDiff = selectedDay ? weeklyDiffsByDate[selectedDay.planDate] : null
     const selectedVerdict = selectedDay
       ? (selectedDay.planDate === today
@@ -1075,218 +1120,212 @@ export default function TodayWorkout() {
           : selectedVerdict === 'major_issues' ? 'var(--danger)'
             : 'var(--text-tertiary)'
 
+    const selectedStatus = getDayStatus(selectedDay)
+    const selectedCard = weekCards.find(c => c.day.planDate === selectedDay.planDate)
+
     return (
       <div className={styles.weekPreview}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 className={styles.weekPreviewTitle}>Weekly Plan (Adaptive)</h3>
-          <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Select a day to inspect planned vs actual</span>
+        <div className={styles.weekHeaderRow}>
+          <h3 className={styles.weekPreviewTitle}>Week At A Glance</h3>
+          <span className={styles.weekHint}>Tap a day card</span>
         </div>
-        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 2 }}>
-          {weeklyPlan.days.map(day => {
-            const selected = day.planDate === selectedDay.planDate
-            const dayStatus = day.dayStatus || (day.actualWorkoutId ? 'completed' : 'planned')
-            const shownMinutes = estimateDisplayedMinutesForDay(day)
+        {weeklyPlan.planQuality && (
+          <details className={styles.inlineDetails}>
+            <summary>Planner telemetry</summary>
+            <div className={styles.detailBody}>
+              {weeklyPlan.planQuality.plannerTotalMs?.toFixed?.(0) ?? 0}ms total · {weeklyPlan.planQuality.avgDayPlannerMs?.toFixed?.(0) ?? 0}ms/day · {weeklyPlan.planQuality.avgDiversifyAttempts?.toFixed?.(2) ?? 0} retries/day
+            </div>
+          </details>
+        )}
+        <div className={styles.weekGlanceGrid}>
+          {weekCards.map((card) => {
+            const day = card.day
             return (
               <button
                 key={day.planDate}
                 onClick={() => setSelectedPlanDate(day.planDate)}
-                style={{
-                  padding: '8px 10px',
-                  minWidth: 86,
-                  borderRadius: 8,
-                  border: selected ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
-                  background: selected ? 'var(--surface-elevated)' : 'var(--surface-card)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  flexShrink: 0,
-                }}
+                className={`${styles.glanceDayCard} ${card.selected ? styles.glanceDayCardSelected : ''} ${card.status === 'completed' ? styles.glanceDayCardCompleted : ''}`}
               >
-                <div style={{ fontWeight: 700, fontSize: 12 }}>{day.dayName.slice(0, 3)}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{day.planDate.slice(5)}</div>
-                <div style={{ fontSize: 11, color: dayStatus === 'completed' ? 'var(--success)' : 'var(--text-secondary)' }}>
-                  {dayStatus === 'completed' ? 'completed' : day.isRestDay ? 'rest' : `${shownMinutes}m`}
+                <div className={styles.glanceTopRow}>
+                  <span className={styles.glanceDow}>{day.dayName.slice(0, 3)}</span>
+                  <span className={styles.glanceDate}>{day.planDate.slice(5)}</span>
+                </div>
+                <div className={styles.glanceStatus}>
+                  {card.status === 'completed' ? 'Completed' : card.status === 'rest' || card.isUserRestOverride ? 'Rest' : `${card.shownMinutes}m`}
                 </div>
               </button>
             )
           })}
         </div>
-        {!selectedDay.isRestDay && selectedDay.dayStatus !== 'completed' && (
-          <div style={{ marginTop: 8 }}>
-            <Button variant="secondary" onClick={regenerateSelectedPlanDay} loading={regeneratingDay} style={{ width: '100%' }}>
-              Regenerate {selectedDay.dayName}
-            </Button>
-          </div>
-        )}
-        <div className={styles.contextCard} style={{ marginTop: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <strong>{selectedDay.dayName}</strong>
-            <span style={{ color: selectedDay.isRestDay ? 'var(--text-tertiary)' : 'var(--text-primary)' }}>
-              {selectedDay.isRestDay ? 'Rest' : `${selectedDay.estimatedExercises} exercises · ${estimateDisplayedMinutesForDay(selectedDay)}m`}
+
+        <div className={styles.selectedDayCompact}>
+          <div className={styles.selectedDayMain}>
+            <strong className={styles.selectedDayTitle}>{selectedDay.dayName}</strong>
+            <span className={styles.selectedDayMeta}>
+              {selectedDay.isRestDay
+                ? 'Rest'
+                : selectedStatus === 'completed'
+                  ? 'Completed workout'
+                  : `${selectedDay.estimatedExercises} exercises · ${estimateDisplayedMinutesForDay(selectedDay)}m`}
             </span>
-            <span style={{ color: selectedVerdictColor, fontSize: 12 }}>LLM: {selectedVerdict}</span>
-            {selectedDiff && <span style={{ fontSize: 11, color: '#e6a800' }}>Updated</span>}
-            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-              Status: {selectedDay.dayStatus || (selectedDay.actualWorkoutId ? 'completed' : 'planned')}
-            </span>
+            <div className={styles.selectedDayPills}>
+              <span className={styles.statusPill}>{selectedStatus}</span>
+              <span className={styles.statusPill} style={{ color: selectedVerdictColor }}>LLM {selectedVerdict}</span>
+              {selectedDiff && <span className={styles.updatedPill}>Updated</span>}
+            </div>
           </div>
-          {selectedDay.isRestDay ? (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>Recovery day.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-              {selectedDay.actualWorkout ? (
-                <>
-                  <div style={{ fontWeight: 600, fontSize: 12 }}>Actual workout completed</div>
-                  {(selectedDay.actualWorkout.workout_exercises ?? []).map((ex: any, idx: number) => {
-                    const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
-                    const warmups = sets.filter((s: any) => s?.is_warmup === true)
-                    const working = sets.filter((s: any) => s?.is_warmup !== true)
-                    return (
-                      <div key={`${selectedDay.planDate}-actual-${idx}`} style={{ fontSize: 12, padding: '6px 8px', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
-                        <div style={{ fontWeight: 600 }}>{ex.exercise_name}</div>
-                        <div style={{ color: 'var(--text-secondary)' }}>
-                          {working.length > 0 ? `${working.length} working sets` : `${sets.length} sets`}
-                        </div>
-                        {working.length > 0 && (
-                          <div style={{ color: 'var(--text-secondary)' }}>
-                            {working.map((s: any) => `${s.weight || '-'}x${s.reps || '-'}`).join(' | ')}
-                          </div>
-                        )}
-                        {warmups.length > 0 && (
-                          <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
-                            Warmup: {warmups.map((s: any) => `${s.weight || '-'}x${s.reps || '-'}`).join(' -> ')}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </>
-              ) : (
-                <>
-                  <div style={{ fontWeight: 600, fontSize: 12 }}>Planned workout</div>
-                  {(selectedDay.plannedWorkout?.exercises ?? []).map((ex: any, idx: number) => (
-                    <div key={`${selectedDay.planDate}-${idx}`} style={{ fontSize: 12, padding: '6px 8px', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
-                      <div style={{ fontWeight: 600 }}>{ex.exerciseName}</div>
+          <div className={styles.selectedDayActions}>
+            {!selectedDay.isRestDay && selectedStatus !== 'completed' && (
+              <Button variant="secondary" onClick={regenerateSelectedPlanDay} loading={regeneratingDay}>
+                Regenerate Day
+              </Button>
+            )}
+            {selectedStatus !== 'completed' && (
+              <Button
+                variant="secondary"
+                onClick={() => toggleRestDay(selectedDay.dayOfWeek)}
+              >
+                {restDays.includes(selectedDay.dayOfWeek) ? 'Set Workout Day' : 'Set Rest Day'}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <details className={styles.contextCard} style={{ marginTop: 8 }}>
+          <summary>Details</summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+            {selectedCard?.anchorNames?.length ? (
+              <div className={styles.anchorRow}>
+                {selectedCard.anchorNames.map(anchor => (
+                  <span key={anchor} className={styles.anchorChip}>{anchor}</span>
+                ))}
+              </div>
+            ) : null}
+            {selectedDay.isRestDay ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Recovery day.</div>
+            ) : selectedDay.actualWorkout ? (
+              <>
+                <div style={{ fontWeight: 600, fontSize: 12 }}>Actual workout</div>
+                {(selectedDay.actualWorkout.workout_exercises ?? []).map((ex: any, idx: number) => {
+                  const sets = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
+                  const warmups = sets.filter((s: any) => s?.is_warmup === true)
+                  const working = sets.filter((s: any) => s?.is_warmup !== true)
+                  return (
+                    <div key={`${selectedDay.planDate}-actual-${idx}`} style={{ fontSize: 12, padding: '6px 8px', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
+                      <div style={{ fontWeight: 600 }}>{ex.exercise_name}</div>
                       <div style={{ color: 'var(--text-secondary)' }}>
-                        {ex.isCardio
-                          ? `${Math.round((ex.cardioDurationSeconds ?? 1800) / 60)} min cardio`
-                          : ex.targetTimeSeconds != null
-                            ? `${ex.sets} x ${Math.round(ex.targetTimeSeconds)}s hold${ex.targetRir != null ? ` (RIR ${ex.targetRir})` : ''}`
-                            : `${ex.sets} x ${ex.targetReps}${ex.targetWeight ? ` @ ${ex.targetWeight} lb` : ''}${ex.targetRir != null ? ` (RIR ${ex.targetRir})` : ''}`}
+                        {working.length > 0 ? `${working.length} working sets` : `${sets.length} sets`}
                       </div>
-                      {Array.isArray(ex.warmupSets) && ex.warmupSets.length > 0 && (
+                      {working.length > 0 && (
+                        <div style={{ color: 'var(--text-secondary)' }}>
+                          {working.map((s: any) => `${s.weight || '-'}x${s.reps || '-'}`).join(' | ')}
+                        </div>
+                      )}
+                      {warmups.length > 0 && (
                         <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
-                          Warmup: {ex.warmupSets.map((w: any) => `${w.weight}x${w.reps}`).join(' -> ')}
+                          Warmup: {warmups.map((s: any) => `${s.weight || '-'}x${s.reps || '-'}`).join(' -> ')}
                         </div>
                       )}
                     </div>
-                  ))}
-                </>
-              )}
-              {selectedDiff && (
-                <div style={{ fontSize: 12, padding: '8px', background: 'var(--surface-elevated)', borderRadius: 8 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Why changed</div>
-                  <div style={{ color: 'var(--text-secondary)' }}>Reasons: {(selectedDiff.reasonCodes || []).join(', ') || 'context update'}</div>
-                  <div style={{ color: 'var(--text-secondary)' }}>
-                    Deltas: {selectedDiff.diffSummary?.exerciseCountDelta ?? 0} exercises, {selectedDiff.diffSummary?.estimatedMinutesDelta ?? 0} min
-                  </div>
-                  {Array.isArray(selectedDiff.diffSummary?.changedExercises) && selectedDiff.diffSummary.changedExercises.length > 0 && (
-                    <div style={{ color: 'var(--text-secondary)' }}>Changed: {selectedDiff.diffSummary.changedExercises.join(', ')}</div>
-                  )}
-                </div>
-              )}
-              {selectedVerdict !== 'pass' && Array.isArray(selectedDay.llmCorrections) && selectedDay.llmCorrections.length > 0 && (
-                <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Issues</div>
-                  <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    {selectedVerdict === 'major_issues'
-                      ? 'Major issues means the plan has high-impact logic/safety mismatches and should be regenerated or corrected.'
-                      : 'Minor issues means quality mismatches that should be corrected before training.'}
-                  </div>
-                  {selectedDay.llmCorrections.map((c: any, ci: number) => (
-                    <div key={ci} style={{ color: 'var(--text-secondary)' }}>
-                      {c.exerciseName}: {c.issue} {'->'} {c.fix}{typeof c.newValue === 'number' ? ` ${c.newValue}` : ''} ({c.reason})
+                  )
+                })}
+              </>
+            ) : (
+              <>
+                <div style={{ fontWeight: 600, fontSize: 12 }}>Planned workout</div>
+                {(selectedDay.plannedWorkout?.exercises ?? []).map((ex: any, idx: number) => (
+                  <div key={`${selectedDay.planDate}-${idx}`} style={{ fontSize: 12, padding: '6px 8px', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
+                    <div style={{ fontWeight: 600 }}>{ex.exerciseName}</div>
+                    <div style={{ color: 'var(--text-secondary)' }}>
+                      {ex.isCardio
+                        ? `${Math.round((ex.cardioDurationSeconds ?? 1800) / 60)} min cardio`
+                        : ex.targetTimeSeconds != null
+                          ? `${ex.sets} x ${Math.round(ex.targetTimeSeconds)}s hold${ex.targetRir != null ? ` (RIR ${ex.targetRir})` : ''}`
+                          : `${ex.sets} x ${ex.targetReps}${ex.targetWeight ? ` @ ${ex.targetWeight} lb` : ''}${ex.targetRir != null ? ` (RIR ${ex.targetRir})` : ''}`}
                     </div>
-                  ))}
+                    {Array.isArray(ex.warmupSets) && ex.warmupSets.length > 0 && (
+                      <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
+                        Warmup: {ex.warmupSets.map((w: any) => `${w.weight}x${w.reps}`).join(' -> ')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+            {selectedDiff && (
+              <div style={{ fontSize: 12, padding: '8px', background: 'var(--surface-elevated)', borderRadius: 8 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Why changed</div>
+                <div style={{ color: 'var(--text-secondary)' }}>Reasons: {(selectedDiff.reasonCodes || []).join(', ') || 'context update'}</div>
+                <div style={{ color: 'var(--text-secondary)' }}>
+                  Deltas: {selectedDiff.diffSummary?.exerciseCountDelta ?? 0} exercises, {selectedDiff.diffSummary?.estimatedMinutesDelta ?? 0} min
                 </div>
-              )}
-              {selectedDay.planDate === today && llmValidation?.immediate_corrections?.length ? (
-                <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Corrections Suggested</div>
-                  {llmValidation.immediate_corrections.map((c, ci) => (
-                    <div key={ci} style={{ color: 'var(--text-secondary)' }}>
-                      {c.exerciseName}: {c.fix} ({c.issue}) - {c.reason}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          )}
-        </div>
+                {Array.isArray(selectedDiff.diffSummary?.changedExercises) && selectedDiff.diffSummary.changedExercises.length > 0 && (
+                  <div style={{ color: 'var(--text-secondary)' }}>Changed: {selectedDiff.diffSummary.changedExercises.join(', ')}</div>
+                )}
+              </div>
+            )}
+            {selectedVerdict !== 'pass' && Array.isArray(selectedDay.llmCorrections) && selectedDay.llmCorrections.length > 0 && (
+              <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Issues</div>
+                {selectedDay.llmCorrections.map((c: any, ci: number) => (
+                  <div key={ci} style={{ color: 'var(--text-secondary)' }}>
+                    {c.exerciseName}: {c.issue} {'->'} {c.fix}{typeof c.newValue === 'number' ? ` ${c.newValue}` : ''} ({c.reason})
+                  </div>
+                ))}
+              </div>
+            )}
+            {selectedDay.planDate === today && llmValidation?.immediate_corrections?.length ? (
+              <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Corrections Suggested</div>
+                {llmValidation.immediate_corrections.map((c, ci) => (
+                  <div key={ci} style={{ color: 'var(--text-secondary)' }}>
+                    {c.exerciseName}: {c.fix} ({c.issue}) - {c.reason}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </details>
       </div>
     )
   }
 
-  if (viewState === 'loading') {
-    return (
-      <div className={styles.container}>
-        <div className={styles.header}>
-          <BackButton fallbackPath="/" />
-          <h1>Today's Workout</h1>
-          <div style={{ width: 32 }} />
-        </div>
+  const isLoadingState = viewState === 'loading'
+  const isEmptyState = viewState === 'empty'
+  const isErrorState = viewState === 'error'
+  const isCompletedState = viewState === 'completed'
+  const isReadyState = viewState === 'ready' && !!workout
+
+  const renderStatePanel = () => {
+    if (isLoadingState) {
+      return (
         <div className={styles.loadingState}>
           <div className={styles.spinner} />
           <p>Analyzing your training history...</p>
           <p className={styles.loadingSub}>Computing recovery, volume, and progression data</p>
         </div>
-      </div>
-    )
-  }
-
-  if (viewState === 'empty') {
-    return (
-      <div className={styles.container}>
-        <div className={styles.header}>
-          <BackButton fallbackPath="/" />
-          <h1>Today's Workout</h1>
-          <div style={{ width: 32 }} />
-        </div>
+      )
+    }
+    if (isEmptyState) {
+      return (
         <div className={styles.emptyState}>
           <h2>Not Enough Data Yet</h2>
           <p>Log at least a week of workouts so the system can learn your patterns, progression rates, and recovery needs.</p>
           <Button onClick={() => navigate('/workout/active')}>Start a Manual Workout</Button>
         </div>
-      </div>
-    )
-  }
-
-  if (viewState === 'error') {
-    return (
-      <div className={styles.container}>
-        <div className={styles.header}>
-          <BackButton fallbackPath="/" />
-          <h1>Today's Workout</h1>
-          <div style={{ width: 32 }} />
-        </div>
+      )
+    }
+    if (isErrorState) {
+      return (
         <div className={styles.emptyState}>
           <h2>Generation Failed</h2>
           <p>{errorMsg}</p>
           <Button onClick={initialLoad}>Try Again</Button>
         </div>
-      </div>
-    )
-  }
-
-  if (viewState === 'completed' && completedWorkout) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.header}>
-          <BackButton fallbackPath="/" />
-          <h1>Today's Workout</h1>
-          <div style={{ width: 32 }} />
-        </div>
-
-        <div className={styles.content} style={{ paddingTop: 'var(--space-lg)' }}>
+      )
+    }
+    if (isCompletedState && completedWorkout) {
+      return (
         <div style={{ textAlign: 'center' }}>
           <div className={s.card} style={{ padding: 'var(--space-lg)' }}>
             <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: 'var(--success)' }}>✓ Workout Completed</div>
@@ -1297,38 +1336,56 @@ export default function TodayWorkout() {
               You already trained today. Rest up and come back tomorrow.
             </p>
           </div>
-          <div style={{ marginTop: 16 }}>
-            <Button variant="secondary" onClick={() => {
-              forceGenerateRef.current = true
-              setViewState('loading')
-              initialLoad()
-            }}>
-              Generate Another Workout Anyway
-            </Button>
-          </div>
         </div>
-
-        {renderWeeklyPlanCards()}
-        </div>
-
-        {toast && <Toast message={toast.message} type={toast.type} duration={toast.duration} onClose={hideToast} />}
-      </div>
-    )
+      )
+    }
+    return null
   }
-
-  if (!workout) return null
+  const isWeekPage = mode === 'week'
+  const weeklyPlanInspector = isWeekPage ? renderWeeklyPlanCards() : null
 
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <BackButton fallbackPath="/" />
-        <h1>Today's Workout</h1>
+        <BackButton fallbackPath={isWeekPage ? '/today' : '/'} />
+        <h1>{isWeekPage ? 'Week Ahead' : "Today's Workout"}</h1>
         <div style={{ width: 32 }} />
       </div>
 
       <div className={styles.content}>
+        <div className={styles.pageSwitch}>
+          <Button
+            variant={isWeekPage ? 'secondary' : 'primary'}
+            onClick={() => navigate('/today')}
+            className={styles.pageSwitchBtn}
+          >
+            Today
+          </Button>
+          <Button
+            variant={isWeekPage ? 'primary' : 'secondary'}
+            onClick={() => navigate('/week-ahead')}
+            className={styles.pageSwitchBtn}
+          >
+            Week Ahead
+          </Button>
+        </div>
+        {profile?.hotel_mode && (
+          <div className={styles.hotelModeBanner} role="status">
+            <span className={styles.hotelModePill}>Hotel mode</span>
+            <span className={styles.hotelModeText}>
+              Treadmill, bodyweight, dumbbells ≤50 lb — workouts match this constraint.
+            </span>
+            <button
+              type="button"
+              className={styles.hotelModeLink}
+              onClick={() => navigate('/profile')}
+            >
+              Settings
+            </button>
+          </div>
+        )}
         {/* Preferences prompt */}
-        {!prefsSet && (
+        {!prefsSet ? (
           <div className={styles.prefsBanner}>
             <div className={styles.prefsBannerText}>
               <strong>Training profile not configured</strong>
@@ -1338,9 +1395,12 @@ export default function TodayWorkout() {
               Set Preferences
             </Button>
           </div>
+        ) : (
+          <div className={styles.sectionPlaceholder} aria-hidden />
         )}
 
         {/* Session Controls — duration override + finish-by */}
+        {!isWeekPage && (
         <div className={styles.sessionControls}>
           <div className={styles.controlRow}>
             <label className={styles.controlLabel}>Session Time</label>
@@ -1379,42 +1439,37 @@ export default function TodayWorkout() {
             </Button>
           )}
         </div>
+        )}
 
-        {/* Week Preview — tap a day to toggle rest */}
-        {weekPreview.length > 0 && (
+        {isWeekPage ? (
+          weeklyPlanInspector
+        ) : (
           <div className={styles.weekPreview}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 className={styles.weekPreviewTitle}>Rest Day Overrides</h3>
-              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>Tap to toggle rest/workout (navigator is below)</span>
+            <div className={styles.weekHeaderRow}>
+              <h3 className={styles.weekPreviewTitle}>Week Planner</h3>
+              <span className={styles.weekHint}>Separate page</span>
             </div>
-            <div className={styles.weekDays}>
-              {weekPreview.map(day => {
-                const isRest = restDays.includes(day.dayOfWeek) || (restDays.length === 0 && day.isRestDay)
-                return (
-                  <div
-                    key={day.dayOfWeek}
-                    className={`${styles.weekDay} ${day.isToday ? styles.weekDayToday : ''} ${isRest ? styles.weekDayRest : ''}`}
-                    onClick={() => !day.isCompleted && toggleRestDay(day.dayOfWeek)}
-                    style={{ cursor: day.isCompleted ? 'default' : 'pointer', userSelect: 'none' }}
-                  >
-                    <div className={styles.weekDayName}>{day.dayName.slice(0, 3)}</div>
-                    <div className={styles.weekDayFocus} style={day.isCompleted ? { color: 'var(--success)' } : undefined}>
-                      {day.isCompleted ? `✓ ${day.focus}` : isRest ? 'Rest' : (day.focus || (day.muscleGroups.length > 0 ? day.muscleGroups.slice(0, 2).map(g => g.replace(/_/g, ' ')).join(', ') : 'Full Body'))}
-                    </div>
-                    {!isRest && !day.isCompleted && day.muscleGroups.length > 0 && (
-                      <div className={styles.weekDayMeta} title={day.muscleGroups.map(g => g.replace(/_/g, ' ')).join(', ')}>
-                        {day.estimatedExercises} ex · {day.estimatedMinutes}m
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+            <div className={styles.selectedDayActions}>
+              <Button variant="secondary" onClick={() => navigate('/week-ahead')}>
+                Open Week Ahead
+              </Button>
             </div>
           </div>
         )}
 
-        {renderWeeklyPlanCards()}
+        {!isWeekPage && !isReadyState ? (
+          <>
+            <div className={styles.statePanelSlot}>
+              {renderStatePanel()}
+            </div>
+            <div className={`${styles.summaryCard} ${styles.sectionSkeleton}`} aria-hidden />
+            <div className={`${styles.exerciseListSkeleton} ${styles.sectionSkeleton}`} aria-hidden />
+            <div className={`${styles.reviewSkeleton} ${styles.sectionSkeleton}`} aria-hidden />
+          </>
+        ) : null}
 
+        {!isWeekPage && isReadyState && (
+          <>
         {/* Detected Split + Session Summary */}
         {profile?.detectedSplit && profile.detectedSplit.confidence >= 0.5 && (
           <div className={styles.splitCard}>
@@ -1490,14 +1545,14 @@ export default function TodayWorkout() {
 
         {/* Adjustments */}
         {workout.adjustmentsSummary.length > 0 && (
-          <div className={styles.adjustmentsCard}>
-            <h3>Adjustments Applied</h3>
+          <details className={styles.adjustmentsCard}>
+            <summary>Adjustments Applied ({workout.adjustmentsSummary.length})</summary>
             <ul>
               {workout.adjustmentsSummary.map((adj, i) => (
                 <li key={i}>{adj}</li>
               ))}
             </ul>
-          </div>
+          </details>
         )}
 
         {/* Exercises */}
@@ -1521,7 +1576,7 @@ export default function TodayWorkout() {
                 >
                   <div className={styles.exerciseInfo}>
                     <span className={styles.exerciseNumber}>{idx + 1}</span>
-                    <div>
+                    <div className={styles.exerciseTextBlock}>
                       <div className={styles.exerciseNameRow}>
                         <h3 className={styles.exerciseName}>{ex.exerciseName}</h3>
                         <span
@@ -1540,11 +1595,11 @@ export default function TodayWorkout() {
                         {ex.isCardio ? (
                           <>
                             {ex.cardioDurationSeconds != null ? `${Math.round(ex.cardioDurationSeconds / 60)} min` : 'Duration TBD'}
-                            {ex.cardioSpeed != null && ex.cardioSpeedLabel ? ` — ${ex.cardioSpeedLabel}: ${ex.cardioSpeed}` : ''}
-                            {ex.cardioIncline != null ? ` — ${ex.cardioIncline}% incline` : ''}
+                            {ex.cardioSpeed != null && ex.cardioSpeedLabel ? ` · ${ex.cardioSpeedLabel}: ${ex.cardioSpeed}` : ''}
+                            {ex.cardioIncline != null ? ` · ${ex.cardioIncline}% incline` : ''}
                             {ex.targetHrZone != null && (
                               <span className={styles.hrZone}>
-                                {' '}— Zone {ex.targetHrZone}
+                                {' '}· Zone {ex.targetHrZone}
                                 {ex.targetHrBpmRange ? ` (${ex.targetHrBpmRange.min}–${ex.targetHrBpmRange.max} bpm)` : ''}
                               </span>
                             )}
@@ -2186,15 +2241,64 @@ export default function TodayWorkout() {
             )
           })()}
         </div>
+          </>
+        )}
 
         {/* Actions */}
         <div className={styles.actions}>
-          <Button onClick={handleStartWorkout} style={{ flex: 2 }}>
-            Start This Workout
-          </Button>
-          <Button variant="secondary" onClick={handleRegenerate} loading={regenerating} style={{ flex: 1 }}>
-            Regenerate
-          </Button>
+          {isReadyState ? (
+            <>
+              <Button onClick={handleStartWorkout} style={{ flex: 2 }}>
+                Start This Workout
+              </Button>
+              <Button variant="secondary" onClick={handleRegenerate} loading={regenerating} style={{ flex: 1 }}>
+                Regenerate
+              </Button>
+            </>
+          ) : isCompletedState ? (
+            <>
+              <Button
+                onClick={() => {
+                  forceGenerateRef.current = true
+                  setViewState('loading')
+                  initialLoad()
+                }}
+                style={{ flex: 2 }}
+              >
+                Generate Another Workout
+              </Button>
+              <Button variant="secondary" onClick={() => navigate('/workout/active')} style={{ flex: 1 }}>
+                Manual
+              </Button>
+            </>
+          ) : isErrorState ? (
+            <>
+              <Button onClick={initialLoad} style={{ flex: 2 }}>
+                Try Again
+              </Button>
+              <Button variant="secondary" onClick={() => navigate('/workout/active')} style={{ flex: 1 }}>
+                Manual
+              </Button>
+            </>
+          ) : isEmptyState ? (
+            <>
+              <Button onClick={() => navigate('/workout/active')} style={{ flex: 2 }}>
+                Start Manual Workout
+              </Button>
+              <Button variant="secondary" onClick={initialLoad} style={{ flex: 1 }}>
+                Refresh
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button disabled style={{ flex: 2 }}>
+                Preparing Workout...
+              </Button>
+              <Button variant="secondary" disabled style={{ flex: 1 }}>
+                Regenerate
+              </Button>
+            </>
+          )}
         </div>
       </div>
 

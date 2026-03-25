@@ -96,6 +96,26 @@ function normalizeActiveWorkoutEntry(location: any) {
   }
 }
 
+function isLikelyUnilateralExerciseName(name: string): boolean {
+  const n = String(name || '').toLowerCase()
+  return /single[\s-]*(arm|leg)|one[\s-]*(arm|leg)|unilateral|split squat|step[\s-]*up|cossack|single[\s-]*leg|single[\s-]*arm/.test(n)
+}
+
+function defaultSetMetaForExercise(exerciseName: string) {
+  const unilateral = isLikelyUnilateralExerciseName(exerciseName)
+  return {
+    _load_interpretation: unilateral ? 'per_hand_per_side' : 'unknown',
+    _reps_interpretation: unilateral ? 'per_side' : 'total_reps',
+  }
+}
+
+type RestContractSnapshot = {
+  exerciseId: string | null
+  prescribedRestSeconds: number | null
+  restDurationSeconds: number
+  restStartTime: string | null
+}
+
 export default function ActiveWorkout() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -130,6 +150,7 @@ export default function ActiveWorkout() {
     try { return localStorage.getItem('workout_auto_next') === '1' } catch { return false }
   })
   const [syncPill, setSyncPill] = useState({ label: 'Ready', tone: 'neutral' }) // neutral | good | warn
+  const [hotelModeOn, setHotelModeOn] = useState(false)
   const confirmResolverRef = useRef<((value: boolean) => void) | null>(null)
   // Once finished, stop all auto-persistence immediately (prevents re-writing `activeWorkout_${userId}`).
   const hasFinishedRef = useRef(false)
@@ -170,6 +191,7 @@ export default function ActiveWorkout() {
   const workoutStartTimeRef = useRef<number | null>(null)
   const restStartTimeRef = useRef<number | null>(null)
   const restDurationRef = useRef(0)
+  const restContractRef = useRef<RestContractSnapshot | null>(null)
   const timeoutRefs = useRef<Array<ReturnType<typeof setTimeout>>>([]) // Track all timeouts for cleanup
   const autoSaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null) // Auto-save interval
   const lastSavedExercisesRef = useRef<string | null>(null) // Track last saved exercises to avoid unnecessary saves
@@ -195,6 +217,23 @@ export default function ActiveWorkout() {
   useEffect(() => { isRestingRef.current = Boolean(isResting) }, [isResting])
   useEffect(() => { sessionTypeRef.current = sessionType }, [sessionType])
   useEffect(() => { sessionTypeModeRef.current = sessionTypeMode }, [sessionTypeMode])
+
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { getUserPreferences } = await import('../lib/db/userPreferencesDb')
+        const p = await getUserPreferences(userId)
+        if (!cancelled && p && Boolean((p as { hotel_mode?: boolean }).hotel_mode)) {
+          setHotelModeOn(true)
+        }
+      } catch {
+        /* non-critical */
+      }
+    })()
+    return () => { cancelled = true }
+  }, [userId])
 
   const computeEntryScore = (exs: any) => {
     // Higher score means "more filled-in work" (more likely the correct snapshot to keep).
@@ -236,6 +275,32 @@ export default function ActiveWorkout() {
 
   const normalizeNameKey = (name: any) => (name || '').toString().trim().toLowerCase()
 
+  const resolveRestExercise = (exerciseList?: any[]) => {
+    const list = Array.isArray(exerciseList) ? exerciseList : exercisesRef.current
+    const expanded = list.find((ex: any) => ex?.expanded)
+    return expanded ?? list[0] ?? null
+  }
+
+  const clampRestSeconds = (raw: unknown): number | null => {
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n <= 0) return null
+    return Math.max(20, Math.min(600, Math.round(n)))
+  }
+
+  const getPrescribedRestForExercise = (exercise: any): number | null =>
+    clampRestSeconds(exercise?._prescription?.restSeconds)
+
+  const getRestContractSnapshot = (): RestContractSnapshot | null => {
+    const c = restContractRef.current
+    if (!c) return null
+    return {
+      exerciseId: c.exerciseId ?? null,
+      prescribedRestSeconds: c.prescribedRestSeconds ?? null,
+      restDurationSeconds: Math.max(1, Number(c.restDurationSeconds) || 0),
+      restStartTime: c.restStartTime ?? null,
+    }
+  }
+
   const parseTimeToSeconds = (raw: any): number | null => {
     if (raw == null) return null
     const s = String(raw).trim()
@@ -248,6 +313,63 @@ export default function ActiveWorkout() {
     }
     const n = Number(s)
     return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : null
+  }
+
+  const restoreRestFromSnapshot = (snapshot: {
+    restStartTime?: string | null
+    restDurationSeconds?: number | string | null
+    isResting?: boolean | null
+    restTime?: number | string | null
+    restContract?: RestContractSnapshot | null
+  }) => {
+    const hasRunning = Boolean(snapshot?.isResting) && Boolean(snapshot?.restStartTime) && Number(snapshot?.restDurationSeconds) > 0
+    if (restTimerRef.current) clearInterval(restTimerRef.current)
+    if (!hasRunning) {
+      restContractRef.current = snapshot?.restContract ?? null
+      const fallbackRemaining = Number(snapshot?.restTime || 0)
+      if (Number.isFinite(fallbackRemaining) && fallbackRemaining > 0 && Boolean(snapshot?.isResting)) {
+        setRestTime(Math.floor(fallbackRemaining))
+        setIsResting(true)
+      } else {
+        setIsResting(false)
+        setRestTime(0)
+        restContractRef.current = null
+      }
+      return
+    }
+    restStartTimeRef.current = new Date(String(snapshot.restStartTime)).getTime()
+    restDurationRef.current = Math.max(1, Math.floor(Number(snapshot.restDurationSeconds)))
+    const incomingContract = snapshot?.restContract
+    restContractRef.current = incomingContract
+      ? {
+          exerciseId: incomingContract.exerciseId ?? null,
+          prescribedRestSeconds: incomingContract.prescribedRestSeconds ?? null,
+          restDurationSeconds: restDurationRef.current,
+          restStartTime: snapshot?.restStartTime ? String(snapshot.restStartTime) : null,
+        }
+      : {
+          exerciseId: null,
+          prescribedRestSeconds: null,
+          restDurationSeconds: restDurationRef.current,
+          restStartTime: snapshot?.restStartTime ? String(snapshot.restStartTime) : null,
+        }
+    setIsResting(true)
+    const setRemaining = () => {
+      if (!restStartTimeRef.current) return
+      const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
+      const remaining = Math.max(0, restDurationRef.current - elapsed)
+      setRestTime(remaining)
+      if (remaining <= 0) {
+        if (restTimerRef.current) clearInterval(restTimerRef.current)
+        setIsResting(false)
+        restContractRef.current = null
+        setShowTimesUp(true)
+        const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
+        timeoutRefs.current.push(timeoutId)
+      }
+    }
+    setRemaining()
+    restTimerRef.current = setInterval(setRemaining, 1000)
   }
 
   const formatLastSummary = (exRow: any) => {
@@ -435,6 +557,9 @@ export default function ActiveWorkout() {
               workoutTime,
               restTime,
               isResting,
+              restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+              restDurationSeconds: restDurationRef.current || null,
+              restContract: getRestContractSnapshot(),
               sessionType,
               sessionTypeMode,
               templateId,
@@ -464,6 +589,9 @@ export default function ActiveWorkout() {
               workoutTime,
               restTime,
               isResting,
+              restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+              restDurationSeconds: restDurationRef.current || null,
+              restContract: getRestContractSnapshot(),
               sessionType,
               sessionTypeMode,
               templateId,
@@ -516,6 +644,9 @@ export default function ActiveWorkout() {
           workoutTime,
           restTime,
           isResting,
+          restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+          restDurationSeconds: restDurationRef.current || null,
+          restContract: getRestContractSnapshot(),
           sessionType,
           sessionTypeMode,
           templateId,
@@ -544,6 +675,8 @@ export default function ActiveWorkout() {
             workoutTime,
             restTime,
             isResting,
+            restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+            restDurationSeconds: restDurationRef.current || null,
             sessionType,
             sessionTypeMode,
             templateId,
@@ -595,6 +728,9 @@ export default function ActiveWorkout() {
             workoutTime: workoutTimeRef.current,
             restTime: restTimeRef.current,
             isResting: isRestingRef.current,
+            restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+            restDurationSeconds: restDurationRef.current || null,
+            restContract: getRestContractSnapshot(),
             sessionType: sessionTypeRef.current,
             sessionTypeMode: sessionTypeModeRef.current,
             templateId,
@@ -763,7 +899,8 @@ export default function ActiveWorkout() {
                     target_time: isCardio ? timeValue : '',
                     target_time_seconds: isCardio && targetSeconds != null ? targetSeconds : '',
                     speed: '',
-                    incline: ''
+                    incline: '',
+                    ...defaultSetMetaForExercise(name)
                   })),
                   expanded: idx === 0
                 }
@@ -791,7 +928,7 @@ export default function ActiveWorkout() {
               category: randomEx.category,
               bodyPart: randomEx.bodyPart,
               equipment: randomEx.equipment,
-              sets: Array(4).fill(null).map(() => ({ weight: '', reps: '', time: '', speed: '', incline: '' })),
+              sets: Array(4).fill(null).map(() => ({ weight: '', reps: '', time: '', speed: '', incline: '', ...defaultSetMetaForExercise(randomEx.name) })),
               expanded: idx === 0
             })
           }
@@ -806,7 +943,7 @@ export default function ActiveWorkout() {
             category: randomCardio.category,
             bodyPart: randomCardio.bodyPart,
             equipment: randomCardio.equipment,
-            sets: [{ weight: '', reps: '', time: '', speed: '', incline: '' }],
+            sets: [{ weight: '', reps: '', time: '', speed: '', incline: '', ...defaultSetMetaForExercise(randomCardio.name) }],
             expanded: false
           })
         }
@@ -828,6 +965,8 @@ export default function ActiveWorkout() {
                 target_time_seconds: s.target_time_seconds != null ? String(s.target_time_seconds) : '',
                 speed: s.speed != null ? String(s.speed) : '',
                 incline: s.incline != null ? String(s.incline) : '',
+              _load_interpretation: s._load_interpretation ?? defaultSetMetaForExercise(ex.name)._load_interpretation,
+              _reps_interpretation: s._reps_interpretation ?? defaultSetMetaForExercise(ex.name)._reps_interpretation,
                 _target_weight: s.target_weight,
                 _target_reps: s.target_reps,
                 _target_time_seconds: s.target_time_seconds,
@@ -843,6 +982,7 @@ export default function ActiveWorkout() {
                 target_time_seconds: ex.target_time_seconds != null ? String(ex.target_time_seconds) : '',
                 speed: ex.speed != null ? String(ex.speed) : '',
                 incline: ex.incline != null ? String(ex.incline) : '',
+                ...defaultSetMetaForExercise(ex.name),
               }))
           return {
             id: idx,
@@ -947,51 +1087,13 @@ export default function ActiveWorkout() {
             pausedTimeRef.current = pausedMs
           }
           
-          // Restore rest timer if it was running
-          if (session.rest_start_time && session.rest_duration_seconds) {
-            restStartTimeRef.current = new Date(session.rest_start_time).getTime()
-            restDurationRef.current = session.rest_duration_seconds
-            setIsResting(session.is_resting || false)
-            
-            const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
-            const remaining = Math.max(0, restDurationRef.current - elapsed)
-            if (remaining > 0) {
-              setRestTime(remaining)
-              setIsResting(true)
-              restTimerRef.current = setInterval(() => {
-                if (restStartTimeRef.current) {
-                  const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
-                  const remaining = Math.max(0, restDurationRef.current - elapsed)
-                  setRestTime(remaining)
-                  if (remaining <= 0) {
-                    if (restTimerRef.current) clearInterval(restTimerRef.current)
-                    setIsResting(false)
-                    setShowTimesUp(true)
-                    const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
-                    timeoutRefs.current.push(timeoutId)
-                    // Clear rest timer from database
-                    saveActiveWorkoutSession(userId, {
-                      workoutStartTime: new Date((workoutStartTimeRef.current ?? Date.now())).toISOString(),
-                      pausedTimeMs: pausedTime,
-                      restStartTime: null,
-                      restDurationSeconds: null,
-                      isResting: false
-                    }).catch(() => {})
-                  }
-                }
-              }, 1000)
-            } else {
-              // Rest timer expired, clear it
-              setIsResting(false)
-              saveActiveWorkoutSession(userId, {
-                workoutStartTime: new Date((workoutStartTimeRef.current ?? Date.now())).toISOString(),
-                pausedTimeMs: pausedTime,
-                restStartTime: null,
-                restDurationSeconds: null,
-                isResting: false
-              }).catch(() => {})
-            }
-          }
+          restoreRestFromSnapshot({
+            restStartTime: session.rest_start_time,
+            restDurationSeconds: session.rest_duration_seconds,
+            isResting: session.is_resting,
+            restTime: session.rest_time,
+            restContract: null,
+          })
           
           // Calculate current elapsed time based on stored start time
           const ws = workoutStartTimeRef.current ?? Date.now()
@@ -1076,8 +1178,13 @@ export default function ActiveWorkout() {
                       }
                       
                       if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
-                      if (workoutData.restTime) setRestTime(workoutData.restTime)
-                      if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                      restoreRestFromSnapshot({
+                        restStartTime: workoutData.restStartTime,
+                        restDurationSeconds: workoutData.restDurationSeconds,
+                        isResting: workoutData.isResting,
+                        restTime: workoutData.restTime,
+                        restContract: workoutData.restContract ?? null,
+                      })
                       if (workoutData.sessionType) {
                         setSessionType((workoutData.sessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout')
                         if (workoutData.sessionTypeMode) {
@@ -1119,8 +1226,13 @@ export default function ActiveWorkout() {
                     }
                     
                     if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
-                    if (workoutData.restTime) setRestTime(workoutData.restTime)
-                    if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                    restoreRestFromSnapshot({
+                      restStartTime: workoutData.restStartTime,
+                      restDurationSeconds: workoutData.restDurationSeconds,
+                      isResting: workoutData.isResting,
+                      restTime: workoutData.restTime,
+                      restContract: workoutData.restContract ?? null,
+                    })
                     if (workoutData.sessionType) {
                       setSessionType((workoutData.sessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout')
                       if (workoutData.sessionTypeMode) {
@@ -1160,6 +1272,7 @@ export default function ActiveWorkout() {
             if (generatedRaw) {
               sessionStorage.removeItem('generated_workout')
               const generated = JSON.parse(generatedRaw)
+              if (generated.hotelMode) setHotelModeOn(true)
               if (generated.exercises?.length > 0) {
                 const prePopulated = generated.exercises.map((gex: any, idx: number) => {
                   const isCardio = gex.category === 'Cardio'
@@ -1181,6 +1294,8 @@ export default function ActiveWorkout() {
                       _target_reps: s.target_reps,
                       _tempo: s.tempo,
                       _is_bodyweight: s._is_bodyweight,
+                      _load_interpretation: s._load_interpretation ?? defaultSetMetaForExercise(gex.name)._load_interpretation,
+                      _reps_interpretation: s._reps_interpretation ?? defaultSetMetaForExercise(gex.name)._reps_interpretation,
                     })),
                     expanded: idx === 0,
                   }
@@ -1300,8 +1415,13 @@ export default function ActiveWorkout() {
                       }
                       
                       if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
-                      if (workoutData.restTime) setRestTime(workoutData.restTime)
-                      if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                      restoreRestFromSnapshot({
+                        restStartTime: workoutData.restStartTime,
+                        restDurationSeconds: workoutData.restDurationSeconds,
+                        isResting: workoutData.isResting,
+                        restTime: workoutData.restTime,
+                        restContract: workoutData.restContract ?? null,
+                      })
                       if (workoutData.sessionType) {
                         setSessionType((workoutData.sessionType || 'workout').toString().toLowerCase() === 'recovery' ? 'recovery' : 'workout')
                         if (workoutData.sessionTypeMode) {
@@ -1334,8 +1454,13 @@ export default function ActiveWorkout() {
                   }
                   
                   if (workoutData.workoutTime) setWorkoutTime(workoutData.workoutTime)
-                  if (workoutData.restTime) setRestTime(workoutData.restTime)
-                  if (workoutData.isResting !== undefined) setIsResting(workoutData.isResting)
+                  restoreRestFromSnapshot({
+                    restStartTime: workoutData.restStartTime,
+                    restDurationSeconds: workoutData.restDurationSeconds,
+                    isResting: workoutData.isResting,
+                    restTime: workoutData.restTime,
+                    restContract: workoutData.restContract ?? null,
+                  })
                   showToast('Workout progress recovered from backup', 'info')
                   return // Don't initialize new timer if we recovered
                 }
@@ -1416,6 +1541,9 @@ export default function ActiveWorkout() {
               workoutTime: workoutTimeRef.current,
               restTime: restTimeRef.current,
               isResting: isRestingRef.current,
+              restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+              restDurationSeconds: restDurationRef.current || null,
+              restContract: getRestContractSnapshot(),
               sessionType: sessionTypeRef.current,
               sessionTypeMode: sessionTypeModeRef.current,
               templateId,
@@ -1433,6 +1561,9 @@ export default function ActiveWorkout() {
                 workoutTime: workoutTimeRef.current,
                 restTime: restTimeRef.current,
                 isResting: isRestingRef.current,
+                restStartTime: restStartTimeRef.current ? new Date(restStartTimeRef.current).toISOString() : null,
+                restDurationSeconds: restDurationRef.current || null,
+                restContract: getRestContractSnapshot(),
                 sessionType: sessionTypeRef.current,
                 sessionTypeMode: sessionTypeModeRef.current,
                 templateId,
@@ -1494,31 +1625,13 @@ export default function ActiveWorkout() {
             const elapsed = Math.floor((Date.now() - workoutStartTimeRef.current - pausedMs) / 1000)
             setWorkoutTime(Math.max(0, elapsed))
             
-            // Recalculate rest timer
-            if (session.rest_start_time && session.rest_duration_seconds) {
-              restStartTimeRef.current = new Date(session.rest_start_time).getTime()
-              restDurationRef.current = session.rest_duration_seconds
-              setIsResting(session.is_resting || false)
-              
-              const elapsed = Math.floor((Date.now() - restStartTimeRef.current) / 1000)
-              const remaining = Math.max(0, restDurationRef.current - elapsed)
-              setRestTime(remaining)
-              if (remaining <= 0 && isRestingRef.current) {
-                if (restTimerRef.current) clearInterval(restTimerRef.current)
-                setIsResting(false)
-                setShowTimesUp(true)
-                const timeoutId = setTimeout(() => setShowTimesUp(false), 2000)
-                timeoutRefs.current.push(timeoutId)
-                // Clear rest timer from database
-                await saveActiveWorkoutSession(userId, {
-                  workoutStartTime: new Date((workoutStartTimeRef.current ?? Date.now())).toISOString(),
-                  pausedTimeMs: pausedTime,
-                  restStartTime: null,
-                  restDurationSeconds: null,
-                  isResting: false
-                })
-              }
-            }
+            restoreRestFromSnapshot({
+              restStartTime: session.rest_start_time,
+              restDurationSeconds: session.rest_duration_seconds,
+              isResting: session.is_resting,
+              restTime: session.rest_time,
+              restContract: null,
+            })
           }
         } catch (error) {
           logError('Error reloading workout session on visibility change', error)
@@ -1630,16 +1743,27 @@ export default function ActiveWorkout() {
     return { calories: null, steps: null }
   }
 
-  const startRest = async (duration = 90) => {
+  const startRest = async (duration?: number) => {
     if (!userId) return
-    
-    restDurationRef.current = duration
+
+    const sourceExercise = resolveRestExercise()
+    const prescribed = getPrescribedRestForExercise(sourceExercise)
+    const resolvedDuration = clampRestSeconds(duration) ?? prescribed ?? 90
+    const nowIso = new Date().toISOString()
+    restContractRef.current = {
+      exerciseId: sourceExercise?.id != null ? String(sourceExercise.id) : null,
+      prescribedRestSeconds: prescribed,
+      restDurationSeconds: resolvedDuration,
+      restStartTime: nowIso,
+    }
+
+    restDurationRef.current = resolvedDuration
     restStartTimeRef.current = Date.now()
-    setRestTime(duration)
+    setRestTime(resolvedDuration)
     setIsResting(true)
 
     // Tiny “rest started” feedback loop: one light tap + subtle toast.
-    try { showToast(`Rest started · ${duration}s`, 'info', 1400) } catch (err) { logError('Failed to show rest started toast', err) }
+    try { showToast(`Rest started · ${resolvedDuration}s`, 'info', 1400) } catch (err) { logError('Failed to show rest started toast', err) }
     
     // Save to database
     try {
@@ -1649,7 +1773,7 @@ export default function ActiveWorkout() {
         workoutStartTime: new Date(ws).toISOString(),
         pausedTimeMs: pausedTime,
         restStartTime: new Date(restStartTimeRef.current ?? Date.now()).toISOString(),
-        restDurationSeconds: duration,
+        restDurationSeconds: resolvedDuration,
         isResting: true
       })
     } catch (error) {
@@ -1665,6 +1789,7 @@ export default function ActiveWorkout() {
         if (remaining <= 0) {
           if (restTimerRef.current) clearInterval(restTimerRef.current)
           setIsResting(false)
+            restContractRef.current = null
           setShowTimesUp(true)
           // Stronger “rest finished” cue.
           try { showToast('Rest finished', 'success', 1400) } catch (err) { logError('Failed to show rest finished toast', err) }
@@ -1691,6 +1816,7 @@ export default function ActiveWorkout() {
     if (restTimerRef.current) clearInterval(restTimerRef.current)
     setIsResting(false)
     setRestTime(0)
+    restContractRef.current = null
 
     try { showToast('Rest skipped', 'info', 1200) } catch (err) { logError('Failed to show rest skipped toast', err) }
     
@@ -1758,7 +1884,7 @@ export default function ActiveWorkout() {
   const addSet = (exerciseId: any) => {
     setExercises(prev => prev.map(ex => {
       if (ex.id !== exerciseId) return ex
-      const lastSet = ex.sets[ex.sets.length - 1] || { weight: '', reps: '', time: '', time_seconds: '', speed: '', incline: '' }
+      const lastSet = ex.sets[ex.sets.length - 1] || { weight: '', reps: '', time: '', time_seconds: '', speed: '', incline: '', ...defaultSetMetaForExercise(ex.name) }
       return { 
         ...ex, 
         // Keep a consistent set shape across all exercise types (Supabase persists: weight, reps, time, speed, incline).
@@ -1770,7 +1896,9 @@ export default function ActiveWorkout() {
             time: lastSet.time ?? '',
             time_seconds: lastSet.time_seconds ?? '',
             speed: lastSet.speed ?? '',
-            incline: lastSet.incline ?? ''
+            incline: lastSet.incline ?? '',
+            _load_interpretation: lastSet._load_interpretation ?? defaultSetMetaForExercise(ex.name)._load_interpretation,
+            _reps_interpretation: lastSet._reps_interpretation ?? defaultSetMetaForExercise(ex.name)._reps_interpretation,
           }
         ]
       }
@@ -1793,7 +1921,7 @@ export default function ActiveWorkout() {
       name: exercise.name,
       category: exercise.category,
       bodyPart: exercise.bodyPart,
-      sets: Array(defaultSets).fill(null).map(() => ({ weight: '', reps: '', time: '', time_seconds: '', speed: '', incline: '' })),
+      sets: Array(defaultSets).fill(null).map(() => ({ weight: '', reps: '', time: '', time_seconds: '', speed: '', incline: '', ...defaultSetMetaForExercise(exercise.name) })),
       expanded: true
     }
     setExercises(prev => [...prev.map(e => ({ ...e, expanded: false })), newExercise])
@@ -2276,6 +2404,7 @@ export default function ActiveWorkout() {
       setWorkoutTime(0)
       setRestTime(0)
       setIsResting(false)
+      restContractRef.current = null
       setIsPaused(false)
       setPausedTime(0)
       pausedTimeRef.current = 0
@@ -2595,6 +2724,23 @@ export default function ActiveWorkout() {
         .filter(Boolean)
     : renderItems
 
+  const activeExerciseForRest = (() => {
+    const expanded = exercises.find((ex: any) => ex?.expanded)
+    return expanded ?? exercises[0] ?? null
+  })()
+  const prescribedRestSeconds = (() => {
+    const raw = Number(activeExerciseForRest?._prescription?.restSeconds)
+    if (!Number.isFinite(raw) || raw <= 0) return null
+    return Math.max(20, Math.min(600, Math.round(raw)))
+  })()
+  const activeRestContract = restContractRef.current
+  const restPresetSeconds = (() => {
+    const base = [60, 90, 120]
+    if (!prescribedRestSeconds) return base
+    const merged = [prescribedRestSeconds, ...base]
+    return [...new Set(merged)].slice(0, 3)
+  })()
+
   return (
     <SafeAreaScaffold>
       <div className={styles.container}>
@@ -2623,6 +2769,7 @@ export default function ActiveWorkout() {
                   setPausedTime(0)
                   pausedTimeRef.current = 0
                   setIsResting(false)
+                  restContractRef.current = null
                   setRestTime(0)
                   workoutStartMetricsRef.current = null
                   pausedMetricsRef.current = []
@@ -2784,6 +2931,13 @@ export default function ActiveWorkout() {
             </button>
           </div>
         </div>
+
+        {hotelModeOn && (
+          <div className={styles.hotelBanner} role="status">
+            <span className={styles.hotelBannerPill}>Hotel mode</span>
+            <span className={styles.hotelBannerText}>Treadmill · bodyweight · DB ≤50 lb</span>
+          </div>
+        )}
         
         {isResting && (
           <div className={styles.restBar}>
@@ -2977,13 +3131,26 @@ export default function ActiveWorkout() {
         <div className={styles.bottomBarMain}>
           {!isResting ? (
             <div className={styles.restPresets} aria-label="Rest presets">
-              <button type="button" className={styles.restChip} onClick={() => startRest(60)} aria-label="Start 60 second rest">60s</button>
-              <button type="button" className={styles.restChip} onClick={() => startRest(90)} aria-label="Start 90 second rest">90s</button>
-              <button type="button" className={styles.restChip} onClick={() => startRest(120)} aria-label="Start 120 second rest">120s</button>
+              {restPresetSeconds.map((seconds) => (
+                <button
+                  key={seconds}
+                  type="button"
+                  className={styles.restChip}
+                  onClick={() => startRest(seconds)}
+                  aria-label={`Start ${seconds} second rest`}
+                  title={prescribedRestSeconds === seconds ? 'Using prescribed rest' : undefined}
+                >
+                  {seconds}s
+                </button>
+              ))}
             </div>
           ) : (
             <button type="button" className={styles.restChipActive} onClick={skipRest} aria-label="Skip rest">
-              Rest {formatTime(restTime)} · Skip
+              Rest {formatTime(restTime)}
+              {activeRestContract?.prescribedRestSeconds
+                ? ` · Rx ${activeRestContract.prescribedRestSeconds}s`
+                : ''}
+              · Skip
             </button>
           )}
         </div>

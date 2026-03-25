@@ -152,8 +152,8 @@ export function evaluateSchemaGate(caps: SchemaCapabilities | null): SchemaGateR
   if (missing.length === 0) return { ok: true, missing, message: null }
 
   return {
-    ok: false,
+    ok: true,
     missing,
-    message: `Database migration required: missing ${missing.join(', ')}.`,
+    message: `Running in compatibility mode: missing ${missing.join(', ')}. Some advanced tracking fields will be reduced until migrations are applied.`,
   }
 }

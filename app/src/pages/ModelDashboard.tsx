@@ -88,6 +88,7 @@ function computeNodePreviews(p: TrainingProfile): Record<number, string> {
   const mgCount = (p.rolling30DayTrends.muscleGroupTrends || []).length
   const utilityPct = Math.round((p.canonicalModelContext?.objectiveUtility ?? 0) * 100)
   const setAccPct = Math.round((p.prescribedVsActual?.avgSetExecutionAccuracy ?? 0) * 100)
+  const cardioCaps = (p.cardioCapabilityProfiles || []).length
 
   return {
     1: `Ingested ${p.totalWorkoutCount} sessions, ${p.healthDataDays} health days`,
@@ -96,7 +97,7 @@ function computeNodePreviews(p: TrainingProfile): Record<number, string> {
     4: `${belowMev} groups below MEV${topPriority ? `, priority: ${topPriority.muscleGroup.replace(/_/g, ' ')}` : ''}`,
     5: `Scored ${(p.exercisePreferences || []).length} candidates`,
     6: `${progressing} progressing, ${stalled} stalled`,
-    7: `${learned} learned, ${fallback} fallback`,
+    7: `${learned} learned, ${fallback} fallback (${cardioCaps} cardio capability profiles)`,
     8: `Budget: ${p.avgSessionDuration} min`,
     9: `4 rules checked`,
     10: `${obs} stored observations`,
@@ -169,6 +170,7 @@ function buildEdges(p: TrainingProfile): Edge[] {
   const belowMev = (p.muscleVolumeStatuses || []).filter(v => v.status === 'below_mev').length
   const progressing = (p.exerciseProgressions || []).filter(ep => ep.status === 'progressing').length
   const learned = (p.exercisePreferences || []).filter(ep => ep.recentSessions >= 2).length
+  const cardioCaps = (p.cardioCapabilityProfiles || []).length
   const obs = (p.llmPatternObservations || []).length
 
   const base = { type: 'smoothstep' as const, animated: true, style: EDGE_STYLE, markerEnd: EDGE_MARKER, labelStyle: EDGE_LABEL_STYLE }
@@ -181,7 +183,7 @@ function buildEdges(p: TrainingProfile): Edge[] {
     { ...base, id: 'e4-5',   source: '4',  target: '5',  label: `${belowMev} groups below MEV` },
     { ...base, id: 'e5-6',   source: '5',  target: '6',  label: 'selected exercises' },
     { ...base, id: 'e6-7',   source: '6',  target: '7',  label: `${progressing} progressing` },
-    { ...base, id: 'e7-8',   source: '7',  target: '8',  label: `${learned} learned prescriptions` },
+    { ...base, id: 'e7-8',   source: '7',  target: '8',  label: `${learned} learned + ${cardioCaps} cardio envelopes` },
     { ...base, id: 'e8-9',   source: '8',  target: '9',  label: 'fitted workout' },
     { ...base, id: 'e8-10',  source: '8',  target: '10', label: 'fitted workout' },
     { ...base, id: 'e9-11',  source: '9',  target: '11', label: 'validated' },
@@ -236,6 +238,7 @@ function DataCollectionPanel({ profile: p }: { profile: TrainingProfile }) {
   const healthDays = p.healthDataDays
   const wearables = p.connectedWearables
   const consistency = Math.round(p.consistencyScore * 100)
+  const cardioCaps = (p.cardioCapabilityProfiles || []).length
 
   const nextTierThreshold = tier === 'bootstrap' ? 10 : tier === 'learning' ? 30 : null
   const workoutsToNext = nextTierThreshold ? nextTierThreshold - wkCount : 0
@@ -299,6 +302,11 @@ function DataCollectionPanel({ profile: p }: { profile: TrainingProfile }) {
             <td>Consistency</td>
             <td style={{ fontWeight: 600, color: consistency >= 75 ? '#66bb6a' : consistency >= 50 ? '#ffa726' : '#ff6b6b' }}>{consistency}%</td>
             <td>Higher consistency = more reliable trend detection</td>
+          </tr>
+          <tr>
+            <td>Cardio capability envelopes</td>
+            <td style={{ fontWeight: 600 }}>{cardioCaps}</td>
+            <td>Personalized modality caps + preferred HR zone windows</td>
           </tr>
         </tbody>
       </table>
@@ -895,6 +903,10 @@ function PrescriptionPanel({ profile: p }: { profile: TrainingProfile }) {
   const prefs = p.exercisePreferences || []
   const learned = prefs.filter(ep => ep.recentSessions >= 2)
   const fallback = prefs.filter(ep => ep.recentSessions < 2)
+  const cardioCaps = (p.cardioCapabilityProfiles || []).length
+  const unilateralLearned = (p.exerciseProgressions || []).filter(ep =>
+    /single[\s-]*(arm|leg)|one[\s-]*(arm|leg)|unilateral|split squat|step[\s-]*up|cossack/.test(ep.exerciseName || '')
+  ).length
 
   const prescriptionPipeline = [
     { param: 'Reps',   primary: 'Learned median reps (≥2 recent sessions)', fallbackSrc: 'Table by role × goal', threshold: '≥2 sessions' },
@@ -910,6 +922,7 @@ function PrescriptionPanel({ profile: p }: { profile: TrainingProfile }) {
       <div className={S.summary}>
         {learned.length} exercises use learned prescriptions from your training data.
         {fallback.length > 0 ? ` ${fallback.length} use table fallbacks (insufficient history).` : ' All exercises are fully personalized.'}
+        {` Cardio envelopes: ${cardioCaps}. Unilateral learned patterns: ${unilateralLearned}.`}
       </div>
 
       <div className={S.decisionTree}>
@@ -983,6 +996,30 @@ function PrescriptionPanel({ profile: p }: { profile: TrainingProfile }) {
         targetWeight = e1RM × (1 − (targetReps − 1) / 30) × (1 − RIR × 0.033)<br />
         <span style={{ color: '#999' }}>Safety floor: max(targetWeight, lastWorkingWeight × 0.5)</span>
       </div>
+
+      <div className={S.sectionLabel}>New Constraint Layers</div>
+      <table className={S.weightsTable}>
+        <thead>
+          <tr><th>Layer</th><th>What It Prevents</th><th>Behavior</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={{ fontWeight: 600 }}>Rep humanization</td>
+            <td>Awkward coach-unlike outputs (e.g., 11/17 reps)</td>
+            <td>Targets snap to practical rep families unless explicit progression requires otherwise</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 600 }}>Cardio envelope caps</td>
+            <td>Walk prescriptions drifting into run-like speeds</td>
+            <td>Modality cap from profile/history, then incline/duration compensation for fat-loss HR targets</td>
+          </tr>
+          <tr>
+            <td style={{ fontWeight: 600 }}>Unilateral normalization</td>
+            <td>Ambiguous total-dumbbell load interpretation</td>
+            <td>Canonical per-hand/per-side semantics with high-confidence historical correction path</td>
+          </tr>
+        </tbody>
+      </table>
 
       <div className={S.counterfactual}>
         {fallback.length > 0

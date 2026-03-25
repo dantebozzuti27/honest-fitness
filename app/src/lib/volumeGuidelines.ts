@@ -29,6 +29,54 @@ export interface VolumeGuideline {
   notes: string;
 }
 
+export const CANONICAL_MUSCLE_GROUPS = [
+  'chest',
+  'back_lats',
+  'back_upper',
+  'anterior_deltoid',
+  'lateral_deltoid',
+  'posterior_deltoid',
+  'biceps',
+  'triceps',
+  'quadriceps',
+  'hamstrings',
+  'glutes',
+  'abductors',
+  'adductors',
+  'calves',
+  'core',
+  'forearms',
+  'erector_spinae',
+] as const;
+
+export type CanonicalMuscleGroup = typeof CANONICAL_MUSCLE_GROUPS[number];
+
+export const MUSCLE_GROUP_ALIASES: Record<string, string> = {
+  quad: 'quadriceps',
+  quads: 'quadriceps',
+  hamstring: 'hamstrings',
+  hams: 'hamstrings',
+  lat: 'back_lats',
+  lats: 'back_lats',
+  upper_back: 'back_upper',
+  upperback: 'back_upper',
+  rear_delts: 'posterior_deltoid',
+  rear_delt: 'posterior_deltoid',
+  side_delts: 'lateral_deltoid',
+  side_delt: 'lateral_deltoid',
+  front_delts: 'anterior_deltoid',
+  front_delt: 'anterior_deltoid',
+  abs: 'core',
+  abdominals: 'core',
+  spinal_erectors: 'erector_spinae',
+  lower_back: 'erector_spinae',
+  hip_abductors: 'abductors',
+  hip_adductors: 'adductors',
+  adductor: 'adductors',
+  abductor: 'abductors',
+  glute: 'glutes',
+};
+
 export const VOLUME_GUIDELINES: VolumeGuideline[] = [
   {
     muscleGroup: 'chest',
@@ -184,6 +232,31 @@ export const VOLUME_GUIDELINES: VolumeGuideline[] = [
     notes: 'Heavily loaded during squats and deadlifts. Direct work (back extensions, good mornings) only needed if those compounds are absent.',
   },
 ];
+
+const CANONICAL_GROUP_SET = new Set<string>(CANONICAL_MUSCLE_GROUPS);
+
+export function normalizeMuscleGroupName(value: unknown): CanonicalMuscleGroup | null {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw) return null;
+  if (CANONICAL_GROUP_SET.has(raw)) return raw as CanonicalMuscleGroup;
+  const normalizedSeparators = raw.replace(/\s+/g, '_').replace(/-+/g, '_');
+  if (CANONICAL_GROUP_SET.has(normalizedSeparators)) return normalizedSeparators as CanonicalMuscleGroup;
+  const alias = MUSCLE_GROUP_ALIASES[normalizedSeparators];
+  if (alias && CANONICAL_GROUP_SET.has(alias)) return alias as CanonicalMuscleGroup;
+  return null;
+}
+
+export function normalizeMuscleGroupList(values: unknown[]): CanonicalMuscleGroup[] {
+  const out: CanonicalMuscleGroup[] = [];
+  const seen = new Set<CanonicalMuscleGroup>();
+  for (const v of values ?? []) {
+    const g = normalizeMuscleGroupName(v);
+    if (!g || seen.has(g)) continue;
+    seen.add(g);
+    out.push(g);
+  }
+  return out;
+}
 
 /**
  * Maps individual muscle heads (from MusclesWorked 63-muscle taxonomy)

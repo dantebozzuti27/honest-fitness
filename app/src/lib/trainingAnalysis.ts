@@ -22,7 +22,7 @@
 
 import { requireSupabase } from './supabase';
 import { DEFAULT_MODEL_CONFIG } from './modelConfig';
-import { MUSCLE_HEAD_TO_GROUP, VOLUME_GUIDELINES, SYNERGIST_FATIGUE } from './volumeGuidelines';
+import { MUSCLE_HEAD_TO_GROUP, VOLUME_GUIDELINES, SYNERGIST_FATIGUE, type CanonicalMuscleGroup } from './volumeGuidelines';
 import { getAllConnectedAccounts } from './wearables';
 import {
   computeAllRecoveryStatuses,
@@ -68,6 +68,9 @@ export interface SetRecord {
   reps: number | null;
   time: number | null;
   is_bodyweight: boolean;
+  is_unilateral?: boolean;
+  load_interpretation?: 'per_hand_per_side' | 'total_both_per_side' | 'unknown' | null;
+  reps_interpretation?: 'per_side' | 'total_reps' | null;
   is_warmup?: boolean;
   logged_at: string | null;
   tempo_eccentric_sec: number | null;
@@ -75,6 +78,9 @@ export interface SetRecord {
   tempo_concentric_sec: number | null;
   speed: number | null;
   incline: number | null;
+  set_rpe?: number | null;
+  actual_rir?: number | null;
+  rest_seconds_before?: number | null;
 }
 
 export interface HealthRecord {
@@ -347,12 +353,15 @@ export interface TrainingProfile {
   // Synthesized athlete profile
   athleteProfile: AthleteProfile;
   gender: string | null;
+  /** Mirrors `user_preferences.hotel_mode` — surfaced in UI; generator reads prefs separately. */
+  hotel_mode: boolean;
 
   // Split Detection & Scheduling
   detectedSplit: DetectedSplit;
   dayOfWeekPatterns: DayOfWeekPattern[];
   exercisePreferences: ExercisePreference[];
   cardioHistory: CardioHistory[];
+  cardioCapabilityProfiles: CardioCapabilityProfile[];
   exerciseOrderProfiles: ExerciseOrderProfile[];
 
   // Cumulative sleep debt (rolling averages)
@@ -589,6 +598,17 @@ export interface CardioHistory {
   trendIntensity: 'increasing' | 'stable' | 'decreasing';
 }
 
+export interface CardioCapabilityProfile {
+  modality: string;
+  maxSpeed: number | null;
+  comfortableSpeed: number | null;
+  maxIncline: number | null;
+  preferredHrZoneLow: number | null;
+  preferredHrZoneHigh: number | null;
+  confidenceScore: number | null;
+  observedSessions: number | null;
+}
+
 export interface ExerciseOrderProfile {
   exerciseName: string;
   avgNormalizedPosition: number;
@@ -615,7 +635,8 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
       workout_exercises (
         exercise_name, body_part, exercise_library_id,
         workout_sets ( set_number, weight, reps, time, is_bodyweight, logged_at,
-          tempo_eccentric_sec, tempo_pause_sec, tempo_concentric_sec, speed, incline )
+          tempo_eccentric_sec, tempo_pause_sec, tempo_concentric_sec, speed, incline,
+          is_unilateral, load_interpretation, reps_interpretation, set_rpe, actual_rir, rest_seconds_before )
       )
     `)
     .eq('user_id', userId)
@@ -632,7 +653,8 @@ async function fetchWorkoutHistory(userId: string, days: number = 120): Promise<
         workout_exercises (
           exercise_name, body_part, exercise_library_id,
           workout_sets ( set_number, weight, reps, time, is_bodyweight, logged_at,
-            tempo_eccentric_sec, tempo_pause_sec, tempo_concentric_sec, speed, incline )
+            tempo_eccentric_sec, tempo_pause_sec, tempo_concentric_sec, speed, incline,
+            is_unilateral, load_interpretation, reps_interpretation, set_rpe, actual_rir, rest_seconds_before )
         )
       `)
       .eq('user_id', userId)
@@ -836,6 +858,16 @@ function normalizeSleepHours(val: number | null | undefined): number | null {
   return val > 24 ? val / 60 : val;
 }
 
+/**
+ * Normalizes workout duration to minutes.
+ * Some rows are stored in seconds while others are stored in minutes.
+ * Heuristic: values > 300 are treated as seconds.
+ */
+function normalizeWorkoutDurationMinutes(val: number | null | undefined): number | null {
+  if (val == null) return null;
+  return val > 300 ? val / 60 : val;
+}
+
 function mean(arr: number[]): number {
   if (arr.length === 0) return 0;
   return arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -884,11 +916,20 @@ function computeVolumeLoad(sets: SetRecord[], exerciseName?: string, userBodyWei
   let total = 0;
   const workingSets = filterWorkingSets(sets);
   for (const s of workingSets) {
+    const isUnilateral = s.is_unilateral === true;
+    const loadMode = (s.load_interpretation || 'unknown').toString().toLowerCase();
+    const repsMode = (s.reps_interpretation || 'total_reps').toString().toLowerCase();
+    const unilateralRepFactor = isUnilateral && repsMode === 'per_side' ? 2 : 1;
     if (s.is_bodyweight && s.reps != null && s.reps > 0 && userBodyWeight && userBodyWeight > 0) {
       const effectiveWeight = userBodyWeight * getBWFraction(exerciseName ?? '');
-      total += effectiveWeight * s.reps;
+      total += effectiveWeight * s.reps * unilateralRepFactor;
     } else if (s.weight != null && s.reps != null && s.weight > 0 && s.reps > 0) {
-      total += s.weight * s.reps;
+      let normalizedWeight = s.weight;
+      if (isUnilateral && loadMode === 'total_both_per_side') {
+        // Legacy logging mode: total of both DBs entered for one side.
+        normalizedWeight = normalizedWeight / 2;
+      }
+      total += normalizedWeight * s.reps * unilateralRepFactor;
     }
   }
   return total;
@@ -1631,14 +1672,31 @@ function computeMuscleVolumeStatuses(
   exercises: EnrichedExercise[],
   individualMrv: Record<string, number>
 ): MuscleVolumeStatus[] {
+  const normalizeMuscleHeads = (heads: unknown): string[] =>
+    (Array.isArray(heads) ? heads : [])
+      .map((m) => String(m || '').toLowerCase().trim())
+      .filter(Boolean);
   const exerciseToMuscles = new Map<string, { primary: string[]; secondary: string[]; mlType: string | null }>();
   for (const ex of exercises) {
     exerciseToMuscles.set(ex.name.toLowerCase(), {
-      primary: ex.primary_muscles ?? [],
-      secondary: ex.secondary_muscles ?? [],
-      mlType: ex.ml_exercise_type ?? null,
+      primary: normalizeMuscleHeads(ex.primary_muscles),
+      secondary: normalizeMuscleHeads(ex.secondary_muscles),
+      mlType: ex.ml_exercise_type != null ? String(ex.ml_exercise_type).toLowerCase() : null,
     });
   }
+  const resolveExerciseSignals = (exerciseName: string): { primary: string[]; secondary: string[]; mlType: string | null } | null => {
+    const key = String(exerciseName || '').toLowerCase().trim();
+    if (!key) return null;
+    const fromEnriched = exerciseToMuscles.get(key);
+    if (fromEnriched) return fromEnriched;
+    const mapping = getExerciseMapping(key);
+    if (!mapping) return null;
+    return {
+      primary: normalizeMuscleHeads(mapping.primary_muscles),
+      secondary: normalizeMuscleHeads(mapping.secondary_muscles),
+      mlType: mapping.exercise_type != null ? String(mapping.exercise_type).toLowerCase() : null,
+    };
+  };
 
   const now = new Date();
   const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
@@ -1655,7 +1713,7 @@ function computeMuscleVolumeStatuses(
     const weekIdx = Math.floor(daysBetween(w.date, localDateStr(fourWeeksAgo)) / 7);
 
     for (const ex of w.workout_exercises) {
-      const muscles = exerciseToMuscles.get(ex.exercise_name.toLowerCase());
+      const muscles = resolveExerciseSignals(ex.exercise_name);
       if (!muscles) continue;
 
       // Cardio and recovery don't count toward hypertrophy volume (sets).
@@ -2260,7 +2318,7 @@ function computeHealthPercentiles(
 
 // Major body regions for coverage analysis.
 // Each region maps to the muscle groups from VOLUME_GUIDELINES that represent it.
-const BODY_REGIONS: { region: string; groups: string[] }[] = [
+const BODY_REGIONS: { region: string; groups: CanonicalMuscleGroup[] }[] = [
   { region: 'Upper Push', groups: ['chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'] },
   { region: 'Upper Pull', groups: ['back_lats', 'back_upper', 'posterior_deltoid', 'biceps'] },
   { region: 'Lower Body', groups: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors', 'calves'] },
@@ -3264,7 +3322,9 @@ function computeRolling30DayTrends(
   }
 
   // Session duration trend (per workout)
-  const durationValues = recentWorkouts.filter(w => w.duration != null).map(w => w.duration!);
+  const durationValues = recentWorkouts
+    .map(w => normalizeWorkoutDurationMinutes(w.duration))
+    .filter((v): v is number => v != null && Number.isFinite(v));
 
   // Total weekly volume (sets per week)
   const weeklySetCounts: number[] = [0, 0, 0, 0];
@@ -3656,7 +3716,7 @@ function computeCanonicalModelContext(
 export async function computeTrainingProfile(userId: string): Promise<TrainingProfile> {
   const supabase = requireSupabase();
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
-  const [workouts, health, exercises, prefsResult, feedbackResult, connectedAccounts] = await Promise.all([
+  const [workouts, health, exercises, prefsResult, feedbackResult, connectedAccounts, cardioCapabilityResult] = await Promise.all([
     fetchWorkoutHistory(userId),
     fetchHealthHistory(userId),
     fetchEnrichedExercises(),
@@ -3676,7 +3736,17 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
       }
     })(),
     getAllConnectedAccounts(userId).catch(() => [] as any[]),
-  ]) as [WorkoutRecord[], HealthRecord[], EnrichedExercise[], any, any, any[]];
+    (async () => {
+      try {
+        return await supabase
+          .from('cardio_capability_profiles')
+          .select('modality, max_speed, comfortable_speed, max_incline, preferred_hr_zone_low, preferred_hr_zone_high, confidence_score, observed_sessions')
+          .eq('user_id', userId);
+      } catch {
+        return { data: [], error: null } as any;
+      }
+    })(),
+  ]) as [WorkoutRecord[], HealthRecord[], EnrichedExercise[], any, any, any[], any];
   const userGender = prefsResult?.data?.gender ?? null;
   const userRecoverySpeed = prefsResult?.data?.recovery_speed != null ? Number(prefsResult.data.recovery_speed) : 1.0;
   const userExperienceLevel: string | null = prefsResult?.data?.experience_level ?? null;
@@ -3802,7 +3872,9 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     d => daysBetween(d, localDateStr(new Date())) <= 28
   );
   const trainingFrequency = last4Weeks.length / 4;
-  const durations = workouts.filter(w => w.duration).map(w => w.duration!);
+  const durations = workouts
+    .map(w => normalizeWorkoutDurationMinutes(w.duration))
+    .filter((v): v is number => v != null && Number.isFinite(v));
   const avgSessionDuration = mean(durations);
   const trainingAgeDays = workouts.length > 0
     ? daysBetween(workouts[0].date, localDateStr(new Date()))
@@ -3825,19 +3897,35 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
 
   // Per-muscle-group training frequency (sessions/week over last 14 days)
   // Used by the engine to derive per-session volume ceilings: weeklyTarget / frequency
+  const normalizeMuscleHeads = (heads: unknown): string[] =>
+    (Array.isArray(heads) ? heads : [])
+      .map((m) => String(m || '').toLowerCase().trim())
+      .filter(Boolean);
   const exToGroups = new Map<string, string[]>();
   for (const ex of exercises) {
-    const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+    const groups = normalizeMuscleHeads(ex.primary_muscles)
       .map((m: string) => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
     if (groups.length > 0) exToGroups.set((ex.name ?? '').toLowerCase(), [...new Set(groups)]);
   }
+  const resolveGroupsForExercise = (exerciseName: string): string[] => {
+    const key = String(exerciseName || '').toLowerCase().trim();
+    if (!key) return [];
+    const cached = exToGroups.get(key);
+    if (cached && cached.length > 0) return cached;
+    const mapping = getExerciseMapping(key);
+    if (!mapping) return [];
+    const groups = normalizeMuscleHeads(mapping.primary_muscles)
+      .map((m: string) => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+    if (groups.length > 0) exToGroups.set(key, [...new Set(groups)]);
+    return groups;
+  };
   const muscleGroupFrequency: Record<string, number> = {};
   const twoWeeksAgo = localDateStr(new Date(Date.now() - 14 * 86400000));
   const recentWorkouts14d = workouts.filter(w => w.date >= twoWeeksAgo);
   for (const w of recentWorkouts14d) {
     const groupsThisSession = new Set<string>();
     for (const ex of (w.workout_exercises ?? [])) {
-      const groups = exToGroups.get((ex.exercise_name ?? '').toLowerCase());
+      const groups = resolveGroupsForExercise(ex.exercise_name ?? '');
       if (groups) for (const g of groups) groupsThisSession.add(g);
     }
     for (const g of groupsThisSession) {
@@ -3878,6 +3966,19 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const totalWorkoutCount = workouts.length;
   const healthDataDays = new Set(health.map(h => h.date)).size;
   const connectedWearables = (connectedAccounts ?? []).map((a: any) => a.provider as string);
+  const prefsForSnapshot = {
+    training_goal: prefsResult?.data?.training_goal ?? null,
+    secondary_goal: prefsResult?.data?.secondary_goal ?? null,
+    session_duration_minutes: prefsResult?.data?.session_duration_minutes ?? null,
+    cardio_duration_minutes: prefsResult?.data?.cardio_duration_minutes ?? null,
+    preferred_split: prefsResult?.data?.preferred_split ?? null,
+    rest_days: prefsResult?.data?.rest_days ?? null,
+    priority_muscles: prefsResult?.data?.priority_muscles ?? null,
+    experience_level: prefsResult?.data?.experience_level ?? null,
+    recovery_speed: prefsResult?.data?.recovery_speed ?? null,
+    equipment_access: prefsResult?.data?.equipment_access ?? null,
+    hotel_mode: prefsResult?.data?.hotel_mode ?? null,
+  };
   const featureSnapshotId = createFeatureSnapshotId([
     userId,
     workouts.length,
@@ -3885,6 +3986,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     health.length,
     health[health.length - 1]?.date ?? null,
     (feedbackResult?.data ?? []).length,
+    JSON.stringify(prefsForSnapshot),
   ]);
 
   const prescribedVsActual = await computePrescribedVsActual(userId, workouts, exercises);
@@ -3913,6 +4015,18 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     recoveryReadinessScore: fitnessFatigueResult.readiness,
     evidenceConfidence,
   });
+  const cardioCapabilityProfiles: CardioCapabilityProfile[] = Array.isArray(cardioCapabilityResult?.data)
+    ? cardioCapabilityResult.data.map((r: any) => ({
+        modality: String(r?.modality || '').toLowerCase(),
+        maxSpeed: r?.max_speed != null ? Number(r.max_speed) : null,
+        comfortableSpeed: r?.comfortable_speed != null ? Number(r.comfortable_speed) : null,
+        maxIncline: r?.max_incline != null ? Number(r.max_incline) : null,
+        preferredHrZoneLow: r?.preferred_hr_zone_low != null ? Number(r.preferred_hr_zone_low) : null,
+        preferredHrZoneHigh: r?.preferred_hr_zone_high != null ? Number(r.preferred_hr_zone_high) : null,
+        confidenceScore: r?.confidence_score != null ? Number(r.confidence_score) : null,
+        observedSessions: r?.observed_sessions != null ? Number(r.observed_sessions) : null,
+      }))
+    : [];
 
   return {
     userId,
@@ -3942,11 +4056,13 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     healthPercentiles: hpResults,
     athleteProfile: athleteProfileResult,
     gender: userGender,
+    hotel_mode: Boolean(prefsResult?.data?.hotel_mode),
 
     detectedSplit: detectTrainingSplit(workouts, exercises),
     dayOfWeekPatterns: computeDayOfWeekPatterns(workouts, exercises),
     exercisePreferences: computeExercisePreferences(workouts),
     cardioHistory: computeCardioHistory(workouts, exercises),
+    cardioCapabilityProfiles,
     exerciseOrderProfiles: computeExerciseOrderProfiles(workouts, exercises),
 
     cumulativeSleepDebt,
@@ -5012,9 +5128,13 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
 
     if (!generated || generated.length === 0) return defaultResult;
 
+    const normalizeMuscleHeads = (heads: unknown): string[] =>
+      (Array.isArray(heads) ? heads : [])
+        .map((m) => String(m || '').toLowerCase().trim())
+        .filter(Boolean);
     const dominantGroupByExercise = new Map<string, string>();
     for (const ex of exercises) {
-      const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+      const groups = normalizeMuscleHeads(ex.primary_muscles)
         .map(m => MUSCLE_HEAD_TO_GROUP[m])
         .filter(Boolean);
       if (groups.length > 0) dominantGroupByExercise.set(ex.name.toLowerCase(), groups[0]);
@@ -5022,7 +5142,16 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
     const getDominantGroup = (exerciseName: unknown): string | null => {
       const key = String(exerciseName || '').toLowerCase().trim();
       if (!key) return null;
-      return dominantGroupByExercise.get(key) ?? null;
+      const cached = dominantGroupByExercise.get(key);
+      if (cached) return cached;
+      const mapping = getExerciseMapping(key);
+      if (!mapping) return null;
+      const groups = normalizeMuscleHeads(mapping.primary_muscles)
+        .map((m) => MUSCLE_HEAD_TO_GROUP[m])
+        .filter(Boolean);
+      const dominant = groups[0] ?? null;
+      if (dominant) dominantGroupByExercise.set(key, dominant);
+      return dominant;
     };
 
     const { data: outcomes } = await supabase
@@ -5130,13 +5259,31 @@ function computeIndividualRecoveryRates(workouts: WorkoutRecord[], exercises: En
   const rates: Record<string, number> = {};
   if (workouts.length < 10) return rates;
 
+  const normalizeMuscleHeads = (heads: unknown): string[] =>
+    (Array.isArray(heads) ? heads : [])
+      .map((m) => String(m || '').toLowerCase().trim())
+      .filter(Boolean);
   const exerciseBodyMap = new Map<string, string>();
   for (const ex of exercises) {
-    const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+    const groups = normalizeMuscleHeads(ex.primary_muscles)
       .map(m => MUSCLE_HEAD_TO_GROUP[m])
       .filter(Boolean);
     if (groups.length > 0) exerciseBodyMap.set(ex.name.toLowerCase(), groups[0]);
   }
+  const resolveDominantGroup = (exerciseName: string): string | null => {
+    const key = String(exerciseName || '').toLowerCase().trim();
+    if (!key) return null;
+    const cached = exerciseBodyMap.get(key);
+    if (cached) return cached;
+    const mapping = getExerciseMapping(key);
+    if (!mapping) return null;
+    const groups = normalizeMuscleHeads(mapping.primary_muscles)
+      .map((m) => MUSCLE_HEAD_TO_GROUP[m])
+      .filter(Boolean);
+    const dominant = groups[0] ?? null;
+    if (dominant) exerciseBodyMap.set(key, dominant);
+    return dominant;
+  };
 
   // Track rest days between sessions for each muscle group
   const muscleLastTrained = new Map<string, string>();
@@ -5145,7 +5292,7 @@ function computeIndividualRecoveryRates(workouts: WorkoutRecord[], exercises: En
   for (const w of workouts) {
     const musclesThisSession = new Set<string>();
     for (const ex of w.workout_exercises) {
-      const group = exerciseBodyMap.get(ex.exercise_name.toLowerCase());
+      const group = resolveDominantGroup(ex.exercise_name);
       if (!group) continue;
       musclesThisSession.add(group);
 

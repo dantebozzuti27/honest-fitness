@@ -68,6 +68,33 @@
   padding: 0 16px 10px;
 }
 
+.hotelBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 16px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 22%, transparent);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, transparent);
+}
+
+.hotelBannerPill {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent, #3b82f6);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 16%, transparent);
+}
+
+.hotelBannerText {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .sessionTypeLabel {
   font-size: 12px;
   font-weight: 800;

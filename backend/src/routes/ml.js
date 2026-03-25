@@ -5,7 +5,7 @@
 import express from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { processML } from '../engines/ml/index.js'
-import { computeReplayRows, evaluateEpisodeMetrics, summarizeReplayPromotion } from '../engines/ml/policyReplay.js'
+import { computeReplayRows, evaluateEpisodeMetrics, summarizeReplayPromotion, evaluatePromotionGate } from '../engines/ml/policyReplay.js'
 import { generateAIWorkoutPlan, generateAINutritionPlan, generateAIWeeklySummary, generateAIInsights, generateAIPageInsights, interpretPrompt } from '../engines/ai/index.js'
 import { getFromDatabase } from '../database/index.js'
 import { mlLimiter } from '../middleware/rateLimiter.js'
@@ -358,7 +358,18 @@ mlRouter.post('/policy/replay', async (req, res, next) => {
       if (resultsError) throw resultsError
     }
 
-    const { avgRegretDelta, promote } = summarizeReplayPromotion(rows)
+    const replaySummary = summarizeReplayPromotion(rows)
+    const strictPromotionGates = isFlagEnabled('HF_ENABLE_STRICT_PROMOTION_GATES', true)
+    // Never trust client-supplied quality-gate metrics for promotion decisions.
+    // Strict mode requires server-owned telemetry; until it is wired, fail closed.
+    const trustedQualityGate = {}
+    const gateDecision = evaluatePromotionGate(
+      replaySummary,
+      trustedQualityGate,
+      { strict: strictPromotionGates, requireQualityMetrics: strictPromotionGates }
+    )
+    const { avgRegretDelta } = replaySummary
+    const promote = gateDecision.promote
 
     if (promote && rows.length > 0) {
       await supabase
@@ -377,6 +388,8 @@ mlRouter.post('/policy/replay', async (req, res, next) => {
           sampleSize: rows.length,
           avgRegretDelta,
           promote,
+          promotionGateReason: gateDecision.reason,
+          strictPromotionGates,
         },
       })
       .eq('id', scenario.id)
@@ -389,6 +402,8 @@ mlRouter.post('/policy/replay', async (req, res, next) => {
         sampleSize: rows.length,
         avgRegretDelta,
         promote,
+        promotionGateReason: gateDecision.reason,
+        strictPromotionGates,
       },
     })
   } catch (error) {

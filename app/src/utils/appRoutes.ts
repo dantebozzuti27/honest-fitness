@@ -1,6 +1,7 @@
 export const ROUTES = {
   home: '/',
   today: '/today',
+  weekAhead: '/week-ahead',
   workoutRoot: '/workout',
   activeWorkout: '/workout/active',
   analytics: '/analytics',

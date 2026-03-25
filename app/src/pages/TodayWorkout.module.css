@@ -22,10 +22,39 @@
 .content {
   padding: 16px;
   /* Reserve enough scroll space for fixed CTA row + bottom nav */
-  padding-bottom: calc(168px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(196px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.sectionPlaceholder {
+  min-height: 6px;
+}
+
+.statePanelSlot {
+  min-height: 180px;
+}
+
+.sectionSkeleton {
+  min-height: 84px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--bg-secondary) 88%, transparent) 0%,
+      color-mix(in srgb, var(--bg-tertiary) 65%, transparent) 50%,
+      color-mix(in srgb, var(--bg-secondary) 88%, transparent) 100%
+    );
+}
+
+.exerciseListSkeleton {
+  min-height: 320px;
+}
+
+.reviewSkeleton {
+  min-height: 140px;
 }
 
 /* Loading */
@@ -117,6 +146,51 @@
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.4;
+}
+
+.hotelModeBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 10%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 28%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+.hotelModePill {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent, #3b82f6);
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+}
+
+.hotelModeText {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.hotelModeLink {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent, #3b82f6);
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* Summary Card */
@@ -230,10 +304,12 @@
   border-left: 3px solid var(--warning, #f59e0b);
 }
 
-.adjustmentsCard h3 {
+.adjustmentsCard summary {
   margin: 0 0 8px;
   font-size: 14px;
   color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .adjustmentsCard ul {
@@ -285,8 +361,9 @@
 
 .exerciseInfo {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
+  min-width: 0;
 }
 
 .exerciseNumber {
@@ -301,6 +378,14 @@
   font-weight: 700;
   border-radius: 50%;
   flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.exerciseTextBlock {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .exerciseNameRow {
@@ -312,9 +397,17 @@
 
 .exerciseName {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--text-primary);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 
 .roleBadge {
@@ -346,10 +439,12 @@
   font-size: 13px;
   color: var(--text-secondary);
   margin-top: 2px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .rirLabel {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-tertiary);
   margin-top: 2px;
 }
@@ -809,6 +904,176 @@
   color: var(--text-primary);
 }
 
+.weekHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.weekHint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.inlineDetails {
+  margin: 6px 0 8px;
+}
+
+.inlineDetails summary {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.detailBody {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.weekGlanceGrid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(172px, 1fr);
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+
+.glanceDayCard {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  padding: 8px;
+  min-height: 124px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.glanceDayCardSelected {
+  border-color: var(--accent-primary, var(--accent));
+  background: color-mix(in srgb, var(--accent, #6366f1) 8%, var(--bg-primary));
+}
+
+.glanceDayCardCompleted {
+  border-color: color-mix(in srgb, var(--success, #22c55e) 45%, var(--border-subtle));
+}
+
+.glanceTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.glanceDow {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.glanceDate {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.glanceStatus {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  display: block;
+  line-height: 1.2;
+}
+
+.glanceFocus {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.selectedDayCompact {
+  margin-top: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--bg-primary);
+}
+
+.selectedDayMain {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.selectedDayTitle {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.selectedDayMeta {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.selectedDayPills {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.selectedDayActions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.updatedPill,
+.statusPill {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+
+.updatedPill {
+  color: #e6a800;
+  border-color: color-mix(in srgb, #e6a800 40%, var(--border-subtle));
+}
+
+.anchorRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.anchorChip {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent, #6366f1) 25%, var(--border-subtle));
+  color: var(--text-secondary);
+}
+
 .weekDays {
   display: flex;
   gap: 4px;
@@ -922,6 +1187,7 @@
 .actions {
   display: flex;
   gap: 8px;
+  align-items: stretch;
   position: fixed;
   /* Keep CTA row above persistent bottom navigation */
   bottom: calc(104px + env(safe-area-inset-bottom, 0px));
@@ -930,4 +1196,145 @@
   max-width: 600px;
   margin: 0 auto;
   z-index: 10;
+  min-height: 44px;
+}
+
+/* ---- 2026 UI polish pass ---- */
+.container {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(76, 110, 245, 0.16), transparent 55%),
+    radial-gradient(900px 500px at 85% -5%, rgba(16, 185, 129, 0.1), transparent 45%),
+    var(--bg-primary);
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.content {
+  max-width: 760px;
+  margin: 0 auto;
+  gap: 14px;
+}
+
+.pageSwitch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+}
+
+.pageSwitchBtn {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 10px !important;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+}
+
+.weekPreview,
+.summaryCard,
+.splitCard,
+.adjustmentsCard,
+.rationaleCard,
+.decisionLogCard,
+.scoringCard,
+.contextCard,
+.sessionControls,
+.exerciseCard {
+  border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  box-shadow:
+    0 6px 22px rgba(0, 0, 0, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.weekPreview,
+.summaryCard,
+.splitCard,
+.adjustmentsCard,
+.rationaleCard,
+.decisionLogCard,
+.scoringCard,
+.contextCard,
+.sessionControls {
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+}
+
+.weekPreviewTitle {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+}
+
+.weekGlanceGrid {
+  gap: 10px;
+}
+
+.glanceDayCard {
+  min-height: 128px;
+  border-radius: 12px;
+  transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+
+.glanceDayCard:hover {
+  transform: translateY(-1px);
+}
+
+.glanceStatus { font-size: 14px; }
+
+.selectedDayCompact {
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.selectedDayActions :global(button) {
+  min-height: 36px;
+  border-radius: 9px;
+}
+
+.summaryRow {
+  gap: 12px;
+}
+
+.summaryItem {
+  min-width: 0;
+}
+
+.summaryValue {
+  font-size: 16px;
+}
+
+.exerciseCard {
+  border-radius: 14px;
+}
+
+.exerciseHeader {
+  padding: 13px 14px;
+}
+
+.exerciseName {
+  font-size: 15px;
+  letter-spacing: 0.1px;
+}
+
+.exerciseMeta {
+  line-height: 1.35;
+}
+
+@media (max-width: 640px) {
+  .content {
+    padding: 14px;
+    gap: 12px;
+  }
+  .weekGlanceGrid {
+    grid-auto-columns: minmax(156px, 1fr);
+  }
 }

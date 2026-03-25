@@ -14,6 +14,7 @@ const Profile = lazy(() => import('./pages/Profile'))
 const ActiveWorkout = lazy(() => import('./pages/ActiveWorkout'))
 const Progress = lazy(() => import('./pages/Progress'))
 const TodayWorkout = lazy(() => import('./pages/TodayWorkout'))
+const WeekAhead = lazy(() => import('./pages/WeekAhead'))
 const HowItWorks = lazy(() => import('./pages/HowItWorks'))
 const ModelDashboard = lazy(() => import('./pages/ModelDashboard'))
 const OntologyDashboard = lazy(() => import('./pages/OntologyDashboard'))
@@ -130,6 +131,7 @@ export default function App() {
           <Route path="/workout" element={<ProtectedRoute><Fitness /></ProtectedRoute>} />
           <Route path="/workout/active" element={<ProtectedRoute><ActiveWorkout /></ProtectedRoute>} />
           <Route path="/today" element={<ProtectedRoute><TodayWorkout /></ProtectedRoute>} />
+          <Route path="/week-ahead" element={<ProtectedRoute><WeekAhead /></ProtectedRoute>} />
           <Route path="/today-workout" element={<Navigate to="/today" replace />} />
           <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
           <Route path="/progress" element={<ProtectedRoute><Progress /></ProtectedRoute>} />

@@ -26,6 +26,125 @@ function setCache(key: string, data: any) {
   readCache.set(key, { data, ts: Date.now() })
 }
 
+function getWeekStartMondayFromDateString(dateStr: string): string {
+  const d = new Date(`${String(dateStr)}T12:00:00`)
+  if (Number.isNaN(d.getTime())) return String(dateStr)
+  const dow = d.getDay() // 0 = Sunday
+  const shift = dow === 0 ? -6 : 1 - dow
+  d.setDate(d.getDate() + shift)
+  return getLocalDate(d)
+}
+
+function isLikelyUnilateralExerciseName(name: string): boolean {
+  const n = String(name || '').toLowerCase()
+  return /single[\s-]*(arm|leg)|one[\s-]*(arm|leg)|unilateral|split squat|step[\s-]*up|cossack|single[\s-]*leg|single[\s-]*arm/.test(n)
+}
+
+function normalizeSetLoadForStorage(exerciseName: string, set: any): {
+  normalizedWeight: number | null;
+  isBodyweight: boolean;
+  isUnilateral: boolean;
+  loadInterpretation: 'per_hand_per_side' | 'total_both_per_side' | 'unknown';
+  repsInterpretation: 'per_side' | 'total_reps';
+} {
+  const isBodyweight = String(set?.weight || '').trim().toUpperCase() === 'BW'
+  const isUnilateral = isLikelyUnilateralExerciseName(exerciseName)
+  const rawMode = String(set?._load_interpretation || set?.load_interpretation || '').toLowerCase()
+  const loadInterpretation: 'per_hand_per_side' | 'total_both_per_side' | 'unknown' = isUnilateral
+    ? (rawMode.includes('total') || rawMode.includes('both')
+      ? 'total_both_per_side'
+      : 'per_hand_per_side')
+    : 'unknown'
+  const repsInterpretation: 'per_side' | 'total_reps' = isUnilateral ? 'per_side' : 'total_reps'
+  const parsed = isBodyweight ? null : (set?.weight != null && set.weight !== '' ? Number(set.weight) : null)
+  let normalizedWeight = Number.isFinite(parsed as number) ? Number(parsed) : null
+  if (normalizedWeight != null && isUnilateral && loadInterpretation === 'total_both_per_side') {
+    // Canonical convention: unilateral DB load should be stored per-hand/per-side.
+    normalizedWeight = Math.round((normalizedWeight / 2) * 100) / 100
+  }
+  return { normalizedWeight, isBodyweight, isUnilateral, loadInterpretation, repsInterpretation }
+}
+
+function inferCardioModality(exerciseName: string): 'walk' | 'run' | 'stair' | 'bike' | 'row' | 'elliptical' | 'other' {
+  const n = String(exerciseName || '').toLowerCase()
+  if (/stairmaster|stair master|stepmill/.test(n)) return 'stair'
+  if (/bike|cycle/.test(n)) return 'bike'
+  if (/row/.test(n)) return 'row'
+  if (/elliptical/.test(n)) return 'elliptical'
+  if (/run|jog|sprint/.test(n)) return 'run'
+  if (/walk|treadmill|incline|hike|ruck/.test(n)) return 'walk'
+  return 'other'
+}
+
+async function upsertCardioCapabilityFromWorkout(userId: string, workout: any) {
+  try {
+    const exs = Array.isArray(workout?.exercises) ? workout.exercises : []
+    const byModality = new Map<string, { speeds: number[]; inclines: number[]; samples: number }>()
+    for (const ex of exs) {
+      const category = String(ex?.category || ex?.exerciseType || '').toLowerCase()
+      const isCardio = category === 'cardio' || String(ex?.name || '').toLowerCase().includes('walk') || String(ex?.name || '').toLowerCase().includes('run')
+      if (!isCardio) continue
+      const modality = inferCardioModality(ex?.name || '')
+      const row = byModality.get(modality) ?? { speeds: [], inclines: [], samples: 0 }
+      for (const s of (Array.isArray(ex?.sets) ? ex.sets : [])) {
+        const speed = s?.speed != null && s.speed !== '' ? Number(s.speed) : null
+        const incline = s?.incline != null && s.incline !== '' ? Number(s.incline) : null
+        if (Number.isFinite(speed as number) && (speed as number) > 0) row.speeds.push(Number(speed))
+        if (Number.isFinite(incline as number) && (incline as number) >= 0) row.inclines.push(Number(incline))
+        row.samples += 1
+      }
+      byModality.set(modality, row)
+    }
+
+    for (const [modality, sample] of byModality.entries()) {
+      if (sample.speeds.length === 0 && sample.inclines.length === 0) continue
+      const sampleAvgSpeed = sample.speeds.length > 0 ? sample.speeds.reduce((a, b) => a + b, 0) / sample.speeds.length : null
+      const sampleMaxSpeed = sample.speeds.length > 0 ? Math.max(...sample.speeds) : null
+      const sampleMaxIncline = sample.inclines.length > 0 ? Math.max(...sample.inclines) : null
+
+      const { data: existing } = await supabase
+        .from('cardio_capability_profiles')
+        .select('max_speed, comfortable_speed, max_incline, observed_sessions, confidence_score')
+        .eq('user_id', userId)
+        .eq('modality', modality)
+        .maybeSingle()
+
+      const priorSessions = Number(existing?.observed_sessions ?? 0)
+      const newSessions = priorSessions + Math.max(1, sample.samples)
+      const priorComfort = existing?.comfortable_speed != null ? Number(existing.comfortable_speed) : null
+      const nextComfort = sampleAvgSpeed == null
+        ? priorComfort
+        : (priorComfort == null
+          ? sampleAvgSpeed
+          : ((priorComfort * priorSessions) + (sampleAvgSpeed * Math.max(1, sample.samples))) / Math.max(newSessions, 1))
+      const nextMaxSpeed = sampleMaxSpeed == null
+        ? (existing?.max_speed != null ? Number(existing.max_speed) : null)
+        : Math.max(Number(existing?.max_speed ?? 0), sampleMaxSpeed)
+      const nextMaxIncline = sampleMaxIncline == null
+        ? (existing?.max_incline != null ? Number(existing.max_incline) : null)
+        : Math.max(Number(existing?.max_incline ?? 0), sampleMaxIncline)
+      const confidence = Math.max(0.3, Math.min(1, newSessions / 24))
+
+      await supabase
+        .from('cardio_capability_profiles')
+        .upsert({
+          user_id: userId,
+          modality,
+          max_speed: nextMaxSpeed,
+          comfortable_speed: nextComfort,
+          max_incline: nextMaxIncline,
+          observed_sessions: newSessions,
+          confidence_score: confidence,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,modality' })
+    }
+  } catch (err: any) {
+    const msg = `${err?.message || ''}`.toLowerCase()
+    if (err?.code === 'PGRST205' || msg.includes('cardio_capability_profiles') || msg.includes('column')) return
+    logWarn('Failed to upsert cardio capability profile', err)
+  }
+}
+
 /** Clears the Supabase read cache. Call after writes (e.g. saveWorkout) for immediate consistency. */
 export function invalidateSupabaseCache() {
   readCache.clear()
@@ -45,6 +164,7 @@ function disablePausedWorkouts(reason: any) {
 
 export async function saveWorkoutToSupabase(workout: any, userId: string) {
   // Data pipeline: Validate -> Clean -> Enrich -> Save
+  const allowUnvalidatedSave = (import.meta as any)?.env?.VITE_ALLOW_UNVALIDATED_WORKOUT_SAVE === '1'
   
   // Step 1: Validate data (dynamic import for code-splitting)
   let validation: { valid: boolean; errors: string[] } = { valid: true, errors: [] }
@@ -59,11 +179,17 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       }
     } else {
       logError('validateWorkout is not a function', { validationModule })
-      // Continue without validation if function is not available
+      if (!allowUnvalidatedSave) {
+        throw new Error('Workout validation unavailable: validateWorkout missing')
+      }
     }
   } catch (validationError) {
-    logError('Validation module unavailable, saving raw data', validationError)
-    // Continue without validation if import fails
+    logError('Workout validation unavailable', validationError)
+    if (!allowUnvalidatedSave) {
+      throw validationError instanceof Error
+        ? validationError
+        : new Error('Workout validation failed to initialize')
+    }
   }
   
   // Step 2: Clean and normalize data (dynamic import for code-splitting)
@@ -234,6 +360,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   // Insert exercises (only those with valid sets data)
   let exerciseOrder = 0
   const executionEvents: any[] = []
+  const setTransformAuditRows: any[] = []
   for (let i = 0; i < workoutToSave.exercises.length; i++) {
     const ex = workoutToSave.exercises[i]
     
@@ -312,17 +439,46 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
           const ts = Math.floor(Number(set.time_seconds))
           timeVal = String(ts)
         }
+        const loadNorm = normalizeSetLoadForStorage(ex.name, set)
+        const rawWeight = (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null)
+        if (
+          loadNorm.isUnilateral
+          && loadNorm.loadInterpretation === 'total_both_per_side'
+          && Number.isFinite(rawWeight as number)
+          && Number.isFinite(loadNorm.normalizedWeight as number)
+          && rawWeight != null
+          && loadNorm.normalizedWeight != null
+          && rawWeight !== loadNorm.normalizedWeight
+        ) {
+          setTransformAuditRows.push({
+            user_id: userId,
+            workout_set_id: null,
+            workout_id: workoutData.id,
+            exercise_name: ex.name || null,
+            original_weight: rawWeight,
+            transformed_weight: loadNorm.normalizedWeight,
+            original_load_interpretation: 'total_both_per_side',
+            transformed_load_interpretation: 'per_hand_per_side',
+            reason: 'live_unilateral_normalization',
+            confidence: 1.0,
+            batch_id: null,
+            metadata: { source: 'saveWorkoutToSupabase', set_number: idx + 1 },
+          })
+        }
         return {
           workout_exercise_id: exerciseData.id,
           set_number: idx + 1,
-          weight: (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null),
-          is_bodyweight: String(set?.weight || '').trim().toUpperCase() === 'BW',
-          weight_label: String(set?.weight || '').trim().toUpperCase() === 'BW' ? 'BW' : null,
+          weight: loadNorm.normalizedWeight,
+          is_bodyweight: loadNorm.isBodyweight,
+          weight_label: loadNorm.isBodyweight ? 'BW' : null,
           reps: set.reps ? Number(set.reps) : null,
           time: timeVal,
           speed: set.speed ? Number(set.speed) : null,
           incline: set.incline ? Number(set.incline) : null,
           is_warmup: set._is_warmup === true || set.is_warmup === true || false,
+          is_unilateral: loadNorm.isUnilateral,
+          load_interpretation: loadNorm.loadInterpretation,
+          reps_interpretation: loadNorm.repsInterpretation,
         }
       })
 
@@ -330,7 +486,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       let { error: setsError } = await tryInsert(setsToInsert)
       if (setsError && (setsError.code === '42703' || `${setsError.message || ''}`.toLowerCase().includes('column'))) {
         // Retry without optional columns for older schemas.
-        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, is_warmup, ...rest }: any) => rest)
+        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, is_warmup, is_unilateral, load_interpretation, reps_interpretation, ...rest }: any) => rest)
         const retry = await tryInsert(stripped)
         setsError = retry.error
       }
@@ -348,7 +504,8 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       for (let si = 0; si < validSets.length; si++) {
         const s = validSets[si]
         const targetWeight = s?.target_weight != null ? Number(s.target_weight) : null
-        const actualWeight = (String(s?.weight || '').trim().toUpperCase() === 'BW') ? null : (s?.weight != null && s.weight !== '' ? Number(s.weight) : null)
+        const norm = normalizeSetLoadForStorage(ex.name, s)
+        const actualWeight = norm.isBodyweight ? null : norm.normalizedWeight
         const targetReps = s?.target_reps != null ? Number(s.target_reps) : null
         const actualReps = s?.reps != null && s.reps !== '' ? Number(s.reps) : null
         const targetTimeSeconds = s?.target_time_seconds != null ? Number(s.target_time_seconds) : null
@@ -423,9 +580,26 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     }
   }
 
+  if (setTransformAuditRows.length > 0) {
+    try {
+      const { error: auditErr } = await supabase
+        .from('set_transformation_audit')
+        .insert(setTransformAuditRows)
+      if (auditErr) {
+        const msg = `${auditErr?.message || ''}`.toLowerCase()
+        if (!(auditErr?.code === 'PGRST205' || msg.includes('set_transformation_audit') || msg.includes('column'))) {
+          logWarn('Failed to persist set_transformation_audit rows', auditErr)
+        }
+      }
+    } catch (e) {
+      logWarn('set_transformation_audit insert skipped', e)
+    }
+  }
+
   // Reconcile adaptive weekly plan day with completed workout payload.
   try {
     const workoutDate = workoutToSave.date || getLocalDate()
+    const weekStartDate = getWeekStartMondayFromDateString(workoutDate)
     const actualWorkoutPayload = {
       id: workoutData.id,
       date: workoutDate,
@@ -437,6 +611,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       .from('weekly_plan_versions')
       .select('id')
       .eq('user_id', userId)
+      .eq('week_start_date', weekStartDate)
       .eq('status', 'active')
       .order('created_at', { ascending: false })
       .limit(1)
@@ -461,6 +636,9 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   } catch (reconcileErr) {
     logWarn('Weekly plan reconciliation skipped', reconcileErr)
   }
+
+  // Learn cardio capability envelopes from completed sessions (best-effort).
+  await upsertCardioCapabilityFromWorkout(userId, workoutToSave)
 
   invalidateSupabaseCache()
   return workoutData
@@ -893,23 +1071,29 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
 
     const validSets2 = exSets2.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline)
     if (validSets2.length > 0) {
-      const setsToInsert = validSets2.map((set: any, idx: number) => ({
-        workout_exercise_id: exerciseData.id,
-        set_number: idx + 1,
-        weight: (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null),
-        is_bodyweight: String(set?.weight || '').trim().toUpperCase() === 'BW',
-        weight_label: String(set?.weight || '').trim().toUpperCase() === 'BW' ? 'BW' : null,
-        reps: set.reps ? Number(set.reps) : null,
-        time: set.time != null ? String(Math.floor(Number(set.time))) : (set.time_seconds != null ? String(Math.floor(Number(set.time_seconds))) : null),
-        speed: set.speed ? Number(set.speed) : null,
-        incline: set.incline ? Number(set.incline) : null,
-        is_warmup: set._is_warmup === true || set.is_warmup === true,
-      }))
+      const setsToInsert = validSets2.map((set: any, idx: number) => {
+        const loadNorm = normalizeSetLoadForStorage(ex.name, set)
+        return {
+          workout_exercise_id: exerciseData.id,
+          set_number: idx + 1,
+          weight: loadNorm.normalizedWeight,
+          is_bodyweight: loadNorm.isBodyweight,
+          weight_label: loadNorm.isBodyweight ? 'BW' : null,
+          reps: set.reps ? Number(set.reps) : null,
+          time: set.time != null ? String(Math.floor(Number(set.time))) : (set.time_seconds != null ? String(Math.floor(Number(set.time_seconds))) : null),
+          speed: set.speed ? Number(set.speed) : null,
+          incline: set.incline ? Number(set.incline) : null,
+          is_warmup: set._is_warmup === true || set.is_warmup === true,
+          is_unilateral: loadNorm.isUnilateral,
+          load_interpretation: loadNorm.loadInterpretation,
+          reps_interpretation: loadNorm.repsInterpretation,
+        }
+      })
 
       const tryInsert = async (rows: any[]) => supabase.from('workout_sets').insert(rows)
       let { error: setsError } = await tryInsert(setsToInsert)
       if (setsError && (setsError.code === '42703' || `${setsError.message || ''}`.toLowerCase().includes('column'))) {
-        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, ...rest }: any) => rest)
+        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, is_unilateral, load_interpretation, reps_interpretation, ...rest }: any) => rest)
         const retry = await tryInsert(stripped)
         setsError = retry.error
       }
@@ -1486,7 +1670,7 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     'recovery_speed', 'weight_goal_lbs', 'weight_goal_date',
     'primary_goal', 'secondary_goal', 'priority_muscles',
     'weekday_deadlines', 'gym_profiles', 'active_gym_profile', 'age',
-    'rest_days',
+    'rest_days', 'hotel_mode',
   ]
   for (const key of directFields) {
     if (prefs[key] !== undefined) {

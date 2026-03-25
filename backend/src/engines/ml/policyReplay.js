@@ -80,3 +80,39 @@ export function summarizeReplayPromotion(rows = []) {
   const promote = sampleSize >= 8 && avgRegretDelta <= -0.02 && upperBound < 0
   return { sampleSize, avgRegretDelta, ci95HalfWidth, promote }
 }
+
+export function evaluatePromotionGate(
+  replaySummary = { sampleSize: 0, avgRegretDelta: 0, ci95HalfWidth: 0, promote: false },
+  qualityGate = {},
+  options = {}
+) {
+  const strict = options.strict === true
+  const requireQualityMetrics = options.requireQualityMetrics !== false
+  if (!replaySummary?.promote) {
+    return { promote: false, reason: 'replay_gate_failed' }
+  }
+  if (!strict) {
+    return { promote: true, reason: 'replay_gate_passed' }
+  }
+
+  const coherence = Number(qualityGate.avgCoherenceScore)
+  const plannerTotalMs = Number(qualityGate.plannerTotalMs)
+  const diversifyAttempts = Number(qualityGate.avgDiversifyAttempts)
+  if (
+    requireQualityMetrics
+    && (!Number.isFinite(coherence) || !Number.isFinite(plannerTotalMs) || !Number.isFinite(diversifyAttempts))
+  ) {
+    return { promote: false, reason: 'quality_telemetry_missing' }
+  }
+  if (Number.isFinite(coherence) && coherence < 0.62) {
+    return { promote: false, reason: 'coherence_gate_failed' }
+  }
+  if (Number.isFinite(plannerTotalMs) && plannerTotalMs > 3500) {
+    return { promote: false, reason: 'planner_latency_gate_failed' }
+  }
+  if (Number.isFinite(diversifyAttempts) && diversifyAttempts > 3.0) {
+    return { promote: false, reason: 'diversify_gate_failed' }
+  }
+
+  return { promote: true, reason: 'all_gates_passed' }
+}

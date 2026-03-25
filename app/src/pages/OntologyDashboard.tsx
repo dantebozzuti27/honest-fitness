@@ -57,7 +57,7 @@ const ENTITY_CARDS: EntityCard[] = [
   {
     id: 'plan_version',
     title: 'WorkoutPlanVersion',
-    table: 'weekly_plans',
+    table: 'weekly_plan_versions',
     pk: 'id',
     description: 'Versioned weekly plans. Exactly one active plan per week.',
     relations: ['N -> 1 UserProfile', '1 -> N WorkoutPlanDay'],
@@ -99,7 +99,7 @@ const ENTITY_CARDS: EntityCard[] = [
     title: 'ExerciseExecutionEvent',
     table: 'prescription_execution_events',
     pk: 'id / event_id',
-    description: 'Set-level execution data with strict idempotency keys.',
+    description: 'Set-level execution data with strict idempotency keys, including unilateral/load interpretation semantics.',
     relations: ['N -> 1 UserProfile', 'N -> 1 WorkoutSession', 'N -> 1 GeneratedWorkout'],
   },
   {
@@ -110,6 +110,22 @@ const ENTITY_CARDS: EntityCard[] = [
     description: 'LLM pattern observations that influence future generation.',
     relations: ['N -> 1 UserProfile', 'N -> 0..1 WorkoutSession (workout_date)'],
   },
+  {
+    id: 'cardio_capability',
+    title: 'CardioCapabilityProfile',
+    table: 'cardio_capability_profiles',
+    pk: 'id',
+    description: 'Personalized cardio modality envelopes (max speed/incline + preferred HR zones).',
+    relations: ['N -> 1 UserProfile', 'Used by cardio prescription policy at generation time'],
+  },
+  {
+    id: 'set_transform_audit',
+    title: 'SetTransformationAudit',
+    table: 'set_transformation_audit',
+    pk: 'id',
+    description: 'Auditable record of high-confidence historical set normalization/backfills.',
+    relations: ['N -> 1 UserProfile', 'N -> 0..1 WorkoutSession (workout_id)'],
+  },
 ]
 
 const RELATIONSHIP_FLOW = [
@@ -118,6 +134,8 @@ const RELATIONSHIP_FLOW = [
   'GeneratedWorkout -> WorkoutSession (via workouts.generated_workout_id)',
   'WorkoutSession -> WorkoutOutcomeEvent',
   'WorkoutSession + GeneratedWorkout -> ExerciseExecutionEvent',
+  'WorkoutSession -> SetTransformationAudit (when backfills/normalizations run)',
+  'UserProfile -> CardioCapabilityProfile -> next cardio prescriptions',
   'LLM validation -> ModelFeedback -> next TrainingProfile -> next GeneratedWorkout',
 ]
 
@@ -171,7 +189,7 @@ const RELATION_EDGES: RelationEdgeDef[] = [
     id: 'e-user-plan',
     source: 'user_profile',
     target: 'plan_version',
-    fk: 'weekly_plans.user_id',
+    fk: 'weekly_plan_versions.user_id',
     cardinality: '1 -> N',
     label: 'owns weekly plans',
   },
@@ -247,6 +265,30 @@ const RELATION_EDGES: RelationEdgeDef[] = [
     cardinality: '1 -> N',
     label: 'llm feedback',
   },
+  {
+    id: 'e-user-cardio-capability',
+    source: 'user_profile',
+    target: 'cardio_capability',
+    fk: 'cardio_capability_profiles.user_id',
+    cardinality: '1 -> N',
+    label: 'cardio envelopes',
+  },
+  {
+    id: 'e-user-transform-audit',
+    source: 'user_profile',
+    target: 'set_transform_audit',
+    fk: 'set_transformation_audit.user_id',
+    cardinality: '1 -> N',
+    label: 'normalization audit',
+  },
+  {
+    id: 'e-session-transform-audit',
+    source: 'workout_session',
+    target: 'set_transform_audit',
+    fk: 'set_transformation_audit.workout_id',
+    cardinality: '1 -> N',
+    label: 'set transforms',
+  },
 ]
 
 const NODE_LAYOUT: Record<string, { x: number; y: number }> = {
@@ -258,6 +300,8 @@ const NODE_LAYOUT: Record<string, { x: number; y: number }> = {
   outcome_event: { x: 840, y: 270 },
   execution_event: { x: 840, y: 420 },
   feedback: { x: 280, y: 520 },
+  cardio_capability: { x: 560, y: 560 },
+  set_transform_audit: { x: 1120, y: 420 },
 }
 
 const EntityNode = memo(({ data, selected }: NodeProps & { data: OntologyNodeData }) => {
@@ -480,6 +524,9 @@ export default function OntologyDashboard() {
           <h2 className={styles.sectionTitle}>Biomechanics Ontology (Whole-Body Coupling)</h2>
           <p className={styles.body}>
             This is the mechanistic ontology used by the planner to separate internal vs external hip demand and propagate load through push/pull/hinge/squat/core interactions into exercise ordering and weekly volume.
+          </p>
+          <p className={styles.body}>
+            Recent upgrades add adaptive hip-dose suppression (to avoid daily adductor/abductor overprescription), unilateral load semantics, and cardio capability envelopes so walk-mode prescriptions stay realistic while still targeting fat-loss HR zones.
           </p>
           <div className={styles.biomechanicsGrid}>
             {HIP_MECHANICS_ONTOLOGY.map((item) => (

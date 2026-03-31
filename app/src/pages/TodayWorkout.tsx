@@ -13,7 +13,7 @@ import {
   type ExerciseRole,
   type SessionOverrides,
 } from '../lib/workoutEngine'
-import { requireSupabase } from '../lib/supabase'
+import { db } from '../lib/dbClient'
 import { fetchWorkoutReview, fetchWorkoutValidation, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
 import { getActiveWeeklyPlanFromSupabase, saveLlmValidationArtifact, saveWeeklyPlanToSupabase } from '../lib/supabaseDb'
 import { useToast } from '../hooks/useToast'
@@ -29,6 +29,9 @@ import {
   getSelectedPlanDay,
   getDayStatus,
 } from '../lib/todayWorkoutFlow'
+import { logExerciseSwapToSupabase } from '../lib/swapLogging'
+import { getPausedWorkoutFromSupabase, deletePausedWorkoutFromSupabase } from '../lib/db/pausedWorkoutsDb'
+import { getActiveWorkoutSession, deleteActiveWorkoutSession } from '../lib/db/workoutsSessionDb'
 import styles from './TodayWorkout.module.css'
 import s from '../styles/shared.module.css'
 
@@ -65,7 +68,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const [regenerating, setRegenerating] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [prefsSet, setPrefsSet] = useState(true)
-  const [defaultDuration, setDefaultDuration] = useState(120)
+  const [defaultDuration, setDefaultDuration] = useState(65)
   const [durationOverride, setDurationOverride] = useState<number | null>(null)
   const [finishByTime, setFinishByTime] = useState('')
   const [cachedProfile, setCachedProfile] = useState<TrainingProfile | null>(null)
@@ -74,6 +77,9 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const [selectedPlanDate, setSelectedPlanDate] = useState<string>('')
   const [regeneratingDay, setRegeneratingDay] = useState(false)
   const [restDays, setRestDays] = useState<number[]>([])
+  const [preferredSplit, setPreferredSplit] = useState<string | null>(null)
+  const [splitSchedule, setSplitSchedule] = useState<Record<string, { focus: string; groups: string[] }> | null>(null)
+  const [mesocycleWeek, setMesocycleWeek] = useState<number | null>(null)
   const [excludedExercises, setExcludedExercises] = useState<Set<string>>(new Set())
   const [showExclusionPicker, setShowExclusionPicker] = useState(false)
   const [completedWorkout, setCompletedWorkout] = useState<any | null>(null)
@@ -86,8 +92,11 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const [adjustedValidation, setAdjustedValidation] = useState<WorkoutValidation | null>(null)
   const [regeneratingWithLlm, setRegeneratingWithLlm] = useState(false)
   const [selectedWorkoutVersion, setSelectedWorkoutVersion] = useState<'original' | 'adjusted'>('original')
+  const [pausedWorkout, setPausedWorkout2] = useState<any>(null)
+  const [activeSession, setActiveSession] = useState<any>(null)
   const llmValidationFiredRef = useRef(false)
   const regeneratingRef = useRef(false)
+  const regenerationSeedRef = useRef(0)
   const forceGenerateRef = useRef(false)
   const weeklyPlanRef = useRef<WeeklyPlan | null>(null)
 
@@ -164,7 +173,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
 
   const fetchWorkoutsForDateRange = async (start: string, end: string): Promise<any[]> => {
     if (!user) return []
-    const supabase = requireSupabase()
+    const supabase = db as any
     let lastErr: any = null
     for (const sel of workoutSelectCandidates) {
       const { data, error } = await supabase
@@ -184,7 +193,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
 
   const fetchWorkoutForDate = async (date: string): Promise<any | null> => {
     if (!user) return null
-    const supabase = requireSupabase()
+    const supabase = db as any
     let lastErr: any = null
     for (const sel of workoutSelectCandidates) {
       const { data, error } = await supabase
@@ -386,7 +395,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     return plannedDays.length > 0 && missingPolicyState >= Math.ceil(plannedDays.length / 2)
   }
 
-  const hydrateWeeklyPlan = async (tp: TrainingProfile, userRestDays: number[]): Promise<WeeklyPlan | null> => {
+  const hydrateWeeklyPlan = async (tp: TrainingProfile, userRestDays: number[], prefSplit?: string | null, schedule?: Record<string, { focus: string; groups: string[] }> | null): Promise<WeeklyPlan | null> => {
     if (!user) return null
     const weekStartDate = getWeekStartDate(new Date())
     const existing = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
@@ -397,7 +406,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         let repaired = mergedExisting
         let repairedDiffs: any[] = []
         for (let i = 0; i < 2; i++) {
-          const next = await recomputeWeeklyPlanWithDiff(repaired, tp, userRestDays)
+          const next = await recomputeWeeklyPlanWithDiff(repaired, tp, userRestDays, prefSplit ?? null, schedule ?? null)
           repaired = await attachActualWeekWorkouts(await annotateWeeklyPlanVerdicts(tp, next.plan))
           repairedDiffs = next.diffs
           if (!hasConsecutiveDuplicateTrainingDays(repaired)) break
@@ -410,7 +419,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         return mergedExisting
       }
     }
-    const generatedPlan = await generateWeeklyPlan(tp, userRestDays)
+    const generatedPlan = await generateWeeklyPlan(tp, userRestDays, prefSplit ?? null, schedule ?? null)
     const validatedGenerated = await annotateWeeklyPlanVerdicts(tp, generatedPlan)
     const mergedGenerated = await attachActualWeekWorkouts(validatedGenerated)
     const planId = await saveWeeklyPlanToSupabase(user.id, mergedGenerated).catch(() => null)
@@ -477,7 +486,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     tp: TrainingProfile,
     userRestDays: number[]
   ): Promise<WeeklyPlan> => {
-    const recomputed = await recomputeWeeklyPlanWithDiff(basePlan, tp, userRestDays)
+    const recomputed = await recomputeWeeklyPlanWithDiff(basePlan, tp, userRestDays, preferredSplit, splitSchedule)
     const withVerdicts = await annotateWeeklyPlanVerdicts(tp, recomputed.plan)
     const withActuals = await attachActualWeekWorkouts(withVerdicts)
     setWeeklyPlan(withActuals)
@@ -491,6 +500,18 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   useEffect(() => {
     if (user) initialLoad()
   }, [user])
+
+  useEffect(() => {
+    if (!user?.id) return
+    Promise.all([
+      getPausedWorkoutFromSupabase(user.id).catch(() => null),
+      getActiveWorkoutSession(user.id).catch(() => null),
+    ]).then(([paused, session]) => {
+      setPausedWorkout2(paused || null)
+      const isRecent = session && (Date.now() - new Date(session.workout_start_time).getTime() < 7200000)
+      setActiveSession(isRecent ? session : null)
+    })
+  }, [user?.id])
 
   useEffect(() => {
     if (!weeklyPlan?.days?.length) return
@@ -508,7 +529,6 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     if (!llmValidation || !workout || !user) return
 
     if (llmValidation.pattern_observations?.length) {
-      const supabase = requireSupabase()
       const rows = llmValidation.pattern_observations.map(obs => ({
         user_id: user.id,
         feedback_type: 'pattern_observation' as const,
@@ -518,8 +538,8 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         verified_by_user: false,
         workout_date: getLocalDate(),
       }))
-      supabase.from('model_feedback').insert(rows)
-        .then(({ error }) => { if (error) logError('Failed to store pattern observations', error) })
+      db.from('model_feedback').insert(rows)
+        .then(({ error }: { error: any }) => { if (error) logError('Failed to store pattern observations', error) })
     }
 
     saveLlmValidationArtifact(user.id, workout.id || null, llmValidation, {
@@ -535,7 +555,9 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     if (!user) return
     setViewState('loading')
     try {
+      const t0 = performance.now()
       const caps = await probeSchemaCapabilities().catch(() => null)
+      console.log(`[PERF] probeSchemaCapabilities: ${(performance.now()-t0).toFixed(0)}ms`)
       const gate = evaluateSchemaGate(caps)
       if (!gate.ok) {
         setErrorMsg(gate.message || 'Database schema is incompatible with this feature path.')
@@ -543,13 +565,15 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         return
       }
 
-      const supabase = requireSupabase()
+      const supabase = db as any
+      const t1 = performance.now()
       // Use select('*') to avoid errors when specific columns don't exist in the schema
       const { data: prefsData, error: prefsError } = await supabase
         .from('user_preferences')
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle()
+      console.log(`[PERF] fetchPrefs: ${(performance.now()-t1).toFixed(0)}ms`)
 
       // Only update prefsSet if we actually got a result; don't flip to false on query errors
       if (prefsData && !prefsError) {
@@ -559,29 +583,37 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       }
       if (prefsData?.session_duration_minutes != null) {
         const loaded = Number(prefsData.session_duration_minutes)
-        setDefaultDuration(Number.isFinite(loaded) && loaded > 0 ? loaded : 120)
+        setDefaultDuration(Number.isFinite(loaded) && loaded > 0 ? loaded : 65)
       }
 
       const loadedRestDays: number[] = Array.isArray(prefsData?.rest_days) ? prefsData.rest_days : []
       setRestDays(loadedRestDays)
+      setPreferredSplit(prefsData?.preferred_split ?? null)
+      setSplitSchedule(prefsData?.weekly_split_schedule ?? null)
+      setMesocycleWeek(prefsData?.mesocycle_week ?? null)
 
       // Finish-by is now an explicit per-generation override in this screen.
       // Do not auto-apply persisted weekday deadlines silently.
       setFinishByTime('')
 
+      const t2 = performance.now()
       const tp = await computeTrainingProfile(user.id)
+      console.log(`[PERF] computeTrainingProfile: ${(performance.now()-t2).toFixed(0)}ms`)
       setCachedProfile(tp)
       setProfile(tp)
 
       const today = getLocalDate()
+      console.log(`[PERF] today=${today}`)
+      const t3 = performance.now()
       const existingWorkout = await fetchWorkoutForDate(today)
+      console.log(`[PERF] fetchWorkoutForDate: ${(performance.now()-t3).toFixed(0)}ms, found=${!!existingWorkout}`)
 
       const todayDone = !!(existingWorkout && !forceGenerateRef.current)
-      const hydratePromise = hydrateWeeklyPlan(tp, loadedRestDays)
+      const hydratePromise = hydrateWeeklyPlan(tp, loadedRestDays, prefsData?.preferred_split ?? null, prefsData?.weekly_split_schedule ?? null)
       const quickFallbackTimer = setTimeout(async () => {
         if (weeklyPlanRef.current?.days?.length) return
         try {
-          const quickPlan = await generateWeeklyPlan(tp, loadedRestDays)
+          const quickPlan = await generateWeeklyPlan(tp, loadedRestDays, prefsData?.preferred_split ?? null, prefsData?.weekly_split_schedule ?? null)
           const quickMerged = await attachActualWeekWorkouts(quickPlan)
           if (!weeklyPlanRef.current?.days?.length) {
             setWeeklyPlan(quickMerged)
@@ -609,6 +641,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       }
 
       if (todayDone) {
+        console.log(`[PERF] Today is done, showing completed state`)
         setCompletedWorkout(existingWorkout)
         setViewState('completed')
         return
@@ -616,11 +649,15 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       forceGenerateRef.current = false
 
       if (tp.trainingAgeDays < 3) {
+        console.log(`[PERF] trainingAgeDays=${tp.trainingAgeDays}, showing empty state`)
         setViewState('empty')
         return
       }
 
+      const t4 = performance.now()
+      console.log(`[PERF] Starting generateWorkout...`)
       const w = await generateWorkout(tp)
+      console.log(`[PERF] generateWorkout: ${(performance.now()-t4).toFixed(0)}ms, exercises=${w?.exercises?.length}`)
       setWorkout(w)
       setOriginalWorkout(w)
       setAdjustedWorkoutCandidate(null)
@@ -657,19 +694,17 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const regenerate = async (duration: number | null, finishBy: string) => {
     if (regeneratingRef.current) return
     regeneratingRef.current = true
+    regenerationSeedRef.current = Date.now()
     setRegenerating(true)
 
     try {
       const activeProfile = await refreshTrainingProfile()
       if (!activeProfile) return
-      const o: SessionOverrides = {}
+      const o: SessionOverrides = { regenerationSeed: regenerationSeedRef.current }
       if (duration != null) o.durationMinutes = duration
       if (finishBy) o.finishByTime = finishBy
 
-      const w = await generateWorkout(
-        activeProfile,
-        Object.keys(o).length > 0 ? o : undefined
-      )
+      const w = await generateWorkout(activeProfile, o)
       setWorkout(w)
       setOriginalWorkout(w)
       setAdjustedWorkoutCandidate(null)
@@ -736,12 +771,12 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           if (n) avoid.add(n)
         }
 
-        const o: SessionOverrides = {}
+        const o: SessionOverrides = { regenerationSeed: Date.now() + attempt }
         if (durationOverride != null) o.durationMinutes = durationOverride
         if (finishByTime) o.finishByTime = finishByTime
         if (avoid.size > 0) o.avoidExerciseNames = [...avoid]
 
-        candidate = await generateWorkout(activeProfile, Object.keys(o).length > 0 ? o : undefined)
+        candidate = await generateWorkout(activeProfile, o)
         validation = await fetchWorkoutValidation(activeProfile, candidate)
 
         if (validation.immediate_corrections?.length) {
@@ -782,6 +817,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       const overrides: SessionOverrides = {
         planningDate: selected.planDate,
         durationMinutes: duration,
+        regenerationSeed: Date.now(),
       }
       if (selected.planDate === today && finishByTime) {
         overrides.finishByTime = finishByTime
@@ -837,6 +873,37 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       }
       setWeeklyDiffsByDate(prev => ({ ...prev, [selected.planDate]: diff }))
 
+      if (user.id && prevWorkout?.exercises?.length && nextWorkout?.exercises?.length) {
+        const afterLc = new Set(
+          nextWorkout.exercises.map(e => String(e.exerciseName || '').toLowerCase())
+        )
+        const logTasks: Promise<{ ok: boolean }>[] = []
+        for (const ex of prevWorkout.exercises) {
+          const name = String(ex.exerciseName || '').trim()
+          const lc = name.toLowerCase()
+          if (!name || afterLc.has(lc)) continue
+          const mg = ex.targetMuscleGroup
+          const replacement = mg
+            ? nextWorkout.exercises.find(
+                e =>
+                  e.targetMuscleGroup === mg &&
+                  String(e.exerciseName || '').toLowerCase() !== lc
+              )
+            : nextWorkout.exercises.find(e => String(e.exerciseName || '').toLowerCase() !== lc)
+          logTasks.push(
+            logExerciseSwapToSupabase({
+              userId: user.id,
+              exerciseName: name,
+              replacementExerciseName: replacement?.exerciseName ?? null,
+              context: 'week_regen',
+            })
+          )
+        }
+        if (logTasks.length > 0) {
+          await Promise.all(logTasks).catch(err => logError('Week regen swap logging', err))
+        }
+      }
+
       await saveWeeklyPlanToSupabase(user.id, updatedPlan, [diff]).catch(() => null)
       showToast(`${selected.dayName} regenerated`, 'success')
     } catch (err) {
@@ -862,7 +929,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     }
 
     try {
-      const supabase = requireSupabase()
+      const supabase = db as any
       await supabase
         .from('user_preferences')
         .update({ rest_days: next.length > 0 ? next : null })
@@ -876,30 +943,38 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   // #28: Swap exercise — regenerate with the current exercise excluded
   const handleSwapExercise = async (exerciseName: string) => {
     if (!workout) return
+    const oldEx = workout.exercises.find(
+      e => e.exerciseName.toLowerCase() === exerciseName.toLowerCase()
+    )
     const newExcluded = new Set(excludedExercises)
     newExcluded.add(exerciseName.toLowerCase())
     setExcludedExercises(newExcluded)
-
-    // Persist swap for ML swap learning
-    if (user?.id) {
-      try {
-        const supabase = requireSupabase()
-        await supabase.from('exercise_swaps').insert({
-          user_id: user.id,
-          exercise_name: exerciseName.toLowerCase(),
-        })
-      } catch (err) { logError('Failed to save exercise swap', err) }
-    }
 
     setRegenerating(true)
     try {
       const activeProfile = await refreshTrainingProfile()
       if (!activeProfile) throw new Error('Training profile unavailable')
-      const o: SessionOverrides = {}
+      const o: SessionOverrides = { regenerationSeed: Date.now() }
       if (durationOverride != null) o.durationMinutes = durationOverride
       if (finishByTime) o.finishByTime = finishByTime
       o.avoidExerciseNames = [...newExcluded]
-      const w = await generateWorkout(activeProfile, Object.keys(o).length > 0 ? o : undefined)
+      const w = await generateWorkout(activeProfile, o)
+      const group = oldEx?.targetMuscleGroup
+      const replacement = group
+        ? w.exercises.find(
+            e =>
+              e.targetMuscleGroup === group &&
+              e.exerciseName.toLowerCase() !== exerciseName.toLowerCase()
+          )
+        : w.exercises.find(e => e.exerciseName.toLowerCase() !== exerciseName.toLowerCase())
+      if (user?.id) {
+        await logExerciseSwapToSupabase({
+          userId: user.id,
+          exerciseName,
+          replacementExerciseName: replacement?.exerciseName ?? null,
+          context: 'today_regen',
+        })
+      }
       setWorkout(w)
       setOriginalWorkout(w)
       setAdjustedWorkoutCandidate(null)
@@ -935,6 +1010,32 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       setReviewError(err?.message || 'Failed to get workout review')
     } finally {
       setReviewLoading(false)
+    }
+  }
+
+  const handleResumeExistingWorkout = () => {
+    if (activeSession) {
+      navigate('/workout/active', { state: { mode: 'picker', sessionType: 'workout' } })
+    } else if (pausedWorkout) {
+      navigate('/workout/active', { state: { mode: 'picker', sessionType: 'workout', resumePaused: true } })
+    }
+  }
+
+  const handleDismissExistingWorkout = async () => {
+    if (!user?.id) return
+    try {
+      if (pausedWorkout) {
+        await deletePausedWorkoutFromSupabase(user.id)
+        setPausedWorkout2(null)
+      }
+      if (activeSession) {
+        await deleteActiveWorkoutSession(user.id)
+        setActiveSession(null)
+      }
+      showToast('Workout dismissed', 'info')
+    } catch (e) {
+      logError('Failed to dismiss workout', e)
+      showToast('Failed to dismiss', 'error')
     }
   }
 
@@ -1127,6 +1228,11 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       <div className={styles.weekPreview}>
         <div className={styles.weekHeaderRow}>
           <h3 className={styles.weekPreviewTitle}>Week At A Glance</h3>
+          {mesocycleWeek != null && (
+            <span className={styles.mesocycleBadge}>
+              Week {mesocycleWeek} · {mesocycleWeek === 1 ? 'Accumulation' : mesocycleWeek === 2 ? 'Loading' : mesocycleWeek === 3 ? 'Overreach' : 'Deload'}
+            </span>
+          )}
           <span className={styles.weekHint}>Tap a day card</span>
         </div>
         {weeklyPlan.planQuality && (
@@ -1534,6 +1640,11 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           {workout.deloadActive && (
             <div className={styles.deloadBanner}>
               DELOAD WEEK — Volume reduced to 50%, maintaining intensity
+            </div>
+          )}
+          {workout.fatLossDoseExplanation && (
+            <div className={styles.fatLossDoseBanner} role="status">
+              {workout.fatLossDoseExplanation}
             </div>
           )}
           <div className={styles.muscleGroups}>
@@ -2242,6 +2353,34 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           })()}
         </div>
           </>
+        )}
+
+        {(pausedWorkout || activeSession) && (
+          <div className={styles.activeWorkoutBanner} onClick={handleResumeExistingWorkout}>
+            <div className={styles.activeWorkoutLeft}>
+              <span className={styles.activeWorkoutIcon}>{activeSession ? '\u{1F3CB}' : '\u23F8'}</span>
+              <div className={styles.activeWorkoutText}>
+                <span className={styles.activeWorkoutTitle}>
+                  {activeSession ? 'Workout In Progress' : 'Paused Workout'}
+                </span>
+                <span className={styles.activeWorkoutSub}>
+                  {activeSession
+                    ? `Started ${Math.floor((Date.now() - new Date(activeSession.workout_start_time).getTime()) / 60000)} min ago`
+                    : `${(pausedWorkout.exercises as any[])?.length || 0} exercises \u2022 ${Math.floor((pausedWorkout.workout_time || 0) / 60)} min`
+                  }
+                </span>
+              </div>
+            </div>
+            <div className={styles.activeWorkoutActions}>
+              <span className={styles.activeWorkoutResume}>Resume</span>
+              <button
+                className={styles.activeWorkoutDismiss}
+                onClick={(e) => { e.stopPropagation(); handleDismissExistingWorkout() }}
+              >
+                &times;
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Actions */}

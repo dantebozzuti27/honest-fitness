@@ -1,4 +1,5 @@
-import { supabase as supabaseClient, requireSupabase, supabaseConfigErrorMessage } from './supabase'
+import { db } from './dbClient'
+import { getIdToken } from './cognitoAuth'
 import { getTodayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug } from '../utils/logger'
@@ -9,8 +10,7 @@ import { trackEvent } from '../utils/analytics'
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
 
-// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
-const supabase: any = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
+const supabase: any = db as any
 
 /**
  * Wearables OAuth and Data Sync
@@ -20,8 +20,7 @@ const supabase: any = supabaseClient ?? new Proxy({}, { get: () => { throw new E
 // ============ CONNECTED ACCOUNTS ============
 
 export async function saveConnectedAccount(userId: string, provider: string, tokens: any) {
-  const client = requireSupabase()
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('connected_accounts')
     .upsert({
       user_id: userId,
@@ -41,8 +40,7 @@ export async function saveConnectedAccount(userId: string, provider: string, tok
 }
 
 export async function getConnectedAccount(userId: string, provider: string) {
-  const client = requireSupabase()
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('connected_accounts')
     .select('*')
     .eq('user_id', userId)
@@ -54,8 +52,7 @@ export async function getConnectedAccount(userId: string, provider: string) {
 }
 
 export async function getAllConnectedAccounts(userId: string) {
-  const client = requireSupabase()
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('connected_accounts')
     .select('*')
     .eq('user_id', userId)
@@ -65,8 +62,7 @@ export async function getAllConnectedAccounts(userId: string) {
 }
 
 export async function disconnectAccount(userId: string, provider: string) {
-  const client = requireSupabase()
-  const { error } = await client
+  const { error } = await supabase
     .from('connected_accounts')
     .delete()
     .eq('user_id', userId)
@@ -167,13 +163,14 @@ export async function saveFitbitDaily(userId: string, date: string, data: any) {
 }
 
 export async function getFitbitDaily(userId: string, date: string) {
-  // Get from health_metrics (primary source)
+  // health_metrics has a unique constraint on (user_id, date) — one row per date
+  // regardless of source_provider. Filtering on 'fitbit' misses rows where
+  // manual data was written first and source_provider stayed 'manual'.
   const { data, error } = await supabase
     .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
-    .eq('source_provider', 'fitbit')
     .maybeSingle()
   
   if (error) {
@@ -200,12 +197,11 @@ export async function getFitbitDaily(userId: string, date: string) {
  * Get most recent Fitbit data
  */
 export async function getMostRecentFitbitData(userId: string) {
-  // Get from health_metrics (primary source)
   const { data, error } = await supabase
     .from('health_metrics')
     .select('*')
     .eq('user_id', userId)
-    .eq('source_provider', 'fitbit')
+    .not('steps', 'is', null)
     .order('date', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -245,7 +241,7 @@ async function refreshFitbitToken(userId: string, account: any) {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession())?.data?.session?.access_token || ''}`
+          'Authorization': `Bearer ${await getIdToken()}`
         },
         body: JSON.stringify({})
       })
@@ -289,9 +285,7 @@ export async function syncFitbitData(userId: string, date: string | null = null)
   }
 
   try {
-    // Get auth token
-    const { data: { session } } = await supabase.auth.getSession()
-    const authToken = session?.access_token || ''
+    const authToken = await getIdToken()
     
     // Use serverless function to sync Fitbit data
     const response = await fetch(apiUrl('/api/fitbit/sync'), {
@@ -497,14 +491,21 @@ export async function fetchAndSaveWorkoutFitbitMetrics(
     const startTime = `${pad2(startDt.getHours())}:${pad2(startDt.getMinutes())}`
     const endTime = `${pad2(endDt.getHours())}:${pad2(endDt.getMinutes())}`
 
-    const { data: { session } } = await supabase.auth.getSession()
-    const authToken = session?.access_token || ''
+    const authToken = await getIdToken()
 
-    const response = await fetch(apiUrl('/api/fitbit/sync'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-      body: JSON.stringify({ action: 'workout-metrics', date, startTime, endTime })
-    })
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15_000)
+    let response: Response
+    try {
+      response = await fetch(apiUrl('/api/fitbit/sync'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify({ action: 'workout-metrics', date, startTime, endTime }),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timer)
+    }
 
     if (!response.ok) {
       logError('Workout Fitbit metrics fetch failed', { status: response.status })

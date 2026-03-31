@@ -1,21 +1,28 @@
-/**
- * Fitbit Token Refresh Handler
- * Refreshes expired Fitbit access tokens
- */
+import { extractUser } from '../../../api/_shared/auth.js'
+import { query } from '../../../api/_shared/db.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' })
   }
 
-  const { userId, refreshToken } = req.body
-
-  if (!userId || !refreshToken) {
-    return res.status(400).json({ message: 'Missing userId or refreshToken' })
-  }
-
   try {
-    // Refresh the token
+    const user = await extractUser(req)
+    if (!user) {
+      return res.status(401).json({ success: false, error: { message: 'Missing or invalid authorization', status: 401 } })
+    }
+    const userId = user.id
+
+    const { rows } = await query(
+      'SELECT refresh_token FROM connected_accounts WHERE user_id = $1 AND provider = $2',
+      [userId, 'fitbit']
+    )
+    const account = rows[0]
+
+    if (!account?.refresh_token) {
+      return res.status(400).json({ success: false, error: { message: 'No refresh token available. Please reconnect your Fitbit account.', status: 400 } })
+    }
+
     const tokenResponse = await fetch('https://api.fitbit.com/oauth2/token', {
       method: 'POST',
       headers: {
@@ -26,47 +33,31 @@ export default async function handler(req, res) {
       },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
-        refresh_token: refreshToken
+        refresh_token: account.refresh_token
       })
     })
 
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.json().catch(() => ({}))
-      return res.status(401).json({ 
-        message: 'Failed to refresh token',
-        error: errorData 
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Failed to refresh token', status: 401 },
+        details: process.env.NODE_ENV === 'development' ? errorData : undefined
       })
     }
 
     const tokenData = await tokenResponse.json()
 
-    // Update tokens in Supabase
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabase = createClient(
-      process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
-      process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
-    )
-
     const expiresAt = new Date()
     expiresAt.setSeconds(expiresAt.getSeconds() + (tokenData.expires_in || 28800))
 
-    const { error: dbError } = await supabase
-      .from('connected_accounts')
-      .update({
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token,
-        expires_at: expiresAt.toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', userId)
-      .eq('provider', 'fitbit')
-
-    if (dbError) {
-      return res.status(500).json({ 
-        message: 'Failed to update tokens',
-        error: dbError 
-      })
-    }
+    await query(
+      `UPDATE connected_accounts
+       SET access_token = $1, refresh_token = $2, expires_at = $3, updated_at = $4
+       WHERE user_id = $5 AND provider = $6`,
+      [tokenData.access_token, tokenData.refresh_token, expiresAt.toISOString(),
+       new Date().toISOString(), userId, 'fitbit']
+    )
 
     return res.status(200).json({
       access_token: tokenData.access_token,
@@ -76,10 +67,9 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Token refresh error:', error)
-    return res.status(500).json({ 
+    return res.status(500).json({
       message: 'Internal server error',
-      error: error.message 
+      error: error.message
     })
   }
 }
-

@@ -15,7 +15,7 @@ import '@xyflow/react/dist/style.css'
 import { useAuth } from '../context/AuthContext'
 import BackButton from '../components/BackButton'
 import Button from '../components/Button'
-import { requireSupabase } from '../lib/supabase'
+import { db } from '../lib/dbClient'
 import { ROUTES } from '../utils/appRoutes'
 import styles from './OntologyDashboard.module.css'
 
@@ -319,7 +319,7 @@ const EntityNode = memo(({ data, selected }: NodeProps & { data: OntologyNodeDat
 const nodeTypes = { ontology: EntityNode }
 
 async function countRowsForUser(userId: string, table: string): Promise<number> {
-  const supabase = requireSupabase()
+  const supabase = db as any
   const { count, error } = await supabase
     .from(table)
     .select('*', { count: 'exact', head: true })

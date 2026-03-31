@@ -7,6 +7,10 @@ import { requestId } from '../backend/src/middleware/requestId.js'
 
 const app = express()
 
+// Vercel sits behind a reverse proxy — required for express-rate-limit
+// to correctly read client IPs from X-Forwarded-For.
+app.set('trust proxy', 1)
+
 // Request ID (observability)
 app.use(requestId)
 
@@ -29,21 +33,22 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, Capacitor)
     if (!origin) return callback(null, true)
-    // Allow same-project Vercel preview deployments
-    if (origin.endsWith('.vercel.app') && origin.includes('honest-fitness')) return callback(null, true)
+    // Allow same-project Vercel preview deployments (exact project slug match)
+    if (/^https:\/\/honest-fitness[a-z0-9-]*\.vercel\.app$/.test(origin)) return callback(null, true)
     if (allowedOrigins.includes(origin)) return callback(null, true)
     callback(new Error('Not allowed by CORS'))
   },
   credentials: true
 }))
 
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
+app.use(express.json({ limit: '5mb' }))
+app.use(express.urlencoded({ extended: true, limit: '5mb' }))
 
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
+
 
 // Apply rate limiting
 app.use('/api', apiLimiter)

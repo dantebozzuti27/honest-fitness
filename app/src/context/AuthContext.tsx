@@ -1,127 +1,136 @@
 import type { ReactNode } from 'react'
-import { createContext, useContext, useState, useEffect } from 'react'
-import type { AuthResponse, AuthTokenResponsePassword, User } from '@supabase/supabase-js'
-import { supabase, supabaseConfigErrorMessage } from '../lib/supabase'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import {
+  cognitoConfigOk,
+  getCurrentSession,
+  signIn as cognitoSignIn,
+  signUp as cognitoSignUp,
+  signOut as cognitoSignOut,
+  confirmSignUp as cognitoConfirm,
+  getIdToken,
+  type AppUser,
+} from '../lib/cognitoAuth'
+import { apiUrl } from '../lib/urlConfig'
 import { logWarn } from '../utils/logger'
 import { trackEvent } from '../utils/analytics'
 
 export type AuthContextValue = {
-  user: User | null
+  user: AppUser | null
   loading: boolean
-  signUp: (email: string, password: string, username: string, phoneNumber?: string | null) => Promise<AuthResponse['data']>
-  signIn: (email: string, password: string) => Promise<AuthTokenResponsePassword['data']>
+  signUp: (email: string, password: string, username: string, phoneNumber?: string | null) => Promise<any>
+  signIn: (email: string, password: string) => Promise<any>
   signOut: () => Promise<void>
+  confirmSignUp: (email: string, code: string) => Promise<void>
+  needsConfirmation: boolean
+  pendingEmail: string | null
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+async function resolveUser(cognitoUser: AppUser): Promise<AppUser> {
+  try {
+    const token = await getIdToken()
+    if (!token) return cognitoUser
+
+    const res = await fetch(apiUrl('/api/auth/me'), {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) {
+      const resolved = await res.json()
+      if (resolved?.id) return { id: resolved.id, email: resolved.email || cognitoUser.email }
+    }
+  } catch {
+    // fall back to cognito user if backend unreachable
+  }
+  return cognitoUser
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState<boolean>(true)
+  const [user, setUser] = useState<AppUser | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [needsConfirmation, setNeedsConfirmation] = useState(false)
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
 
-    // If Supabase isn't configured, proceed without auth (the app shell can still render).
-    if (!supabase) {
-      logWarn('AuthContext: Supabase not configured; auth disabled', { message: supabaseConfigErrorMessage })
+    if (!cognitoConfigOk) {
+      logWarn('AuthContext: Cognito not configured; auth disabled')
       setUser(null)
       setLoading(false)
-      return () => {
-        mounted = false
-      }
+      return () => { mounted = false }
     }
-    
-    // Set a timeout to stop loading even if Supabase fails
+
     const timeoutId = setTimeout(() => {
       if (mounted) {
         logWarn('AuthContext: Loading timeout, proceeding without auth')
         setLoading(false)
       }
-    }, 5000) // 5 second timeout
-    
-    // Get initial session with error handling
-    supabase.auth.getSession()
-      .then(({ data: { session }, error }) => {
-        if (!mounted) return
-        if (error) {
-          logWarn('AuthContext: Session error (non-critical)', { message: error?.message, code: error?.code })
-        }
-        setUser(session?.user ?? null)
-        setLoading(false)
-        clearTimeout(timeoutId)
-      })
-      .catch((error: unknown) => {
-        if (!mounted) return
-        const message = error instanceof Error ? error.message : String(error)
-        const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : undefined
-        logWarn('AuthContext: Session fetch failed (non-critical)', { message, code })
-        setUser(null)
-        setLoading(false)
-        clearTimeout(timeoutId)
-      })
+    }, 8000)
 
-    // Listen for auth changes
-    let subscription = null
-    try {
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    getCurrentSession()
+      .then(async (result) => {
+        if (!mounted) return
+        if (result) {
+          const resolved = await resolveUser(result.user)
+          if (mounted) setUser(resolved)
+        }
         if (mounted) {
-          setUser(session?.user ?? null)
           setLoading(false)
+          clearTimeout(timeoutId)
         }
       })
-      subscription = data?.subscription
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
-      const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : undefined
-      logWarn('AuthContext: Failed to set up auth listener (non-critical)', { message, code })
-    }
+      .catch(() => {
+        if (mounted) {
+          setUser(null)
+          setLoading(false)
+          clearTimeout(timeoutId)
+        }
+      })
 
     return () => {
       mounted = false
       clearTimeout(timeoutId)
-      if (subscription) {
-        subscription.unsubscribe()
-      }
     }
   }, [])
 
-  const signUp: AuthContextValue['signUp'] = async (email, password, username, phoneNumber) => {
-    if (!supabase) throw new Error(supabaseConfigErrorMessage)
-    // Sign up user
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-    })
-    if (error) throw error
-    trackEvent('auth_sign_up', { userId: data.user?.id })
-    return data
-  }
+  const handleSignUp = useCallback(async (email: string, password: string, username: string) => {
+    const appUser = await cognitoSignUp(email, password)
+    trackEvent('auth_sign_up', { userId: appUser.id })
+    setNeedsConfirmation(true)
+    setPendingEmail(email)
+    return { user: appUser }
+  }, [])
 
-  const signIn: AuthContextValue['signIn'] = async (email, password) => {
-    if (!supabase) throw new Error(supabaseConfigErrorMessage)
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-    if (error) throw error
-    trackEvent('auth_sign_in', { userId: data.user?.id })
-    return data
-  }
+  const handleConfirmSignUp = useCallback(async (email: string, code: string) => {
+    await cognitoConfirm(email, code)
+    setNeedsConfirmation(false)
+    setPendingEmail(null)
+  }, [])
 
-  const signOut: AuthContextValue['signOut'] = async () => {
-    if (!supabase) throw new Error(supabaseConfigErrorMessage)
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
+  const handleSignIn = useCallback(async (email: string, password: string) => {
+    const appUser = await cognitoSignIn(email, password)
+    const resolved = await resolveUser(appUser)
+    setUser(resolved)
+    trackEvent('auth_sign_in', { userId: resolved.id })
+    return { user: resolved, session: {} }
+  }, [])
+
+  const handleSignOut = useCallback(async () => {
+    await cognitoSignOut()
+    setUser(null)
     trackEvent('auth_sign_out')
-  }
+  }, [])
 
   const value: AuthContextValue = {
     user,
     loading,
-    signUp,
-    signIn,
-    signOut,
+    signUp: handleSignUp,
+    signIn: handleSignIn,
+    signOut: handleSignOut,
+    confirmSignUp: handleConfirmSignUp,
+    needsConfirmation,
+    pendingEmail,
   }
 
   return (

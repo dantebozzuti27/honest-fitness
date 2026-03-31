@@ -30,6 +30,7 @@ import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
 import Sheet from '../components/ui/Sheet'
 import IconButton from '../components/ui/IconButton'
 import { uuidv4 } from '../utils/uuid'
+import { logExerciseSwapToSupabase } from '../lib/swapLogging'
 import styles from './ActiveWorkout.module.css'
 
 function normalizeActiveWorkoutEntry(location: any) {
@@ -183,6 +184,7 @@ export default function ActiveWorkout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key])
   const [isSaving, setIsSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
   const [calculatedWorkoutMetrics, setCalculatedWorkoutMetrics] = useState<{ calories: number | null; steps: number | null }>({ calories: null, steps: null }) // Calculated workout metrics for display
   const pauseStartTime = useRef<number | null>(null)
   const pausedTimeRef = useRef(0) // Ref to track paused time for timer calculations
@@ -207,6 +209,8 @@ export default function ActiveWorkout() {
   const pausedMetricsRef = useRef<any[]>([]) // Track metrics during paused periods: [{pauseTime, resumeTime, metricsAtPause, metricsAtResume}]
   const didQuickAddRef = useRef(false)
   const generatedWorkoutIdRef = useRef<string | null>(null)
+  /** Pair remove-then-add within a short window to log active_replace swaps. */
+  const lastRemovedForActiveSwapRef = useRef<{ name: string; at: number } | null>(null)
   const generatedWorkoutNameRef = useRef<string | null>(null)
   const generatedWorkoutNamePersistKey = userId ? `generatedWorkoutName_${userId}` : null
 
@@ -1732,8 +1736,8 @@ export default function ActiveWorkout() {
       
       if (fitbitData) {
         return {
-          calories: fitbitData.calories_burned || fitbitData.calories || null,
-          steps: fitbitData.steps || null
+          calories: fitbitData.calories_burned ?? fitbitData.calories ?? null,
+          steps: fitbitData.steps ?? null
         }
       }
     } catch (error) {
@@ -1926,6 +1930,21 @@ export default function ActiveWorkout() {
     }
     setExercises(prev => [...prev.map(e => ({ ...e, expanded: false })), newExercise])
     setShowPicker(false)
+
+    const removed = lastRemovedForActiveSwapRef.current
+    if (removed && userId && exercise?.name && Date.now() - removed.at < 3 * 60_000) {
+      const newName = String(exercise.name).trim()
+      if (newName && newName.toLowerCase() !== removed.name.toLowerCase()) {
+        void logExerciseSwapToSupabase({
+          userId,
+          exerciseName: removed.name,
+          replacementExerciseName: newName,
+          context: 'active_replace',
+          workoutSessionId: generatedWorkoutIdRef.current,
+        })
+      }
+    }
+    lastRemovedForActiveSwapRef.current = null
   }
 
   const quickAddRecovery = (name: string) => {
@@ -1934,7 +1953,13 @@ export default function ActiveWorkout() {
   }
 
   const removeExercise = (id: any) => {
-    setExercises(prev => prev.filter(ex => ex.id !== id))
+    setExercises(prev => {
+      const ex = prev.find(e => e.id === id)
+      if (ex?.name && userId) {
+        lastRemovedForActiveSwapRef.current = { name: String(ex.name), at: Date.now() }
+      }
+      return prev.filter(e => e.id !== id)
+    })
   }
 
   const moveExercise = (id: any, direction: any) => {
@@ -2375,27 +2400,25 @@ export default function ActiveWorkout() {
         showToast(sessionType === 'recovery' ? 'Recovery session saved locally!' : 'Workout saved locally!', 'success')
       }
       
-      // Sync Fitbit and fetch intraday workout metrics (HR, calories, steps)
-      // Await this so the data is saved before the user navigates away
+      // Fire-and-forget Fitbit sync — never block the save flow
       if (userId) {
         triggerFitbitSync(userId)
         if (workout.workoutStartTime && workout.workoutEndTime) {
-          try {
-            const intradayMetrics = await fetchAndSaveWorkoutFitbitMetrics(
-              workout.id, userId, workout.workoutStartTime, workout.workoutEndTime
-            )
-            // Update displayed metrics with server-side intraday data (more accurate than client diff)
-            if (intradayMetrics) {
-              if (intradayMetrics.totalCalories != null || intradayMetrics.avgHr != null) {
-                setCalculatedWorkoutMetrics(prev => ({
-                  calories: intradayMetrics.totalCalories ?? prev.calories,
-                  steps: intradayMetrics.totalSteps ?? prev.steps,
-                }))
-              }
+          fetchAndSaveWorkoutFitbitMetrics(
+            workout.id, userId, workout.workoutStartTime, workout.workoutEndTime
+          ).then(intradayMetrics => {
+            if (intradayMetrics?.totalCalories != null || intradayMetrics?.avgHr != null) {
+              setCalculatedWorkoutMetrics(prev => ({
+                calories: intradayMetrics.totalCalories ?? prev.calories,
+                steps: intradayMetrics.totalSteps ?? prev.steps,
+              }))
             }
-          } catch { /* non-fatal — client-side metrics are already saved */ }
+          }).catch(() => { /* non-fatal */ })
         }
       }
+
+      setSaveSuccess(true)
+      await new Promise(resolve => setTimeout(resolve, 1500))
 
       setShowSummary(false)
       setShowControlsSheet(false)
@@ -3261,12 +3284,20 @@ export default function ActiveWorkout() {
             </div>
 
             <div className={styles.finishActions}>
-              <Button variant="primary" fullWidth onClick={() => finishWorkout()}>
-                Save
-              </Button>
-              <Button variant="tertiary" fullWidth onClick={() => finishWorkout({ navigateTo: '/workout' })}>
-                Back to workouts
-              </Button>
+              {saveSuccess ? (
+                <div style={{ textAlign: 'center', padding: '1rem', fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-success, #22c55e)' }}>
+                  ✓ Workout saved!
+                </div>
+              ) : (
+                <>
+                  <Button variant="primary" fullWidth onClick={() => finishWorkout()} disabled={isSaving}>
+                    {isSaving ? 'Saving...' : 'Save'}
+                  </Button>
+                  <Button variant="tertiary" fullWidth onClick={() => finishWorkout({ navigateTo: '/workout' })} disabled={isSaving}>
+                    Back to workouts
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -2,7 +2,7 @@
  * Fitbit OAuth Helper Functions
  */
 
-import { requireSupabase } from './supabase'
+import { getIdToken } from './cognitoAuth'
 import { logDebug } from '../utils/logger'
 import { apiUrl, getPublicSiteUrl } from './urlConfig'
 
@@ -29,10 +29,7 @@ export function connectFitbit(userId: string) {
   // SECURITY: generate signed OAuth state server-side (prevents CSRF / token write to wrong user).
   // `userId` param is kept for backward compatibility but not trusted.
   ;(async () => {
-    const supabase = requireSupabase()
-    const { data: { session }, error } = await supabase.auth.getSession()
-    if (error) throw error
-    const accessToken = session?.access_token
+    const accessToken = await getIdToken()
     if (!accessToken) throw new Error('Authentication required')
 
     const resp = await fetch(apiUrl('/api/fitbit/start'), {

@@ -4,7 +4,7 @@
  */
 
 import { getConnectedAccount, saveConnectedAccount, getAllConnectedAccounts, syncFitbitData } from './wearables'
-import { requireSupabase } from './supabase'
+import { getIdToken } from './cognitoAuth'
 import { logError, logDebug } from '../utils/logger'
 import { apiUrl } from './urlConfig'
 
@@ -43,7 +43,6 @@ function writeTs(key: string, ts: number): void {
  */
 export async function checkAndRefreshFitbitToken(userId: string) {
   try {
-    const supabase = requireSupabase()
     const account = await getConnectedAccount(userId, 'fitbit')
     
     if (!account) {
@@ -60,7 +59,7 @@ export async function checkAndRefreshFitbitToken(userId: string) {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${(await supabase.auth.getSession())?.data?.session?.access_token || ''}`
+            'Authorization': `Bearer ${await getIdToken()}`
           },
           body: JSON.stringify({})
         })
@@ -111,7 +110,6 @@ export async function checkAndRefreshFitbitToken(userId: string) {
  */
 export async function refreshTokenIfNeeded(userId: string, provider: string, account: any) {
   if (!account) return null
-  const supabase = requireSupabase()
   
   const expiresAt = account.expires_at ? new Date(account.expires_at) : null
   const now = new Date()
@@ -128,7 +126,7 @@ export async function refreshTokenIfNeeded(userId: string, provider: string, acc
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession())?.data?.session?.access_token || ''}`
+          'Authorization': `Bearer ${await getIdToken()}`
         },
         body: JSON.stringify({})
       })

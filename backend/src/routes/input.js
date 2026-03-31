@@ -8,25 +8,11 @@ import { normalizeData } from '../layers/abstraction/index.js'
 import { processDataPipeline } from '../pipelines/index.js'
 import { fetchFitbitData } from '../integrations/fitbit.js'
 import { getFromDatabase } from '../database/index.js'
-import { createClient } from '@supabase/supabase-js'
+import { query } from '../database/pg.js'
 import { syncLimiter } from '../middleware/rateLimiter.js'
 import { sendError } from '../utils/http.js'
 
 export const inputRouter = express.Router()
-
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-// SECURITY: Server-side DB operations require the service role key.
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error('Missing Supabase credentials:', {
-    hasUrl: !!supabaseUrl,
-    hasKey: !!supabaseKey,
-    envKeys: Object.keys(process.env).filter(k => k.includes('SUPABASE'))
-  })
-}
-
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null
 
 // Submit workout data
 inputRouter.post('/workout', async (req, res, next) => {
@@ -95,9 +81,6 @@ inputRouter.post('/model-outcome-events', async (req, res, next) => {
     const userId = req.userId
     const events = Array.isArray(req.body?.events) ? req.body.events : []
 
-    if (!supabase) {
-      return sendError(res, { status: 500, message: 'Database connection error' })
-    }
     if (events.length === 0) {
       return res.json({ success: true, inserted: 0 })
     }
@@ -138,22 +121,13 @@ inputRouter.post('/model-outcome-events', async (req, res, next) => {
       return res.json({ success: true, inserted: 0 })
     }
 
-    let { error } = await supabase
-      .from('workout_outcomes')
-      .upsert(rows, { onConflict: 'user_id,idempotency_key', ignoreDuplicates: true })
-
-    // Backward compatibility if idempotency_key column is not migrated yet.
-    const emsg = `${error?.message || ''}`.toLowerCase()
-    if (error && (error.code === '42703' || emsg.includes('column') || emsg.includes('constraint') || emsg.includes('on conflict'))) {
-      const stripped = rows.map(({ idempotency_key, ...rest }) => rest)
-      const retry = await supabase
-        .from('workout_outcomes')
-        .insert(stripped)
-      error = retry.error
-    }
-
-    if (error) {
-      throw new Error(`Failed to insert model outcome events: ${error.message}`)
+    for (const row of rows) {
+      await query(
+        `INSERT INTO workout_outcomes (user_id, generated_workout_id, workout_date, session_outcome_score, outcome_notes, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+        [row.user_id, row.generated_workout_id, row.workout_date, row.session_outcome_score, row.outcome_notes, row.idempotency_key]
+      )
     }
 
     return res.json({ success: true, inserted: rows.length })
@@ -176,26 +150,13 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
       return sendError(res, { status: 400, message: 'Invalid date format (expected YYYY-MM-DD)' })
     }
     
-    // Validate Supabase connection
-    if (!supabase) {
-      return sendError(res, { status: 500, message: 'Database connection error' })
-    }
-    
     // Get Fitbit access token
-    const { data: account, error: accountError } = await supabase
-      .from('connected_accounts')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('provider', 'fitbit')
-      .single()
-    
-    if (accountError) {
-      if (accountError.code === 'PGRST116') {
-        return sendError(res, { status: 404, message: 'Fitbit account not connected' })
-      }
-      throw new Error(`Database error: ${accountError.message}`)
-    }
-    
+    const accountResult = await query(
+      'SELECT * FROM connected_accounts WHERE user_id = $1 AND provider = $2 LIMIT 1',
+      [userId, 'fitbit']
+    )
+    const account = accountResult.rows[0] || null
+
     if (!account) {
       return sendError(res, { status: 404, message: 'Fitbit account not connected' })
     }
@@ -243,20 +204,11 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
         const newExpiresAt = new Date()
         newExpiresAt.setSeconds(newExpiresAt.getSeconds() + (tokenData.expires_in || 28800))
         
-        const { error: updateError } = await supabase
-          .from('connected_accounts')
-          .update({
-            access_token: tokenData.access_token,
-            refresh_token: tokenData.refresh_token,
-            expires_at: newExpiresAt.toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', userId)
-          .eq('provider', 'fitbit')
-        
-        if (updateError) {
-          throw new Error(`Failed to update tokens: ${updateError.message}`)
-        }
+        await query(
+          `UPDATE connected_accounts SET access_token = $1, refresh_token = $2, token_expires_at = $3, updated_at = $4
+           WHERE user_id = $5 AND provider = $6`,
+          [tokenData.access_token, tokenData.refresh_token, newExpiresAt.toISOString(), new Date().toISOString(), userId, 'fitbit']
+        )
       } catch (refreshError) {
         // If refresh fails, throw error instead of continuing with expired token
         throw new Error(refreshError.message || 'Token refresh failed. Please reconnect your Fitbit account.')
@@ -397,35 +349,41 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     }
     
     // Save to fitbit_daily table
-    const { error: fitbitDailyError } = await supabase
-      .from('fitbit_daily')
-      .upsert({
-        user_id: userId,
-        date: date,
-        ...fitbitData,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id,date' })
-    
-    if (fitbitDailyError) {
-      throw new Error(`Failed to save Fitbit data: ${fitbitDailyError.message}`)
+    const fitbitCols = ['user_id', 'date', 'updated_at']
+    const fitbitVals = [userId, date, new Date().toISOString()]
+    for (const [k, v] of Object.entries(fitbitData)) {
+      if (v != null) { fitbitCols.push(k); fitbitVals.push(v) }
     }
-    
-    // Also merge into daily_metrics
-    const { error: metricsError } = await supabase
-      .from('daily_metrics')
-      .upsert({
-        user_id: userId,
-        date: date,
-        steps: fitbitData.steps != null ? Math.round(Number(fitbitData.steps)) : null, // INTEGER - must be whole number
-        calories: (fitbitData.calories || fitbitData.active_calories) != null ? Number(fitbitData.calories || fitbitData.active_calories) : null,
-        hrv: fitbitData.hrv != null ? Number(fitbitData.hrv) : null,
-        sleep_time: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
-        sleep_score: fitbitData.sleep_efficiency != null ? Math.round(Number(fitbitData.sleep_efficiency)) : null
-      }, { onConflict: 'user_id,date' })
-    
-    if (metricsError) {
-      // Log but don't fail - metrics update is secondary
-      console.error('Failed to update daily_metrics:', metricsError)
+    const fitbitPlaceholders = fitbitCols.map((_, i) => `$${i + 1}`).join(', ')
+    const fitbitUpdateSet = fitbitCols.filter(c => c !== 'user_id' && c !== 'date').map(c => `"${c}" = EXCLUDED."${c}"`).join(', ')
+    await query(
+      `INSERT INTO fitbit_daily (${fitbitCols.map(c => `"${c}"`).join(', ')}) VALUES (${fitbitPlaceholders})
+       ON CONFLICT (user_id, date) DO UPDATE SET ${fitbitUpdateSet}`,
+      fitbitVals
+    )
+
+    // Also merge into health_metrics
+    try {
+      await query(
+        `INSERT INTO health_metrics (user_id, date, steps, calories_burned, hrv, sleep_duration, sleep_score, source_provider)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'fitbit')
+         ON CONFLICT (user_id, date) DO UPDATE SET
+           steps = COALESCE(EXCLUDED.steps, health_metrics.steps),
+           calories_burned = COALESCE(EXCLUDED.calories_burned, health_metrics.calories_burned),
+           hrv = COALESCE(EXCLUDED.hrv, health_metrics.hrv),
+           sleep_duration = COALESCE(EXCLUDED.sleep_duration, health_metrics.sleep_duration),
+           sleep_score = COALESCE(EXCLUDED.sleep_score, health_metrics.sleep_score)`,
+        [
+          userId, date,
+          fitbitData.steps != null ? Math.round(Number(fitbitData.steps)) : null,
+          (fitbitData.calories || fitbitData.active_calories) != null ? Number(fitbitData.calories || fitbitData.active_calories) : null,
+          fitbitData.hrv != null ? Number(fitbitData.hrv) : null,
+          fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
+          fitbitData.sleep_efficiency != null ? Math.round(Number(fitbitData.sleep_efficiency)) : null
+        ]
+      )
+    } catch (metricsErr) {
+      console.error('Failed to update health_metrics:', metricsErr.message)
     }
     
     res.json({

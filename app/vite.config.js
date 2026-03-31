@@ -9,7 +9,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          supabase: ['@supabase/supabase-js'],
+          cognito: ['amazon-cognito-identity-js'],
           idb: ['idb'],
         }
       }

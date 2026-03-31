@@ -1,3 +1,6 @@
+import { extractUser } from '../_shared/auth.js'
+import { query } from '../_shared/db.js'
+
 /**
  * Fitbit Data Sync Handler
  * Handles two actions:
@@ -21,56 +24,26 @@ export default async function handler(req, res) {
     return res.status(400).json({ success: false, error: { message: 'Missing date', status: 400 } })
   }
 
+  let userId = null
+
   try {
-    // Auth required; derive userId from JWT (never trust body userId)
-    const authHeader = req.headers?.authorization || req.headers?.Authorization
-    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
+    const user = await extractUser(req)
+    if (!user) {
+      return res.status(401).json({ success: false, error: { message: 'Missing or invalid authorization', status: 401 } })
     }
-    const token = authHeader.slice('Bearer '.length).trim()
-    if (!token) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
-    }
-    
+    userId = user.id
+
     // Validate date format
     if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ success: false, error: { message: 'Invalid date format (expected YYYY-MM-DD)', status: 400 } })
     }
-    
-    // Get Fitbit account from Supabase
-    // SECURITY: Only use service role key (no fallback to anon key)
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing Supabase credentials:', {
-        hasUrl: !!supabaseUrl,
-        hasKey: !!supabaseKey
-      })
-      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
-    }
-    
-    const supabase = createClient(supabaseUrl, supabaseKey)
-
-    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
-    if (userErr || !user?.id) {
-      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
-    }
-    const userId = user.id
 
     // Get connected account
-    const { data: account, error: accountError } = await supabase
-      .from('connected_accounts')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('provider', 'fitbit')
-      .maybeSingle()
-
-    if (accountError) {
-      console.error('Error fetching Fitbit account:', accountError)
-      return res.status(500).json({ success: false, error: { message: 'Database error', status: 500 }, details: accountError.message })
-    }
+    const { rows: accountRows } = await query(
+      'SELECT * FROM connected_accounts WHERE user_id = $1 AND provider = $2',
+      [userId, 'fitbit']
+    )
+    const account = accountRows[0]
 
     if (!account) {
       return res.status(404).json({ success: false, error: { message: 'Fitbit account not connected', status: 404 } })
@@ -125,18 +98,15 @@ export default async function handler(req, res) {
           const newExpiresAt = new Date()
           newExpiresAt.setSeconds(newExpiresAt.getSeconds() + (tokenData.expires_in || 28800))
           
-          const { error: updateError } = await supabase
-            .from('connected_accounts')
-            .update({
-              access_token: tokenData.access_token,
-              refresh_token: tokenData.refresh_token,
-              expires_at: newExpiresAt.toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('user_id', userId)
-            .eq('provider', 'fitbit')
-          
-          if (updateError) {
+          try {
+            await query(
+              `UPDATE connected_accounts
+               SET access_token = $1, refresh_token = $2, expires_at = $3, updated_at = $4
+               WHERE user_id = $5 AND provider = $6`,
+              [tokenData.access_token, tokenData.refresh_token, newExpiresAt.toISOString(),
+               new Date().toISOString(), userId, 'fitbit']
+            )
+          } catch (updateError) {
             console.error('Error updating refreshed token:', updateError)
           }
         } else {
@@ -333,7 +303,7 @@ export default async function handler(req, res) {
       resting_heart_rate: fitbitData.resting_heart_rate != null ? Number(fitbitData.resting_heart_rate) : null,
       sleep_duration: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
       sleep_efficiency: fitbitData.sleep_efficiency != null ? Number(fitbitData.sleep_efficiency) : null,
-      steps: toInteger(fitbitData.steps), // INTEGER - must be whole number, handle string conversion
+      steps: toInteger(fitbitData.steps),
       calories: fitbitData.calories != null ? Number(fitbitData.calories) : null,
       active_calories: fitbitData.active_calories != null ? Number(fitbitData.active_calories) : null,
       distance: fitbitData.distance != null ? Number(fitbitData.distance) : null,
@@ -344,79 +314,102 @@ export default async function handler(req, res) {
     let existingManualWeight = null
     let existingSourceProvider = null
     try {
-      const { data: existingRow } = await supabase
-        .from('health_metrics')
-        .select('weight, source_provider')
-        .eq('user_id', userId)
-        .eq('date', date)
-        .maybeSingle()
+      const { rows } = await query(
+        'SELECT weight, source_provider FROM health_metrics WHERE user_id = $1 AND date = $2',
+        [userId, date]
+      )
+      const existingRow = rows[0]
       if (existingRow?.weight != null && existingRow.source_provider === 'manual') {
         existingManualWeight = existingRow.weight
       }
       existingSourceProvider = existingRow?.source_provider ?? null
     } catch (_) {}
 
-    const healthMetricsData = {
-      user_id: userId,
-      date: date,
-      resting_heart_rate: fitbitData.resting_heart_rate != null ? Number(fitbitData.resting_heart_rate) : null,
-      hrv: fitbitData.hrv != null ? Number(fitbitData.hrv) : null,
-      body_temp: fitbitData.body_temp != null ? Number(fitbitData.body_temp) : null,
-      sleep_duration: fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
-      calories_burned: fitbitData.calories != null ? Number(fitbitData.calories) : null,
-      steps: toInteger(fitbitData.steps),
-      source_provider: existingSourceProvider === 'manual' ? 'manual' : 'fitbit',
-      source_data: {
-        sleep_efficiency: fitbitData.sleep_efficiency != null ? Number(fitbitData.sleep_efficiency) : null,
-        active_calories: fitbitData.active_calories != null ? Number(fitbitData.active_calories) : null,
-        distance: fitbitData.distance != null ? Number(fitbitData.distance) : null,
-        floors: fitbitData.floors || null,
-        average_heart_rate: fitbitData.average_heart_rate || null,
-        sedentary_minutes: fitbitData.sedentary_minutes || null,
-        lightly_active_minutes: fitbitData.lightly_active_minutes || null,
-        fairly_active_minutes: fitbitData.fairly_active_minutes || null,
-        very_active_minutes: fitbitData.very_active_minutes || null,
-        marginal_calories: fitbitData.marginal_calories || null,
-        weight: fitbitData.weight || null,
-        bmi: fitbitData.bmi || null,
-        fat: fitbitData.fat || null
-      },
-      updated_at: new Date().toISOString()
+    const sourceData = {
+      sleep_efficiency: fitbitData.sleep_efficiency != null ? Number(fitbitData.sleep_efficiency) : null,
+      active_calories: fitbitData.active_calories != null ? Number(fitbitData.active_calories) : null,
+      distance: fitbitData.distance != null ? Number(fitbitData.distance) : null,
+      floors: fitbitData.floors || null,
+      average_heart_rate: fitbitData.average_heart_rate || null,
+      sedentary_minutes: fitbitData.sedentary_minutes || null,
+      lightly_active_minutes: fitbitData.lightly_active_minutes || null,
+      fairly_active_minutes: fitbitData.fairly_active_minutes || null,
+      very_active_minutes: fitbitData.very_active_minutes || null,
+      marginal_calories: fitbitData.marginal_calories || null,
+      weight: fitbitData.weight || null,
+      bmi: fitbitData.bmi || null,
+      fat: fitbitData.fat || null
     }
 
     // Never write Fitbit weight to the primary weight column.
     // Weight must only come from manual user entry (Home page or Profile).
     // Fitbit body weight data is stored in source_data for reference only.
-    if (existingManualWeight != null) {
-      healthMetricsData.weight = existingManualWeight
-    }
-
-    const { error: healthMetricsError } = await supabase
-      .from('health_metrics')
-      .upsert(healthMetricsData, { onConflict: 'user_id,date' })
-
-    if (healthMetricsError) {
+    // COALESCE in the ON CONFLICT clause preserves existing manual weight.
+    try {
+      await query(
+        `INSERT INTO health_metrics
+           (user_id, date, resting_heart_rate, hrv, body_temp, sleep_duration,
+            calories_burned, steps, source_provider, source_data, weight, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
+         ON CONFLICT (user_id, date) DO UPDATE SET
+           resting_heart_rate = EXCLUDED.resting_heart_rate,
+           hrv = EXCLUDED.hrv,
+           body_temp = EXCLUDED.body_temp,
+           sleep_duration = EXCLUDED.sleep_duration,
+           calories_burned = EXCLUDED.calories_burned,
+           steps = EXCLUDED.steps,
+           source_provider = EXCLUDED.source_provider,
+           source_data = EXCLUDED.source_data,
+           weight = COALESCE(EXCLUDED.weight, health_metrics.weight),
+           updated_at = EXCLUDED.updated_at`,
+        [
+          userId, date,
+          fitbitData.resting_heart_rate != null ? Number(fitbitData.resting_heart_rate) : null,
+          fitbitData.hrv != null ? Number(fitbitData.hrv) : null,
+          fitbitData.body_temp != null ? Number(fitbitData.body_temp) : null,
+          fitbitData.sleep_duration != null ? Number(fitbitData.sleep_duration) : null,
+          fitbitData.calories != null ? Number(fitbitData.calories) : null,
+          toInteger(fitbitData.steps),
+          existingSourceProvider === 'manual' ? 'manual' : 'fitbit',
+          JSON.stringify(sourceData),
+          existingManualWeight,
+          new Date().toISOString()
+        ]
+      )
+    } catch (healthMetricsError) {
       console.error('Error saving Fitbit data to health_metrics:', healthMetricsError)
       return res.status(500).json({
         success: false,
         error: { message: 'Failed to save data', status: 500 },
-        details: process.env.NODE_ENV === 'development' ? healthMetricsError : undefined
+        details: process.env.NODE_ENV === 'development' ? healthMetricsError.message : undefined
       })
     }
 
     // Also save to fitbit_daily for backward compatibility (deprecated)
     try {
-      const { error: saveError } = await supabase
-        .from('fitbit_daily')
-        .upsert(saveData, { onConflict: 'user_id,date' })
-
-      if (saveError) {
-        console.error('Error saving to fitbit_daily (deprecated):', saveError)
-        // Don't fail - this is just for backward compatibility
-      }
+      await query(
+        `INSERT INTO fitbit_daily
+           (user_id, date, hrv, resting_heart_rate, sleep_duration, sleep_efficiency,
+            steps, calories, active_calories, distance, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (user_id, date) DO UPDATE SET
+           hrv = EXCLUDED.hrv,
+           resting_heart_rate = EXCLUDED.resting_heart_rate,
+           sleep_duration = EXCLUDED.sleep_duration,
+           sleep_efficiency = EXCLUDED.sleep_efficiency,
+           steps = EXCLUDED.steps,
+           calories = EXCLUDED.calories,
+           active_calories = EXCLUDED.active_calories,
+           distance = EXCLUDED.distance,
+           updated_at = EXCLUDED.updated_at`,
+        [userId, date, saveData.hrv, saveData.resting_heart_rate,
+         saveData.sleep_duration, saveData.sleep_efficiency,
+         saveData.steps, saveData.calories,
+         saveData.active_calories, saveData.distance,
+         saveData.updated_at]
+      )
     } catch (legacyError) {
       console.error('Error saving to fitbit_daily (deprecated):', legacyError)
-      // Don't fail - this is just for backward compatibility
     }
 
     const coreMetrics = ['sleep_duration', 'resting_heart_rate', 'steps', 'hrv']
@@ -479,31 +472,16 @@ async function handleWorkoutMetrics(req, res) {
   }
 
   try {
-    const authHeader = req.headers?.authorization || req.headers?.Authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization' } })
-    }
-    const token = authHeader.slice('Bearer '.length).trim()
-
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ success: false, error: { message: 'Server configuration error' } })
-    }
-    const supabase = createClient(supabaseUrl, supabaseKey)
-
-    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
-    if (userErr || !user?.id) {
-      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token' } })
+    const user = await extractUser(req)
+    if (!user) {
+      return res.status(401).json({ success: false, error: { message: 'Missing or invalid authorization' } })
     }
 
-    const { data: account } = await supabase
-      .from('connected_accounts')
-      .select('access_token, refresh_token, expires_at')
-      .eq('user_id', user.id)
-      .eq('provider', 'fitbit')
-      .maybeSingle()
+    const { rows: accountRows } = await query(
+      'SELECT access_token, refresh_token, expires_at FROM connected_accounts WHERE user_id = $1 AND provider = $2',
+      [user.id, 'fitbit']
+    )
+    const account = accountRows[0]
 
     if (!account?.access_token) {
       return res.status(404).json({ success: false, error: { message: 'Fitbit not connected' } })
@@ -529,9 +507,13 @@ async function handleWorkoutMetrics(req, res) {
             accessToken = td.access_token
             const newExpires = new Date()
             newExpires.setSeconds(newExpires.getSeconds() + (td.expires_in || 28800))
-            await supabase.from('connected_accounts')
-              .update({ access_token: td.access_token, refresh_token: td.refresh_token, expires_at: newExpires.toISOString(), updated_at: new Date().toISOString() })
-              .eq('user_id', user.id).eq('provider', 'fitbit')
+            await query(
+              `UPDATE connected_accounts
+               SET access_token = $1, refresh_token = $2, expires_at = $3, updated_at = $4
+               WHERE user_id = $5 AND provider = $6`,
+              [td.access_token, td.refresh_token, newExpires.toISOString(),
+               new Date().toISOString(), user.id, 'fitbit']
+            )
           }
         } catch (_) { /* proceed with existing token */ }
       }
@@ -606,4 +588,3 @@ async function handleWorkoutMetrics(req, res) {
     return res.status(500).json({ success: false, error: { message: error?.message || 'Failed to fetch workout metrics' } })
   }
 }
-

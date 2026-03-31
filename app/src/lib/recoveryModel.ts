@@ -18,7 +18,7 @@ import {
   VOLUME_GUIDELINES,
   SYNERGIST_FATIGUE,
   MUSCLE_HEAD_TO_GROUP,
-  type VolumeGuideline,
+  getGuidelineForGroup,
 } from './volumeGuidelines';
 
 export interface MuscleRecoveryStatus {
@@ -245,7 +245,9 @@ export function exercisesToMuscleGroupRecords(
     for (const muscle of secondary) {
       const group = MUSCLE_HEAD_TO_GROUP[muscle];
       if (group) {
-        groupSets[group] = (groupSets[group] ?? 0) + ex.sets * 0.5;
+        const guideline = getGuidelineForGroup(group);
+        const credit = guideline?.indirectVolumeCredit ?? 0.5;
+        groupSets[group] = (groupSets[group] ?? 0) + ex.sets * credit;
       }
     }
   }

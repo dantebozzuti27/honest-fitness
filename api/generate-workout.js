@@ -12,10 +12,8 @@
  * Headers: Authorization: Bearer <supabase_access_token>
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { extractUser } from './_shared/auth.js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const SYSTEM_PROMPT = `You are an evidence-based exercise science expert acting as a workout reviewer.
@@ -29,14 +27,17 @@ Evidence base you operate from:
 - Krieger (2010) single vs multiple sets meta-analysis
 - Damas et al. (2019) on training-induced muscle damage and hypertrophy
 
+The product uses an expanded muscle taxonomy (e.g. upper, mid, and lower chest; upper, mid, and lower traps; rotator cuff; hip flexors) rather than single buckets like "chest" or "traps"—use that framing when judging coverage and balance.
+
 Your review should check:
 1. Exercise ordering: compounds before isolations, no counterproductive pairings
 2. Injury safety: ensure no exercise conflicts with reported injuries
 3. Volume sanity: no single muscle group getting >10 direct sets in one session
-4. Movement pattern coverage: if targeting chest, ensure both sternal and clavicular portions
+4. Movement pattern coverage: if targeting chest, ensure upper, mid, and lower chest are adequately covered across the session
 5. Exercise variety: suggest swaps if the same exercise appears too frequently
 6. Rest time appropriateness for the rep range and exercise type
 7. Tempo prescription matches the training goal
+8. Mesocycle phase awareness: if a mesocycle phase is provided (accumulation/loading/overreach/deload), ensure the workout aligns with phase goals
 
 Respond with ONLY valid JSON matching this schema:
 {
@@ -62,22 +63,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Auth: extract Supabase JWT from Authorization header
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization token' });
-  }
-  const token = authHeader.slice(7);
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    return res.status(500).json({ error: 'Server misconfigured: missing Supabase credentials' });
-  }
-
-  // Verify the JWT
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-  if (authError || !user) {
+  const user = await extractUser(req);
+  if (!user) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
@@ -111,6 +98,8 @@ export default async function handler(req, res) {
         plateauDetections: profile.plateauDetections?.filter(p => p.isPlateaued),
         imbalanceAlerts: profile.imbalanceAlerts,
         sleepCoefficients: profile.sleepCoefficients,
+        mesocyclePhase: profile.mesocyclePhase,
+        experienceLevel: profile.experienceLevel,
       },
       preferences: {
         injuries: preferences?.injuries ?? [],

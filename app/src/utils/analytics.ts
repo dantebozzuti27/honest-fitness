@@ -1,13 +1,12 @@
+import { getIdToken } from '../lib/cognitoAuth'
+
 const STORAGE_KEY = 'hf_analytics_events'
 const isDev = import.meta.env.DEV
 let isFlushingModelOutcomes = false
 
 async function getAccessToken(): Promise<string | null> {
   try {
-    const mod = await import('../lib/supabase')
-    const client = mod.requireSupabase()
-    const { data } = await client.auth.getSession()
-    return data?.session?.access_token ?? null
+    return await getIdToken() || null
   } catch {
     return null
   }

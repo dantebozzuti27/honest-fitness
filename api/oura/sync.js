@@ -1,7 +1,5 @@
-/**
- * Oura Data Sync Handler
- * Proxies Oura API calls to avoid CORS issues
- */
+import { extractUser } from '../_shared/auth.js'
+import { query } from '../_shared/db.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -14,52 +12,26 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Auth required; derive userId from JWT (never trust body userId)
-    const authHeader = req.headers?.authorization || req.headers?.Authorization
-    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
-    }
-    const token = authHeader.slice('Bearer '.length).trim()
-    if (!token) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
-    }
-    
-    // Validate date format
-    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ success: false, error: { message: 'Invalid date format (expected YYYY-MM-DD)', status: 400 } })
-    }
-    
-    // Get Oura account from Supabase
-    // SECURITY: Only use service role key (no fallback to anon key)
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing Supabase credentials')
-      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
-    }
-    
-    const supabase = createClient(supabaseUrl, supabaseKey)
-    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
-    if (userErr || !user?.id) {
+    const user = extractUser(req)
+    if (!user) {
       return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
     const userId = user.id
 
-    // Get connected account
-    const { data: account, error: accountError } = await supabase
-      .from('connected_accounts')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('provider', 'oura')
-      .single()
-    
-    if (accountError || !account) {
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ success: false, error: { message: 'Invalid date format (expected YYYY-MM-DD)', status: 400 } })
+    }
+
+    const { rows: accountRows } = await query(
+      `SELECT * FROM connected_accounts WHERE user_id = $1 AND provider = $2`,
+      [userId, 'oura']
+    )
+    const account = accountRows[0] || null
+
+    if (!account) {
       return res.status(404).json({
         success: false,
-        error: { message: 'Oura account not connected', status: 404 },
-        details: process.env.NODE_ENV === 'development' ? (accountError?.message || 'Account not found') : undefined
+        error: { message: 'Oura account not connected', status: 404 }
       })
     }
 
@@ -69,14 +41,12 @@ export default async function handler(req, res) {
     let accessToken = account.access_token
 
     if (!expiresAt || expiresAt <= new Date(now.getTime() + 10 * 60 * 1000)) {
-      // Token expired or expiring soon, try to refresh
       if (account.refresh_token) {
         try {
-          // Call refresh endpoint directly
           const basicAuth = Buffer.from(
             `${process.env.OURA_CLIENT_ID}:${process.env.OURA_CLIENT_SECRET}`
           ).toString('base64')
-          
+
           const refreshResponse = await fetch('https://api.ouraring.com/oauth/token', {
             method: 'POST',
             headers: {
@@ -92,22 +62,23 @@ export default async function handler(req, res) {
           if (refreshResponse.ok) {
             const tokenData = await refreshResponse.json()
             accessToken = tokenData.access_token
-            
-            // Calculate new expiration
+
             const newExpiresAt = new Date()
             newExpiresAt.setSeconds(newExpiresAt.getSeconds() + (tokenData.expires_in || 86400))
-            
-            // Update account with new tokens
-            await supabase
-              .from('connected_accounts')
-              .update({
-                access_token: tokenData.access_token,
-                refresh_token: tokenData.refresh_token || account.refresh_token,
-                expires_at: newExpiresAt.toISOString(),
-                updated_at: new Date().toISOString()
-              })
-              .eq('user_id', userId)
-              .eq('provider', 'oura')
+
+            await query(
+              `UPDATE connected_accounts
+               SET access_token = $1, refresh_token = $2, expires_at = $3, updated_at = $4
+               WHERE user_id = $5 AND provider = $6`,
+              [
+                tokenData.access_token,
+                tokenData.refresh_token || account.refresh_token,
+                newExpiresAt.toISOString(),
+                new Date().toISOString(),
+                userId,
+                'oura'
+              ]
+            )
           }
         } catch (refreshError) {
           console.error('Token refresh failed, using existing token:', refreshError)
@@ -157,15 +128,12 @@ export default async function handler(req, res) {
       sleepData = await sleepResponse.json()
     }
 
-    // Also fetch detailed sleep data (has actual durations)
-    // Note: The detailed sleep endpoint returns individual sleep sessions, not daily summaries
-    // It might return empty if there are no sleep sessions for that date
-    // Try querying a 3-day range to catch sleep sessions that might span dates
+    // Fetch detailed sleep data (has actual durations)
     const sleepStartDate = new Date(date)
-    sleepStartDate.setDate(sleepStartDate.getDate() - 1) // Start 1 day before
+    sleepStartDate.setDate(sleepStartDate.getDate() - 1)
     const sleepEndDate = new Date(date)
-    sleepEndDate.setDate(sleepEndDate.getDate() + 1) // End 1 day after
-    
+    sleepEndDate.setDate(sleepEndDate.getDate() + 1)
+
     const sleepDetailedResponse = await fetch(
       `https://api.ouraring.com/v2/usercollection/sleep?start_date=${sleepStartDate.toISOString().split('T')[0]}&end_date=${sleepEndDate.toISOString().split('T')[0]}`,
       {
@@ -178,17 +146,14 @@ export default async function handler(req, res) {
     let sleepDetailedData = null
     if (sleepDetailedResponse.ok) {
       sleepDetailedData = await sleepDetailedResponse.json()
-    } else {
-      // Ignore detailed sleep errors (optional endpoint)
     }
 
     // Fetch daily activity data
-    // Try a date range in case activity data is available for nearby dates
     const activityStartDate = new Date(date)
     activityStartDate.setDate(activityStartDate.getDate() - 1)
     const activityEndDate = new Date(date)
     activityEndDate.setDate(activityEndDate.getDate() + 1)
-    
+
     const activityResponse = await fetch(
       `https://api.ouraring.com/v2/usercollection/daily_activity?start_date=${activityStartDate.toISOString().split('T')[0]}&end_date=${activityEndDate.toISOString().split('T')[0]}`,
       {
@@ -201,65 +166,51 @@ export default async function handler(req, res) {
     let activityData = null
     if (activityResponse.ok) {
       activityData = await activityResponse.json()
-    } else {
-      // Activity data might not be available for all dates or might require different scopes
     }
 
     // Parse and combine Oura data
-    // Match exact dates - don't use fallback to avoid date mismatches
     const dailyReadiness = readinessData.data?.find(r => r.day === date) || null
     const dailySleep = sleepData?.data?.find(s => s.day === date) || null
-    
-    // Find sleep session that matches our target date
-    // Sleep sessions might span multiple days, so find the one that includes our date
-    // A sleep session that starts on the previous day and ends on the target date should be counted for the target date
+
     let sleepDetailed = null
     if (sleepDetailedData?.data && sleepDetailedData.data.length > 0) {
-      // Find sleep session that matches the date
-      // Check: 1) session.day matches, 2) bedtime_start is on target date, 3) bedtime_end is on target date
       sleepDetailed = sleepDetailedData.data.find(session => {
-        // First check if session.day matches
         if (session.day === date) {
           return true
         }
-        
-        // Check if bedtime_start is on target date (session might start on target date)
+
         if (session.bedtime_start) {
           const bedtimeStartDate = new Date(session.bedtime_start).toISOString().split('T')[0]
           if (bedtimeStartDate === date) {
             return true
           }
         }
-        
-        // Check if bedtime_end is on target date (session might end on target date)
+
         if (session.bedtime_end) {
           const bedtimeEndDate = new Date(session.bedtime_end).toISOString().split('T')[0]
           if (bedtimeEndDate === date) {
             return true
           }
         }
-        
-        // Check if session spans the target date (starts before and ends after)
+
         if (session.bedtime_start && session.bedtime_end) {
           const startDate = new Date(session.bedtime_start).toISOString().split('T')[0]
           const endDate = new Date(session.bedtime_end).toISOString().split('T')[0]
           const targetDateObj = new Date(date)
           const startDateObj = new Date(startDate)
           const endDateObj = new Date(endDate)
-          
-          // If session starts before or on target date and ends on or after target date
+
           if (startDateObj <= targetDateObj && endDateObj >= targetDateObj) {
             return true
           }
         }
-        
+
         return false
       })
-      
-      // If no exact match, log available sessions for debugging
+
       if (!sleepDetailed && sleepDetailedData.data.length > 0) {
-        console.log('No sleep session found for date:', date, 'Available sessions:', sleepDetailedData.data.map(s => ({ 
-          day: s.day, 
+        console.log('No sleep session found for date:', date, 'Available sessions:', sleepDetailedData.data.map(s => ({
+          day: s.day,
           bedtime_start: s.bedtime_start,
           bedtime_end: s.bedtime_end,
           total_sleep_duration: s.total_sleep_duration
@@ -276,18 +227,16 @@ export default async function handler(req, res) {
         })
       }
     }
-    
-    // Find activity data that matches our target date exactly
+
     let dailyActivity = null
     if (activityData?.data && activityData.data.length > 0) {
       dailyActivity = activityData.data.find(activity => activity.day === date)
-      
-      // If no exact match, don't use fallback - we want the correct date
+
       if (!dailyActivity && activityData.data.length > 0) {
         console.log('No activity data found for date:', date, 'Available dates:', activityData.data.map(a => a.day))
       }
     }
-    
+
     console.log('Parsed data:', {
       targetDate: date,
       dailyReadiness: !!dailyReadiness,
@@ -302,7 +251,6 @@ export default async function handler(req, res) {
       activityDataArray: activityData?.data?.map(a => a.day)
     })
 
-    // Log full response structure for debugging
     console.log('Oura API Full Response:', {
       readinessFull: dailyReadiness,
       sleepFull: dailySleep,
@@ -317,13 +265,11 @@ export default async function handler(req, res) {
       activityFull: dailyActivity,
       activityFullKeys: dailyActivity ? Object.keys(dailyActivity) : null
     })
-    
-    // Check if daily_sleep has duration fields we're missing
+
     if (dailySleep) {
       console.log('Daily sleep all fields:', JSON.stringify(dailySleep, null, 2))
     }
-    
-    // Log detailed sleep structure if available
+
     if (sleepDetailed) {
       console.log('Detailed sleep structure:', JSON.stringify(sleepDetailed, null, 2))
       console.log('Sleep duration calculation check:', {
@@ -333,54 +279,40 @@ export default async function handler(req, res) {
         deep_sleep_duration: sleepDetailed.deep_sleep_duration,
         rem_sleep_duration: sleepDetailed.rem_sleep_duration,
         light_sleep_duration: sleepDetailed.light_sleep_duration,
-        calculatedTotal: sleepDetailed.deep_sleep_duration && sleepDetailed.rem_sleep_duration && sleepDetailed.light_sleep_duration 
+        calculatedTotal: sleepDetailed.deep_sleep_duration && sleepDetailed.rem_sleep_duration && sleepDetailed.light_sleep_duration
           ? (sleepDetailed.deep_sleep_duration + sleepDetailed.rem_sleep_duration + sleepDetailed.light_sleep_duration) / 60
           : null,
-        // Show what the calculation would be
         wouldBeMinutes: sleepDetailed.total_sleep_duration >= 240 ? sleepDetailed.total_sleep_duration : sleepDetailed.total_sleep_duration / 60,
         wouldBeHours: sleepDetailed.total_sleep_duration >= 240 ? (sleepDetailed.total_sleep_duration / 60).toFixed(1) : (sleepDetailed.total_sleep_duration / 3600).toFixed(1)
       })
     }
 
-    // Oura API v2 structure:
-    // - Readiness: score object may be empty, check contributors instead
-    // - Sleep: has 'score', 'contributors', 'day', 'timestamp' - sleep duration is in contributors
-    // - Activity: may not be available for all dates
-
-    // Extract from readiness contributors
     const readinessContributors = dailyReadiness?.contributors || {}
     const sleepContributors = dailySleep?.contributors || {}
-    
+
     console.log('Contributors structure:', {
       readinessContributorsKeys: Object.keys(readinessContributors),
       readinessContributors: readinessContributors,
       sleepContributorsKeys: Object.keys(sleepContributors),
       sleepContributors: sleepContributors
     })
-    
-    // Map Oura data to our health_metrics schema
-    // Oura API v2 uses contributors object with different field names
+
     const ouraData = {
       date: date,
-      // HRV from readiness contributors (may be in different format)
-      hrv: readinessContributors?.hrv_balance || 
+      hrv: readinessContributors?.hrv_balance ||
            readinessContributors?.hrv?.balance ||
-           dailyReadiness?.score?.hrv_balance?.middle || 
+           dailyReadiness?.score?.hrv_balance?.middle ||
            dailyReadiness?.score?.hrv_balance?.average || null,
-      // Resting HR from readiness contributors or score
-      resting_heart_rate: readinessContributors?.resting_heart_rate || 
+      resting_heart_rate: readinessContributors?.resting_heart_rate ||
                           readinessContributors?.heart_rate?.resting ||
-                          dailyReadiness?.score?.resting_heart_rate || 
+                          dailyReadiness?.score?.resting_heart_rate ||
                           dailyActivity?.heart_rate?.resting || null,
-      // Body temp from readiness contributors
-      body_temp: readinessContributors?.body_temperature || 
+      body_temp: readinessContributors?.body_temperature ||
                  readinessContributors?.temperature?.deviation ||
                  dailyReadiness?.score?.body_temperature?.deviation || null,
-      // Sleep score from sleep data (score is a number, not an object)
-      sleep_score: typeof dailySleep?.score === 'number' ? dailySleep.score : 
-                   readinessContributors?.sleep_balance || 
+      sleep_score: typeof dailySleep?.score === 'number' ? dailySleep.score :
+                   readinessContributors?.sleep_balance ||
                    dailyReadiness?.score?.sleep_balance || null,
-      // Sleep duration - Oura API v2: total_sleep_duration and stage durations are in SECONDS
       sleep_duration: (() => {
         if (sleepDetailed?.total_sleep_duration != null) {
           const rawSeconds = sleepDetailed.total_sleep_duration
@@ -404,30 +336,26 @@ export default async function handler(req, res) {
         }
         return null
       })(),
-      // Sleep stages - Oura API v2: durations are in SECONDS
       deep_sleep: sleepDetailed?.deep_sleep_duration != null ? Math.round(sleepDetailed.deep_sleep_duration / 60) : (sleepDetailed?.sleep?.deep?.duration != null ? Math.round(sleepDetailed.sleep.deep.duration / 60) : null),
       rem_sleep: sleepDetailed?.rem_sleep_duration != null ? Math.round(sleepDetailed.rem_sleep_duration / 60) : (sleepDetailed?.sleep?.rem?.duration != null ? Math.round(sleepDetailed.sleep.rem.duration / 60) : null),
       light_sleep: sleepDetailed?.light_sleep_duration != null ? Math.round(sleepDetailed.light_sleep_duration / 60) : (sleepDetailed?.sleep?.light?.duration != null ? Math.round(sleepDetailed.sleep.light.duration / 60) : null),
-      // Calories and steps from activity (may not be available)
       calories_burned: dailyActivity?.total_calories || dailyActivity?.calories?.total || null,
       steps: dailyActivity?.steps || null,
       source_provider: 'oura',
       source_data: {
-        // Store the actual score value (not the object)
-        readiness_score: typeof dailyReadiness?.score === 'number' ? dailyReadiness.score : 
+        readiness_score: typeof dailyReadiness?.score === 'number' ? dailyReadiness.score :
                         dailyReadiness?.score?.score || null,
         activity_score: readinessContributors?.activity_balance || dailyReadiness?.score?.activity_balance || null,
         recovery_index: readinessContributors?.recovery_index || dailyReadiness?.score?.recovery_index || null,
-        sleep_efficiency: sleepContributors?.efficiency != null ? sleepContributors.efficiency : 
+        sleep_efficiency: sleepContributors?.efficiency != null ? sleepContributors.efficiency :
                          dailySleep?.efficiency != null ? dailySleep.efficiency : null,
-        sleep_latency: sleepContributors?.latency != null ? sleepContributors.latency : 
-                      dailySleep?.sleep?.onset_latency != null ? dailySleep.sleep.onset_latency : 
+        sleep_latency: sleepContributors?.latency != null ? sleepContributors.latency :
+                      dailySleep?.sleep?.onset_latency != null ? dailySleep.sleep.onset_latency :
                       dailySleep?.latency != null ? dailySleep.latency : null,
         active_calories: dailyActivity?.calories?.active || null,
         total_calories: dailyActivity?.calories?.total || null,
         average_heart_rate: dailyActivity?.heart_rate?.average || null,
         max_heart_rate: dailyActivity?.heart_rate?.max || null,
-        // Store contributors for debugging
         readiness_contributors: readinessContributors,
         sleep_contributors: sleepContributors
       }
@@ -439,13 +367,11 @@ export default async function handler(req, res) {
       deep_sleep: ouraData.deep_sleep,
       rem_sleep: ouraData.rem_sleep,
       light_sleep: ouraData.light_sleep,
-      totalFromStages: ouraData.deep_sleep && ouraData.rem_sleep && ouraData.light_sleep 
+      totalFromStages: ouraData.deep_sleep && ouraData.rem_sleep && ouraData.light_sleep
         ? (ouraData.deep_sleep + ouraData.rem_sleep + ouraData.light_sleep)
         : null
     })
 
-    // Save to health_metrics
-    // Use != null to preserve 0 values (which are valid)
     const dataToSave = {
       user_id: userId,
       date: date,
@@ -466,13 +392,56 @@ export default async function handler(req, res) {
 
     console.log('Saving to database:', dataToSave)
 
-    const { data: result, error: saveError } = await supabase
-      .from('health_metrics')
-      .upsert(dataToSave, { onConflict: 'user_id,date' })
-      .select()
-      .single()
+    try {
+      const { rows: savedRows } = await query(
+        `INSERT INTO health_metrics (
+           user_id, date, resting_heart_rate, hrv, body_temp,
+           sleep_score, sleep_duration, deep_sleep, rem_sleep, light_sleep,
+           calories_burned, steps, source_provider, source_data, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         ON CONFLICT (user_id, date) DO UPDATE SET
+           resting_heart_rate = $3,
+           hrv = $4,
+           body_temp = $5,
+           sleep_score = $6,
+           sleep_duration = $7,
+           deep_sleep = $8,
+           rem_sleep = $9,
+           light_sleep = $10,
+           calories_burned = $11,
+           steps = $12,
+           source_provider = $13,
+           source_data = $14,
+           updated_at = $15
+         RETURNING *`,
+        [
+          dataToSave.user_id,
+          dataToSave.date,
+          dataToSave.resting_heart_rate,
+          dataToSave.hrv,
+          dataToSave.body_temp,
+          dataToSave.sleep_score,
+          dataToSave.sleep_duration,
+          dataToSave.deep_sleep,
+          dataToSave.rem_sleep,
+          dataToSave.light_sleep,
+          dataToSave.calories_burned,
+          dataToSave.steps,
+          dataToSave.source_provider,
+          JSON.stringify(dataToSave.source_data),
+          dataToSave.updated_at
+        ]
+      )
+      const result = savedRows[0] || null
 
-    if (saveError) {
+      return res.status(200).json({
+        success: true,
+        synced: true,
+        date: date,
+        data: ouraData,
+        saved: result
+      })
+    } catch (saveError) {
       console.error('Error saving Oura data:', saveError)
       return res.status(500).json({
         success: false,
@@ -480,14 +449,6 @@ export default async function handler(req, res) {
         details: process.env.NODE_ENV === 'development' ? saveError.message : undefined
       })
     }
-
-    return res.status(200).json({
-      success: true,
-      synced: true,
-      date: date,
-      data: ouraData,
-      saved: result
-    })
 
   } catch (error) {
     console.error('Oura sync error:', error)
@@ -498,4 +459,3 @@ export default async function handler(req, res) {
     })
   }
 }
-

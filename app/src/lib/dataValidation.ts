@@ -27,7 +27,7 @@ export function validateWorkout(workout: any) {
     if (workout.duration < 0) {
       errors.push('Workout duration cannot be negative')
     }
-    if (workout.duration > 1440) { // 24 hours
+    if (workout.duration > 86400) { // 24 hours in seconds
       errors.push('Workout duration seems incorrect (more than 24 hours)')
     }
   }
@@ -75,9 +75,9 @@ export function validateWorkout(workout: any) {
             }
           }
           
-          // Cross-field validation: at least one of weight, reps, or time must be provided
-          if (!set.weight && !set.reps && !set.time) {
-            errors.push(`Exercise ${index + 1}, Set ${setIndex + 1}: Must have at least weight, reps, or time`)
+          // Cross-field validation: at least one measurable field must be provided
+          if (!set.weight && !set.reps && !set.time && !set.time_seconds && !set.speed && !set.incline && !set.distance) {
+            errors.push(`Exercise ${index + 1}, Set ${setIndex + 1}: Must have at least weight, reps, time, or distance`)
           }
         })
       }

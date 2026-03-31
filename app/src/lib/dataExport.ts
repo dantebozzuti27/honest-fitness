@@ -2,10 +2,10 @@
  * Data Export — JSON (full) and CSV (flat, ML-ready)
  */
 
-import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
+import { db } from './dbClient'
 import { logError } from '../utils/logger'
 
-const supabase = supabaseClient ?? new Proxy({} as any, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
+const supabase: any = db as any
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -71,6 +71,19 @@ async function fetchPreferences(userId: string) {
   })
 }
 
+async function fetchExerciseSwaps(userId: string) {
+  return safeQuery(async () => {
+    const { data, error } = await supabase
+      .from('exercise_swaps')
+      .select('id, exercise_name, replacement_exercise_name, swap_context, workout_session_id, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(500)
+    if (error) throw error
+    return data ?? []
+  })
+}
+
 // ─── public exports ────────────────────────────────────────────────────────
 
 /**
@@ -78,10 +91,11 @@ async function fetchPreferences(userId: string) {
  */
 export async function exportUserDataJSON(userId: string) {
   try {
-    const [workouts, healthMetrics, preferences] = await Promise.all([
+    const [workouts, healthMetrics, preferences, exercise_swaps] = await Promise.all([
       fetchWorkouts(userId),
       fetchHealthMetrics(userId),
       fetchPreferences(userId),
+      fetchExerciseSwaps(userId),
     ])
 
     return {
@@ -91,6 +105,7 @@ export async function exportUserDataJSON(userId: string) {
         workouts,
         health_metrics: healthMetrics,
         preferences,
+        exercise_swaps: exercise_swaps ?? [],
       },
     }
   } catch (error) {
@@ -108,7 +123,6 @@ export async function exportUserDataJSON(userId: string) {
 export async function exportWorkoutsCSV(userId: string) {
   try {
     const workouts = await fetchWorkouts(userId)
-    if (!workouts.length) return 'No workout data available'
 
     const header = [
       'date', 'workout_id', 'template', 'duration_sec', 'perceived_effort',
@@ -155,7 +169,6 @@ export async function exportWorkoutsCSV(userId: string) {
 export async function exportHealthMetricsCSV(userId: string) {
   try {
     const metrics = await fetchHealthMetrics(userId)
-    if (!metrics.length) return 'No health metrics data available'
 
     const header = [
       'date', 'weight_lbs', 'body_fat_pct', 'steps', 'calories_burned',

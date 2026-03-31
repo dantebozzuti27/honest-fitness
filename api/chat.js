@@ -1,30 +1,13 @@
+import { extractUser } from './_shared/auth.js'
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { message: 'Method not allowed', status: 405 } })
   }
 
   try {
-    // -----------------------------
-    // Auth (required)
-    // -----------------------------
-    const authHeader = req.headers?.authorization || req.headers?.Authorization
-    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
-    }
-    const token = authHeader.slice('Bearer '.length).trim()
-    if (!token) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
-    }
-
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
-    }
-    const supabase = createClient(supabaseUrl, supabaseKey)
-    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
-    if (userErr || !user) {
+    const user = await extractUser(req)
+    if (!user) {
       return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
 

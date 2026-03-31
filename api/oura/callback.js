@@ -1,9 +1,5 @@
 import { verifySignedOAuthState } from '../_utils/oauthState.js'
-
-/**
- * Oura OAuth Callback Handler
- * Handles the OAuth redirect from Oura after user authorization
- */
+import { query } from '../_shared/db.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -12,7 +8,6 @@ export default async function handler(req, res) {
 
   const { code, error, state } = req.query
 
-  // Handle error from Oura
   if (error) {
     return res.redirect(`/?oura_error=${encodeURIComponent(error)}`)
   }
@@ -21,7 +16,6 @@ export default async function handler(req, res) {
     return res.redirect(`/?oura_error=${encodeURIComponent('No authorization code received')}`)
   }
 
-  // CSRF protection: signed state required (generated server-side).
   const secret = process.env.OAUTH_STATE_SECRET
   const allowLegacy = process.env.ALLOW_LEGACY_OAUTH_STATE === 'true'
   let userId = null
@@ -37,7 +31,6 @@ export default async function handler(req, res) {
   }
 
   if (!userId) {
-    // Legacy fallback (NOT recommended; allow only if explicitly enabled).
     if (!allowLegacy) {
       return res.redirect(`/?oura_error=${encodeURIComponent('OAuth state not configured. Please contact support.')}`)
     }
@@ -49,20 +42,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Validate required OAuth credentials
     if (!process.env.OURA_CLIENT_ID || !process.env.OURA_CLIENT_SECRET || !process.env.OURA_REDIRECT_URI) {
       console.error('OAuth configuration error: Missing required credentials')
       return res.redirect(`/?oura_error=${encodeURIComponent('Server configuration error - OAuth not properly configured')}`)
     }
 
-    // Exchange authorization code for access token
-    // OAuth 2.0 Authorization Code Flow with PKCE (industry standard)
-    // Oura uses Basic Auth with client_id:client_secret
     const basicAuth = Buffer.from(
       `${process.env.OURA_CLIENT_ID}:${process.env.OURA_CLIENT_SECRET}`
     ).toString('base64')
-    
-    // Use HTTPS endpoint (required for OAuth 2.0 security)
+
     const tokenResponse = await fetch('https://api.ouraring.com/oauth/token', {
       method: 'POST',
       headers: {
@@ -84,47 +72,38 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenResponse.json()
 
-    // Save tokens to Supabase
-    // SECURITY: Only use service role key (no fallback to anon key)
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing Supabase credentials')
-      return res.redirect(`/?oura_error=${encodeURIComponent('Server configuration error')}`)
-    }
-    
-    const supabase = createClient(supabaseUrl, supabaseKey)
-
-    // Calculate token expiration
-    // OAuth 2.0 best practice: Use short-lived access tokens
     const expiresAt = new Date()
-    expiresAt.setSeconds(expiresAt.getSeconds() + (tokenData.expires_in || 86400)) // Default 24 hours
-    
-    // Log successful OAuth connection (for audit/compliance)
+    expiresAt.setSeconds(expiresAt.getSeconds() + (tokenData.expires_in || 86400))
+
     console.log(`OAuth connection successful for user: ${userId} at ${new Date().toISOString()}`)
 
-    const { error: dbError } = await supabase
-      .from('connected_accounts')
-      .upsert({
-        user_id: userId,
-        provider: 'oura',
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token || null,
-        expires_at: expiresAt.toISOString(),
-        token_type: tokenData.token_type || 'Bearer',
-        scope: tokenData.scope || null,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id,provider' })
-
-    if (dbError) {
+    try {
+      await query(
+        `INSERT INTO connected_accounts (user_id, provider, access_token, refresh_token, expires_at, token_type, scope, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (user_id, provider) DO UPDATE SET
+           access_token = $3,
+           refresh_token = $4,
+           expires_at = $5,
+           token_type = $6,
+           scope = $7,
+           updated_at = $8`,
+        [
+          userId,
+          'oura',
+          tokenData.access_token,
+          tokenData.refresh_token || null,
+          expiresAt.toISOString(),
+          tokenData.token_type || 'Bearer',
+          tokenData.scope || null,
+          new Date().toISOString()
+        ]
+      )
+    } catch (dbError) {
       console.error('Database error:', dbError)
-      console.error('Error details:', JSON.stringify(dbError, null, 2))
       return res.redirect(`/?oura_error=${encodeURIComponent(`Failed to save connection: ${dbError.message || 'Database error'}`)}`)
     }
 
-    // Success! Redirect to Wearables page
     return res.redirect(`/wearables?oura_connected=true`)
 
   } catch (error) {
@@ -132,4 +111,3 @@ export default async function handler(req, res) {
     return res.redirect(`/?oura_error=${encodeURIComponent(error.message || 'Unknown error')}`)
   }
 }
-

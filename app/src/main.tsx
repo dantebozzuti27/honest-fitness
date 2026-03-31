@@ -4,7 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import ErrorBoundary from './components/ErrorBoundary'
 import App from './App'
-import { supabaseConfigOk, supabaseConfigErrorMessage } from './lib/supabase'
+import { cognitoConfigOk } from './lib/cognitoAuth'
 import './styles/global.css'
 
 // Perf mark: time from JS entry → first React mount (best-effort)
@@ -72,7 +72,7 @@ if (!rootElement) {
     ReactDOM.createRoot(rootElement).render(
       <React.StrictMode>
         <ErrorBoundary>
-          {supabaseConfigOk ? (
+          {cognitoConfigOk ? (
             <BrowserRouter>
               <AuthProvider>
                 <ErrorBoundary>
@@ -94,12 +94,12 @@ if (!rootElement) {
             }}>
               <h1 style={{ marginBottom: 12, fontSize: 22, color: '#ff453a' }}>App configuration error</h1>
               <p style={{ maxWidth: 720, color: '#a1a1a6', marginBottom: 16 }}>
-                {supabaseConfigErrorMessage}
+                {'Auth is not configured. Set VITE_COGNITO_USER_POOL_ID and VITE_COGNITO_CLIENT_ID.'}
               </p>
               <p style={{ maxWidth: 720, color: '#a1a1a6', fontSize: 13, lineHeight: 1.4 }}>
                 If you’re on Vercel: Project → Settings → Environment Variables → add
                 <br />
-                <code style={{ color: '#fff' }}>VITE_SUPABASE_URL</code> and <code style={{ color: '#fff' }}>VITE_SUPABASE_ANON_KEY</code>, then redeploy.
+                <code style={{ color: '#fff' }}>VITE_COGNITO_USER_POOL_ID</code> and <code style={{ color: '#fff' }}>VITE_COGNITO_CLIENT_ID</code>, then redeploy.
               </p>
             </div>
           )}

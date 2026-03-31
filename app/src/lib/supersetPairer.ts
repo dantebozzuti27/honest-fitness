@@ -30,12 +30,16 @@ export interface SupersetSuggestion {
  * allowing one to recover while the other works.
  */
 const ANTAGONIST_PAIRS: ReadonlyArray<[string, string]> = [
-  ['chest', 'back_lats'],
-  ['chest', 'back_upper'],
+  ['upper_chest', 'back_lats'],
+  ['mid_chest', 'back_lats'],
+  ['lower_chest', 'back_lats'],
+  ['upper_chest', 'back_upper'],
+  ['mid_chest', 'back_upper'],
   ['biceps', 'triceps'],
   ['quadriceps', 'hamstrings'],
   ['anterior_deltoid', 'posterior_deltoid'],
   ['core', 'erector_spinae'],
+  ['upper_traps', 'lower_traps'],
 ];
 
 /**

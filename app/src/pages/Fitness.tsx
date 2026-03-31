@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import type { RealtimeChannel } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
+// Realtime removed (Supabase migration); visibility + event listeners handle refresh
 import { getAllTemplates, saveTemplate, deleteTemplate } from '../db/lazyDb'
 import { getWorkoutsFromSupabase, deleteWorkoutFromSupabase } from '../lib/db/workoutsDb'
 import { getPausedWorkoutFromSupabase, deletePausedWorkoutFromSupabase } from '../lib/db/pausedWorkoutsDb'
@@ -95,7 +94,7 @@ export default function Fitness() {
   const [confirmState, setConfirmState] = useState<ConfirmState>({ open: false, title: '', message: '', action: null, payload: null })
   const [showWorkoutStartModal, setShowWorkoutStartModal] = useState(false)
   const [showTemplateSelection, setShowTemplateSelection] = useState(false)
-  const subscriptionRef = useRef<{ workoutsChannel?: RealtimeChannel } | null>(null)
+  const _unusedRef = useRef(null)
   const hasShownHistoryLoadErrorRef = useRef(false)
   const hasShownInitialLoadErrorRef = useRef(false)
   const [pausedWorkout, setPausedWorkout] = useState<PausedWorkout | null>(null)
@@ -293,18 +292,7 @@ export default function Fitness() {
 
   useEffect(() => {
     if (!user) return
-    const sb = supabase
-    if (!sb) return
-    
-    const workoutsChannel = sb
-      .channel(`fitness_workouts_changes_${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'workouts', filter: `user_id=eq.${user.id}` },
-        () => loadWorkoutHistory()
-      )
-      .subscribe()
 
-    subscriptionRef.current = { workoutsChannel }
-    
     const handleWorkoutSaved = () => setTimeout(() => loadWorkoutHistory(), 500)
     window.addEventListener('workoutSaved', handleWorkoutSaved)
     
@@ -312,14 +300,13 @@ export default function Fitness() {
       if (!document.hidden) { loadWorkoutHistory(); loadTemplates() }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    const pollInterval = setInterval(() => loadWorkoutHistory(), 60_000)
     
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('workoutSaved', handleWorkoutSaved)
-      if (subscriptionRef.current?.workoutsChannel) {
-        sb.removeChannel(subscriptionRef.current.workoutsChannel)
-        subscriptionRef.current = null
-      }
+      clearInterval(pollInterval)
     }
   }, [user, loadWorkoutHistory, loadTemplates])
 
@@ -567,7 +554,19 @@ export default function Fitness() {
                       data={workout}
                       previousData={previousWorkout}
                       index={index}
-                      onDelete={async () => setConfirmState({ open: true, title: 'Delete session?', message: `Delete session from ${workout.date}?`, action: 'delete_workout', payload: { workoutId: workout.id } })}
+                      onDelete={async () => {
+                        if (!window.confirm(`Delete session from ${workout.date}?`)) return
+                        if (!user) return
+                        try {
+                          await deleteWorkoutFromSupabase(workout.id, user.id)
+                          await loadWorkoutHistory()
+                          showToast('Workout deleted', 'success')
+                        } catch (e: any) {
+                          const detail = e?.message || (typeof e === 'string' ? e : JSON.stringify(e))
+                          logError('Delete workout failed', e)
+                          showToast(`Delete failed: ${detail}`, 'error')
+                        }
+                      }}
                     />
                   )
                 })}
@@ -625,9 +624,10 @@ export default function Fitness() {
                 await loadWorkoutHistory()
                 showToast('Workout deleted', 'success')
               }
-            } catch (e) {
+            } catch (e: any) {
+              const detail = e?.message || (typeof e === 'string' ? e : JSON.stringify(e))
               logError('Action failed', e)
-              showToast('Action failed. Please try again.', 'error')
+              showToast(`Action failed: ${detail}`, 'error')
             } finally {
               setConfirmState({ open: false, title: '', message: '', action: null, payload: null })
             }

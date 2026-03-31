@@ -3,11 +3,10 @@
  * Manage exercise library and custom exercises
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
+import { db } from './dbClient'
 import { logError } from '../utils/logger'
 
-const supabase = (supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })) as SupabaseClient
+const supabase: any = db as any
 
 /**
  * Get all system exercises (non-custom)

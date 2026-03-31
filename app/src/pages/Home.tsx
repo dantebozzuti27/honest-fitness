@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { calculateStreakFromSupabase, getRecentWorkoutsFromSupabase } from '../lib/db/workoutsDb'
 import { getMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metricsDb'
+import { getPausedWorkoutFromSupabase, deletePausedWorkoutFromSupabase } from '../lib/db/pausedWorkoutsDb'
+import { getActiveWorkoutSession } from '../lib/db/workoutsSessionDb'
 import { getFitbitDaily, getMostRecentFitbitData, getAllConnectedAccounts } from '../lib/wearables'
 import { getTodayEST, getYesterdayEST, getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
@@ -58,6 +60,8 @@ export default function Home() {
   const [weight, setWeight] = useState('')
   const [savedWeight, setSavedWeight] = useState<string | null>(null)
   const [savingWeight, setSavingWeight] = useState(false)
+  const [pausedWorkout, setPausedWorkout] = useState<any>(null)
+  const [activeSession, setActiveSession] = useState<any>(null)
 
   const loadData = useCallback(async () => {
     if (!user?.id) return
@@ -73,7 +77,7 @@ export default function Home() {
           logError('Failed to load streak', e)
           return 0
         }),
-        getRecentWorkoutsFromSupabase(user.id, 10).catch((e) => {
+        getRecentWorkoutsFromSupabase(user.id, 30).catch((e) => {
           setLoadError(true)
           logError('Failed to load workouts', e)
           return []
@@ -110,6 +114,14 @@ export default function Home() {
       } catch {
         setHasFitbit(false)
       }
+
+      const [paused, session] = await Promise.all([
+        getPausedWorkoutFromSupabase(user.id).catch(() => null),
+        getActiveWorkoutSession(user.id).catch(() => null),
+      ])
+      setPausedWorkout(paused || null)
+      const isRecent = session && (Date.now() - new Date(session.workout_start_time).getTime() < 7200000)
+      setActiveSession(isRecent ? session : null)
     } catch (e) {
       logError('Home load failed', e)
     } finally {
@@ -124,6 +136,33 @@ export default function Home() {
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [loadData])
+
+  const handleResumeWorkout = () => {
+    if (activeSession) {
+      navigate(ROUTES.activeWorkout, { state: { mode: 'picker', sessionType: 'workout' } })
+    } else if (pausedWorkout) {
+      navigate(ROUTES.activeWorkout, { state: { mode: 'picker', sessionType: 'workout', resumePaused: true } })
+    }
+  }
+
+  const handleDismissWorkout = async () => {
+    if (!user?.id) return
+    try {
+      if (pausedWorkout) {
+        await deletePausedWorkoutFromSupabase(user.id)
+        setPausedWorkout(null)
+      }
+      if (activeSession) {
+        const { deleteActiveWorkoutSession } = await import('../lib/db/workoutsSessionDb')
+        await deleteActiveWorkoutSession(user.id)
+        setActiveSession(null)
+      }
+      showToast('Workout dismissed', 'info')
+    } catch (e) {
+      logError('Failed to dismiss workout', e)
+      showToast('Failed to dismiss', 'error')
+    }
+  }
 
   const handleSaveWeight = async () => {
     if (!user?.id || !weight.trim()) return
@@ -252,6 +291,35 @@ export default function Home() {
                 </div>
               )}
             </Button>
+
+            {(pausedWorkout || activeSession) && (
+              <div className={styles.activeWorkoutBanner} onClick={handleResumeWorkout}>
+                <div className={styles.activeWorkoutLeft}>
+                  <span className={styles.activeWorkoutIcon}>{activeSession ? '\u{1F3CB}' : '\u23F8'}</span>
+                  <div className={styles.activeWorkoutText}>
+                    <span className={styles.activeWorkoutTitle}>
+                      {activeSession ? 'Workout In Progress' : 'Paused Workout'}
+                    </span>
+                    <span className={styles.activeWorkoutSub}>
+                      {activeSession
+                        ? `${Math.floor((Date.now() - new Date(activeSession.workout_start_time).getTime()) / 60000)} min ago`
+                        : `${(pausedWorkout.exercises as any[])?.length || 0} exercises \u2022 ${Math.floor((pausedWorkout.workout_time || 0) / 60)} min`
+                      }
+                    </span>
+                  </div>
+                </div>
+                <div className={styles.activeWorkoutActions}>
+                  <span className={styles.activeWorkoutResume}>Resume</span>
+                  <button
+                    className={styles.activeWorkoutDismiss}
+                    onClick={(e) => { e.stopPropagation(); handleDismissWorkout() }}
+                    title="Dismiss"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className={styles.quickGrid}>
               <Button unstyled className={styles.quickCard} onClick={() => navigate(ROUTES.activeWorkout, { state: { mode: 'picker', sessionType: 'workout' } })}>

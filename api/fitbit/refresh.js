@@ -1,7 +1,5 @@
-/**
- * Fitbit Token Refresh Handler
- * Refreshes expired Fitbit access tokens
- */
+import { extractUser } from '../_shared/auth.js'
+import { query } from '../_shared/db.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -9,48 +7,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Auth required; derive userId from JWT (never trust body userId)
-    const authHeader = req.headers?.authorization || req.headers?.Authorization
-    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
-    }
-    const token = authHeader.slice('Bearer '.length).trim()
-    if (!token) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
-    }
-
-    // SECURITY: Only use service role key (no fallback to anon key)
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
-    }
-    
-    const supabase = createClient(supabaseUrl, supabaseKey)
-    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
-    if (userErr || !user?.id) {
-      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
+    const user = await extractUser(req)
+    if (!user) {
+      return res.status(401).json({ success: false, error: { message: 'Missing or invalid authorization', status: 401 } })
     }
     const userId = user.id
 
-    // Load refresh token from DB for this authenticated user
-    const { data: account, error: acctErr } = await supabase
-      .from('connected_accounts')
-      .select('refresh_token')
-      .eq('user_id', userId)
-      .eq('provider', 'fitbit')
-      .maybeSingle()
+    const { rows } = await query(
+      'SELECT refresh_token FROM connected_accounts WHERE user_id = $1 AND provider = $2',
+      [userId, 'fitbit']
+    )
+    const account = rows[0]
 
-    if (acctErr) {
-      return res.status(500).json({ success: false, error: { message: 'Database error', status: 500 }, details: acctErr.message })
-    }
     if (!account?.refresh_token) {
       return res.status(400).json({ success: false, error: { message: 'No refresh token available. Please reconnect your Fitbit account.', status: 400 } })
     }
 
-    // Refresh the token
     const tokenResponse = await fetch('https://api.fitbit.com/oauth2/token', {
       method: 'POST',
       headers: {
@@ -79,24 +51,13 @@ export default async function handler(req, res) {
     const expiresAt = new Date()
     expiresAt.setSeconds(expiresAt.getSeconds() + (tokenData.expires_in || 28800))
 
-    const { error: dbError } = await supabase
-      .from('connected_accounts')
-      .update({
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token,
-        expires_at: expiresAt.toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', userId)
-      .eq('provider', 'fitbit')
-
-    if (dbError) {
-      return res.status(500).json({
-        success: false,
-        error: { message: 'Failed to update tokens', status: 500 },
-        details: process.env.NODE_ENV === 'development' ? dbError : undefined
-      })
-    }
+    await query(
+      `UPDATE connected_accounts
+       SET access_token = $1, refresh_token = $2, expires_at = $3, updated_at = $4
+       WHERE user_id = $5 AND provider = $6`,
+      [tokenData.access_token, tokenData.refresh_token, expiresAt.toISOString(),
+       new Date().toISOString(), userId, 'fitbit']
+    )
 
     return res.status(200).json({
       success: true,
@@ -114,4 +75,3 @@ export default async function handler(req, res) {
     })
   }
 }
-

@@ -4,7 +4,7 @@
  * Used by components to avoid 400s when optional columns are missing.
  */
 
-import { requireSupabase } from './supabase'
+import { db } from './dbClient'
 import { logDebug, logWarn } from '../utils/logger'
 
 export type SchemaCapabilities = {
@@ -54,7 +54,7 @@ function writeCachedCapabilities(next: SchemaCapabilities): void {
 
 async function probeColumn(table: string, column: string): Promise<boolean> {
   try {
-    const supabase = requireSupabase()
+    const supabase = db as any
     const { error } = await supabase
       .from(table)
       .select(column)

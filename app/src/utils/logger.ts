@@ -31,7 +31,14 @@ export function getRecentErrors() {
  */
 export function logError(message: string, error: unknown = null) {
   if (currentLogLevel >= LOG_LEVELS.ERROR) {
-    console.error(`[ERROR] ${message}`, error || '')
+    const detail = error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : error != null
+          ? JSON.stringify(error)
+          : ''
+    console.error(`[ERROR] ${message}`, detail)
   }
   const stack = error instanceof Error ? error.stack : undefined
   reportedErrors.push({ timestamp: new Date().toISOString(), message, stack })

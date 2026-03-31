@@ -56,11 +56,41 @@ export interface AdaptivePolicyContext {
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
 
-function defaultRoleTargets(goal: GoalKind): Record<ExerciseRoleKind, RolePriors> {
-  const primaryStrength: RolePriors = { setRange: [3, 6], repRange: [3, 6], restRangeSec: [120, 240], rirRange: [1, 3] }
-  const primaryHypertrophy: RolePriors = { setRange: [3, 5], repRange: [5, 10], restRangeSec: [90, 180], rirRange: [1, 3] }
-  const secondary: RolePriors = { setRange: [2, 5], repRange: [6, 12], restRangeSec: [75, 150], rirRange: [1, 3] }
-  const isolation: RolePriors = { setRange: [2, 5], repRange: [8, 20], restRangeSec: [45, 120], rirRange: [0, 3] }
+function defaultRoleTargets(
+  goal: GoalKind,
+  experienceLevel: string | null,
+): Record<ExerciseRoleKind, RolePriors> {
+  const exp = String(experienceLevel || 'intermediate').toLowerCase()
+  const advancedLike = exp === 'advanced' || exp === 'elite'
+  // Tighter RIR bands for advanced/elite (late-block / near-failure prescription norms).
+  const primaryRir: [number, number] = advancedLike ? [0, 1] : [1, 3]
+  const secondaryRir: [number, number] = advancedLike ? [0, 2] : [1, 3]
+  const isolationRir: [number, number] = advancedLike ? [0, 1] : [0, 3]
+
+  const primaryStrength: RolePriors = {
+    setRange: [3, 6],
+    repRange: [3, 6],
+    restRangeSec: [120, 240],
+    rirRange: primaryRir,
+  }
+  const primaryHypertrophy: RolePriors = {
+    setRange: [3, 5],
+    repRange: [5, 10],
+    restRangeSec: [90, 180],
+    rirRange: primaryRir,
+  }
+  const secondary: RolePriors = {
+    setRange: [2, 5],
+    repRange: [6, 12],
+    restRangeSec: [75, 150],
+    rirRange: secondaryRir,
+  }
+  const isolation: RolePriors = {
+    setRange: [2, 5],
+    repRange: [8, 20],
+    restRangeSec: [45, 120],
+    rirRange: isolationRir,
+  }
   const corrective: RolePriors = { setRange: [2, 4], repRange: [10, 20], restRangeSec: [30, 90], rirRange: [2, 4] }
   const cardio: RolePriors = { setRange: [1, 2], repRange: [1, 1], restRangeSec: [0, 45], rirRange: [0, 0] }
 
@@ -83,7 +113,7 @@ export function buildScientificPriors(prefs: AdaptiveUserPreferences): Scientifi
 
   return {
     priorsVersion: 'science_priors_v1',
-    roleTargets: defaultRoleTargets(goal),
+    roleTargets: defaultRoleTargets(goal, prefs.experience_level),
     progressionSensitivity,
     fatigueSensitivity,
     adherenceSensitivity,

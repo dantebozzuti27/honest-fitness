@@ -1,45 +1,17 @@
 /**
  * Database Layer
- * Handles all database operations
+ * Handles all database operations via RDS (pg pool)
  */
 
-import { createClient } from '@supabase/supabase-js'
-
-/**
- * IMPORTANT:
- * Do NOT throw at import time if env is missing.
- * - Vercel (and other serverless platforms) may build/bundle without runtime env present.
- * - We validate env lazily when a DB function is actually called.
- */
-let supabase = null
-let didInit = false
-
-function getSupabaseClient() {
-  if (supabase) return supabase
-  if (didInit) return null
-  didInit = true
-
-  const url = process.env.SUPABASE_URL
-  // SECURITY: use service role only for server-side DB operations.
-  // Do not fall back to anon keys in backend runtime.
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) return null
-
-  supabase = createClient(url, key)
-  return supabase
-}
+import { query } from './pg.js'
 
 /**
  * Save data to appropriate database table
  */
 export async function saveToDatabase(type, normalizedData) {
-  const client = getSupabaseClient()
-  if (!client) {
-    throw new Error('Database client not initialized (missing SUPABASE_URL / SUPABASE_*_KEY)')
-  }
   let tableName
   let dataToSave
-  
+
   switch (type) {
     case 'workout':
       tableName = 'workouts'
@@ -48,27 +20,25 @@ export async function saveToDatabase(type, normalizedData) {
         date: normalizedData.date,
         duration: normalizedData.duration,
         perceived_effort: normalizedData.perceived_effort,
-        mood_after: normalizedData.mood_after,
         notes: normalizedData.notes,
         template_name: normalizedData.template_name || null
       }
       break
-      
+
     case 'nutrition':
-      tableName = 'health_metrics' // Store nutrition in health_metrics
+      tableName = 'health_metrics'
       dataToSave = {
         user_id: normalizedData.user_id,
         date: normalizedData.date,
         calories_consumed: normalizedData.calories || 0,
-        meals: normalizedData.meals ? (typeof normalizedData.meals === 'string' ? normalizedData.meals : normalizedData.meals) : null,
-        macros: normalizedData.macros ? (typeof normalizedData.macros === 'string' ? normalizedData.macros : normalizedData.macros) : null,
+        meals: normalizedData.meals ? (typeof normalizedData.meals === 'string' ? normalizedData.meals : JSON.stringify(normalizedData.meals)) : null,
+        macros: normalizedData.macros ? (typeof normalizedData.macros === 'string' ? normalizedData.macros : JSON.stringify(normalizedData.macros)) : null,
         water: normalizedData.water || null,
         source_provider: 'manual'
       }
       break
-      
+
     case 'health':
-      // Store in unified health_metrics table
       tableName = 'health_metrics'
       dataToSave = {
         user_id: normalizedData.user_id,
@@ -81,69 +51,58 @@ export async function saveToDatabase(type, normalizedData) {
         resting_heart_rate: normalizedData.resting_heart_rate,
         body_temp: normalizedData.body_temp,
         source_provider: normalizedData.source || 'manual',
-        source_data: {
+        source_data: JSON.stringify({
           active_calories: normalizedData.active_calories,
           distance: normalizedData.distance,
           floors: normalizedData.floors,
           sleep_efficiency: normalizedData.sleep_efficiency
-        }
+        })
       }
       break
-      
+
     case 'user':
       tableName = 'user_preferences'
       dataToSave = {
         user_id: normalizedData.user_id,
         age: normalizedData.age,
-        weight: normalizedData.weight,
-        height: normalizedData.height,
         date_of_birth: normalizedData.date_of_birth || null,
         gender: normalizedData.gender || null,
         height_inches: normalizedData.height_inches || null,
         height_feet: normalizedData.height_feet || null,
-        goals: normalizedData.goals,
-        preferences: normalizedData.preferences,
-        updated_at: normalizedData.updated_at
+        updated_at: normalizedData.updated_at || new Date().toISOString()
       }
       break
-      
+
     default:
       throw new Error(`Unknown data type: ${type}`)
   }
-  
-  // Upsert data
-  const { data, error } = await client
-    .from(tableName)
-    .upsert(dataToSave, {
-      onConflict: type === 'workout' ? 'id' : 'user_id,date'
-    })
-    .select()
-    .single()
-  
-  if (error) {
-    throw new Error(`Database error: ${error.message}`)
-  }
-  
-  return data
+
+  const keys = Object.keys(dataToSave)
+  const values = keys.map((k) => dataToSave[k])
+  const cols = keys.map((k) => `"${k}"`).join(', ')
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ')
+  const conflictTarget = type === 'workout' ? 'id' : 'user_id, date'
+  const updateSet = keys
+    .filter((k) => k !== 'user_id' && k !== 'id')
+    .map((k) => `"${k}" = EXCLUDED."${k}"`)
+    .join(', ')
+
+  const sql = `INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders}) ON CONFLICT (${conflictTarget}) DO UPDATE SET ${updateSet} RETURNING *`
+  const result = await query(sql, values)
+  return result.rows[0] || null
 }
 
 /**
  * Get data from database
  */
 export async function getFromDatabase(type, userId, filters = {}) {
-  const client = getSupabaseClient()
-  if (!client) {
-    throw new Error('Database client not initialized (missing SUPABASE_URL / SUPABASE_*_KEY)')
-  }
   let tableName
-  
+
   switch (type) {
     case 'workout':
       tableName = 'workouts'
       break
     case 'nutrition':
-      tableName = 'health_metrics'
-      break
     case 'health':
       tableName = 'health_metrics'
       break
@@ -153,62 +112,44 @@ export async function getFromDatabase(type, userId, filters = {}) {
     default:
       throw new Error(`Unknown data type: ${type}`)
   }
-  
-  let query = client
-    .from(tableName)
-    .select('*')
-    .eq('user_id', userId)
-  
+
+  const params = [userId]
+  let sql = `SELECT * FROM "${tableName}" WHERE user_id = $1`
+
   if (type !== 'user') {
     if (filters.startDate) {
-      query = query.gte('date', filters.startDate)
+      params.push(filters.startDate)
+      sql += ` AND date >= $${params.length}`
     }
-    
     if (filters.endDate) {
-      query = query.lte('date', filters.endDate)
+      params.push(filters.endDate)
+      sql += ` AND date <= $${params.length}`
     }
   }
-  
-  if (filters.limit) {
-    query = query.limit(filters.limit)
-  }
-  
-  // Canonical temporal contract: chronological ascending.
-  // Latest item is always at index `length - 1`.
+
   if (type !== 'user') {
-    query = query.order('date', { ascending: true })
-    if (type === 'workout' || type === 'nutrition' || type === 'health') {
-      query = query.order('created_at', { ascending: true })
-    }
+    sql += ' ORDER BY date ASC, created_at ASC'
   }
-  
-  const { data, error } = await query
-  
-  if (error) {
-    throw new Error(`Database error: ${error.message}`)
+
+  if (filters.limit) {
+    sql += ` LIMIT ${parseInt(filters.limit, 10)}`
   }
-  
-  // Parse JSON fields for nutrition data
-  if (type === 'nutrition' && data && Array.isArray(data)) {
-    return data.map(item => {
+
+  const result = await query(sql, params)
+  let data = result.rows || []
+
+  if (type === 'nutrition' && Array.isArray(data)) {
+    return data.map((item) => {
       if (item.meals && typeof item.meals === 'string') {
-        try {
-          item.meals = JSON.parse(item.meals)
-        } catch (e) {
-          item.meals = []
-        }
+        try { item.meals = JSON.parse(item.meals) } catch { item.meals = [] }
       }
       if (item.macros && typeof item.macros === 'string') {
-        try {
-          item.macros = JSON.parse(item.macros)
-        } catch (e) {
-          item.macros = { protein: 0, carbs: 0, fat: 0 }
-        }
+        try { item.macros = JSON.parse(item.macros) } catch { item.macros = { protein: 0, carbs: 0, fat: 0 } }
       }
       return item
     })
   }
-  
-  return data || []
+
+  return data
 }
 

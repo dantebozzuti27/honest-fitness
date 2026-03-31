@@ -1,4 +1,4 @@
-import { requireSupabase } from './supabase'
+import { getIdToken } from './cognitoAuth'
 import { apiUrl } from './urlConfig'
 import { logError } from '../utils/logger'
 
@@ -27,9 +27,7 @@ export interface WorkoutReview {
 }
 
 async function getAuthToken(): Promise<string> {
-  const supabase = requireSupabase()
-  const { data } = await supabase.auth.getSession()
-  const token = data?.session?.access_token
+  const token = await getIdToken()
   if (!token) throw new Error('Not authenticated')
   return token
 }

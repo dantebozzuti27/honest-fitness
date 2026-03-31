@@ -3,29 +3,15 @@
  */
 
 import express from 'express'
-import { createClient } from '@supabase/supabase-js'
 import { processML } from '../engines/ml/index.js'
 import { computeReplayRows, evaluateEpisodeMetrics, summarizeReplayPromotion, evaluatePromotionGate } from '../engines/ml/policyReplay.js'
 import { generateAIWorkoutPlan, generateAINutritionPlan, generateAIWeeklySummary, generateAIInsights, generateAIPageInsights, interpretPrompt } from '../engines/ai/index.js'
 import { getFromDatabase } from '../database/index.js'
+import { query } from '../database/pg.js'
 import { mlLimiter } from '../middleware/rateLimiter.js'
 import { logError, logMetric } from '../utils/logger.js'
 
 export const mlRouter = express.Router()
-let metricsSupabase = null
-let metricsSupabaseInit = false
-
-function getMetricsSupabase() {
-  if (metricsSupabase) return metricsSupabase
-  if (metricsSupabaseInit) return null
-  metricsSupabaseInit = true
-
-  const url = process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) return null
-  metricsSupabase = createClient(url, key)
-  return metricsSupabase
-}
 
 function isFlagEnabled(flagName, fallback = true) {
   const raw = process.env?.[flagName]
@@ -196,26 +182,12 @@ mlRouter.get('/metrics/model-quality', async (req, res, next) => {
     const days = Math.max(1, Math.min(90, Number(req.query?.days) || 7))
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
-    const supabase = getMetricsSupabase()
-    if (!supabase) {
-      return res.status(500).json({ success: false, message: 'Metrics DB client unavailable' })
-    }
-
-    const [{ data: outcomes, error: outcomesError }, { data: workouts, error: workoutsError }] = await Promise.all([
-      supabase
-        .from('workout_outcomes')
-        .select('session_outcome_score, outcome_notes, workout_date')
-        .eq('user_id', userId)
-        .gte('workout_date', startDate),
-      supabase
-        .from('workouts')
-        .select('id, generated_workout_id, date')
-        .eq('user_id', userId)
-        .gte('date', startDate)
+    const [outcomesResult, workoutsResult] = await Promise.all([
+      query('SELECT session_outcome_score, outcome_notes, workout_date FROM workout_outcomes WHERE user_id = $1 AND workout_date >= $2', [userId, startDate]),
+      query('SELECT id, generated_workout_id, date FROM workouts WHERE user_id = $1 AND date >= $2', [userId, startDate]),
     ])
-
-    if (outcomesError) throw outcomesError
-    if (workoutsError) throw workoutsError
+    const outcomes = outcomesResult.rows
+    const workouts = workoutsResult.rows
 
     const scores = (outcomes || [])
       .map(o => Number(o.session_outcome_score))
@@ -258,31 +230,23 @@ mlRouter.get('/metrics/model-quality', async (req, res, next) => {
 mlRouter.get('/policy/episodes/evaluate', async (req, res, next) => {
   try {
     const userId = req.userId
-    const supabase = getMetricsSupabase()
-    if (!supabase) {
-      return res.status(500).json({ success: false, message: 'Metrics DB client unavailable' })
-    }
-
     const limit = Math.max(1, Math.min(100, Number(req.query?.limit) || 30))
-    const { data: episodes, error: episodesError } = await supabase
-      .from('intervention_episodes')
-      .select('id, episode_key, status, started_on, ended_on, active_policy_params')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(limit)
-    if (episodesError) throw episodesError
+    const episodesResult = await query(
+      'SELECT id, episode_key, status, started_on, ended_on, active_policy_params FROM intervention_episodes WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
+      [userId, limit]
+    )
+    const episodes = episodesResult.rows
 
     if (!episodes?.length) {
       return res.json({ success: true, episodes: [], summary: { promoteReady: false, sampleSize: 0 } })
     }
 
     const episodeIds = episodes.map(e => e.id)
-    const { data: outcomes, error: outcomesError } = await supabase
-      .from('intervention_episode_outcomes')
-      .select('intervention_episode_id, objective_score, regret_score, adherence_score, measured_on')
-      .eq('user_id', userId)
-      .in('intervention_episode_id', episodeIds)
-    if (outcomesError) throw outcomesError
+    const outcomesResult = await query(
+      'SELECT intervention_episode_id, objective_score, regret_score, adherence_score, measured_on FROM intervention_episode_outcomes WHERE user_id = $1 AND intervention_episode_id = ANY($2)',
+      [userId, episodeIds]
+    )
+    const outcomes = outcomesResult.rows
 
     const evaluated = evaluateEpisodeMetrics(episodes, outcomes)
 
@@ -305,10 +269,6 @@ mlRouter.get('/policy/episodes/evaluate', async (req, res, next) => {
 mlRouter.post('/policy/replay', async (req, res, next) => {
   try {
     const userId = req.userId
-    const supabase = getMetricsSupabase()
-    if (!supabase) {
-      return res.status(500).json({ success: false, message: 'Metrics DB client unavailable' })
-    }
     if (!isFlagEnabled('HF_ENABLE_REPLAY_PROMOTIONS', true)) {
       return res.status(403).json({ success: false, message: 'Replay promotions disabled by runtime flag' })
     }
@@ -320,30 +280,18 @@ mlRouter.post('/policy/replay', async (req, res, next) => {
       req.body?.dateStart || new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     )
 
-    const { data: scenario, error: scenarioError } = await supabase
-      .from('replay_scenarios')
-      .insert({
-        user_id: userId,
-        scenario_name: `Replay ${candidatePolicyVersion}`,
-        baseline_policy_version: baselinePolicyVersion,
-        candidate_policy_version: candidatePolicyVersion,
-        date_start: dateStart,
-        date_end: dateEnd,
-        status: 'running',
-        config: { mode: 'counterfactual_simple_v1' },
-      })
-      .select('id')
-      .single()
-    if (scenarioError) throw scenarioError
+    const scenarioResult = await query(
+      `INSERT INTO replay_scenarios (user_id, scenario_name, baseline_policy_version, candidate_policy_version, date_start, date_end, status, config)
+       VALUES ($1, $2, $3, $4, $5, $6, 'running', $7) RETURNING id`,
+      [userId, `Replay ${candidatePolicyVersion}`, baselinePolicyVersion, candidatePolicyVersion, dateStart, dateEnd, JSON.stringify({ mode: 'counterfactual_simple_v1' })]
+    )
+    const scenario = scenarioResult.rows[0]
 
-    const { data: outcomes, error: outcomesError } = await supabase
-      .from('workout_outcomes')
-      .select('workout_date, session_outcome_score')
-      .eq('user_id', userId)
-      .gte('workout_date', dateStart)
-      .lte('workout_date', dateEnd)
-      .order('workout_date', { ascending: true })
-    if (outcomesError) throw outcomesError
+    const outcomesResult = await query(
+      'SELECT workout_date, session_outcome_score FROM workout_outcomes WHERE user_id = $1 AND workout_date >= $2 AND workout_date <= $3 ORDER BY workout_date ASC',
+      [userId, dateStart, dateEnd]
+    )
+    const outcomes = outcomesResult.rows
 
     const rows = computeReplayRows(
       outcomes || [],
@@ -354,14 +302,17 @@ mlRouter.post('/policy/replay', async (req, res, next) => {
     )
 
     if (rows.length > 0) {
-      const { error: resultsError } = await supabase.from('replay_results').insert(rows)
-      if (resultsError) throw resultsError
+      for (const row of rows) {
+        await query(
+          `INSERT INTO replay_results (user_id, replay_scenario_id, workout_date, baseline_score, candidate_score, regret_delta, promoted, result_payload)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [row.user_id, row.replay_scenario_id, row.workout_date, row.baseline_score, row.candidate_score, row.regret_delta, row.promoted || false, JSON.stringify(row.result_payload || {})]
+        )
+      }
     }
 
     const replaySummary = summarizeReplayPromotion(rows)
     const strictPromotionGates = isFlagEnabled('HF_ENABLE_STRICT_PROMOTION_GATES', true)
-    // Never trust client-supplied quality-gate metrics for promotion decisions.
-    // Strict mode requires server-owned telemetry; until it is wired, fail closed.
     const trustedQualityGate = {}
     const gateDecision = evaluatePromotionGate(
       replaySummary,
@@ -372,28 +323,23 @@ mlRouter.post('/policy/replay', async (req, res, next) => {
     const promote = gateDecision.promote
 
     if (promote && rows.length > 0) {
-      await supabase
-        .from('replay_results')
-        .update({ promoted: true })
-        .eq('replay_scenario_id', scenario.id)
-        .eq('user_id', userId)
+      await query(
+        'UPDATE replay_results SET promoted = true WHERE replay_scenario_id = $1 AND user_id = $2',
+        [scenario.id, userId]
+      )
     }
 
-    await supabase
-      .from('replay_scenarios')
-      .update({
-        status: 'completed',
-        config: {
-          mode: 'counterfactual_simple_v1',
-          sampleSize: rows.length,
-          avgRegretDelta,
-          promote,
-          promotionGateReason: gateDecision.reason,
-          strictPromotionGates,
-        },
-      })
-      .eq('id', scenario.id)
-      .eq('user_id', userId)
+    await query(
+      'UPDATE replay_scenarios SET status = $1, config = $2 WHERE id = $3 AND user_id = $4',
+      ['completed', JSON.stringify({
+        mode: 'counterfactual_simple_v1',
+        sampleSize: rows.length,
+        avgRegretDelta,
+        promote,
+        promotionGateReason: gateDecision.reason,
+        strictPromotionGates,
+      }), scenario.id, userId]
+    )
 
     res.json({
       success: true,
@@ -415,27 +361,12 @@ mlRouter.get('/policy/replay/:scenarioId', async (req, res, next) => {
   try {
     const userId = req.userId
     const scenarioId = req.params.scenarioId
-    const supabase = getMetricsSupabase()
-    if (!supabase) {
-      return res.status(500).json({ success: false, message: 'Metrics DB client unavailable' })
-    }
-
-    const [{ data: scenario, error: scenarioError }, { data: results, error: resultsError }] = await Promise.all([
-      supabase
-        .from('replay_scenarios')
-        .select('*')
-        .eq('id', scenarioId)
-        .eq('user_id', userId)
-        .maybeSingle(),
-      supabase
-        .from('replay_results')
-        .select('workout_date, baseline_score, candidate_score, regret_delta, promoted')
-        .eq('replay_scenario_id', scenarioId)
-        .eq('user_id', userId)
-        .order('workout_date', { ascending: true })
+    const [scenarioResult, resultsResult] = await Promise.all([
+      query('SELECT * FROM replay_scenarios WHERE id = $1 AND user_id = $2 LIMIT 1', [scenarioId, userId]),
+      query('SELECT workout_date, baseline_score, candidate_score, regret_delta, promoted FROM replay_results WHERE replay_scenario_id = $1 AND user_id = $2 ORDER BY workout_date ASC', [scenarioId, userId]),
     ])
-    if (scenarioError) throw scenarioError
-    if (resultsError) throw resultsError
+    const scenario = scenarioResult.rows[0] || null
+    const results = resultsResult.rows
     if (!scenario) {
       return res.status(404).json({ success: false, message: 'Replay scenario not found' })
     }

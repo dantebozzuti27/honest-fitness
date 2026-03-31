@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import styles from './ConfirmDialog.module.css'
 import Button from './Button'
 
@@ -43,10 +43,15 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
   const handleCancel = onCancel || onClose
 
   const cancelBtnRef = useRef<HTMLButtonElement | null>(null)
+  const confirmBtnRef = useRef<HTMLButtonElement | null>(null)
+
+  const onConfirmRef = useRef(onConfirm)
+  onConfirmRef.current = onConfirm
+  const handleCancelRef = useRef(handleCancel)
+  handleCancelRef.current = handleCancel
 
   useEffect(() => {
     if (!open) return
-    // Focus the safe action by default
     cancelBtnRef.current?.focus?.()
   }, [open])
 
@@ -54,12 +59,31 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
     if (!open) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        handleCancel?.()
+        handleCancelRef.current?.()
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        onConfirmRef.current?.()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, handleCancel])
+  }, [open])
+
+  // Native DOM click listener on the confirm button so that clicks
+  // dispatched by browser-automation frameworks (which bypass React's
+  // synthetic event delegation) still trigger the confirm action.
+  useEffect(() => {
+    if (!open) return
+    const btn = confirmBtnRef.current
+    if (!btn) return
+    const handler = () => onConfirmRef.current?.()
+    btn.addEventListener('click', handler)
+    return () => btn.removeEventListener('click', handler)
+  }, [open])
+
+  const setConfirmRef = useCallback((el: HTMLButtonElement | null) => {
+    confirmBtnRef.current = el
+  }, [])
 
   if (!open) return null
 
@@ -69,7 +93,7 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onClick={() => handleCancel?.()}
+      onClick={() => handleCancelRef.current?.()}
     >
       <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
@@ -80,14 +104,15 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
           <Button
             ref={cancelBtnRef}
             variant="secondary"
-            onClick={() => handleCancel?.()}
+            onClick={() => handleCancelRef.current?.()}
             type="button"
           >
             {cancelText}
           </Button>
           <Button
+            ref={setConfirmRef}
             variant={destructive ? 'destructive' : 'primary'}
-            onClick={() => onConfirm?.()}
+            onClick={() => onConfirmRef.current?.()}
             type="button"
           >
             {confirmText}

@@ -3,7 +3,7 @@
  * Returns an authorization URL with a signed `state`.
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { extractUser } from '../_shared/auth.js'
 import { createSignedOAuthState } from '../_utils/oauthState.js'
 
 export default async function handler(req, res) {
@@ -12,24 +12,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    const authHeader = req.headers?.authorization || req.headers?.Authorization
-    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
-    }
-    const token = authHeader.slice('Bearer '.length).trim()
-    if (!token) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
-    }
-
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey)
-    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
-    if (userErr || !user?.id) {
+    const user = await extractUser(req)
+    if (!user) {
       return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
 

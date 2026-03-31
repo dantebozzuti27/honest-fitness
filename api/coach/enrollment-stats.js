@@ -1,19 +1,15 @@
+import { extractUser } from '../_shared/auth.js'
+import { query } from '../_shared/db.js'
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ success: false, error: { message: 'Method not allowed', status: 405 } })
   }
 
   try {
-    // -----------------------------
-    // Auth (required)
-    // -----------------------------
-    const authHeader = req.headers?.authorization || req.headers?.Authorization
-    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization', status: 401 } })
-    }
-    const token = authHeader.slice('Bearer '.length).trim()
-    if (!token) {
-      return res.status(401).json({ success: false, error: { message: 'Missing authorization token', status: 401 } })
+    const user = extractUser(req)
+    if (!user) {
+      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
     }
 
     const programId = (req.query?.programId || '').toString().trim()
@@ -21,61 +17,41 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: { message: 'Missing programId', status: 400 } })
     }
 
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ success: false, error: { message: 'Server configuration error', status: 500 } })
-    }
-    const supabase = createClient(supabaseUrl, supabaseKey)
-
-    const { data: { user }, error: userErr } = await supabase.auth.getUser(token)
-    if (userErr || !user) {
-      return res.status(401).json({ success: false, error: { message: 'Invalid or expired token', status: 401 } })
-    }
-
-    // Verify caller owns the program.
-    const { data: program, error: programErr } = await supabase
-      .from('coach_programs')
-      .select('id, coach_id')
-      .eq('id', programId)
-      .maybeSingle()
-    if (programErr) throw programErr
+    const { rows: programRows } = await query(
+      `SELECT id, coach_id FROM coach_programs WHERE id = $1`,
+      [programId]
+    )
+    const program = programRows[0] || null
     if (!program || program.coach_id !== user.id) {
       return res.status(403).json({ success: false, error: { message: 'Not allowed', status: 403 } })
     }
 
-    const isoDay = (d) => {
-      // Use UTC date key for backend aggregation; DB `date` columns are DATE (no TZ).
-      return new Date(d).toISOString().slice(0, 10)
-    }
+    const isoDay = (d) => new Date(d).toISOString().slice(0, 10)
     const today = isoDay(Date.now())
     const start7 = isoDay(Date.now() - 7 * 86400000)
     const start30 = isoDay(Date.now() - 30 * 86400000)
 
-    const { data: enrollments, error: enrollErr } = await supabase
-      .from('coach_program_enrollments')
-      .select('id, program_id, user_id, start_date, status, scheduled_count, updated_at')
-      .eq('program_id', programId)
-      .eq('status', 'enrolled')
-      .order('updated_at', { ascending: false })
-      .limit(200)
-    if (enrollErr) throw enrollErr
+    const { rows: enrollments } = await query(
+      `SELECT id, program_id, user_id, start_date, status, scheduled_count, updated_at
+       FROM coach_program_enrollments
+       WHERE program_id = $1 AND status = $2
+       ORDER BY updated_at DESC
+       LIMIT 200`,
+      [programId, 'enrolled']
+    )
 
     const userIds = (Array.isArray(enrollments) ? enrollments : []).map(r => r.user_id).filter(Boolean)
     if (userIds.length === 0) {
       return res.status(200).json({ success: true, programId, today, enrollments: [], statsByUserId: {} })
     }
 
-    // Workouts (last 30d)
-    const { data: workouts, error: workoutsErr } = await supabase
-      .from('workouts')
-      .select('id, user_id, date')
-      .in('user_id', userIds)
-      .gte('date', start30)
-      .order('date', { ascending: false })
-      .limit(5000)
-    if (workoutsErr) throw workoutsErr
+    const { rows: workouts } = await query(
+      `SELECT id, user_id, date FROM workouts
+       WHERE user_id = ANY($1::uuid[]) AND date >= $2
+       ORDER BY date DESC
+       LIMIT 5000`,
+      [userIds, start30]
+    )
 
     const workoutById = {}
     for (const w of Array.isArray(workouts) ? workouts : []) {
@@ -83,15 +59,14 @@ export default async function handler(req, res) {
     }
     const workoutIds = Object.keys(workoutById)
 
-    // Exercises for those workouts
     let exercises = []
     if (workoutIds.length > 0) {
-      const { data: exRows, error: exErr } = await supabase
-        .from('workout_exercises')
-        .select('id, workout_id')
-        .in('workout_id', workoutIds)
-        .limit(20000)
-      if (exErr) throw exErr
+      const { rows: exRows } = await query(
+        `SELECT id, workout_id FROM workout_exercises
+         WHERE workout_id = ANY($1::uuid[])
+         LIMIT 20000`,
+        [workoutIds]
+      )
       exercises = Array.isArray(exRows) ? exRows : []
     }
 
@@ -101,15 +76,14 @@ export default async function handler(req, res) {
     }
     const exerciseIds = Object.keys(exerciseById)
 
-    // Sets for those exercises (strength tonnage only)
     let sets = []
     if (exerciseIds.length > 0) {
-      const { data: setRows, error: setsErr } = await supabase
-        .from('workout_sets')
-        .select('workout_exercise_id, weight, reps')
-        .in('workout_exercise_id', exerciseIds)
-        .limit(50000)
-      if (setsErr) throw setsErr
+      const { rows: setRows } = await query(
+        `SELECT workout_exercise_id, weight, reps FROM workout_sets
+         WHERE workout_exercise_id = ANY($1::uuid[])
+         LIMIT 50000`,
+        [exerciseIds]
+      )
       sets = Array.isArray(setRows) ? setRows : []
     }
 
@@ -124,7 +98,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // Workout counts + last date
     for (const w of Array.isArray(workouts) ? workouts : []) {
       const uid = w?.user_id
       const date = (w?.date || '').toString()
@@ -136,7 +109,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // Tonnage from sets
     for (const s of Array.isArray(sets) ? sets : []) {
       const exId = s?.workout_exercise_id
       const ex = exerciseById[exId]
@@ -153,18 +125,16 @@ export default async function handler(req, res) {
       if (date >= start7) statsByUserId[uid].tonnage7d += tonnage
     }
 
-    // Profiles (best-effort)
     let profilesByUserId = {}
     try {
-      const { data: profiles, error: profErr } = await supabase
-        .from('user_profiles')
-        .select('user_id, username, display_name, profile_picture')
-        .in('user_id', userIds)
-        .limit(500)
-      if (!profErr) {
-        for (const p of Array.isArray(profiles) ? profiles : []) {
-          profilesByUserId[p.user_id] = p
-        }
+      const { rows: profiles } = await query(
+        `SELECT user_id, username, display_name, profile_picture FROM user_profiles
+         WHERE user_id = ANY($1::uuid[])
+         LIMIT 500`,
+        [userIds]
+      )
+      for (const p of Array.isArray(profiles) ? profiles : []) {
+        profilesByUserId[p.user_id] = p
       }
     } catch {
       // ignore
@@ -183,5 +153,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ success: false, error: { message: 'Server error', status: 500 } })
   }
 }
-
-

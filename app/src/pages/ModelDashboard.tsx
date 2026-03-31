@@ -14,7 +14,8 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useAuth } from '../context/AuthContext'
 import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
-import { requireSupabase } from '../lib/supabase'
+import { getIdToken } from '../lib/cognitoAuth'
+import { db } from '../lib/dbClient'
 import { apiUrl } from '../lib/urlConfig'
 import BackButton from '../components/BackButton'
 import Spinner from '../components/Spinner'
@@ -89,6 +90,8 @@ function computeNodePreviews(p: TrainingProfile): Record<number, string> {
   const utilityPct = Math.round((p.canonicalModelContext?.objectiveUtility ?? 0) * 100)
   const setAccPct = Math.round((p.prescribedVsActual?.avgSetExecutionAccuracy ?? 0) * 100)
   const cardioCaps = (p.cardioCapabilityProfiles || []).length
+  const nutritionCov = p.nutritionLoggingCoverage14d
+  const affinityPairs = (p.substitutionAffinities || []).length
 
   return {
     1: `Ingested ${p.totalWorkoutCount} sessions, ${p.healthDataDays} health days`,
@@ -97,7 +100,9 @@ function computeNodePreviews(p: TrainingProfile): Record<number, string> {
     4: `${belowMev} groups below MEV${topPriority ? `, priority: ${topPriority.muscleGroup.replace(/_/g, ' ')}` : ''}`,
     5: `Scored ${(p.exercisePreferences || []).length} candidates`,
     6: `${progressing} progressing, ${stalled} stalled`,
-    7: `${learned} learned, ${fallback} fallback (${cardioCaps} cardio capability profiles)`,
+    7: `${learned} learned, ${fallback} fallback (${cardioCaps} cardio capability profiles)${
+      nutritionCov != null ? `, nutrition log ${Math.round(nutritionCov * 100)}% (14d)` : ''
+    }${affinityPairs ? `, ${affinityPairs} sub-affinity pairs` : ''}`,
     8: `Budget: ${p.avgSessionDuration} min`,
     9: `4 rules checked`,
     10: `${obs} stored observations`,
@@ -192,9 +197,7 @@ function buildEdges(p: TrainingProfile): Edge[] {
 }
 
 async function fetchAuthedJson(path: string, init?: RequestInit): Promise<any> {
-  const supabase = requireSupabase()
-  const { data } = await supabase.auth.getSession()
-  const token = data?.session?.access_token
+  const token = await getIdToken()
   if (!token) throw new Error('Not authenticated')
   const res = await fetch(apiUrl(path), {
     ...init,
@@ -471,6 +474,7 @@ function RecoveryStatePanel({ profile: p }: { profile: TrainingProfile }) {
         Readiness is {readinessPct}% (fitness {fitness.toFixed(1)} − fatigue {fatigue.toFixed(1)}).
         Volume scaled ×{volMult.toFixed(2)}, rest ×{restMult.toFixed(2)}.
         {deload.needed ? ` Deload recommended (${deload.suggestedDurationDays}d).` : ''}
+        {' '}Mesocycle phase: {readinessTier === 'deload' ? 'Deload' : readiness < 0.75 ? 'Accumulation' : readiness < 0.9 ? 'Loading' : 'Overreach'}.
       </div>
 
       <div className={S.decisionTree}>
@@ -684,6 +688,8 @@ function VolumeStatusPanel({ profile: p }: { profile: TrainingProfile }) {
 function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
   const prefs = p.exercisePreferences || []
   const swaps = p.exerciseSwapHistory || []
+  const affinities = p.substitutionAffinities || []
+  const nutritionCov = p.nutritionLoggingCoverage14d
   const totalCandidates = prefs.length
   const staples = prefs.filter(ep => ep.isStaple).length
   const swappedFrequently = swaps.filter(s => s.swapCount >= 3).length
@@ -714,7 +720,44 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
       <div className={S.summary}>
         Scored {totalCandidates} candidate exercises. {staples} are staples (auto +4).
         {swappedFrequently > 0 ? ` ${swappedFrequently} exercise${swappedFrequently > 1 ? 's' : ''} penalized from frequent swaps (−15).` : ''}
+        {nutritionCov != null
+          ? ` Nutrition logging coverage (14d): ${Math.round(nutritionCov * 100)}% — feeds fat-loss controller dampening.`
+          : ''}
+        {affinities.length > 0
+          ? ` Learned ${affinities.length} substitution pair${affinities.length > 1 ? 's' : ''} (decay-weighted).`
+          : ''}
       </div>
+
+      {nutritionCov != null && (
+        <>
+          <div className={S.sectionLabel}>Nutrition signal (fat-loss PID)</div>
+          <div className={S.counterfactual}>
+            Last 14 days with calorie entries: {Math.round(nutritionCov * 100)}%.
+            Sparse logging reduces confidence in nutrition-adherence coupling and damps aggressive fat-loss dosing.
+          </div>
+        </>
+      )}
+
+      {affinities.length > 0 && (
+        <>
+          <div className={S.sectionLabel}>Top substitution affinities (from → to)</div>
+          <table className={S.weightsTable}>
+            <thead>
+              <tr><th>From</th><th>To</th><th>Affinity</th><th>Events</th></tr>
+            </thead>
+            <tbody>
+              {affinities.slice(0, 10).map(a => (
+                <tr key={`${a.fromExercise}\t${a.toExercise}`}>
+                  <td>{a.fromExercise}</td>
+                  <td>{a.toExercise}</td>
+                  <td style={{ fontWeight: 600 }}>{a.affinity}</td>
+                  <td>{a.eventCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
 
       <div className={S.decisionTree}>
         <div className={S.decisionTreeTitle}>Selection Flow</div>
@@ -789,7 +832,9 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
             <div key={s.exerciseName} className={`${S.decisionBranch} ${S.decisionBranchActive}`} style={{ borderColor: '#ff6b6b', background: '#1a1111' }}>
               <div className={S.branchIndicator} style={{ background: '#ff6b6b' }} />
               <div>
-                <span style={{ fontWeight: 600 }}>{s.exerciseName}</span> — swapped {s.swapCount}× (last: {s.lastSwapDate})
+                <span style={{ fontWeight: 600 }}>{s.exerciseName}</span>
+                {' '}
+                — swapped {s.swapCount}×, effective weight {s.effectiveSwapWeight ?? s.swapCount} (last: {s.lastSwapDate})
               </div>
             </div>
           ))}
@@ -1473,8 +1518,7 @@ export default function ModelDashboard() {
       const [evalRes, latestReplayRes, provenanceRes] = await Promise.all([
         fetchAuthedJson('/api/ml/policy/episodes/evaluate?limit=12').catch(() => null),
         (async () => {
-          const sb = requireSupabase()
-          const { data } = await sb
+          const { data } = await db
             .from('replay_scenarios')
             .select('id, scenario_name, status, baseline_policy_version, candidate_policy_version, created_at, config')
             .eq('user_id', user.id)
@@ -1484,8 +1528,7 @@ export default function ModelDashboard() {
           return data || null
         })().catch(() => null),
         (async () => {
-          const sb = requireSupabase()
-          const { data } = await sb
+          const { data } = await db
             .from('decision_provenance_events')
             .select('event_date, source_type, decision_stage, decision_key, confidence, policy_version')
             .eq('user_id', user.id)
@@ -1547,7 +1590,24 @@ export default function ModelDashboard() {
   }, [profile])
 
   if (loading) return <div className={S.loading}><Spinner /></div>
-  if (!profile) return <div className={S.error}>Failed to load profile data.</div>
+  if (!profile) return (
+    <div className={S.error}>
+      <p>Failed to load profile data.</p>
+      <button
+        style={{ marginTop: '1rem', padding: '0.5rem 1rem', cursor: 'pointer', borderRadius: 6, border: '1px solid #555', background: '#222', color: '#eee' }}
+        onClick={() => {
+          if (!user) return
+          setLoading(true)
+          computeTrainingProfile(user.id)
+            .then(setProfile)
+            .catch(e => logError('ModelDashboard profile retry failed', e))
+            .finally(() => setLoading(false))
+        }}
+      >
+        Retry
+      </button>
+    </div>
+  )
 
   return (
     <div className={S.page}>

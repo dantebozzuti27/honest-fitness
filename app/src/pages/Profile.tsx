@@ -7,10 +7,8 @@ import { connectFitbit } from '../lib/fitbitAuth'
 import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferencesDb'
 import { ageRecoveryFactor } from '../lib/recoveryModel'
 import { deleteUserAccount } from '../lib/accountDeletion'
-import { supabase } from '../lib/supabase'
 import { getTodayEST } from '../utils/dateUtils'
-import { getAllMetricsFromSupabase } from '../lib/db/metricsDb'
-import { saveMetricsToSupabase } from '../lib/supabaseDb'
+import { getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metricsDb'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -235,9 +233,14 @@ const PRIMARY_GOAL_OPTIONS = [
 ]
 
 const MUSCLE_GROUPS = [
-  { value: 'chest', label: 'Chest' },
+  { value: 'upper_chest', label: 'Upper Chest' },
+  { value: 'mid_chest', label: 'Mid Chest' },
+  { value: 'lower_chest', label: 'Lower Chest' },
   { value: 'back_lats', label: 'Lats' },
   { value: 'back_upper', label: 'Upper Back' },
+  { value: 'upper_traps', label: 'Upper Traps' },
+  { value: 'mid_traps', label: 'Mid Traps' },
+  { value: 'lower_traps', label: 'Lower Traps' },
   { value: 'anterior_deltoid', label: 'Front Delt' },
   { value: 'lateral_deltoid', label: 'Side Delt' },
   { value: 'posterior_deltoid', label: 'Rear Delt' },
@@ -246,7 +249,10 @@ const MUSCLE_GROUPS = [
   { value: 'quadriceps', label: 'Quads' },
   { value: 'hamstrings', label: 'Hamstrings' },
   { value: 'glutes', label: 'Glutes' },
-  { value: 'calves', label: 'Calves' },
+  { value: 'rotator_cuff', label: 'Rotator Cuff' },
+  { value: 'hip_flexors', label: 'Hip Flexors' },
+  { value: 'abductors', label: 'Hip Abductors' },
+  { value: 'adductors', label: 'Hip Adductors' },
   { value: 'core', label: 'Core' },
   { value: 'forearms', label: 'Forearms' },
   { value: 'erector_spinae', label: 'Erectors' },

@@ -1,12 +1,13 @@
-import { supabase as supabaseClient, supabaseConfigErrorMessage } from './supabase'
+import { db } from './dbClient'
 import { getLocalDate, getTodayEST, getYesterdayEST } from '../utils/dateUtils'
 import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug, logWarn } from '../utils/logger'
 import { isUuidV4, uuidv4 } from '../utils/uuid'
 import { enqueueOutboxItem } from './syncOutbox'
+import { DEFAULT_MODEL_CONFIG } from './modelConfig'
 
-// Avoid TypeError crashes when Supabase env is missing; throw a clear message at call time instead.
-const supabase: any = supabaseClient ?? new Proxy({}, { get: () => { throw new Error(supabaseConfigErrorMessage) } })
+// Route all .from() / .rpc() calls through the RDS CRUD proxy (Phase 1 migration).
+const supabase: any = db as any
 
 // Ensure logDebug is always available (fallback for build issues)
 const safeLogDebug = logDebug || (() => {})
@@ -125,13 +126,21 @@ async function upsertCardioCapabilityFromWorkout(userId: string, workout: any) {
         : Math.max(Number(existing?.max_incline ?? 0), sampleMaxIncline)
       const confidence = Math.max(0.3, Math.min(1, newSessions / 24))
 
+      let capMaxSpeed = nextMaxSpeed
+      let capComfort = nextComfort
+      if (modality === 'walk') {
+        const mphCap = DEFAULT_MODEL_CONFIG.maxWalkSpeedMph
+        if (capComfort != null && Number.isFinite(capComfort)) capComfort = Math.min(capComfort, mphCap)
+        if (capMaxSpeed != null && Number.isFinite(capMaxSpeed)) capMaxSpeed = Math.min(capMaxSpeed, mphCap)
+      }
+
       await supabase
         .from('cardio_capability_profiles')
         .upsert({
           user_id: userId,
           modality,
-          max_speed: nextMaxSpeed,
-          comfortable_speed: nextComfort,
+          max_speed: capMaxSpeed,
+          comfortable_speed: capComfort,
           max_incline: nextMaxIncline,
           observed_sessions: newSessions,
           confidence_score: confidence,
@@ -357,12 +366,16 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     // Non-critical
   }
 
-  // Insert exercises (only those with valid sets data)
+  // Insert exercises (only those with valid sets data).
+  // If any exercise/set insert fails, delete the orphaned workout row
+  // so we don't leave a shell workout with 0 exercises.
+  const exercisesToSave = Array.isArray(workoutToSave.exercises) ? workoutToSave.exercises : []
   let exerciseOrder = 0
   const executionEvents: any[] = []
   const setTransformAuditRows: any[] = []
-  for (let i = 0; i < workoutToSave.exercises.length; i++) {
-    const ex = workoutToSave.exercises[i]
+  try {
+  for (let i = 0; i < exercisesToSave.length; i++) {
+    const ex = exercisesToSave[i]
     
     const exSets = Array.isArray(ex.sets) ? ex.sets : []
     if (exSets.length === 0 || !exSets.some((s: any) =>
@@ -555,6 +568,15 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       }
     }
   }
+  } catch (exerciseInsertErr: any) {
+    logError('Exercise insert failed — deleting orphaned workout row', exerciseInsertErr)
+    try {
+      await supabase.from('workouts').delete().eq('id', workoutData.id)
+    } catch (cleanupErr) {
+      logError('Failed to clean up orphaned workout row', cleanupErr)
+    }
+    throw exerciseInsertErr
+  }
 
   if (executionEvents.length > 0) {
     let { error: executionError } = await supabase
@@ -680,8 +702,8 @@ export async function getWorkoutsFromSupabase(userId: string) {
     return result
   }
 
-  // Fallback: fetch workouts without embeds so the UI can still show history rows.
-  safeLogDebug('getWorkoutsFromSupabase: embedded select failed; retrying without embeds', {
+  // Fallback: fetch workouts then separately fetch children and stitch together.
+  safeLogDebug('getWorkoutsFromSupabase: embedded select failed; fetching separately', {
     code: embedded.error?.code,
     message: embedded.error?.message
   })
@@ -693,8 +715,49 @@ export async function getWorkoutsFromSupabase(userId: string) {
     .order('date', { ascending: false })
 
   if (plain.error) throw plain.error
+  const workouts = plain.data || []
+  if (workouts.length === 0) {
+    setCache(cacheKey, [])
+    return []
+  }
 
-  const result = (plain.data || []).map((w: any) => ({ ...w, workout_exercises: w.workout_exercises || [] }))
+  const workoutIds = workouts.map((w: any) => w.id)
+  const { data: exRows } = await supabase
+    .from('workout_exercises')
+    .select('*')
+    .in('workout_id', workoutIds)
+
+  const exercises = exRows || []
+  const exerciseIds = exercises.map((e: any) => e.id)
+
+  let sets: any[] = []
+  if (exerciseIds.length > 0) {
+    const { data: setRows } = await supabase
+      .from('workout_sets')
+      .select('*')
+      .in('workout_exercise_id', exerciseIds)
+    sets = setRows || []
+  }
+
+  const setsByExercise: Record<string, any[]> = {}
+  for (const s of sets) {
+    const key = s.workout_exercise_id
+    if (!setsByExercise[key]) setsByExercise[key] = []
+    setsByExercise[key].push(s)
+  }
+
+  const exercisesByWorkout: Record<string, any[]> = {}
+  for (const ex of exercises) {
+    ex.workout_sets = setsByExercise[ex.id] || []
+    const key = ex.workout_id
+    if (!exercisesByWorkout[key]) exercisesByWorkout[key] = []
+    exercisesByWorkout[key].push(ex)
+  }
+
+  const result = workouts.map((w: any) => ({
+    ...w,
+    workout_exercises: exercisesByWorkout[w.id] || []
+  }))
   setCache(cacheKey, result)
   return result
 }
@@ -1002,9 +1065,10 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
   }
 
   // Insert new exercises (only those with valid sets data)
+  const exercisesToUpdate = Array.isArray(workout.exercises) ? workout.exercises : []
   let exerciseOrder = 0
-  for (let i = 0; i < workout.exercises.length; i++) {
-    const ex = workout.exercises[i]
+  for (let i = 0; i < exercisesToUpdate.length; i++) {
+    const ex = exercisesToUpdate[i]
     
     const exSets2 = Array.isArray(ex.sets) ? ex.sets : []
     if (exSets2.length === 0 || !exSets2.some((s: any) =>
@@ -1103,42 +1167,16 @@ export async function updateWorkoutInSupabase(workoutId: string, workout: any, u
 }
 
 export async function deleteWorkoutFromSupabase(workoutId: string, userId: string | null = null) {
-  // Security: If userId provided, verify workout belongs to user
-  if (userId) {
-    const { data: workout, error: checkError } = await supabase
-      .from('workouts')
-      .select('user_id')
-      .eq('id', workoutId)
-      .single()
-    
-    if (checkError) throw checkError
-    if (workout.user_id !== userId) {
-      throw new Error('Unauthorized: Workout does not belong to user')
-    }
-  }
-  
-  // Delete sets first (due to foreign key)
-  const { data: exercises } = await supabase
-    .from('workout_exercises')
-    .select('id')
-    .eq('workout_id', workoutId)
-
-  if (exercises) {
-    for (const ex of exercises) {
-      await supabase.from('workout_sets').delete().eq('workout_exercise_id', ex.id)
-    }
-  }
-
-  // Delete exercises
-  await supabase.from('workout_exercises').delete().eq('workout_id', workoutId)
-
-  // Delete workout (with userId check if provided)
+  // Single DELETE — FK CASCADE on workout_exercises and workout_sets
+  // handles child-row cleanup automatically.
+  // The CRUD proxy auto-scopes by user_id, so we only need the id filter.
   let deleteQuery = supabase.from('workouts').delete().eq('id', workoutId)
   if (userId) {
     deleteQuery = deleteQuery.eq('user_id', userId)
   }
   const { error } = await deleteQuery
   if (error) throw error
+  invalidateSupabaseCache()
 }
 
 export async function deleteAllWorkoutsFromSupabase(userId: string) {
@@ -1550,10 +1588,9 @@ export async function getBodyPartStats(userId: string) {
   
   workouts.forEach((w: any) => {
     w.workout_exercises?.forEach((ex: any) => {
-      // ONLY count exercises with valid sets data (double-check)
       const setsArr = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
       const hasValidSets = setsArr.length > 0 && 
-        setsArr.some((s: any) => s.weight || s.reps || s.time)
+        setsArr.some((s: any) => s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline)
       
       if (!hasValidSets) return
       
@@ -1617,10 +1654,9 @@ export async function getExerciseStats(userId: string) {
   
   workouts.forEach((w: any) => {
     w.workout_exercises?.forEach((ex: any) => {
-      // ONLY count exercises that have actual sets with data (no dummy data)
       const setsArr = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
       const hasValidSets = setsArr.length > 0 && 
-        setsArr.some((s: any) => s.weight || s.reps || s.time)
+        setsArr.some((s: any) => s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline)
       
       if (hasValidSets && ex.exercise_name) {
         exerciseCounts[ex.exercise_name] = (exerciseCounts[ex.exercise_name] || 0) + 1
@@ -1814,7 +1850,7 @@ export async function getDetailedBodyPartStats(userId: string) {
   const workouts = await getWorkoutsFromSupabase(userId)
   const stats: Record<string, any> = {}
   
-  const bodyParts = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'core', 'legs', 'cardio', 'recovery', 'arms', 'full_body']
+  const bodyParts = ['upper_chest', 'mid_chest', 'lower_chest', 'back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps', 'shoulders', 'biceps', 'triceps', 'core', 'legs', 'cardio', 'recovery', 'arms', 'full_body', 'rotator_cuff', 'other']
   
   bodyParts.forEach(bp => {
     stats[bp] = {
@@ -1830,12 +1866,12 @@ export async function getDetailedBodyPartStats(userId: string) {
     w.workout_exercises?.forEach((ex: any) => {
       const setsArr = Array.isArray(ex.workout_sets) ? ex.workout_sets : []
       const hasValidSets = setsArr.length > 0 && 
-        setsArr.some((s: any) => s.weight || s.reps || s.time)
+        setsArr.some((s: any) => s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline)
       
       if (!hasValidSets) return
       
-      const bp = (ex.body_part || 'other').toLowerCase()
-      if (!stats[bp]) return
+      let bp = (ex.body_part || 'other').toLowerCase()
+      if (!stats[bp]) bp = 'other'
       
       // Track dates
       if (!stats[bp].dates.includes(w.date)) {
@@ -1892,18 +1928,17 @@ export async function saveActiveWorkoutSession(userId: string, sessionData: any)
   try {
     const sessionPayload: any = {
       user_id: userId,
-      workout_start_time: sessionData.workoutStartTime,
-      paused_time_ms: sessionData.pausedTimeMs || 0,
-      rest_start_time: sessionData.restStartTime || null,
-      rest_duration_seconds: sessionData.restDurationSeconds || null,
-      is_resting: sessionData.isResting || false,
+      session_data: {
+        workout_start_time: sessionData.workoutStartTime,
+        paused_time_ms: sessionData.pausedTimeMs || 0,
+        rest_start_time: sessionData.restStartTime || null,
+        rest_duration_seconds: sessionData.restDurationSeconds || null,
+        is_resting: sessionData.isResting || false,
+        workout_time: sessionData.workoutTime || 0,
+        rest_time: sessionData.restTime || 0,
+        exercises: sessionData.exercises || [],
+      },
       updated_at: new Date().toISOString()
-    }
-
-    // Include exercises if provided (for auto-save)
-    // Only include if column exists (graceful degradation)
-    if (sessionData.exercises !== undefined) {
-      sessionPayload.exercises = sessionData.exercises
     }
 
     const { data, error } = await supabase
@@ -1965,22 +2000,31 @@ export async function getActiveWorkoutSession(userId: string) {
       .maybeSingle()
 
     if (error) {
-      // Check if error is due to missing table (expected error)
       const isExpectedError = error.code === 'PGRST205' || 
                               error.code === '42P01' ||
                               error.message?.includes('Could not find the table')
       
       if (isExpectedError) {
-        // Silently fail for expected errors
         safeLogDebug('Active workout sessions table not available')
         return null
       }
       
-      // Log unexpected errors
       logError('Error getting active workout session', error)
       return null
     }
-    return data
+    if (!data) return null
+    const sd = data.session_data || {}
+    return {
+      ...data,
+      workout_start_time: sd.workout_start_time || data.created_at,
+      paused_time_ms: sd.paused_time_ms || 0,
+      rest_start_time: sd.rest_start_time || null,
+      rest_duration_seconds: sd.rest_duration_seconds || null,
+      is_resting: sd.is_resting || false,
+      workout_time: sd.workout_time || 0,
+      rest_time: sd.rest_time || 0,
+      exercises: sd.exercises || [],
+    }
   } catch (error: any) {
     // Catch any unexpected errors and fail gracefully
     const isExpectedError = error.code === 'PGRST205' || 

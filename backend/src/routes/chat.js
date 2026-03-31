@@ -79,14 +79,14 @@ RESPOND WITH ONLY THIS JSON FORMAT, NO OTHER TEXT:
   "type": "workout",
   "name": "Descriptive Workout Name",
   "exercises": [
-    {"name": "Exercise Name", "sets": 3, "reps": 10, "bodyPart": "Chest"}
+    {"name": "Exercise Name", "sets": 3, "reps": 10, "bodyPart": "Upper Chest"}
   ]
 }
 
 Rules:
 - Include 5-7 exercises
 - Use real exercise names (Barbell Squat, Bench Press, Lat Pulldown, etc.)
-- bodyPart must be: Chest, Back, Shoulders, Arms, Legs, or Core
+- bodyPart must be: Upper Chest, Mid Chest, Lower Chest, Lats, Upper Back, Traps, Shoulders, Arms, Legs, Core, or Rotator Cuff
 - Match the workout to what they asked for (leg day = leg exercises, etc.)
 - Vary sets (3-5) and reps (6-15) based on exercise type
 ${context ? `\nUser context: ${context}` : ''}`

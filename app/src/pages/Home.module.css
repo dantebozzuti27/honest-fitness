@@ -218,6 +218,78 @@
   line-height: 1.25;
 }
 
+.activeWorkoutBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.activeWorkoutBanner:hover {
+  border-color: var(--accent);
+}
+
+.activeWorkoutLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.activeWorkoutIcon {
+  font-size: 22px;
+}
+
+.activeWorkoutText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.activeWorkoutTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.activeWorkoutSub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.activeWorkoutActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.activeWorkoutResume {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.activeWorkoutDismiss {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+
+.activeWorkoutDismiss:hover {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+}
+
 .quickGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;

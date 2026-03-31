@@ -155,6 +155,12 @@ export interface ModelConfig {
   maxCardioPctDefault: number;
   maxCardioPctFatLoss: number;
   maxCardioPerExerciseMinutes: number;
+  /** Hard ceiling for walk / incline-walk treadmill prescriptions (mph). */
+  maxWalkSpeedMph: number;
+  /** Lower bound when inferring walk speed from history/comfort (mph). */
+  minWalkInferredSpeedMph: number;
+  /** Half-life (days) for exponential decay of swap-event weight in scoring. */
+  swapDecayHalfLifeDays: number;
 
   // ── Deload Trigger Thresholds ───────────────────────────────────────
   deloadRegressingExerciseThreshold: number;
@@ -164,11 +170,29 @@ export interface ModelConfig {
   warmupPrimaryOnly: boolean;
   barbellWarmupAnchors: number[];
   suppressRedundantLowerWarmups: boolean;
+
+  // ── Rep Range Cycling ─────────────────────────────────────────────────
+  heavyRepRange: [number, number];
+  moderateRepRange: [number, number];
+  metabolicRepRange: [number, number];
+
+  // ── Rest by Intensity Tier ────────────────────────────────────────────
+  heavyRestSeconds: number;
+  moderateRestSeconds: number;
+  metabolicRestSeconds: number;
+
+  // ── Frequency Constraints ─────────────────────────────────────────────
+  minWeeklyFrequencyPrimary: number;
+  minWeeklyFrequencySecondary: number;
+
+  // ── Mesocycle Phases ──────────────────────────────────────────────────
+  mesocyclePhases: Record<string, { volumeMult: number; rirOffset: number }>;
+  mesocycleRecoverySignalThreshold: number;
 }
 
 // Version stamps persisted with generated workouts for reproducibility.
-export const MODEL_CONFIG_VERSION = '2026-03-12.1';
-export const WORKOUT_ENGINE_VERSION = '2026-03-12.1';
+export const MODEL_CONFIG_VERSION = '2026-03-24.1';
+export const WORKOUT_ENGINE_VERSION = '2026-03-24.1';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery
@@ -230,7 +254,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   minStrengthBudgetMinutes: 30,
 
   // Muscle group selection
-  splitMatchBoost: 0.50,
+  splitMatchBoost: 5.0,
   dayPatternBoost: 0.20,
   priorityMuscleBoost: 0.30,
   splitConfidenceThreshold: 0.60,
@@ -254,12 +278,15 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   advancedProgressionRate: 0.7,
 
   // Defaults & fallbacks
-  defaultSessionDurationMinutes: 120,
+  defaultSessionDurationMinutes: 65,
   defaultBodyWeightLbs: 160,
   minTrainingAgeDays: 3,
   maxCardioPctDefault: 0.30,
   maxCardioPctFatLoss: 0.40,
   maxCardioPerExerciseMinutes: 45,
+  maxWalkSpeedMph: 3.5,
+  minWalkInferredSpeedMph: 2.4,
+  swapDecayHalfLifeDays: 42,
 
   // Deload triggers
   deloadRegressingExerciseThreshold: 5,
@@ -269,4 +296,27 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   warmupPrimaryOnly: true,
   barbellWarmupAnchors: [45, 95, 135, 185, 225, 275, 315, 365, 405, 455, 495],
   suppressRedundantLowerWarmups: true,
+
+  // Rep range cycling
+  heavyRepRange: [4, 6],
+  moderateRepRange: [8, 12],
+  metabolicRepRange: [12, 20],
+
+  // Rest by intensity tier
+  heavyRestSeconds: 210,
+  moderateRestSeconds: 120,
+  metabolicRestSeconds: 75,
+
+  // Frequency constraints
+  minWeeklyFrequencyPrimary: 2,
+  minWeeklyFrequencySecondary: 1,
+
+  // Mesocycle phases
+  mesocyclePhases: {
+    accumulation: { volumeMult: 0.90, rirOffset: 1 },
+    loading:      { volumeMult: 1.00, rirOffset: 0 },
+    overreach:    { volumeMult: 1.10, rirOffset: -1 },
+    deload:       { volumeMult: 0.80, rirOffset: 2 },
+  },
+  mesocycleRecoverySignalThreshold: 3,
 };

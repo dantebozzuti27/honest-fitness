@@ -1,95 +1,113 @@
-/**
- * Authentication Middleware
- * Verifies Supabase JWT tokens for API requests
- */
-
-import { createClient } from '@supabase/supabase-js'
+import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { query } from '../database/pg.js'
 import { logError } from '../utils/logger.js'
 import { sendError } from '../utils/http.js'
 
-/**
- * IMPORTANT:
- * Do NOT create the Supabase client at import time.
- * Serverless platforms can bundle/build without runtime env present.
- */
-let supabase = null
-let didInit = false
+const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID || ''
+const COGNITO_CLIENT_ID = process.env.COGNITO_CLIENT_ID || ''
+const REGION = USER_POOL_ID.split('_')[0] || 'us-east-1'
+const ISSUER = `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}`
+const JWKS_URI = `${ISSUER}/.well-known/jwks.json`
 
-function getSupabaseAuthClient() {
-  if (supabase) return supabase
-  if (didInit) return null
-  didInit = true
+let jwks = null
 
-  const url = process.env.SUPABASE_URL
-  // SECURITY: for token verification, require explicit server-side key.
-  // Prefer SUPABASE_SERVICE_ROLE_KEY (available on the server) and do not fall back.
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) return null
-
-  supabase = createClient(url, key)
-  return supabase
+function getJwks() {
+  if (jwks) return jwks
+  if (!USER_POOL_ID) return null
+  jwks = createRemoteJWKSet(new URL(JWKS_URI))
+  return jwks
 }
 
 /**
- * Middleware to verify JWT token and extract user ID
+ * Resolves a Cognito sub + email to the canonical users.id.
+ * Priority: cognito_sub match → email match (and backfill cognito_sub) → create new.
  */
+async function resolveUserId(cognitoSub, email) {
+  // 1. Already linked by cognito_sub
+  const bySub = await query(
+    'SELECT id, email FROM users WHERE cognito_sub = $1',
+    [cognitoSub]
+  )
+  if (bySub.rows.length > 0) return bySub.rows[0]
+
+  // 2. Match by email — legacy user from Supabase migration
+  if (email) {
+    const byEmail = await query(
+      'SELECT id, email FROM users WHERE email = $1 AND cognito_sub IS NULL',
+      [email]
+    )
+    if (byEmail.rows.length > 0) {
+      await query('UPDATE users SET cognito_sub = $1 WHERE id = $2', [cognitoSub, byEmail.rows[0].id])
+      return byEmail.rows[0]
+    }
+  }
+
+  // 3. New user — create row using cognito_sub as id
+  const created = await query(
+    'INSERT INTO users (id, email, cognito_sub) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING RETURNING id, email',
+    [cognitoSub, email || '']
+  )
+  if (created.rows.length > 0) return created.rows[0]
+
+  return { id: cognitoSub, email: email || '' }
+}
+
 export async function authenticate(req, res, next) {
   try {
-    // Get token from Authorization header
     const authHeader = req.headers.authorization
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return sendError(res, { status: 401, message: 'Missing or invalid authorization header' })
     }
 
-    const token = authHeader.substring(7) // Remove 'Bearer ' prefix
+    const token = authHeader.substring(7)
 
-    // Verify token with Supabase
-    const client = getSupabaseAuthClient()
-    if (!client) {
-      logError('Auth not configured: missing SUPABASE_URL / SUPABASE_*_KEY')
+    const ks = getJwks()
+    if (!ks) {
+      logError('Auth not configured: missing COGNITO_USER_POOL_ID')
       return sendError(res, { status: 500, message: 'Server authentication is not configured' })
     }
 
-    const { data: { user }, error } = await client.auth.getUser(token)
+    const verifyOpts = { issuer: ISSUER }
+    if (COGNITO_CLIENT_ID) verifyOpts.audience = COGNITO_CLIENT_ID
+    const { payload } = await jwtVerify(token, ks, verifyOpts)
 
-    if (error || !user) {
-      return sendError(res, { status: 401, message: 'Invalid or expired token' })
-    }
+    const resolved = await resolveUserId(payload.sub, payload.email)
 
-    // Attach user to request object
-    req.user = user
-    req.userId = user.id
+    req.user = { id: resolved.id, email: resolved.email }
+    req.userId = resolved.id
 
     next()
   } catch (error) {
+    const msg = error?.message || ''
+    if (msg.includes('expired') || msg.includes('ERR_JWT_EXPIRED')) {
+      return sendError(res, { status: 401, message: 'Token expired' })
+    }
     logError('Authentication error', error)
-    return sendError(res, { status: 500, message: 'Authentication failed' })
+    return sendError(res, { status: 401, message: 'Invalid or expired token' })
   }
 }
 
-/**
- * Optional authentication - doesn't fail if no token
- */
 export async function optionalAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7)
-
-      const client = getSupabaseAuthClient()
-      if (!client) return next()
-
-      const { data: { user }, error } = await client.auth.getUser(token)
-      
-      if (!error && user) {
-        req.user = user
-        req.userId = user.id
+      const ks = getJwks()
+      if (ks) {
+        try {
+          const optVerify = { issuer: ISSUER }
+          if (COGNITO_CLIENT_ID) optVerify.audience = COGNITO_CLIENT_ID
+          const { payload } = await jwtVerify(token, ks, optVerify)
+          const resolved = await resolveUserId(payload.sub, payload.email)
+          req.user = { id: resolved.id, email: resolved.email }
+          req.userId = resolved.id
+        } catch {
+          // continue without auth
+        }
       }
     }
     next()
-  } catch (error) {
-    // Continue without authentication
+  } catch {
     next()
   }
 }
-

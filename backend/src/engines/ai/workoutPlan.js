@@ -27,7 +27,7 @@ Return JSON format:
       "name": "Exercise Name",
       "sets": 3,
       "reps": "8-12",
-      "bodyPart": "Chest",
+      "bodyPart": "Upper Chest",
       "equipment": "Barbell",
       "notes": "Focus on form"
     }

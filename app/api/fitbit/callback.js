@@ -1,7 +1,4 @@
-/**
- * Fitbit OAuth Callback Handler
- * Handles the OAuth redirect from Fitbit after user authorization
- */
+import { query } from '../../../api/_shared/db.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -10,7 +7,6 @@ export default async function handler(req, res) {
 
   const { code, error, state } = req.query
 
-  // Handle error from Fitbit
   if (error) {
     return res.redirect(`/?fitbit_error=${encodeURIComponent(error)}`)
   }
@@ -19,7 +15,6 @@ export default async function handler(req, res) {
     return res.redirect(`/?fitbit_error=${encodeURIComponent('No authorization code received')}`)
   }
 
-  // Extract user ID from state (should be passed during OAuth initiation)
   const userId = state
 
   if (!userId) {
@@ -27,7 +22,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Exchange authorization code for access token
     const tokenResponse = await fetch('https://api.fitbit.com/oauth2/token', {
       method: 'POST',
       headers: {
@@ -52,36 +46,29 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenResponse.json()
 
-    // Save tokens to Supabase
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabase = createClient(
-      process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
-      process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
-    )
-
-    // Calculate token expiration
     const expiresAt = new Date()
-    expiresAt.setSeconds(expiresAt.getSeconds() + (tokenData.expires_in || 28800)) // Default 8 hours
+    expiresAt.setSeconds(expiresAt.getSeconds() + (tokenData.expires_in || 28800))
 
-    const { error: dbError } = await supabase
-      .from('connected_accounts')
-      .upsert({
-        user_id: userId,
-        provider: 'fitbit',
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token,
-        expires_at: expiresAt.toISOString(),
-        token_type: tokenData.token_type || 'Bearer',
-        scope: tokenData.scope || null,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id,provider' })
-
-    if (dbError) {
+    try {
+      await query(
+        `INSERT INTO connected_accounts (user_id, provider, access_token, refresh_token, expires_at, token_type, scope, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (user_id, provider) DO UPDATE SET
+           access_token = EXCLUDED.access_token,
+           refresh_token = EXCLUDED.refresh_token,
+           expires_at = EXCLUDED.expires_at,
+           token_type = EXCLUDED.token_type,
+           scope = EXCLUDED.scope,
+           updated_at = EXCLUDED.updated_at`,
+        [userId, 'fitbit', tokenData.access_token, tokenData.refresh_token,
+         expiresAt.toISOString(), tokenData.token_type || 'Bearer',
+         tokenData.scope || null, new Date().toISOString()]
+      )
+    } catch (dbError) {
       console.error('Database error:', dbError)
       return res.redirect(`/?fitbit_error=${encodeURIComponent('Failed to save connection')}`)
     }
 
-    // Success! Redirect back to app
     return res.redirect(`/?fitbit_connected=true`)
 
   } catch (error) {
@@ -89,4 +76,3 @@ export default async function handler(req, res) {
     return res.redirect(`/?fitbit_error=${encodeURIComponent(error.message || 'Unknown error')}`)
   }
 }
-

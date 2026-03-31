@@ -7,7 +7,7 @@
 import express from 'express'
 import crypto from 'crypto'
 import rateLimit from 'express-rate-limit'
-import { createClient } from '@supabase/supabase-js'
+import { query as pgQuery } from '../database/pg.js'
 import { sendError, sendSuccess, wrapAsync } from '../utils/http.js'
 
 export const insightsRouter = express.Router()
@@ -93,7 +93,7 @@ Each correction must include the exercise name and a specific fix (new sets, new
 CATEGORY 2 — pattern_observations (stored for future workouts, not applied now):
 Recurring patterns you notice across the profile that the engine should learn. Examples:
 - "User consistently swaps out barbell rows — consider defaulting to cable rows"
-- "Chest volume has been above MRV for 3 weeks — next mesocycle should reduce"
+- "Mid chest volume has been above MRV for 3 weeks — next mesocycle should reduce"
 - "User never does unilateral leg work — consider adding lunges/split squats"
 
 Respond with ONLY this JSON:
@@ -136,19 +136,6 @@ const insightsLimiter = rateLimit({
 const validateCache = new Map()
 const CACHE_TTL_MS = 5 * 60 * 1000
 const VALIDATION_SCHEMA_VERSION = 'v1'
-let insightsSupabase = null
-let insightsSupabaseInit = false
-
-function getInsightsSupabase() {
-  if (insightsSupabase) return insightsSupabase
-  if (insightsSupabaseInit) return null
-  insightsSupabaseInit = true
-  const url = process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) return null
-  insightsSupabase = createClient(url, key)
-  return insightsSupabase
-}
 
 function classifyValidationRejections(parsed) {
   const classes = new Set()
@@ -308,24 +295,13 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
         rejection_classes: rejectionClasses,
         schema_version: VALIDATION_SCHEMA_VERSION,
       }
-      const db = getInsightsSupabase()
-      if (db && req.userId) {
+      if (req.userId) {
         const generatedWorkoutId = workoutData && typeof workoutData.id === 'string' ? workoutData.id : null
-        db
-          .from('llm_validation_artifacts')
-          .insert({
-            user_id: req.userId,
-            generated_workout_id: generatedWorkoutId,
-            verdict: safe.verdict,
-            rejection_classes: rejectionClasses,
-            rationale: parsed?.summary || null,
-            immediate_corrections: safe.immediate_corrections,
-            pattern_observations: safe.pattern_observations,
-            schema_version: VALIDATION_SCHEMA_VERSION,
-            model_version: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-          })
-          .then(() => {})
-          .catch(() => {})
+        pgQuery(
+          `INSERT INTO llm_validation_artifacts (user_id, generated_workout_id, verdict, rejection_classes, rationale, immediate_corrections, pattern_observations, schema_version, model_version)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [req.userId, generatedWorkoutId, safe.verdict, JSON.stringify(rejectionClasses), parsed?.summary || null, JSON.stringify(safe.immediate_corrections), JSON.stringify(safe.pattern_observations), VALIDATION_SCHEMA_VERSION, process.env.OPENAI_MODEL || 'gpt-4o-mini']
+        ).catch(() => {})
       }
       if (req.userId && workoutData) {
         const cacheKey = workoutValidationCacheKey(req.userId, workoutData, trainingProfile)

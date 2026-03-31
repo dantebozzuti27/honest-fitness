@@ -11,15 +11,16 @@ import rateLimit from 'express-rate-limit'
  */
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 500, // Each workout save/delete can fire 15+ requests; keep headroom
   message: {
     error: {
       message: 'Too many requests from this IP, please try again later.',
       status: 429
     }
   },
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
 })
 
 /**

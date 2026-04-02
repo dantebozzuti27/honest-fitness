@@ -19,10 +19,11 @@ import {
   SYNERGIST_FATIGUE,
   MUSCLE_HEAD_TO_GROUP,
   getGuidelineForGroup,
+  type CanonicalMuscleGroup,
 } from './volumeGuidelines';
 
 export interface MuscleRecoveryStatus {
-  muscleGroup: string;
+  muscleGroup: CanonicalMuscleGroup;
   hoursSinceLastTrained: number;
   baselineRecoveryHours: number;
   directSetsLastSession: number;
@@ -44,7 +45,7 @@ export interface RecoveryContext {
 }
 
 export interface MuscleGroupTrainingRecord {
-  muscleGroup: string;
+  muscleGroup: CanonicalMuscleGroup;
   lastTrainedAt: Date;
   directSets: number;
 }
@@ -91,7 +92,7 @@ export function computeRecoveryModifier(ctx: RecoveryContext): number {
  * Returns additional "virtual hours of fatigue" to add to recovery time.
  */
 export function computeSynergistPenalty(
-  targetGroup: string,
+  targetGroup: CanonicalMuscleGroup,
   recentTraining: MuscleGroupTrainingRecord[],
   nowMs: number
 ): number {
@@ -109,7 +110,7 @@ export function computeSynergistPenalty(
 
     if (hoursSince < baseRecovery) {
       const remainingFatigueFraction = 1 - (hoursSince / baseRecovery);
-      const crossFatigueCoeff = fatigueMap[targetGroup];
+      const crossFatigueCoeff = fatigueMap[targetGroup] ?? 0;
       penalty += remainingFatigueFraction * crossFatigueCoeff * baseRecovery * 0.5;
     }
   }
@@ -151,7 +152,7 @@ export function ageRecoveryFactor(age: number | null): number {
 export function computeAllRecoveryStatuses(
   recentTraining: MuscleGroupTrainingRecord[],
   recoveryCtx: RecoveryContext,
-  individualMods: Record<string, number> = {},
+  individualMods: Partial<Record<CanonicalMuscleGroup, number>> = {},
   now: Date = new Date(),
   recoverySpeedMultiplier: number = 1.0,
   muscleReadyThreshold: number = 85,
@@ -253,7 +254,7 @@ export function exercisesToMuscleGroupRecords(
   }
 
   return Object.entries(groupSets).map(([muscleGroup, directSets]) => ({
-    muscleGroup,
+    muscleGroup: muscleGroup as CanonicalMuscleGroup,
     lastTrainedAt: trainedAt,
     directSets: Math.round(directSets),
   }));

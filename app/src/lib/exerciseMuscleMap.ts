@@ -16,14 +16,16 @@
  * No external API required.
  */
 
+import type { ExerciseType, MovementPattern, ForceType, Difficulty } from './volumeGuidelines';
+
 export interface ExerciseMapping {
   primary_muscles: string[];
   secondary_muscles: string[];
   stabilizer_muscles: string[];
-  movement_pattern: string;
-  exercise_type: 'compound' | 'isolation' | 'isometric' | 'cardio' | 'recovery';
-  force_type: 'push' | 'pull' | 'static' | 'dynamic';
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  movement_pattern: MovementPattern;
+  exercise_type: ExerciseType;
+  force_type: ForceType;
+  difficulty: Difficulty;
   default_tempo: string;
   functional_description: string;
   /** For cardio/recovery: equivalent strength-training sets of fatigue per 30 minutes of activity, per primary muscle group */
@@ -41,8 +43,6 @@ export interface ExerciseMapping {
    * vs when adding a new exercise is more productive.
    */
   stimulus_to_fatigue_ratio?: number;
-  /** What makes this exercise biomechanically distinct from similar movements */
-  biomechanical_notes?: string;
 }
 
 export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {

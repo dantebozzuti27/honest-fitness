@@ -20,7 +20,7 @@
  */
 
 export interface VolumeGuideline {
-  muscleGroup: string;
+  muscleGroup: CanonicalMuscleGroup;
   tier: 'primary' | 'secondary';
   mev: number;
   mavLow: number;
@@ -60,6 +60,30 @@ export const CANONICAL_MUSCLE_GROUPS = [
 ] as const;
 
 export type CanonicalMuscleGroup = typeof CANONICAL_MUSCLE_GROUPS[number];
+
+/** Use when a field can be a real muscle group OR the synthetic 'cardio' category */
+export type MuscleGroupOrCardio = CanonicalMuscleGroup | 'cardio';
+
+export type ExerciseRole = 'primary' | 'secondary' | 'isolation' | 'corrective' | 'cardio';
+
+export type ExerciseType = 'compound' | 'isolation' | 'isometric' | 'cardio' | 'recovery';
+
+export type MovementPattern =
+  | 'squat' | 'lunge' | 'hinge' | 'hip_extension'
+  | 'horizontal_push' | 'horizontal_pull'
+  | 'vertical_push' | 'vertical_pull'
+  | 'extension' | 'flexion' | 'rotation'
+  | 'abduction' | 'adduction' | 'elevation'
+  | 'anti_extension' | 'anti_rotation' | 'anti_lateral_flexion'
+  | 'carry' | 'loaded_carry' | 'plyometric'
+  | 'cardio_steady_state' | 'cardio_intervals'
+  | 'recovery';
+
+export type ForceType = 'push' | 'pull' | 'static' | 'dynamic';
+
+export type Difficulty = 'beginner' | 'intermediate' | 'advanced';
+
+export type GoalKind = 'strength' | 'hypertrophy' | 'general_fitness' | 'fat_loss' | 'endurance';
 
 export const MUSCLE_GROUP_ALIASES: Record<string, string> = {
   chest: 'mid_chest',
@@ -427,7 +451,7 @@ export const MUSCLE_HEAD_TO_GROUP: Record<string, CanonicalMuscleGroup> = {
  *
  * Used by the recovery model to account for cross-session interference.
  */
-export const SYNERGIST_FATIGUE: Record<string, Record<string, number>> = {
+export const SYNERGIST_FATIGUE: Partial<Record<CanonicalMuscleGroup, Partial<Record<CanonicalMuscleGroup, number>>>> = {
   upper_chest: { triceps: 0.4, anterior_deltoid: 0.5, mid_chest: 0.3 },
   mid_chest: { triceps: 0.4, anterior_deltoid: 0.5, upper_chest: 0.3, lower_chest: 0.3 },
   lower_chest: { triceps: 0.5, mid_chest: 0.3 },
@@ -454,14 +478,14 @@ export const SYNERGIST_FATIGUE: Record<string, Record<string, number>> = {
   erector_spinae: { hamstrings: 0.15, glutes: 0.1 },
 };
 
-export function getGuidelineForGroup(muscleGroup: string): VolumeGuideline | undefined {
+export function getGuidelineForGroup(muscleGroup: CanonicalMuscleGroup): VolumeGuideline | undefined {
   return VOLUME_GUIDELINES.find(g => g.muscleGroup === muscleGroup);
 }
 
 export const PRIMARY_MUSCLE_GROUPS: CanonicalMuscleGroup[] = VOLUME_GUIDELINES
   .filter(g => g.tier === 'primary')
-  .map(g => g.muscleGroup as CanonicalMuscleGroup);
+  .map(g => g.muscleGroup);
 
 export const SECONDARY_MUSCLE_GROUPS: CanonicalMuscleGroup[] = VOLUME_GUIDELINES
   .filter(g => g.tier === 'secondary')
-  .map(g => g.muscleGroup as CanonicalMuscleGroup);
+  .map(g => g.muscleGroup);

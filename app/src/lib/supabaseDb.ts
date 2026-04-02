@@ -266,6 +266,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     user_id: userId,
     date: workoutToSave.date,
     duration: workoutToSave.duration,
+    completed: true,
     template_name: templateName,
     perceived_effort: workoutToSave.perceivedEffort || null,
     session_rpe: workoutToSave.perceivedEffort || null,
@@ -478,6 +479,13 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
             metadata: { source: 'saveWorkoutToSupabase', set_number: idx + 1 },
           })
         }
+        const loggedAt = set.logged_at || set.loggedAt || null;
+        const prevLoggedAt = idx > 0 ? (validSets[idx - 1]?.logged_at || validSets[idx - 1]?.loggedAt || null) : null;
+        let restSecondsBefore: number | null = null;
+        if (loggedAt && prevLoggedAt) {
+          const diff = (new Date(loggedAt).getTime() - new Date(prevLoggedAt).getTime()) / 1000;
+          if (diff > 10 && diff < 1200) restSecondsBefore = Math.round(diff);
+        }
         return {
           workout_exercise_id: exerciseData.id,
           set_number: idx + 1,
@@ -492,6 +500,8 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
           is_unilateral: loadNorm.isUnilateral,
           load_interpretation: loadNorm.loadInterpretation,
           reps_interpretation: loadNorm.repsInterpretation,
+          logged_at: loggedAt,
+          rest_seconds_before: restSecondsBefore,
         }
       })
 

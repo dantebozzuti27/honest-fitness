@@ -1,3 +1,9 @@
+/**
+ * CANONICAL SOURCE OF TRUTH for CanonicalMuscleGroup is app/src/lib/volumeGuidelines.ts.
+ * This file re-declares for consumers outside the app tsconfig boundary.
+ * Keep in sync with volumeGuidelines.ts CANONICAL_MUSCLE_GROUPS array.
+ */
+
 export type UUID = string
 
 export type PlanDayStatus = 'planned' | 'adapted' | 'completed' | 'skipped'
@@ -233,6 +239,7 @@ export interface MechanicalCouplingEdge {
   rationale: string
 }
 
+/** @see CardioCapabilityProfile in app/src/lib/trainingAnalysis.ts for the active runtime type */
 export interface CardioCapabilityProfileDTO {
   id: UUID
   user_id: UUID

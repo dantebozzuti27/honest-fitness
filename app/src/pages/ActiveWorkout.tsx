@@ -896,14 +896,12 @@ export default function ActiveWorkout() {
                   sets: Array(setsCount).fill(null).map(() => ({
                     weight: '',
                     reps: !isCardio ? repsValue : '',
-                    // Cardio template "time" should be treated as a target, not a recorded time.
-                    // Keep the live time fields empty so the timer starts at 0:00.
                     time: '',
                     time_seconds: '',
                     target_time: isCardio ? timeValue : '',
                     target_time_seconds: isCardio && targetSeconds != null ? targetSeconds : '',
-                    speed: '',
-                    incline: '',
+                    speed: (typeof entry === 'object' && entry?.speed != null) ? String(entry.speed) : '',
+                    incline: (typeof entry === 'object' && entry?.incline != null) ? String(entry.incline) : '',
                     ...defaultSetMetaForExercise(name)
                   })),
                   expanded: idx === 0
@@ -1880,7 +1878,12 @@ export default function ActiveWorkout() {
     setExercises(prev => prev.map(ex => {
       if (ex.id !== exerciseId) return ex
       const newSets = [...ex.sets]
-      newSets[setIndex] = { ...newSets[setIndex], [field]: value }
+      const updated = { ...newSets[setIndex], [field]: value };
+      // Stamp logged_at the first time meaningful data enters a set
+      if (!updated.logged_at && (field === 'reps' || field === 'weight' || field === 'time_seconds') && value) {
+        updated.logged_at = new Date().toISOString();
+      }
+      newSets[setIndex] = updated;
       return { ...ex, sets: newSets }
     }))
   }
@@ -2286,7 +2289,8 @@ export default function ActiveWorkout() {
         return setSum + w * r;
       }, 0);
     }, 0);
-    const trainingDensity = workoutTime > 0 ? Math.round(totalVolumeLoad / workoutTime) : null;
+    const durationMinutes = workoutTime > 0 ? Math.round(workoutTime / 60) : 0;
+    const trainingDensity = durationMinutes > 0 ? Math.round(totalVolumeLoad / durationMinutes) : null;
 
     const workoutEndMs = Date.now()
     const workoutStartMs = workoutStartTimeRef.current || (workoutEndMs - workoutTime * 1000)
@@ -2294,7 +2298,7 @@ export default function ActiveWorkout() {
     const workout = {
       id: uuidv4(),
       date: getTodayEST(),
-      duration: workoutTime,
+      duration: durationMinutes,
       workoutStartTime: new Date(workoutStartMs).toISOString(),
       workoutEndTime: new Date(workoutEndMs).toISOString(),
       templateName: (() => {

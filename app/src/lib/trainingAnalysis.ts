@@ -22,7 +22,7 @@
 
 import { db } from './dbClient';
 import { DEFAULT_MODEL_CONFIG } from './modelConfig';
-import { MUSCLE_HEAD_TO_GROUP, VOLUME_GUIDELINES, SYNERGIST_FATIGUE, type CanonicalMuscleGroup } from './volumeGuidelines';
+import { MUSCLE_HEAD_TO_GROUP, VOLUME_GUIDELINES, SYNERGIST_FATIGUE, type CanonicalMuscleGroup, type MuscleGroupOrCardio, type ExerciseType, type MovementPattern, type ForceType, type Difficulty } from './volumeGuidelines';
 import { getAllConnectedAccounts } from './wearables';
 import {
   computeAllRecoveryStatuses,
@@ -110,10 +110,10 @@ export interface EnrichedExercise {
   primary_muscles: string[] | null;
   secondary_muscles: string[] | null;
   stabilizer_muscles: string[] | null;
-  movement_pattern: string | null;
-  ml_exercise_type: string | null;
-  force_type: string | null;
-  difficulty: string | null;
+  movement_pattern: MovementPattern | null;
+  ml_exercise_type: ExerciseType | null;
+  force_type: ForceType | null;
+  difficulty: Difficulty | null;
   default_tempo: string | null;
   equipment: string[] | null;
 }
@@ -185,7 +185,7 @@ export interface DeloadRecommendation {
 }
 
 export interface MuscleVolumeStatus {
-  muscleGroup: string;
+  muscleGroup: CanonicalMuscleGroup;
   weeklyDirectSets: number;
   weeklyIndirectSets: number;
   mev: number;
@@ -247,7 +247,7 @@ export interface ExerciseTrend {
 }
 
 export interface MuscleGroupTrend {
-  muscleGroup: string;
+  muscleGroup: CanonicalMuscleGroup;
   weeklySetsTrend: MetricTrend;
 }
 
@@ -337,7 +337,7 @@ export interface TrainingProfile {
   plateauDetections: PlateauDetection[];
 
   // Feature 10: Individual MRV
-  individualMrvEstimates: Record<string, number>;
+  individualMrvEstimates: Partial<Record<CanonicalMuscleGroup, number>>;
 
   // Feature 11: Progression Pattern Learning (per movement pattern)
   bestProgressionPatterns: Record<string, string>;
@@ -403,18 +403,18 @@ export interface TrainingProfile {
     outcomeSampleSize: number;  // number of post-session labels used
     avgSetExecutionAccuracy: number; // 0-1 average set-level target vs actual fidelity
     executionSampleSize: number; // number of set-level labels used
-    muscleGroupExecutionDeltas: Record<string, {
+    muscleGroupExecutionDeltas: Partial<Record<CanonicalMuscleGroup, {
       completionRate: number;
       avgWeightDeviation: number;
       avgRepsDeviation: number;
       sampleSize: number;
       prescribedCount: number;
       completedCount: number;
-    }>;
+    }>>;
   };
 
   // #4: Individual muscle recovery rates (learned from performance-after-rest)
-  individualRecoveryRates: Record<string, number>;
+  individualRecoveryRates: Partial<Record<CanonicalMuscleGroup, number>>;
 
   // #20: Banister fitness-fatigue model
   fitnessFatigueModel: {
@@ -501,7 +501,7 @@ export interface TrainingProfile {
   consistencyScore: number;
 
   /** Per-muscle-group training frequency (sessions/week over last 14 days) */
-  muscleGroupFrequency: Record<string, number>;
+  muscleGroupFrequency: Partial<Record<CanonicalMuscleGroup, number>>;
 
   /** LLM pattern observations from recent workouts (last 30 days) */
   llmPatternObservations: Array<{ pattern: string; suggestion: string; confidence: string }>;
@@ -580,7 +580,7 @@ export interface DetectedSplit {
 export interface DayOfWeekPattern {
   dayOfWeek: number; // 0=Sun, 6=Sat
   dayName: string;
-  muscleGroupsTypical: string[];
+  muscleGroupsTypical: CanonicalMuscleGroup[];
   templateNames: string[];
   frequency: number; // fraction of weeks this day was trained
   avgExerciseCount: number;
@@ -633,7 +633,7 @@ export interface ExerciseOrderProfile {
   avgNormalizedPosition: number;
   positionCategory: 'opener' | 'early' | 'middle' | 'late' | 'closer';
   sessions: number;
-  muscleGroupsUsedWith: string[];
+  muscleGroupsUsedWith: CanonicalMuscleGroup[];
 }
 
 // ─── Data Fetching ──────────────────────────────────────────────────────────
@@ -1841,6 +1841,23 @@ function computeMuscleVolumeStatuses(
 /**
  * Compute exercise progression metrics.
  */
+/**
+ * Filters out sessions where the weight drops >60% from the running median,
+ * indicating likely equipment mismatch (e.g., DB RDL logged as BB RDL).
+ * Keeps at least 3 sessions.
+ */
+function filterEquipmentMismatchOutliers(
+  sessions: Array<{ date: string; best1RM: number; bestWeight: number; bestReps: number; lastWeight: number }>
+): typeof sessions {
+  if (sessions.length < 4) return sessions;
+  const weights = sessions.map(s => s.bestWeight);
+  const sorted = [...weights].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (median <= 0) return sessions;
+  const filtered = sessions.filter(s => s.bestWeight >= median * 0.4);
+  return filtered.length >= 3 ? filtered : sessions;
+}
+
 function computeExerciseProgressions(
   workouts: WorkoutRecord[],
   userBodyWeight?: number | null,
@@ -1899,7 +1916,10 @@ function computeExerciseProgressions(
   return Object.entries(exerciseSessions)
     .filter(([, sessions]) => sessions.length >= 3)
     .map(([name, sessions]) => {
-      const values = sessions.map(s => s.best1RM);
+      // Equipment-mismatch filter: exclude outlier sessions where weight drops
+      // > 60% from the running median (likely DB vs BB equipment confusion).
+      const filtered = filterEquipmentMismatchOutliers(sessions);
+      const values = filtered.map(s => s.best1RM);
       const slope = linearRegressionSlope(values);
       const avg = mean(values);
       const normalizedSlope = avg > 0 ? slope / avg : 0;
@@ -1909,14 +1929,14 @@ function computeExerciseProgressions(
       else if (normalizedSlope < -0.01) status = 'regressing';
       else status = 'stalled';
 
-      const last = sessions[sessions.length - 1];
+      const last = filtered[filtered.length - 1];
 
       return {
         exerciseName: name,
         estimated1RM: Math.round(last.best1RM * 10) / 10,
         progressionSlope: Math.round(normalizedSlope * 10000) / 10000,
         status,
-        sessionsTracked: sessions.length,
+        sessionsTracked: filtered.length,
         bestSet: { weight: last.bestWeight, reps: last.bestReps },
         lastWeight: last.lastWeight,
         progressionPattern: 'unknown' as const,
@@ -2899,7 +2919,7 @@ function computeDayOfWeekPatterns(
     const sortedGroups = Object.entries(dd.muscleGroupCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
-      .map(([g]) => g);
+      .map(([g]) => g as CanonicalMuscleGroup);
 
     const sortedTemplates = Object.entries(dd.templateCounts)
       .sort((a, b) => b[1] - a[1])
@@ -3278,7 +3298,7 @@ function computeExerciseOrderProfiles(
         avgNormalizedPosition: Math.round(avg * 1000) / 1000,
         positionCategory: category,
         sessions: d.positions.length,
-        muscleGroupsUsedWith: Array.from(coGroups),
+        muscleGroupsUsedWith: Array.from(coGroups) as CanonicalMuscleGroup[],
       };
     })
     .sort((a, b) => a.avgNormalizedPosition - b.avgNormalizedPosition);
@@ -3518,7 +3538,7 @@ function computeRolling30DayTrends(
 
   const muscleGroupTrends: MuscleGroupTrend[] = Object.entries(muscleGroupWeekly)
     .map(([muscleGroup, weeklySets]) => ({
-      muscleGroup,
+      muscleGroup: muscleGroup as CanonicalMuscleGroup,
       weeklySetsTrend: buildMetricTrend(weeklySets),
     }))
     .sort((a, b) => (b.weeklySetsTrend.avg30d ?? 0) - (a.weeklySetsTrend.avg30d ?? 0));
@@ -3811,12 +3831,25 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const healthByDate = new Map<string, HealthRecord>();
   for (const h of health) healthByDate.set(h.date, h);
 
-  // Compute baselines (30-day averages)
-  const last30 = health.slice(-30);
-  const sleepVals = last30.filter(h => h.sleep_duration != null).map(h => normalizeSleepHours(h.sleep_duration)!);
-  const hrvVals = last30.filter(h => h.hrv != null).map(h => h.hrv!);
-  const rhrVals = last30.filter(h => h.resting_heart_rate != null).map(h => h.resting_heart_rate!);
-  const stepsVals = last30.filter(h => h.steps != null).map(h => h.steps!);
+  // Compute baselines (30-day averages), excluding implausible health metric days.
+  // Days with <1200 kcal burned for an active male likely indicate incomplete Fitbit sync.
+  const last30 = health.slice(-30).filter(h => {
+    if (h.calories_burned != null && h.calories_burned < 1200) return false;
+    return true;
+  });
+  const sleepVals = last30
+    .filter(h => h.sleep_duration != null)
+    .map(h => normalizeSleepHours(h.sleep_duration)!)
+    .filter(v => v >= 3 && v <= 14);
+  const hrvVals = last30
+    .filter(h => h.hrv != null)
+    .map(h => h.hrv!)
+    .filter(v => v >= 10 && v <= 250);
+  const rhrVals = last30
+    .filter(h => h.resting_heart_rate != null)
+    .map(h => h.resting_heart_rate!)
+    .filter(v => v >= 30 && v <= 120);
+  const stepsVals = last30.filter(h => h.steps != null).map(h => h.steps!).filter(v => v >= 100);
 
   const calBurnedVals = last30.filter(h => h.calories_burned != null).map(h => h.calories_burned!);
   const activeMinVals = last30.filter(h =>
@@ -4707,8 +4740,8 @@ function computeGoalProgress(
       weight: 0.06,
     });
 
-    // Session duration (avgSessionDuration is in seconds)
-    const gfDurMin = global.avgSessionDuration / 60;
+    // avgSessionDuration is in minutes (normalized at computation time)
+    const gfDurMin = global.avgSessionDuration;
     if (gfDurMin > 0) {
       addSignal({
         label: 'Session Duration', value: `${Math.round(gfDurMin)} min avg`,
@@ -4720,7 +4753,7 @@ function computeGoalProgress(
 
     // Alignment
     const hasCardio = workouts.some(w => w.workout_exercises.some(e =>
-      (e as any).exercise_type === 'cardio' || e.exercise_name.toLowerCase().includes('treadmill') || e.exercise_name.toLowerCase().includes('bike') || e.exercise_name.toLowerCase().includes('elliptical')
+      'exercise_type' in e && (e as { exercise_type: string }).exercise_type === 'cardio' || e.exercise_name.toLowerCase().includes('treadmill') || e.exercise_name.toLowerCase().includes('bike') || e.exercise_name.toLowerCase().includes('elliptical')
     ));
     alignment.push({
       factor: 'Balanced Programming',
@@ -5464,8 +5497,7 @@ function computeFitnessFatigueModel(workouts: WorkoutRecord[]) {
     if (daysAgo < 0) continue;
 
     // Training impulse (TRIMP-like): duration_hours × effort (1-10 scale)
-    // Typical values: 1hr × RPE 6 = 6.0, 1.5hr × RPE 7 = 10.5
-    const durationMin = w.duration ?? 0;
+    const durationMin = normalizeWorkoutDurationMinutes(w.duration) ?? 0;
     const durationHours = durationMin > 0 ? durationMin / 60 : 0.5;
     const totalSets = w.workout_exercises.reduce((s, e) => s + (e.workout_sets?.length || 0), 0);
     const estimatedEffort = durationMin > 60 ? 5 : durationMin > 30 ? 4 : totalSets > 15 ? 5 : 3;

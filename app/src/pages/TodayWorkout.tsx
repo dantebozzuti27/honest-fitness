@@ -1884,7 +1884,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
                               const vol = profile.muscleVolumeStatuses.find(
                                 v => v.muscleGroup.toLowerCase() === (ex.targetMuscleGroup ?? '').toLowerCase()
                               )
-                              const freq = profile.muscleGroupFrequency[(ex.targetMuscleGroup ?? '').toLowerCase()] ?? 0
+                              const freq = (profile.muscleGroupFrequency as Record<string, number>)[(ex.targetMuscleGroup ?? '').toLowerCase()] ?? 0
                               return vol ? (
                                 <>
                                   <div className={styles.whyLabel}>Why {ex.sets} sets</div>

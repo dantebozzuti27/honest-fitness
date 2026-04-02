@@ -1,7 +1,7 @@
 import type { TrainingProfile } from './trainingAnalysis'
+import type { ExerciseRole, GoalKind } from './volumeGuidelines'
 
-export type GoalKind = 'strength' | 'hypertrophy' | 'general_fitness' | 'fat_loss' | 'endurance'
-export type ExerciseRoleKind = 'primary' | 'secondary' | 'isolation' | 'corrective' | 'cardio'
+export type { GoalKind, ExerciseRole }
 
 export interface AdaptiveUserPreferences {
   training_goal: GoalKind
@@ -11,7 +11,7 @@ export interface AdaptiveUserPreferences {
 
 export interface AdaptiveExercise {
   exerciseName: string
-  exerciseRole: ExerciseRoleKind
+  exerciseRole: ExerciseRole
   isCardio: boolean
   sets: number
   targetReps: number
@@ -31,7 +31,7 @@ type RolePriors = {
 
 export interface ScientificPriors {
   priorsVersion: string
-  roleTargets: Record<ExerciseRoleKind, RolePriors>
+  roleTargets: Record<ExerciseRole, RolePriors>
   progressionSensitivity: number
   fatigueSensitivity: number
   adherenceSensitivity: number
@@ -59,7 +59,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 function defaultRoleTargets(
   goal: GoalKind,
   experienceLevel: string | null,
-): Record<ExerciseRoleKind, RolePriors> {
+): Record<ExerciseRole, RolePriors> {
   const exp = String(experienceLevel || 'intermediate').toLowerCase()
   const advancedLike = exp === 'advanced' || exp === 'elite'
   // Tighter RIR bands for advanced/elite (late-block / near-failure prescription norms).

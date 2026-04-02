@@ -19,6 +19,9 @@ import {
   VOLUME_GUIDELINES,
   MUSCLE_HEAD_TO_GROUP,
   type CanonicalMuscleGroup,
+  type MuscleGroupOrCardio,
+  type ExerciseRole,
+  type GoalKind,
   getGuidelineForGroup,
   normalizeMuscleGroupList,
   normalizeMuscleGroupName,
@@ -74,7 +77,7 @@ export interface UserPreferences {
   recovery_speed: number | null;
   weight_goal_lbs: number | null;
   weight_goal_date: string | null;
-  priority_muscles: string[];
+  priority_muscles: CanonicalMuscleGroup[];
   weekday_deadlines: Record<string, string>;
   gym_profiles: Array<{ name: string; equipment: string[] }>;
   active_gym_profile: string | null;
@@ -83,12 +86,12 @@ export interface UserPreferences {
   sport_focus: string | null;
   sport_season: SportSeason | null;
   hotel_mode: boolean;
-  weekly_split_schedule: Record<string, { focus: string; groups: string[] }> | null;
+  weekly_split_schedule: Record<string, { focus: string; groups: CanonicalMuscleGroup[] }> | null;
   mesocycle_week: number | null;
   mesocycle_start_date: string | null;
 }
 
-export type ExerciseRole = 'primary' | 'secondary' | 'isolation' | 'corrective' | 'cardio';
+export type { ExerciseRole } from './volumeGuidelines';
 
 export interface WarmupSet {
   weight: number;
@@ -102,7 +105,7 @@ export interface GeneratedExercise {
   primaryMuscles: string[];
   secondaryMuscles: string[];
   movementPattern: string;
-  targetMuscleGroup: string;
+  targetMuscleGroup: MuscleGroupOrCardio;
   exerciseRole: ExerciseRole;
   sets: number;
   targetReps: number;
@@ -148,7 +151,7 @@ export interface DecisionLogEntry {
 }
 
 export interface MuscleGroupDecision {
-  muscleGroup: string;
+  muscleGroup: CanonicalMuscleGroup;
   priority: number;
   reason: string;
   targetSets: number;
@@ -159,7 +162,7 @@ export interface MuscleGroupDecision {
 
 export interface ExerciseDecision {
   exerciseName: string;
-  muscleGroup: string;
+  muscleGroup: MuscleGroupOrCardio;
   score: number;
   factors: string[];
 }
@@ -170,7 +173,7 @@ export interface GeneratedWorkout {
   featureSnapshotId?: string;
   trainingGoal: string;
   estimatedDurationMinutes: number;
-  muscleGroupsFocused: string[];
+  muscleGroupsFocused: MuscleGroupOrCardio[];
   exercises: GeneratedExercise[];
   sessionRationale: string;
   recoveryStatus: string;
@@ -349,9 +352,20 @@ async function fetchAllExercises(): Promise<EnrichedExercise[]> {
   }
 
   if (error) throw error;
-  const normalized = ((data ?? []) as EnrichedExercise[]).map((ex: any) => ({
-    ...ex,
-    equipment: Array.isArray(ex?.equipment) ? ex.equipment : [],
+  const rawRows = (data ?? []) as Array<Record<string, unknown>>;
+  const normalized: EnrichedExercise[] = rawRows.map(row => ({
+    id: String(row.id ?? ''),
+    name: String(row.name ?? ''),
+    body_part: String(row.body_part ?? ''),
+    primary_muscles: Array.isArray(row.primary_muscles) ? row.primary_muscles as string[] : null,
+    secondary_muscles: Array.isArray(row.secondary_muscles) ? row.secondary_muscles as string[] : null,
+    stabilizer_muscles: Array.isArray(row.stabilizer_muscles) ? row.stabilizer_muscles as string[] : null,
+    movement_pattern: (row.movement_pattern as EnrichedExercise['movement_pattern']) ?? null,
+    ml_exercise_type: (row.ml_exercise_type as EnrichedExercise['ml_exercise_type']) ?? null,
+    force_type: (row.force_type as EnrichedExercise['force_type']) ?? null,
+    difficulty: (row.difficulty as EnrichedExercise['difficulty']) ?? null,
+    default_tempo: row.default_tempo != null ? String(row.default_tempo) : null,
+    equipment: Array.isArray(row.equipment) ? row.equipment as string[] : [],
   }));
   exerciseCache = { at: now, value: normalized };
   return cloneExercises(normalized);
@@ -398,6 +412,7 @@ function getRepRangeByRole(
   secondaryGoal: string | null,
   dayOccurrenceIndex?: number,
   cfg?: ModelConfig,
+  exerciseType?: string | null,
 ): { min: number; max: number; target: number } {
   const roleKey = role === 'corrective' ? 'isolation' : role === 'cardio' ? 'isolation' : role;
 
@@ -418,13 +433,37 @@ function getRepRangeByRole(
   }
 
   const primary = REP_RANGE_TABLE[primaryGoal]?.[roleKey] ?? REP_RANGE_TABLE.general_fitness[roleKey];
-  if (!secondaryGoal || secondaryGoal === primaryGoal) return primary;
-  const secondary = REP_RANGE_TABLE[secondaryGoal]?.[roleKey] ?? primary;
-  return {
-    min: Math.round(primary.min * 0.7 + secondary.min * 0.3),
-    max: Math.round(primary.max * 0.7 + secondary.max * 0.3),
-    target: Math.round(primary.target * 0.7 + secondary.target * 0.3),
-  };
+  let result: { min: number; max: number; target: number };
+  if (!secondaryGoal || secondaryGoal === primaryGoal) {
+    result = primary;
+  } else {
+    const secondary = REP_RANGE_TABLE[secondaryGoal]?.[roleKey] ?? primary;
+    result = {
+      min: Math.round(primary.min * 0.7 + secondary.min * 0.3),
+      max: Math.round(primary.max * 0.7 + secondary.max * 0.3),
+      target: Math.round(primary.target * 0.7 + secondary.target * 0.3),
+    };
+  }
+
+  // Hard-cap compound barbell/machine exercises — 25+ reps at heavy load is nonsensical
+  const isCompound = exerciseType === 'compound';
+  if (isCompound && roleKey === 'primary') {
+    const MAX_COMPOUND_REPS = 15;
+    result = {
+      min: result.min,
+      max: Math.min(result.max, MAX_COMPOUND_REPS),
+      target: Math.min(result.target, MAX_COMPOUND_REPS),
+    };
+  } else if (isCompound && roleKey === 'secondary') {
+    const MAX_SECONDARY_COMPOUND_REPS = 18;
+    result = {
+      min: result.min,
+      max: Math.min(result.max, MAX_SECONDARY_COMPOUND_REPS),
+      target: Math.min(result.target, MAX_SECONDARY_COMPOUND_REPS),
+    };
+  }
+
+  return result;
 }
 
 /**
@@ -993,8 +1032,8 @@ function runtimeFlagEnabled(flag: string, defaultValue = true): boolean {
 }
 
 function getNutritionAdherenceSignal(profile: TrainingProfile): number {
-  const cmc = profile.canonicalModelContext as any;
-  const fromContext = Number(cmc?.nutritionAdherenceScore);
+  const cmc = profile.canonicalModelContext;
+  const fromContext = Number((cmc as Record<string, unknown>)?.nutritionAdherenceScore);
   if (Number.isFinite(fromContext)) return clampNumber(fromContext, 0, 1);
 
   const fromCompliance = Number(profile.prescribedVsActual?.complianceRate ?? 0.7);
@@ -1392,15 +1431,7 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
 
 // ─── Step 2: Select Muscle Groups (Split-Aware) ─────────────────────────────
 
-interface MuscleGroupSelection {
-  muscleGroup: string;
-  priority: number;
-  reason: string;
-  targetSets: number;
-  recoveryPercent: number | null;
-  weeklyVolume: number | null;
-  volumeTarget: string | null;
-}
+type MuscleGroupSelection = MuscleGroupDecision;
 
 const SPLIT_MUSCLE_MAPPING: Record<string, CanonicalMuscleGroup[]> = {
   push: ['upper_chest', 'mid_chest', 'lower_chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'],
@@ -2137,7 +2168,7 @@ function stepSelectMuscleGroups(
 
 interface ExerciseSelection {
   exercise: EnrichedExercise;
-  muscleGroup: string;
+  muscleGroup: MuscleGroupOrCardio;
   sets: number;
   effectiveSets: number;
   reason: string;
@@ -2282,7 +2313,7 @@ function stepSelectExercises(
       const primaryGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
         .map(m => MUSCLE_HEAD_TO_GROUP[m])
         .filter(Boolean);
-      return primaryGroups.includes(group.muscleGroup as CanonicalMuscleGroup);
+      return primaryGroups.includes(group.muscleGroup);
     });
 
     if (groupExercises.length === 0) continue;
@@ -2625,6 +2656,91 @@ function stepSelectExercises(
     }
   }
 
+  // ── #12: Hamstring isolation enforcement ──
+  // On leg days, ensure at least one knee-flexion hamstring exercise (not just RDL/hinge).
+  const hasHamstringGroup = muscleGroups.some(g => g.muscleGroup === 'hamstrings');
+  if (hasHamstringGroup) {
+    const hasHingeHam = selections.some(s => {
+      const n = s.exercise.name.toLowerCase();
+      return s.muscleGroup === 'hamstrings' && (
+        /rdl|romanian|deadlift|good morning|stiff/i.test(n) ||
+        (s.exercise.movement_pattern || '').toLowerCase().includes('hinge')
+      );
+    });
+    const hasKneeFlexion = selections.some(s => {
+      const n = s.exercise.name.toLowerCase();
+      return s.muscleGroup === 'hamstrings' && /curl|nordic|glute.ham/i.test(n);
+    });
+    if (hasHingeHam && !hasKneeFlexion) {
+      const kneeFlexionExercises = strengthExercises.filter(ex => {
+        if (usedExercises.has(ex.name.toLowerCase())) return false;
+        const n = ex.name.toLowerCase();
+        const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+          .map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+        return groups.includes('hamstrings') && /curl|nordic|glute.ham/i.test(n);
+      });
+      const userPreferred = kneeFlexionExercises.find(ex => {
+        const p = prefMap.get(ex.name.toLowerCase());
+        return p && p.recentSessions >= 1;
+      });
+      const pick = userPreferred ?? kneeFlexionExercises[0] ?? null;
+      if (pick) {
+        selections.push({
+          exercise: pick,
+          muscleGroup: 'hamstrings',
+          sets: 3,
+          effectiveSets: 3,
+          reason: 'Pattern diversity: adding knee-flexion hamstring work (RDL alone misses short-head biceps femoris)',
+        });
+        usedExercises.add(pick.name.toLowerCase());
+      }
+    }
+  }
+
+  // ── #13: Core exercise pattern diversity ──
+  // If core is targeted, ensure at least 2 different movement patterns.
+  const coreSelections = selections.filter(s => s.muscleGroup === 'core');
+  if (coreSelections.length >= 1) {
+    const corePatterns = new Set(coreSelections.map(s => {
+      const n = s.exercise.name.toLowerCase();
+      if (/crunch|sit.?up|v.?up/i.test(n)) return 'flexion';
+      if (/plank|dead.?bug|bird.?dog|pallof|anti/i.test(n)) return 'anti_movement';
+      if (/rollout|ab.?wheel|wheel/i.test(n)) return 'anti_extension';
+      if (/woodchop|russian.?twist|cable.?rotation/i.test(n)) return 'rotation';
+      if (/leg.?raise|hanging|knee.?raise/i.test(n)) return 'hip_flexion';
+      return 'flexion';
+    }));
+    if (corePatterns.size === 1 && coreSelections.length >= 1) {
+      const dominantPattern = [...corePatterns][0];
+      const ANTI_MOVEMENT_NAMES = ['pallof press', 'dead bug', 'bird dog', 'plank', 'side plank', 'ab wheel rollout'];
+      const diverseCore = strengthExercises.filter(ex => {
+        if (usedExercises.has(ex.name.toLowerCase())) return false;
+        const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+          .map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+        if (!groups.includes('core')) return false;
+        const n = ex.name.toLowerCase();
+        if (dominantPattern === 'flexion') {
+          return ANTI_MOVEMENT_NAMES.some(am => n.includes(am));
+        }
+        return /crunch|sit.?up/i.test(n);
+      });
+      const pick = diverseCore.find(ex => {
+        const p = prefMap.get(ex.name.toLowerCase());
+        return p && p.recentSessions >= 1;
+      }) ?? diverseCore[0] ?? null;
+      if (pick) {
+        selections.push({
+          exercise: pick,
+          muscleGroup: 'core',
+          sets: 2,
+          effectiveSets: 2,
+          reason: 'Core diversity: adding anti-movement/rotation work alongside flexion exercises',
+        });
+        usedExercises.add(pick.name.toLowerCase());
+      }
+    }
+  }
+
   // Add ALL cardio exercises the user regularly does — detect from multiple sources
   const isCardioExercise = (exerciseName: string): boolean => {
     const key = exerciseName.toLowerCase();
@@ -2803,7 +2919,7 @@ function stepSelectExercises(
     if (hotelModeEnabled && ex.ml_exercise_type !== 'cardio' && !isHotelModeStrengthAllowed(ex)) return false;
     return true;
   };
-  const primaryGroupOf = (ex: EnrichedExercise): string => {
+  const primaryGroupOf = (ex: EnrichedExercise): MuscleGroupOrCardio => {
     const heads = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : []).map((m) => String(m || '').toLowerCase());
     for (const h of heads) {
       const g = MUSCLE_HEAD_TO_GROUP[h];
@@ -3166,7 +3282,7 @@ function stepPrescribe(
     const hasLearnedData = pref && pref.recentSessions >= 2;
 
     // Reps: use what you actually do, fall back to table
-    const tableRange = getRepRangeByRole(role, goal, secondaryGoal, dayOccurrenceIndex, cfg);
+    const tableRange = getRepRangeByRole(role, goal, secondaryGoal, dayOccurrenceIndex, cfg, sel.exercise.ml_exercise_type);
     let targetReps = hasLearnedData && pref.learnedReps != null
       ? Math.round(pref.learnedReps)
       : tableRange.target;
@@ -3333,9 +3449,25 @@ function stepPrescribe(
           }
         } else if (prog.status === 'regressing') {
           const regressionSeverity = Math.abs(prog.progressionSlope);
-          const reductionPct = Math.max(0.80, cfg.regressionWeightMultiplier - (regressionSeverity * 0.8));
-          targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
-          adjustments.push(`Regressing (${regressionSeverity > 0.05 ? 'severe' : 'mild'}): reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%)`);
+          const regressingLifts = profile.exerciseProgressions.filter(p => p.status === 'regressing');
+          const isSystemicRegression = regressingLifts.length >= 3;
+
+          if (isSystemicRegression) {
+            // Multi-lift regression: signal overreaching. Reduce volume and intensity.
+            const reductionPct = 0.80;
+            targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
+            sets = Math.max(2, sets - 1);
+            adjustments.push(`Systemic regression (${regressingLifts.length} lifts declining): weight to ${targetWeight} lbs (80%), sets -1 — prioritize recovery`);
+          } else if (regressionSeverity > 0.05) {
+            // Severe single-lift regression (e.g., 60lb bench drop)
+            const reductionPct = 0.85;
+            targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
+            adjustments.push(`Severe regression: reduced to ${targetWeight} lbs (85%) — rebuild from here`);
+          } else {
+            const reductionPct = Math.max(0.85, cfg.regressionWeightMultiplier);
+            targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
+            adjustments.push(`Mild regression: reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%)`);
+          }
         } else if (prog.status === 'progressing') {
           adjustments.push(`Carry forward: ${targetWeight} lbs at RIR ${rir}`);
         }
@@ -4156,7 +4288,7 @@ function stepApplyConstraints(
         const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
         const sets = role === 'secondary' ? 3 : 2;
         const rest = getRestByExercise(sel.exercise, role, effectiveGoal);
-        const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+        const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
         const reps = humanizeRepTarget(tableRange.target, tableRange.min, tableRange.max);
         const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
         const cost = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
@@ -4196,7 +4328,7 @@ function stepApplyConstraints(
     } else {
       const sel = bestAction.exercise;
       const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
-      const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+      const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
       const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
       const reps = humanizeRepTarget(
         pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target,
@@ -4309,7 +4441,7 @@ function stepApplyConstraints(
         if (usedNames.has(sel.exercise.name.toLowerCase())) continue;
         const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
         const rest = getRestByExercise(sel.exercise, role, effectiveGoal);
-        const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+        const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
         const reps = humanizeRepTarget(tableRange.target, tableRange.min, tableRange.max);
         const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
         const cost = estimateExerciseMinutes(1, rest, role, 0, reps, tempo);
@@ -4349,7 +4481,7 @@ function stepApplyConstraints(
     } else {
       const sel = bestFill.exercise;
       const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
-      const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+      const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
       const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
       const reps = humanizeRepTarget(
         pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target,
@@ -4445,7 +4577,7 @@ function stepApplyConstraints(
   };
   const buildGeneratedFromSelection = (sel: ExerciseSelection, forceSets?: number): GeneratedExercise => {
     const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
-    const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal);
+    const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
     const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
     const reps = humanizeRepTarget(
       pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target,
@@ -5043,7 +5175,7 @@ function stepGenerateRationale(
 export interface SessionOverrides {
   durationMinutes?: number;
   finishByTime?: string; // "HH:MM"
-  goalOverride?: string;
+  goalOverride?: UserPreferences['training_goal'];
   gymProfile?: string;
   planningDate?: string; // YYYY-MM-DD for weekly planning
   avoidExerciseNames?: string[];
@@ -5141,7 +5273,8 @@ function validateAndCorrect(
   for (const ex of exercises) {
     if (ex.isCardio) continue;
     const group = (ex.targetMuscleGroup ?? '').toLowerCase();
-    const freq = (profile.muscleGroupFrequency ?? {})[group] ?? 2;
+    const freqMap = profile.muscleGroupFrequency ?? {};
+    const freq = (freqMap as Record<string, number>)[group] ?? 2;
     const vol = (profile.muscleVolumeStatuses ?? []).find(
       v => v.muscleGroup.toLowerCase() === group
     );
@@ -5306,7 +5439,7 @@ export async function generateWorkout(
   stageEnd(tFetch);
 
   if (overrides?.goalOverride) {
-    (prefs as any).training_goal = overrides.goalOverride;
+    prefs.training_goal = overrides.goalOverride;
   }
   if (overrides?.durationMinutes) {
     prefs.session_duration_minutes = overrides.durationMinutes;
@@ -5548,7 +5681,7 @@ export async function generateWorkout(
   let dayOccurrenceIndex: number | undefined;
   if (anchorGroups.length > 0 && profile.muscleGroupFrequency) {
     const freq = profile.muscleGroupFrequency;
-    const avgFreq = anchorGroups.reduce((sum, g) => sum + (freq[g] ?? 0), 0) / anchorGroups.length;
+    const avgFreq = anchorGroups.reduce((sum, g) => sum + ((freq as Record<string, number>)[g] ?? 0), 0) / anchorGroups.length;
     dayOccurrenceIndex = avgFreq >= 1.5 ? 1 : 0;
   }
 
@@ -5591,7 +5724,7 @@ export async function generateWorkout(
   const tValidate = stageStart('validate_adapt');
   const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes);
   const adaptiveContext = buildAdaptivePolicyContext(profile, {
-    training_goal: (prefs.training_goal as any) ?? 'hypertrophy',
+    training_goal: (prefs.training_goal as GoalKind) ?? 'hypertrophy',
     experience_level: prefs.experience_level ?? null,
     age: prefs.age ?? null,
   });
@@ -5976,7 +6109,7 @@ export async function generateWeeklyPlan(
     bestLastUsedDaysAgo: number;
   }>();
   for (const p of (profile.exercisePreferences ?? [])) {
-    const name = normalizeExerciseName(String((p as any)?.exerciseName || ''));
+    const name = normalizeExerciseName(String(p.exerciseName || ''));
     if (!name) continue;
     const familyKey = stapleFamilyKey(name);
     const agg = stapleFamilyAgg.get(familyKey) ?? {
@@ -5987,14 +6120,14 @@ export async function generateWeeklyPlan(
       isStaple: false,
       bestLastUsedDaysAgo: 999,
     };
-    const pLastUsed = Number((p as any)?.lastUsedDaysAgo ?? 999);
+    const pLastUsed = Number(p.lastUsedDaysAgo ?? 999);
     if (pLastUsed < agg.bestLastUsedDaysAgo) {
       agg.bestLastUsedDaysAgo = pLastUsed;
       agg.representativeName = name;
     }
-    agg.totalSessions += Number((p as any)?.totalSessions ?? 0);
-    agg.recentSessions += Number((p as any)?.recentSessions ?? 0);
-    agg.isStaple = agg.isStaple || Boolean((p as any)?.isStaple) || Number((p as any)?.recentSessions ?? 0) >= 2;
+    agg.totalSessions += Number(p.totalSessions ?? 0);
+    agg.recentSessions += Number(p.recentSessions ?? 0);
+    agg.isStaple = agg.isStaple || Boolean(p.isStaple) || Number(p.recentSessions ?? 0) >= 2;
     stapleFamilyAgg.set(familyKey, agg);
   }
   const weeklyStrictStapleFamilies = [...stapleFamilyAgg.values()]
@@ -6483,7 +6616,55 @@ export async function generateWeeklyPlan(
     }
   }
   if (underhitGroups.length > 0) {
-    console.log(`[FREQ] Underhit primary groups: ${underhitGroups.join(', ')}`);
+    logWarn(`[FREQ] Underhit primary groups: ${underhitGroups.join(', ')}`);
+  }
+
+  // Split adherence validation: check push/pull/leg volume balance
+  const PUSH_GROUPS = new Set(['upper_chest', 'mid_chest', 'lower_chest', 'front_delts', 'side_delts', 'triceps']);
+  const PULL_GROUPS = new Set(['back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps', 'rear_delts', 'biceps']);
+  const LEG_GROUPS_SET = new Set(['quadriceps', 'hamstrings', 'glutes', 'adductors', 'abductors', 'hip_flexors']);
+  let pushExercises = 0, pullExercises = 0, legExercises = 0;
+  for (const day of days) {
+    if (day.isRestDay || !day.plannedWorkout?.exercises) continue;
+    for (const ex of day.plannedWorkout.exercises) {
+      if (ex.isCardio) continue;
+      const g = String(ex.targetMuscleGroup || '').toLowerCase();
+      if (PUSH_GROUPS.has(g)) pushExercises++;
+      else if (PULL_GROUPS.has(g)) pullExercises++;
+      else if (LEG_GROUPS_SET.has(g)) legExercises++;
+    }
+  }
+  if (pullExercises > 0 && pushExercises / pullExercises > 1.8) {
+    logWarn(`[SPLIT] Push/pull imbalance: ${pushExercises} push vs ${pullExercises} pull exercises (ratio ${(pushExercises / pullExercises).toFixed(1)})`);
+  }
+  if (legExercises > 0 && (pushExercises + pullExercises) / legExercises > 4.0) {
+    logWarn(`[SPLIT] Upper/lower imbalance: ${pushExercises + pullExercises} upper vs ${legExercises} leg exercises`);
+  }
+
+  // #20: Verify generated plan matches user's split schedule (hard constraint).
+  if (splitSchedule) {
+    for (const day of days) {
+      if (day.isRestDay || !day.plannedWorkout?.exercises) continue;
+      const scheduleEntry = splitSchedule[String(day.dayOfWeek)];
+      if (!scheduleEntry || !scheduleEntry.groups?.length) continue;
+      const scheduledGroups = new Set(normalizeMuscleGroupList(scheduleEntry.groups));
+      const plannedGroups = new Set(
+        day.plannedWorkout.exercises
+          .filter(ex => !ex.isCardio)
+          .map(ex => String(ex.targetMuscleGroup || '').toLowerCase())
+          .filter(Boolean)
+      );
+      // At least 50% of scheduled groups should appear in planned workout
+      let hits = 0;
+      for (const g of scheduledGroups) if (plannedGroups.has(g)) hits++;
+      const coverage = hits / scheduledGroups.size;
+      if (coverage < 0.5) {
+        logWarn(`[SPLIT] ${day.dayName} plan mismatches schedule: expected ${[...scheduledGroups].join(', ')}, got ${[...plannedGroups].join(', ')} (${Math.round(coverage * 100)}% coverage)`);
+        // Override focus label to match schedule
+        day.focus = scheduleEntry.focus;
+        day.muscleGroups = scheduleEntry.groups;
+      }
+    }
   }
 
   return {

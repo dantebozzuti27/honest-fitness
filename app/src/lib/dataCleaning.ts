@@ -16,9 +16,12 @@ export function cleanWorkoutData(workout: any) {
     cleaned.date = normalizeDate(cleaned.date)
   }
   
-  // Normalize duration (ensure it's in minutes)
-  if (cleaned.duration !== null && cleaned.duration !== undefined) {
-    cleaned.duration = Math.round(cleaned.duration)
+  // Normalize duration to minutes.
+  // Legacy rows stored raw seconds (e.g. 6823 for a ~114-min session).
+  // Any value > 300 is almost certainly seconds, not minutes.
+  if (cleaned.duration != null) {
+    const d = Number(cleaned.duration);
+    cleaned.duration = d > 300 ? Math.round(d / 60) : Math.round(d);
   }
   
   // Clean exercises
@@ -35,9 +38,16 @@ export function cleanWorkoutData(workout: any) {
 function cleanExerciseData(exercise: any) {
   const cleaned = { ...exercise }
   
-  // Normalize exercise name (trim, capitalize)
+  // Normalize exercise name (trim, canonical alias)
   if (cleaned.name) {
     cleaned.name = normalizeExerciseName(cleaned.name)
+  }
+
+  // Resolve body_part to canonical group via exercise muscle map.
+  // Falls back to the original if no mapping exists.
+  if (cleaned.name && (!cleaned.bodyPart || cleaned.bodyPart === 'Other')) {
+    const resolved = resolveBodyPart(cleaned.name, cleaned.category);
+    if (resolved) cleaned.bodyPart = resolved;
   }
   
   // Clean sets
@@ -46,6 +56,32 @@ function cleanExerciseData(exercise: any) {
   }
   
   return cleaned
+}
+
+/**
+ * Resolve an exercise's body_part to a human-readable canonical label.
+ * Uses a lightweight lookup to avoid circular dependencies with exerciseMuscleMap.
+ */
+const EXERCISE_BODY_PART_MAP: Record<string, string> = {
+  'barbell bench press': 'Mid Chest', 'incline dumbbell bench press': 'Upper Chest',
+  'barbell back squat': 'Quadriceps', 'romanian deadlift': 'Hamstrings',
+  'dumbbell romanian deadlift': 'Hamstrings', 'conventional deadlift': 'Hamstrings',
+  'barbell overhead press': 'Front Delts', 'lat pulldown': 'Back Lats',
+  'pull-up': 'Back Lats', 'chin-up': 'Back Lats',
+  'barbell bent-over row': 'Back Upper', 'dumbbell lateral raise': 'Side Delts',
+  'face pull': 'Rear Delts', 'tricep pushdown': 'Triceps',
+  'barbell curl': 'Biceps', 'dumbbell hammer curl': 'Biceps',
+  'pec deck': 'Mid Chest', 'cable crunch': 'Core',
+  'leg press': 'Quadriceps', 'leg extension': 'Quadriceps',
+  'lying leg curl': 'Hamstrings', 'barbell hip thrust': 'Glutes',
+  'hack squat machine': 'Quadriceps', 'ab wheel rollout': 'Core',
+  'preacher curl': 'Biceps', 'stairmaster': 'Cardio',
+  'incline treadmill walk': 'Cardio',
+};
+
+function resolveBodyPart(exerciseName: string, category?: string): string | null {
+  if (category === 'Cardio' || category === 'Recovery') return category ?? null;
+  return EXERCISE_BODY_PART_MAP[exerciseName.toLowerCase()] ?? null;
 }
 
 /**
@@ -112,13 +148,17 @@ export function cleanHealthMetrics(metrics: any) {
     cleaned.hrv = Math.round(cleaned.hrv * 10) / 10
   }
   
-  // Normalize sleep duration (ensure minutes)
-  if (cleaned.sleep_duration !== null && cleaned.sleep_duration !== undefined) {
-    // If > 24, might be in hours, convert to minutes
-    if (cleaned.sleep_duration < 24) {
-      cleaned.sleep_duration = Math.round(cleaned.sleep_duration * 60)
+  // Normalize sleep duration to minutes.
+  // Fitbit stores minutesAsleep (e.g., 420 for 7h). Manual entries may be in hours.
+  // Values < 24 are almost certainly hours; 24-1440 are minutes.
+  if (cleaned.sleep_duration != null) {
+    const v = Number(cleaned.sleep_duration);
+    if (v > 0 && v < 24) {
+      cleaned.sleep_duration = Math.round(v * 60);
+    } else if (v >= 24 && v <= 1440) {
+      cleaned.sleep_duration = Math.round(v);
     } else {
-      cleaned.sleep_duration = Math.round(cleaned.sleep_duration)
+      cleaned.sleep_duration = null;
     }
   }
   
@@ -209,26 +249,65 @@ function normalizeExerciseName(name: string) {
   // Trim whitespace
   let normalized = name.trim()
   
-  // Fix common typos (simple dictionary)
-  const typos = {
-    'bench press': 'Bench Press',
-    'squat': 'Squat',
-    'deadlift': 'Deadlift',
-    'overhead press': 'Overhead Press',
-    'barbell row': 'Barbell Row',
-    'pull up': 'Pull Up',
-    'push up': 'Push Up',
-    'sit up': 'Sit Up'
-  }
-  
-  const lower = normalized.toLowerCase() as keyof typeof typos
-  if (typos[lower]) {
-    normalized = typos[lower]
+  const CANONICAL_NAMES: Record<string, string> = {
+    'pull up': 'Pull-up', 'pull-up': 'Pull-up', 'pull ups': 'Pull-up',
+    'pull-ups': 'Pull-up', 'pullup': 'Pull-up', 'pullups': 'Pull-up',
+    'chin up': 'Chin-up', 'chin-up': 'Chin-up', 'chin ups': 'Chin-up',
+    'chin-ups': 'Chin-up', 'chinup': 'Chin-up', 'chinups': 'Chin-up',
+    'push up': 'Push-up', 'push-up': 'Push-up', 'push ups': 'Push-up',
+    'push-ups': 'Push-up', 'pushup': 'Push-up', 'pushups': 'Push-up',
+    'sit up': 'Sit-up', 'sit-up': 'Sit-up', 'sit ups': 'Sit-up',
+    'sit-ups': 'Sit-up', 'situp': 'Sit-up', 'situps': 'Sit-up',
+    'bench press': 'Barbell Bench Press',
+    'flat bench': 'Barbell Bench Press', 'flat bench press': 'Barbell Bench Press',
+    'squat': 'Barbell Back Squat', 'back squat': 'Barbell Back Squat',
+    'deadlift': 'Conventional Deadlift',
+    'overhead press': 'Barbell Overhead Press', 'ohp': 'Barbell Overhead Press',
+    'military press': 'Barbell Overhead Press',
+    'barbell row': 'Barbell Bent-Over Row', 'bent over row': 'Barbell Bent-Over Row',
+    'hammer curl': 'Dumbbell Hammer Curl', 'hammer curls': 'Dumbbell Hammer Curl',
+    'dumbell hammer curls': 'Dumbbell Hammer Curl', 'dumbbell hammer curls': 'Dumbbell Hammer Curl',
+    'side raise': 'Dumbbell Lateral Raise', 'lateral raise': 'Dumbbell Lateral Raise',
+    'side raises': 'Dumbbell Lateral Raise', 'lateral raises': 'Dumbbell Lateral Raise',
+    'dumbbell lateral raises': 'Dumbbell Lateral Raise',
+    'hack squat': 'Hack Squat Machine', 'hack squats': 'Hack Squat Machine',
+    'dumbell rdl': 'Dumbbell Romanian Deadlift', 'dumbbell rdl': 'Dumbbell Romanian Deadlift',
+    'db rdl': 'Dumbbell Romanian Deadlift',
+    'rdl': 'Romanian Deadlift', 'romanian deadlift': 'Romanian Deadlift',
+    'dumbbell romanian deadlift': 'Dumbbell Romanian Deadlift',
+    'incline db press': 'Incline Dumbbell Bench Press',
+    'incline dumbbell press': 'Incline Dumbbell Bench Press',
+    'incline dumbbell bench press': 'Incline Dumbbell Bench Press',
+    'leg curl': 'Lying Leg Curl', 'leg curls': 'Lying Leg Curl',
+    'hamstring curl': 'Lying Leg Curl', 'hamstring curls': 'Lying Leg Curl',
+    'cable crunch': 'Cable Crunch', 'cable crunches': 'Cable Crunch',
+    'ab wheel': 'Ab Wheel Rollout', 'ab wheel rollout': 'Ab Wheel Rollout',
+    'face pull': 'Face Pull', 'face pulls': 'Face Pull',
+    'lat pulldown': 'Lat Pulldown', 'lat pull down': 'Lat Pulldown',
+    'lat pull-down': 'Lat Pulldown', 'lat pulldowns': 'Lat Pulldown',
+    'pec deck': 'Pec Deck', 'pec fly': 'Pec Deck', 'pec flye': 'Pec Deck',
+    'tricep pushdown': 'Tricep Pushdown', 'triceps pushdown': 'Tricep Pushdown',
+    'tricep push down': 'Tricep Pushdown',
+    'bicep curl': 'Barbell Curl', 'bicep curls': 'Barbell Curl',
+    'preacher curl': 'Preacher Curl', 'preacher curls': 'Preacher Curl',
+    'leg press': 'Leg Press', 'leg extension': 'Leg Extension',
+    'leg extensions': 'Leg Extension',
+    'calf raise': 'Standing Calf Raise', 'calf raises': 'Standing Calf Raise',
+    'hip thrust': 'Barbell Hip Thrust', 'hip thrusts': 'Barbell Hip Thrust',
+    'incline walk': 'Incline Treadmill Walk',
+    'incline treadmill': 'Incline Treadmill Walk',
+    'treadmill walk': 'Incline Treadmill Walk',
+    'stairmaster': 'StairMaster', 'stair master': 'StairMaster',
+    'stair climber': 'StairMaster',
+  };
+
+  const lower = normalized.toLowerCase();
+  if (CANONICAL_NAMES[lower]) {
+    normalized = CANONICAL_NAMES[lower];
   } else {
-    // Capitalize first letter of each word
-    normalized = normalized.split(' ').map((word: string) => 
+    normalized = normalized.split(/[\s]+/).map((word: string) =>
       word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-    ).join(' ')
+    ).join(' ');
   }
   
   return normalized

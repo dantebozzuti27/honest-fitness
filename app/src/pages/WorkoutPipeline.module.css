@@ -1,0 +1,466 @@
+.page {
+  min-height: 100vh;
+  background: #0a0a0a;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #222;
+  position: sticky;
+  top: 0;
+  background: #0a0a0a;
+  z-index: 10;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  color: #fff;
+}
+
+.scroll {
+  padding: 16px;
+  padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: #666;
+  font-size: 14px;
+}
+
+/* ── Sections ── */
+
+.section {
+  background: #111;
+  border: 1px solid #1e1e1e;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #14b8a6;
+  margin: 0 0 6px 0;
+}
+
+.sectionDesc {
+  font-size: 12px;
+  color: #888;
+  margin: 0 0 12px 0;
+  line-height: 1.5;
+}
+
+.subsection {
+  margin-top: 12px;
+}
+
+.subsectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ccc;
+  margin: 0 0 8px 0;
+}
+
+/* ── Stats Grid ── */
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.statCard {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 10px;
+  text-align: center;
+}
+
+.statLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.statValue {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.deloadBanner {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #ef4444;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ── Signal Grid (Recovery) ── */
+
+.signalGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.signalCard {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 10px;
+  border-left: 3px solid #333;
+}
+
+.signalCard.good { border-left-color: #22c55e; }
+.signalCard.warning { border-left-color: #eab308; }
+.signalCard.danger { border-left-color: #ef4444; }
+.signalCard.neutral { border-left-color: #555; }
+
+.signalLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #888;
+  margin-bottom: 3px;
+}
+
+.signalValue {
+  font-size: 12px;
+  color: #ddd;
+}
+
+.muted {
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+}
+
+/* ── Adjustments ── */
+
+.adjustments {
+  margin-top: 10px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.adjustmentsTitle {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.adjustment {
+  font-size: 12px;
+  color: #aaa;
+  padding: 3px 0;
+  border-bottom: 1px solid #222;
+}
+
+.adjustment:last-child {
+  border-bottom: none;
+}
+
+/* ── Decision Table (Muscle Groups) ── */
+
+.decisionTable {
+  overflow-x: auto;
+}
+
+.tableHeader {
+  display: grid;
+  grid-template-columns: 120px 60px 70px 70px 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #333;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #666;
+}
+
+.tableRow {
+  display: grid;
+  grid-template-columns: 120px 60px 70px 70px 1fr;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #1a1a1a;
+  font-size: 12px;
+  align-items: center;
+}
+
+.muscleLabel {
+  font-weight: 600;
+  color: #ddd;
+  text-transform: capitalize;
+}
+
+.priorityBadge {
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.reasonText {
+  font-size: 11px;
+  color: #888;
+}
+
+.splitInfo {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #888;
+}
+
+/* ── Exercise Decisions ── */
+
+.exerciseCard {
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 6px;
+}
+
+.exerciseSelected {
+  background: #0d1f1a;
+  border: 1px solid #14b8a633;
+}
+
+.exerciseRejected {
+  background: #1a1a1a;
+  border: 1px solid #222;
+}
+
+.exerciseHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.exerciseName {
+  font-size: 13px;
+  font-weight: 600;
+  color: #eee;
+  flex: 1;
+}
+
+.exerciseGroup {
+  font-size: 10px;
+  color: #888;
+  text-transform: capitalize;
+}
+
+.exerciseScore {
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 40px;
+  text-align: right;
+}
+
+.factorList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.factor {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.factorPos {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+}
+
+.factorNeg {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+/* ── Rejected Details ── */
+
+.rejectedDetails {
+  margin-top: 12px;
+}
+
+.rejectedSummary {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+.rejectedSummary:hover {
+  color: #aaa;
+}
+
+.rejectedList {
+  margin-top: 8px;
+}
+
+/* ── Prescription Grid ── */
+
+.prescriptionGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prescriptionCard {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.prescriptionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.prescriptionName {
+  font-size: 13px;
+  font-weight: 600;
+  color: #eee;
+}
+
+.prescriptionRole {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #14b8a6;
+  font-weight: 600;
+}
+
+.prescriptionStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 6px;
+}
+
+.prescriptionStats span {
+  background: #222;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.prescriptionRationale {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.prescriptionAdjustments {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #222;
+}
+
+/* ── Decision Log ── */
+
+.logList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.logEntry {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.logStep {
+  font-size: 10px;
+  font-weight: 600;
+  color: #14b8a6;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.logLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ddd;
+  margin-bottom: 4px;
+}
+
+.logDetails {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.5;
+}
+
+/* ── Policy State ── */
+
+.policyGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.policyCard {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.policyLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #a78bfa;
+  margin-bottom: 6px;
+}
+
+.policyStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.policyStats span {
+  background: #222;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* ── Rationale ── */
+
+.rationaleText {
+  font-size: 12px;
+  color: #aaa;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}

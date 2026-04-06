@@ -1423,6 +1423,26 @@
   line-height: 1.35;
 }
 
+.pipelineLink {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 0;
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--accent, #14b8a6) 35%, transparent);
+  border-radius: var(--radius-md, 8px);
+  color: var(--accent, #14b8a6);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.pipelineLink:hover {
+  background: color-mix(in srgb, var(--accent, #14b8a6) 10%, transparent);
+  border-color: var(--accent, #14b8a6);
+}
+
 @media (max-width: 640px) {
   .content {
     padding: 14px;

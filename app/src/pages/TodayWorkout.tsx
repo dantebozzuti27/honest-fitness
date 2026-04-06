@@ -1652,6 +1652,12 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
               <span key={g} className={styles.muscleTag}>{g.replace(/_/g, ' ')}</span>
             ))}
           </div>
+          <button
+            className={styles.pipelineLink}
+            onClick={() => navigate('/workout/pipeline', { state: { workout, profile } })}
+          >
+            Why This Workout →
+          </button>
         </div>
 
         {/* Adjustments */}

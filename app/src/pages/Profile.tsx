@@ -708,12 +708,36 @@ export default function Profile() {
                         Restrict workouts to treadmill, bodyweight, and dumbbell exercises capped at 50 lbs.
                       </div>
                     </div>
-                    <input
-                      type="checkbox"
-                      checked={trainingProfile.hotel_mode}
-                      onChange={e => setTrainingProfile(p => ({ ...p, hotel_mode: e.target.checked }))}
-                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                    />
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={trainingProfile.hotel_mode}
+                      onClick={() => setTrainingProfile(p => ({ ...p, hotel_mode: !p.hotel_mode }))}
+                      style={{
+                        position: 'relative',
+                        width: '48px',
+                        height: '28px',
+                        borderRadius: '14px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: trainingProfile.hotel_mode ? 'var(--accent, #14b8a6)' : 'var(--border, #444)',
+                        transition: 'background 0.2s',
+                        flexShrink: 0,
+                        padding: 0,
+                      }}
+                    >
+                      <span style={{
+                        position: 'absolute',
+                        top: '3px',
+                        left: trainingProfile.hotel_mode ? '23px' : '3px',
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        background: '#fff',
+                        transition: 'left 0.2s',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                      }} />
+                    </button>
                   </label>
                 </div>
                 <SelectField

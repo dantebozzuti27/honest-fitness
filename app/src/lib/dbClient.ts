@@ -52,49 +52,49 @@ function timeoutForPayload(payload: RequestPayload): number {
 }
 
 async function sendRequestOnce<T = any>(payload: RequestPayload): Promise<DbResponse<T>> {
-  const token = await getAccessToken()
-  const url = apiUrl('/api/db')
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutForPayload(payload))
-  let resp: Response
   try {
-    resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    })
-  } finally {
-    clearTimeout(timer)
-  }
-
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    return { data: null as any, error: { message: body?.error?.message || `HTTP ${resp.status}`, code: body?.error?.code } }
-  }
-
-  return await resp.json()
-}
-
-async function sendRequest<T = any>(payload: RequestPayload): Promise<DbResponse<T>> {
-  try {
-    const result = await sendRequestOnce<T>(payload)
-
-    if (
-      result.error?.message === 'Request timed out' &&
-      payload.operation !== 'select'
-    ) {
-      return await sendRequestOnce<T>(payload)
+    const token = await getAccessToken()
+    const url = apiUrl('/api/db')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutForPayload(payload))
+    let resp: Response
+    try {
+      resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timer)
     }
 
-    return result
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}))
+      return { data: null as any, error: { message: body?.error?.message || `HTTP ${resp.status}`, code: body?.error?.code } }
+    }
+
+    return await resp.json()
   } catch (err: any) {
     const msg = err?.name === 'AbortError' ? 'Request timed out' : (err?.message || 'Network error')
     return { data: null as any, error: { message: msg } }
   }
+}
+
+async function sendRequest<T = any>(payload: RequestPayload): Promise<DbResponse<T>> {
+  const result = await sendRequestOnce<T>(payload)
+
+  if (
+    result.error?.message === 'Request timed out' &&
+    payload.operation !== 'select'
+  ) {
+    return await sendRequestOnce<T>(payload)
+  }
+
+  return result
 }
 
 class QueryBuilder {

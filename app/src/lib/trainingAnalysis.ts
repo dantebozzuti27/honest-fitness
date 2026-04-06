@@ -202,7 +202,7 @@ export interface ExerciseProgression {
   exerciseName: string;
   estimated1RM: number;
   progressionSlope: number;
-  status: 'progressing' | 'stalled' | 'regressing';
+  status: 'progressing' | 'maintaining' | 'stalled' | 'regressing';
   sessionsTracked: number;
   bestSet: { weight: number; reps: number };
   lastWeight: number;
@@ -1404,7 +1404,7 @@ function computeDeloadRecommendation(
     needed: signals.length >= DEFAULT_MODEL_CONFIG.deloadSignalCountThreshold,
     signals,
     suggestedDurationDays: 7,
-    suggestedVolumeMultiplier: 0.5,
+    suggestedVolumeMultiplier: 0.65,
   };
 }
 
@@ -1695,7 +1695,7 @@ function computeRepWeightBreakthroughs(
     }
     const typicalRepsBeforeJump = weightGroups.size > 2
       ? mean([...weightGroups.values()].slice(0, -1))
-      : 50; // default threshold
+      : 20;
 
     if (accumulatedReps > 0) {
       results.push({
@@ -1924,9 +1924,10 @@ function computeExerciseProgressions(
       const avg = mean(values);
       const normalizedSlope = avg > 0 ? slope / avg : 0;
 
-      let status: 'progressing' | 'stalled' | 'regressing';
+      let status: 'progressing' | 'maintaining' | 'stalled' | 'regressing';
       if (normalizedSlope > 0.005) status = 'progressing';
       else if (normalizedSlope < -0.01) status = 'regressing';
+      else if (normalizedSlope >= -0.005) status = 'maintaining';
       else status = 'stalled';
 
       const last = filtered[filtered.length - 1];

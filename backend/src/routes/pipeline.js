@@ -12,6 +12,7 @@ export const pipelineRouter = express.Router()
 pipelineRouter.post('/process', async (req, res, next) => {
   try {
     const { type, data, source } = req.body
+    if (data && typeof data === 'object') data.userId = req.userId
     const result = await processDataPipeline(type, data, source)
     // result already includes success:true
     return sendSuccess(res, result)
@@ -24,6 +25,8 @@ pipelineRouter.post('/process', async (req, res, next) => {
 pipelineRouter.post('/process-batch', async (req, res, next) => {
   try {
     const { type, data, source } = req.body
+    if (Array.isArray(data)) data.forEach(d => { if (d && typeof d === 'object') d.userId = req.userId })
+    else if (data && typeof data === 'object') data.userId = req.userId
     const result = await processBatchPipeline(type, data, source)
     // result includes success:true
     return sendSuccess(res, result)

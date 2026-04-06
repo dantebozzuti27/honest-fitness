@@ -121,14 +121,25 @@ inputRouter.post('/model-outcome-events', async (req, res, next) => {
       return res.json({ success: true, inserted: 0 })
     }
 
-    for (const row of rows) {
-      await query(
-        `INSERT INTO workout_outcomes (user_id, generated_workout_id, workout_date, session_outcome_score, outcome_notes, idempotency_key)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-        [row.user_id, row.generated_workout_id, row.workout_date, row.session_outcome_score, row.outcome_notes, row.idempotency_key]
-      )
-    }
+    const colsPerRow = 6
+    const valueGroups = rows.map((_, i) => {
+      const b = i * colsPerRow + 1
+      return `($${b}, $${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5})`
+    }).join(', ')
+    const params = rows.flatMap((row) => [
+      row.user_id,
+      row.generated_workout_id,
+      row.workout_date,
+      row.session_outcome_score,
+      row.outcome_notes,
+      row.idempotency_key,
+    ])
+    await query(
+      `INSERT INTO workout_outcomes (user_id, generated_workout_id, workout_date, session_outcome_score, outcome_notes, idempotency_key)
+       VALUES ${valueGroups}
+       ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+      params
+    )
 
     return res.json({ success: true, inserted: rows.length })
   } catch (error) {
@@ -167,7 +178,7 @@ inputRouter.post('/fitbit/sync', syncLimiter, async (req, res, next) => {
     }
     
     // Check if token needs refresh
-    const expiresAt = account.expires_at ? new Date(account.expires_at) : null
+    const expiresAt = account.token_expires_at ? new Date(account.token_expires_at) : null
     const now = new Date()
     let accessToken = account.access_token
     

@@ -499,7 +499,7 @@ function getTieredSets(
 
   if (isDeload) sets = Math.max(2, Math.round(sets * 0.8));
 
-  return Math.max(2, Math.min(6, sets));
+  return Math.max(2, Math.min(8, sets));
 }
 
 /**
@@ -1770,16 +1770,17 @@ function stepSelectMuscleGroups(
       const splitName = rotation[trainingSlot % rotation.length];
       const groups = (BRO_SPLIT_MAPPING[splitName] ?? SPLIT_MUSCLE_MAPPING[splitName]);
       if (groups?.length) splitTargetGroups = new Set(groups);
-    } else if (detectedSplit.nextRecommended.length > 0) {
-      splitTargetGroups = new Set<string>();
-      for (const rec of detectedSplit.nextRecommended) {
-        const groups = (BRO_SPLIT_MAPPING[rec] ?? SPLIT_MUSCLE_MAPPING[rec]);
-        if (groups) groups.forEach(g => splitTargetGroups!.add(g));
-      }
     } else {
-      // No history — derive from day of week
-      const mondayBased = (todayDow + 6) % 7;
-      const splitName = rotation[mondayBased % rotation.length];
+      // Strict rotation from day of week — do NOT merge detected patterns when user explicitly set a split.
+      const restDays = new Set(prefs.rest_days ?? []);
+      let trainingSlot = 0;
+      for (let d = 0; d < 7; d++) {
+        const dow = (d + 1) % 7;
+        if (restDays.has(dow)) continue;
+        if (dow === todayDow) break;
+        trainingSlot++;
+      }
+      const splitName = rotation[trainingSlot % rotation.length];
       const groups = (BRO_SPLIT_MAPPING[splitName] ?? SPLIT_MUSCLE_MAPPING[splitName]);
       if (groups?.length) splitTargetGroups = new Set(groups);
     }
@@ -1906,7 +1907,7 @@ function stepSelectMuscleGroups(
     }
 
     const individualMrv = profile.individualMrvEstimates[vol.muscleGroup];
-    const effectiveTarget = individualMrv ? Math.min(weeklyTarget, individualMrv * 0.85) : weeklyTarget;
+    const effectiveTarget = individualMrv ? Math.min(weeklyTarget, individualMrv * 0.95) : weeklyTarget;
     const indirectCredit = guideline.indirectVolumeCredit ?? 0.5;
     const weeklyEffectiveSets = (vol.weeklyDirectSets ?? 0) + ((vol.weeklyIndirectSets ?? 0) * indirectCredit);
     const volumeDeficit = Math.max(0, effectiveTarget - weeklyEffectiveSets);
@@ -2442,17 +2443,17 @@ function stepSelectExercises(
         if (swapEntry) {
           const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
           if (eff >= 4.5 || swapEntry.swapCount >= 5) {
-            score -= 15;
-            factors.push(`Frequently swapped out (weight ${eff.toFixed(1)}, -15)`);
+            score -= 30;
+            factors.push(`Frequently swapped out (weight ${eff.toFixed(1)}, -30)`);
           } else if (eff >= 2.2 || swapEntry.swapCount >= 3) {
-            score -= 10;
-            factors.push(`Often swapped (weight ${eff.toFixed(1)}, -10)`);
+            score -= 20;
+            factors.push(`Often swapped (weight ${eff.toFixed(1)}, -20)`);
           } else if (eff >= 1 || swapEntry.swapCount >= 2) {
-            score -= 6;
-            factors.push(`Previously swapped (weight ${eff.toFixed(1)}, -6)`);
+            score -= 10;
+            factors.push(`Previously swapped (weight ${eff.toFixed(1)}, -10)`);
           } else if (swapEntry.swapCount >= 1) {
-            score -= Math.min(8, 4 * swapEntry.swapCount);
-            factors.push(`Swap history (${swapEntry.swapCount}x, -${Math.min(8, 4 * swapEntry.swapCount)})`);
+            score -= Math.min(10, 5 * swapEntry.swapCount);
+            factors.push(`Swap history (${swapEntry.swapCount}x, -${Math.min(10, 5 * swapEntry.swapCount)})`);
           }
         }
       }
@@ -2523,6 +2524,22 @@ function stepSelectExercises(
         if (limit) {
           item.score += limit.penalty;
           item.factors.push(`${sportProfile.label}: ${limit.reason} (${limit.penalty})`);
+        }
+      }
+    }
+
+    // Post-score swap override: heavily swapped exercises get crushed regardless of bonuses
+    if (profile.exerciseSwapHistory) {
+      for (const item of scored) {
+        const swapEntry = profile.exerciseSwapHistory.find(
+          s => s.exerciseName === item.exercise.name.toLowerCase()
+        );
+        if (swapEntry) {
+          const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
+          if (eff >= 4.5 || swapEntry.swapCount >= 5) {
+            item.score = Math.min(item.score, -10);
+            item.factors.push('Swap override: near-banned');
+          }
         }
       }
     }
@@ -3431,7 +3448,8 @@ function stepPrescribe(
         );
 
         const lastReps = prog.bestSet.reps;
-        if (lastReps >= targetReps + cfg.repsAboveTargetForProgression && prog.status === 'progressing') {
+        const canProgress = prog.status === 'progressing' || (prog.status === 'maintaining' && lastReps >= targetReps + 1);
+        if (lastReps >= targetReps + cfg.repsAboveTargetForProgression && canProgress) {
           if (bestPatternType === 'double_progression' && breakthrough && !breakthrough.readyForWeightJump) {
             adjustments.push(`Double progression: add reps before weight (${breakthrough.accumulatedRepsAtWeight} reps accumulated, need ${breakthrough.typicalRepsBeforeJump})`);
           } else {
@@ -3658,14 +3676,21 @@ const CNS_DEMAND_KEYWORDS: [RegExp, number][] = [
   [/\brow\b/i, 2],
 ];
 
+const COMPOUND_MOVEMENT_PATTERNS = new Set([
+  'squat', 'hip_hinge', 'horizontal_push', 'vertical_push',
+  'horizontal_pull', 'vertical_pull', 'lunge', 'compound',
+]);
+
 function getCnsDemandTier(ex: GeneratedExercise): number {
   const name = ex.exerciseName.toLowerCase();
   for (const [pattern, tier] of CNS_DEMAND_KEYWORDS) {
     if (pattern.test(name)) return tier;
   }
-  if (ex.movementPattern === 'compound') return 2;
-  if (name.includes('machine') || name.includes('cable') || name.includes('smith')) return 3;
-  if (ex.movementPattern === 'isolation') return 4;
+  const mp = (ex.movementPattern || '').toLowerCase();
+  if (COMPOUND_MOVEMENT_PATTERNS.has(mp)) return 2;
+  if (name.includes('leg press') || name.includes('hack squat') || name.includes('smith')) return 2;
+  if (name.includes('machine') || name.includes('cable')) return 3;
+  if (mp === 'isolation' || mp === 'corrective') return 4;
   return 3;
 }
 
@@ -3874,7 +3899,8 @@ function stepApplyConstraints(
   const scored = strength.map(ex => {
     const hist = positionMap.get(ex.exerciseName.toLowerCase());
     const cnsTier = getCnsDemandTier(ex);
-    const isCompound = ex.movementPattern === 'compound' || cnsTier <= 2;
+    const mp = (ex.movementPattern || '').toLowerCase();
+    const isCompound = COMPOUND_MOVEMENT_PATTERNS.has(mp) || cnsTier <= 2;
     const histNudge = (hist && hist.sessions >= 3) ? hist.avgNormalizedPosition * 2 : 0;
     const gp = groupPriority.get(ex.targetMuscleGroup) ?? 99;
     // Primary: compound tier (0) vs isolation tier (1000)
@@ -3903,23 +3929,7 @@ function stepApplyConstraints(
 
   scored.sort((a, b) => a.sortKey - b.sortKey);
   const ordered: GeneratedExercise[] = scored.map(s => s.exercise);
-  if (hipAbductorSignal.shouldFrontLoadAbductors) {
-    const abductorIdx = ordered.findIndex(ex =>
-      !ex.isCardio
-      && ex.targetMuscleGroup === 'abductors'
-      && (ex.exerciseRole === 'isolation' || ex.exerciseRole === 'secondary' || ex.exerciseRole === 'corrective')
-    );
-    if (abductorIdx > 1) {
-      const [abductor] = ordered.splice(abductorIdx, 1);
-      const firstIsolationIdx = ordered.findIndex(ex =>
-        ex.exerciseRole === 'isolation' || ex.exerciseRole === 'secondary' || ex.exerciseRole === 'corrective'
-      );
-      const insertIdx = firstIsolationIdx >= 0 ? Math.min(firstIsolationIdx, 2) : Math.min(1, ordered.length);
-      ordered.splice(insertIdx, 0, abductor);
-      if (!Array.isArray(abductor.adjustments)) abductor.adjustments = [];
-      abductor.adjustments.push(`Gait-load priming: moved earlier due to high ambulatory cardio (${hipAbductorSignal.weeklyAmbulatoryHours.toFixed(1)} h/wk)`);
-    }
-  }
+  // Abductor front-loading removed: compounds must always come first.
 
   // #13: Enhanced interference avoidance — try multiple swaps and pick best
   for (let i = 0; i < ordered.length - 1; i++) {
@@ -5298,7 +5308,8 @@ function validateAndCorrect(
   let firstIsolationIdx = strengthExs.length;
   for (let i = 0; i < strengthExs.length; i++) {
     const cnsTier = getCnsDemandTier(strengthExs[i]);
-    const isCompound = strengthExs[i].movementPattern === 'compound' || cnsTier <= 2;
+    const mpLower = (strengthExs[i].movementPattern || '').toLowerCase();
+    const isCompound = COMPOUND_MOVEMENT_PATTERNS.has(mpLower) || cnsTier <= 2;
     if (isCompound) lastCompoundIdx = i;
     if (!isCompound && i < firstIsolationIdx) firstIsolationIdx = i;
   }
@@ -5306,11 +5317,13 @@ function validateAndCorrect(
     hasOrderViolation = true;
     const compounds = strengthExs.filter(e => {
       const t = getCnsDemandTier(e);
-      return e.movementPattern === 'compound' || t <= 2;
+      const m = (e.movementPattern || '').toLowerCase();
+      return COMPOUND_MOVEMENT_PATTERNS.has(m) || t <= 2;
     });
     const isolations = strengthExs.filter(e => {
       const t = getCnsDemandTier(e);
-      return e.movementPattern !== 'compound' && t > 2;
+      const m = (e.movementPattern || '').toLowerCase();
+      return !COMPOUND_MOVEMENT_PATTERNS.has(m) && t > 2;
     });
     compounds.sort((a, b) => getCnsDemandTier(a) - getCnsDemandTier(b));
     const reordered = [...compounds, ...isolations];
@@ -5475,10 +5488,13 @@ export async function generateWorkout(
 
   // #7: Experience-level scaling — adjust volume and progression
   const expLevel = prefs.experience_level?.toLowerCase() ?? 'intermediate';
+  const isElite = expLevel === 'elite' || expLevel === 'expert' || expLevel === 'professional';
   const expVolumeScale = expLevel === 'beginner' ? cfg.beginnerVolumeMultiplier
+    : isElite ? cfg.eliteVolumeMultiplier
     : expLevel === 'advanced' ? cfg.advancedVolumeMultiplier
     : cfg.intermediateVolumeMultiplier;
   const expProgressionScale = expLevel === 'beginner' ? cfg.beginnerProgressionRate
+    : isElite ? cfg.eliteProgressionRate
     : expLevel === 'advanced' ? cfg.advancedProgressionRate
     : 1.0;
 
@@ -5499,18 +5515,14 @@ export async function generateWorkout(
     }
   }
 
-  // Return-from-break detection: auto-deload after extended time off
-  const daysSinceLastWorkout = profile.exercisePreferences.length > 0
-    ? Math.min(...profile.exercisePreferences.map(p => p.lastUsedDaysAgo))
-    : Infinity;
-
-  // Break ramp: continuous function based on days off.
-  // Detraining begins around day 7 (Mujika & Padilla 2000).
-  // Longer breaks need more conservative ramp-back.
+  // Return-from-break detection: auto-deload after extended time off.
+  // Guard: new users with no preference history should not be penalized.
   let breakRampMultiplier = 1.0;
-  if (daysSinceLastWorkout >= 7) {
-    // Continuous: 7d → ~0.85, 14d → ~0.60, 21d → ~0.50
-    breakRampMultiplier = Math.max(0.45, 1.0 - (daysSinceLastWorkout - 5) * 0.028);
+  if (profile.exercisePreferences.length > 0) {
+    const daysSinceLastWorkout = Math.min(...profile.exercisePreferences.map(p => p.lastUsedDaysAgo));
+    if (daysSinceLastWorkout >= 7) {
+      breakRampMultiplier = Math.max(0.45, 1.0 - (daysSinceLastWorkout - 5) * 0.028);
+    }
   }
 
   // Step 1: Recovery check
@@ -5530,7 +5542,7 @@ export async function generateWorkout(
 
   if (breakRampMultiplier < 1.0) {
     recoveryAdj.volumeMultiplier *= breakRampMultiplier;
-    recoveryAdj.adjustmentReasons.push(`Return from ${daysSinceLastWorkout}d break: volume ×${breakRampMultiplier} (ramp-back protocol)`);
+    recoveryAdj.adjustmentReasons.push(`Return from break: volume ×${breakRampMultiplier.toFixed(2)} (ramp-back protocol)`);
   }
 
   // #15: Caloric-phase MRV scaling — cut reduces tolerance, bulk increases
@@ -5623,6 +5635,13 @@ export async function generateWorkout(
   }
 
   const preferredExerciseNames = new Set<string>();
+  // User's DB-stored preferred exercises (from Profile)
+  if (Array.isArray(prefs.preferred_exercises)) {
+    for (const n of prefs.preferred_exercises) {
+      const key = String(n || '').trim().toLowerCase();
+      if (key) preferredExerciseNames.add(key);
+    }
+  }
   for (const n of overrides?.preferredExerciseNames ?? []) {
     const key = String(n || '').trim().toLowerCase();
     if (key) preferredExerciseNames.add(key);

@@ -288,6 +288,10 @@ dbRouter.post('/', async (req, res) => {
       return res.status(401).json({ data: null, error: { message: 'Authentication required' } })
     }
 
+    if (isPublicTable && operation !== 'select') {
+      return res.status(403).json({ data: null, error: { message: 'Public tables are read-only' } })
+    }
+
     const params = []
     let sql = ''
     let result
@@ -300,7 +304,25 @@ dbRouter.post('/', async (req, res) => {
         const orderStr = buildOrderClause(order)
         const limitStr = limit ? `LIMIT ${parseInt(limit, 10)}` : ''
         const offsetStr = offset ? `OFFSET ${parseInt(offset, 10)}` : ''
-        sql = `SELECT ${cols} FROM "${table}" ${where} ${orderStr} ${limitStr} ${offsetStr}`
+
+        // Child tables without direct user_id: scope through parent ownership subquery
+        const parentRule = PARENT_OWNERSHIP[table]
+        if (parentRule && userId && !getUserIdColumn(table)) {
+          let ownerFilter
+          if (parentRule.grandparent) {
+            const gp = parentRule.grandparent
+            params.push(userId)
+            ownerFilter = `"${parentRule.fkCol}" IN (SELECT p.id FROM "${parentRule.parentTable}" p JOIN "${gp.parentTable}" gp ON p."${gp.fkCol}" = gp.id WHERE gp."${gp.ownerCol}" = $${params.length})`
+          } else {
+            params.push(userId)
+            ownerFilter = `"${parentRule.fkCol}" IN (SELECT id FROM "${parentRule.parentTable}" WHERE "${parentRule.ownerCol}" = $${params.length})`
+          }
+          const extraWhere = buildWhereClause(filters, null, table, params)
+          const whereStr = extraWhere ? `${extraWhere} AND ${ownerFilter}` : `WHERE ${ownerFilter}`
+          sql = `SELECT ${cols} FROM "${table}" ${whereStr} ${orderStr} ${limitStr} ${offsetStr}`
+        } else {
+          sql = `SELECT ${cols} FROM "${table}" ${where} ${orderStr} ${limitStr} ${offsetStr}`
+        }
         result = await query(sql, params)
 
         if (parsed.relations.length > 0) {
@@ -437,6 +459,9 @@ dbRouter.post('/', async (req, res) => {
           })
 
         const where = buildWhereClause(filters, userId, table, params)
+        if (!where) {
+          return res.status(400).json({ data: null, error: { message: 'UPDATE without filters is not allowed' } })
+        }
         sql = `UPDATE "${table}" SET ${setClauses.join(', ')} ${where} RETURNING *`
         result = await query(sql, params)
 

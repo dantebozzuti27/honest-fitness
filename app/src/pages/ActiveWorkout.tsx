@@ -464,7 +464,7 @@ export default function ActiveWorkout() {
         }
         if (mounted) setLastByExerciseName(merged)
       } catch (e) {
-        // non-blocking
+        logError('Failed to load last-time exercise cues from recent workouts', e)
       }
     })()
     return () => {
@@ -1129,7 +1129,11 @@ export default function ActiveWorkout() {
                     const meaningful = hasMeaningfulSessionProgress(workoutData.workoutTime, workoutData.isResting)
                     if (!meaningful) {
                       localStorage.removeItem(`activeWorkout_${userId}`)
-                      try { await deleteActiveWorkoutSession(userId) } catch { /* best effort */ }
+                      try {
+                        await deleteActiveWorkoutSession(userId)
+                      } catch (e) {
+                        logError('Failed to delete active workout session when clearing stale local backup', e)
+                      }
                     } else {
                       const workoutDate = new Date(workoutData.timestamp).toLocaleString()
                       const shouldResume = await confirmAsync({
@@ -1146,7 +1150,7 @@ export default function ActiveWorkout() {
                         try {
                           await deleteActiveWorkoutSession(userId)
                         } catch (error) {
-                          // Silently fail
+                          logError('Failed to delete active workout session when starting fresh from backup', error)
                         }
                         // Continue to initialize new workout below
                       } else {
@@ -1375,7 +1379,11 @@ export default function ActiveWorkout() {
                   const meaningful = hasMeaningfulSessionProgress(workoutData.workoutTime, workoutData.isResting)
                   if (!meaningful) {
                     localStorage.removeItem(`activeWorkout_${userId}`)
-                    try { await deleteActiveWorkoutSession(userId) } catch { /* best effort */ }
+                    try {
+                      await deleteActiveWorkoutSession(userId)
+                    } catch (e) {
+                      logError('Failed to delete active workout session when clearing stale local backup (error path)', e)
+                    }
                   } else {
                     const workoutDate = new Date(workoutData.timestamp).toLocaleString()
                     const shouldResume = await confirmAsync({
@@ -1392,7 +1400,7 @@ export default function ActiveWorkout() {
                       try {
                         await deleteActiveWorkoutSession(userId)
                       } catch (error) {
-                        // Silently fail
+                        logError('Failed to delete active workout session when starting fresh from backup (session load error path)', error)
                       }
                       // Continue to initialize new timer below
                     } else {
@@ -1673,7 +1681,9 @@ export default function ActiveWorkout() {
 
       // If workout was never finished and has no exercises, clean up the empty session
       if (!hasFinishedRef.current && userId && exercisesRef.current.length === 0) {
-        deleteActiveWorkoutSession(userId).catch(() => {})
+        deleteActiveWorkoutSession(userId).catch((err) =>
+          logError('Failed to delete empty active workout session on unmount', err)
+        )
         try { localStorage.removeItem(`activeWorkout_${userId}`) } catch (err) { logError('Failed to remove active workout from localStorage on cleanup', err) }
       }
     }
@@ -1805,7 +1815,9 @@ export default function ActiveWorkout() {
               restStartTime: null,
               restDurationSeconds: null,
               isResting: false
-            }).catch(() => {})
+            }).catch((err) =>
+              logError('Failed to clear rest state in active workout session', err)
+            )
           }
         }
       }
@@ -2189,7 +2201,7 @@ export default function ActiveWorkout() {
       try {
         await deletePausedWorkoutFromSupabase(userId)
       } catch (error) {
-        // Silently fail
+        logError('Failed to delete paused workout from Supabase on finish', error)
       }
     }
     // Clear local paused backups
@@ -2382,6 +2394,22 @@ export default function ActiveWorkout() {
             await saveWorkoutToSupabase(workout, user.id)
             saved = true
             trackEvent('workout_completed', { sessionType, exerciseCount: workout.exercises?.length ?? 0, duration: workout.duration })
+
+            // Emit model outcome event so the ML pipeline can score this session
+            if (workout.generatedWorkoutId) {
+              const completedCount = workout.exercises.filter((ex: any) => ex.sets?.length > 0).length
+              const prescribedCount = exercises.length
+              trackEvent('model_outcome_completed', {
+                generatedWorkoutId: workout.generatedWorkoutId,
+                workoutDate: workout.date,
+                outcomeScore: prescribedCount > 0 ? Math.min(1, completedCount / prescribedCount) : 1,
+                completionPct: prescribedCount > 0 ? Math.round((completedCount / prescribedCount) * 100) : 100,
+                sessionType,
+                durationMinutes: workout.duration,
+                rpe: feedback.rpe,
+              })
+            }
+
             showToast(sessionType === 'recovery' ? 'Recovery session saved successfully!' : 'Workout saved successfully!', 'success')
             
             // Trigger history refresh event for Fitness page
@@ -2417,7 +2445,9 @@ export default function ActiveWorkout() {
                 steps: intradayMetrics.totalSteps ?? prev.steps,
               }))
             }
-          }).catch(() => { /* non-fatal */ })
+          }).catch((err) =>
+            logError('Failed to fetch/save workout Fitbit intraday metrics (non-fatal)', err)
+          )
         }
       }
 
@@ -2812,7 +2842,7 @@ export default function ActiveWorkout() {
                       localStorage.removeItem(`workoutStartMetrics_${userId}`)
                       showToast('Workout cleared. Starting fresh.', 'info')
                     } catch (error) {
-                      // Silently fail
+                      logError('Failed to clear active workout from database and localStorage', error)
                     }
                   }
                 }

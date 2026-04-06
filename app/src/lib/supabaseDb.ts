@@ -6,7 +6,6 @@ import { isUuidV4, uuidv4 } from '../utils/uuid'
 import { enqueueOutboxItem } from './syncOutbox'
 import { DEFAULT_MODEL_CONFIG } from './modelConfig'
 
-// Route all .from() / .rpc() calls through the RDS CRUD proxy (Phase 1 migration).
 const supabase: any = db as any
 
 // Ensure logDebug is always available (fallback for build issues)
@@ -155,7 +154,7 @@ async function upsertCardioCapabilityFromWorkout(userId: string, workout: any) {
 }
 
 /** Clears the Supabase read cache. Call after writes (e.g. saveWorkout) for immediate consistency. */
-export function invalidateSupabaseCache() {
+export function invalidateDbCache() {
   readCache.clear()
 }
 
@@ -364,7 +363,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       .single()
     
   } catch (enrichError) {
-    // Non-critical
+    logError('Non-critical: failed to fetch workout for enrichment after save', enrichError)
   }
 
   // Insert exercises (only those with valid sets data).
@@ -672,7 +671,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   // Learn cardio capability envelopes from completed sessions (best-effort).
   await upsertCardioCapabilityFromWorkout(userId, workoutToSave)
 
-  invalidateSupabaseCache()
+  invalidateDbCache()
   return workoutData
 }
 
@@ -1186,7 +1185,7 @@ export async function deleteWorkoutFromSupabase(workoutId: string, userId: strin
   }
   const { error } = await deleteQuery
   if (error) throw error
-  invalidateSupabaseCache()
+  invalidateDbCache()
 }
 
 export async function deleteAllWorkoutsFromSupabase(userId: string) {
@@ -1449,7 +1448,7 @@ export async function saveMetricsToSupabase(userId: string, date: string, metric
     }
     
     safeLogDebug('saveMetricsToSupabase: Success', data)
-    invalidateSupabaseCache()
+    invalidateDbCache()
     return data
   } catch (err) {
     logError('saveMetricsToSupabase: Error', err)
@@ -2417,7 +2416,9 @@ export async function saveLlmValidationArtifact(
       generated_workout_id: generatedWorkoutId,
       model_version: 'llm_validator_v1',
       policy_version: 'policy_v4_adaptive_learning',
-    }).then(() => {}).catch(() => {})
+    }).then(() => {}).catch((e: unknown) =>
+      logError('Failed to persist decision_provenance for LLM version selection', e)
+    )
   }
 }
 

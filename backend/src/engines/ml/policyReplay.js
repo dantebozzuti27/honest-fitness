@@ -40,6 +40,10 @@ export function evaluateEpisodeMetrics(episodes = [], outcomes = []) {
   })
 }
 
+// PLACEHOLDER: This is synthetic counterfactual estimation, not real replay.
+// It fabricates candidate scores with a fixed boost. Real counterfactual evaluation
+// should re-run the engine with the candidate config against historical inputs.
+// Do not use this as a promotion gate until real replay is implemented.
 export function computeReplayRows(outcomes = [], userId, replayScenarioId, baselinePolicyVersion, candidatePolicyVersion) {
   return (outcomes || []).map((o) => {
     const baselineScore = Number(o.session_outcome_score)

@@ -46,8 +46,8 @@ const appEnvFromFile = readDotEnv(appEnvPath) || {}
 const combined = { ...appEnvFromFile, ...process.env }
 
 const checks = [
-  checkGroup('Frontend (Vite)', ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY'], combined),
-  checkGroup('API/Backend (Server)', ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'], combined)
+  checkGroup('Frontend (Vite)', ['VITE_COGNITO_USER_POOL_ID', 'VITE_COGNITO_CLIENT_ID'], combined),
+  checkGroup('API/Backend (Server)', ['DATABASE_URL', 'COGNITO_USER_POOL_ID'], combined)
 ]
 
 let ok = true
@@ -61,7 +61,7 @@ for (const c of checks) {
 }
 
 if (!ok) {
-  console.log('\nSee docs/ENVIRONMENT.md for the full contract.')
+  console.log('\nSee .env.example at the repo root for the full contract.')
   process.exit(1)
 }
 

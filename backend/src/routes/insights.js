@@ -134,8 +134,17 @@ const insightsLimiter = rateLimit({
 })
 
 const validateCache = new Map()
+const VALIDATE_CACHE_MAX_ENTRIES = 100
 const CACHE_TTL_MS = 5 * 60 * 1000
 const VALIDATION_SCHEMA_VERSION = 'v1'
+
+function setValidateCacheEntry(key, value) {
+  validateCache.set(key, value)
+  if (validateCache.size > VALIDATE_CACHE_MAX_ENTRIES) {
+    const oldestKey = validateCache.keys().next().value
+    if (oldestKey !== undefined) validateCache.delete(oldestKey)
+  }
+}
 
 function classifyValidationRejections(parsed) {
   const classes = new Set()
@@ -305,7 +314,7 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
       }
       if (req.userId && workoutData) {
         const cacheKey = workoutValidationCacheKey(req.userId, workoutData, trainingProfile)
-        validateCache.set(cacheKey, { data: safe, ts: Date.now() })
+        setValidateCacheEntry(cacheKey, { data: safe, ts: Date.now() })
       }
       return sendSuccess(res, { data: safe, type })
     }

@@ -102,27 +102,4 @@ export async function authenticate(req, res, next) {
   }
 }
 
-export async function optionalAuth(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7)
-      const ks = await getJwksAsync()
-      if (ks) {
-        try {
-          const optVerify = { issuer: ISSUER }
-          if (COGNITO_CLIENT_ID) optVerify.audience = COGNITO_CLIENT_ID
-          const { payload } = await jwtVerify(token, ks, optVerify)
-          const resolved = await resolveUserId(payload.sub, payload.email)
-          req.user = { id: resolved.id, email: resolved.email }
-          req.userId = resolved.id
-        } catch {
-          // continue without auth
-        }
-      }
-    }
-    next()
-  } catch {
-    next()
-  }
-}
+// optionalAuth removed — defined but never used

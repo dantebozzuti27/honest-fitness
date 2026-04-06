@@ -23,22 +23,7 @@ export const apiLimiter = rateLimit({
   validate: { xForwardedForHeader: false },
 })
 
-/**
- * Strict rate limiter for authentication endpoints
- * 5 requests per 15 minutes per IP
- */
-export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
-  message: {
-    error: {
-      message: 'Too many authentication attempts, please try again later.',
-      status: 429
-    }
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-})
+// authLimiter removed — defined but never used
 
 /**
  * ML/AI endpoint rate limiter

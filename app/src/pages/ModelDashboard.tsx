@@ -697,7 +697,7 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
   const scoringFactors = [
     { factor: 'Performance goal match',       weight: '+6',  cond: 'User has a specific target for this exercise', positive: true },
     { factor: 'Staple exercise',              weight: '+4',  cond: 'Consistently used across training history', positive: true },
-    { factor: 'User preference (recency)',    weight: '+0–8', cond: 'recencyScore × 2.5 — proportional to recent usage', positive: true },
+    { factor: 'User preference (recency)',    weight: '+0–8', cond: 'recencyScore × 1.35 — proportional to recent usage', positive: true },
     { factor: 'Recently used (<14d)',         weight: '+2',  cond: 'Last performed within 14 days', positive: true },
     { factor: 'Progressing',                  weight: '+3',  cond: 'Positive slope on estimated 1RM trend', positive: true },
     { factor: 'Compound movement',            weight: '+2',  cond: 'Multi-joint exercise', positive: true },
@@ -709,17 +709,18 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
     { factor: 'Never used',                   weight: '−3',  cond: 'Exercise not in user training history', positive: false },
     { factor: 'Equipment unavailable',        weight: '−5',  cond: 'Requires unavailable equipment', positive: false },
     { factor: 'Rotation suggested (4+ wks)',  weight: '−5',  cond: 'Same isolation used 4+ consecutive weeks', positive: false },
-    { factor: 'Swap learning (1–2×)',         weight: '−5/−10', cond: 'User previously swapped this exercise out', positive: false },
+    { factor: 'Swap learning (1–2×)',         weight: '−10',  cond: 'User previously swapped this exercise out', positive: false },
     { factor: 'Pattern fatigue (high)',       weight: '−6',  cond: 'Movement pattern used recently with high fatigue', positive: false },
     { factor: 'Stale exercise (6+ wks)',      weight: '−10', cond: 'Forced rotation — exercise used 6+ weeks', positive: false },
-    { factor: 'Frequently swapped (3+×)',     weight: '−15', cond: 'User consistently rejects this exercise', positive: false },
+    { factor: 'Often swapped (3×)',           weight: '−20', cond: 'User repeatedly swapped this exercise out', positive: false },
+    { factor: 'Frequently swapped (5+×)',     weight: '−30', cond: 'User consistently rejects — near-banned', positive: false },
   ]
 
   return (
     <>
       <div className={S.summary}>
         Scored {totalCandidates} candidate exercises. {staples} are staples (auto +4).
-        {swappedFrequently > 0 ? ` ${swappedFrequently} exercise${swappedFrequently > 1 ? 's' : ''} penalized from frequent swaps (−15).` : ''}
+        {swappedFrequently > 0 ? ` ${swappedFrequently} exercise${swappedFrequently > 1 ? 's' : ''} penalized from frequent swaps (−20/−30).` : ''}
         {nutritionCov != null
           ? ` Nutrition logging coverage (14d): ${Math.round(nutritionCov * 100)}% — feeds fat-loss controller dampening.`
           : ''}
@@ -827,7 +828,7 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
 
       {swappedFrequently > 0 && (
         <>
-          <div className={S.sectionLabel}>Frequently Swapped (−15 penalty)</div>
+          <div className={S.sectionLabel}>Frequently Swapped (−20/−30 penalty)</div>
           {swaps.filter(s => s.swapCount >= 3).map(s => (
             <div key={s.exerciseName} className={`${S.decisionBranch} ${S.decisionBranchActive}`} style={{ borderColor: '#ff6b6b', background: '#1a1111' }}>
               <div className={S.branchIndicator} style={{ background: '#ff6b6b' }} />
@@ -843,7 +844,7 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
 
       <div className={S.counterfactual}>
         {staples > 0
-          ? `Your ${staples} staple exercise${staples > 1 ? 's' : ''} get a flat +4 bonus, making them hard to displace. An exercise needs a recency score of ~1.6+ (×2.5 = +4) just to match a staple's base bonus. If a staple stalls for 4+ weeks, the −3 plateau penalty and −5 rotation penalty would start to overcome the +4 staple bonus.`
+          ? `Your ${staples} staple exercise${staples > 1 ? 's' : ''} get a flat +4 bonus, making them hard to displace. An exercise needs a recency score of ~3.0+ (×1.35 = +4) just to match a staple's base bonus. If a staple stalls for 4+ weeks, the −3 plateau penalty and −5 rotation penalty would start to overcome the +4 staple bonus.`
           : 'No staple exercises detected yet. Once an exercise appears consistently across 60%+ of recent sessions, it earns staple status (+4 selection bonus).'}
       </div>
     </>

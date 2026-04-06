@@ -302,13 +302,26 @@ mlRouter.post('/policy/replay', async (req, res, next) => {
     )
 
     if (rows.length > 0) {
-      for (const row of rows) {
-        await query(
-          `INSERT INTO replay_results (user_id, replay_scenario_id, workout_date, baseline_score, candidate_score, regret_delta, promoted, result_payload)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [row.user_id, row.replay_scenario_id, row.workout_date, row.baseline_score, row.candidate_score, row.regret_delta, row.promoted || false, JSON.stringify(row.result_payload || {})]
-        )
-      }
+      const colsPerRow = 8
+      const valueGroups = rows.map((_, i) => {
+        const b = i * colsPerRow + 1
+        return `($${b}, $${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`
+      }).join(', ')
+      const params = rows.flatMap((row) => [
+        row.user_id,
+        row.replay_scenario_id,
+        row.workout_date,
+        row.baseline_score,
+        row.candidate_score,
+        row.regret_delta,
+        row.promoted || false,
+        JSON.stringify(row.result_payload || {}),
+      ])
+      await query(
+        `INSERT INTO replay_results (user_id, replay_scenario_id, workout_date, baseline_score, candidate_score, regret_delta, promoted, result_payload)
+         VALUES ${valueGroups}`,
+        params
+      )
     }
 
     const replaySummary = summarizeReplayPromotion(rows)

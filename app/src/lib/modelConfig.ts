@@ -143,10 +143,14 @@ export interface ModelConfig {
   intermediateVolumeMultiplier: number;
   /** Volume multiplier for advanced lifters (can tolerate more) */
   advancedVolumeMultiplier: number;
+  /** Volume multiplier for elite/professional lifters */
+  eliteVolumeMultiplier: number;
   /** Progression rate multiplier for beginners (faster gains) */
   beginnerProgressionRate: number;
-  /** Progression rate for advanced (slower, smaller increments) */
+  /** Progression rate for advanced lifters */
   advancedProgressionRate: number;
+  /** Progression rate for elite lifters */
+  eliteProgressionRate: number;
 
   // ── Defaults & Fallbacks ────────────────────────────────────────────
   defaultSessionDurationMinutes: number;
@@ -213,7 +217,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   deloadCardioIntensityMultiplier: 0.85,
 
   // Progressive overload
-  repsAboveTargetForProgression: 2,
+  repsAboveTargetForProgression: 1,
   regressionWeightMultiplier: 0.92,
   sleepCoefficientMinimum: 0.10,
   sleepDeltaThreshold: -0.10,
@@ -274,8 +278,10 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   beginnerVolumeMultiplier: 0.80,
   intermediateVolumeMultiplier: 1.0,
   advancedVolumeMultiplier: 1.15,
+  eliteVolumeMultiplier: 1.30,
   beginnerProgressionRate: 1.5,
-  advancedProgressionRate: 0.7,
+  advancedProgressionRate: 1.0,
+  eliteProgressionRate: 0.85,
 
   // Defaults & fallbacks
   defaultSessionDurationMinutes: 65,
@@ -286,7 +292,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   maxCardioPerExerciseMinutes: 45,
   maxWalkSpeedMph: 3.5,
   minWalkInferredSpeedMph: 2.4,
-  swapDecayHalfLifeDays: 42,
+  swapDecayHalfLifeDays: 21,
 
   // Deload triggers
   deloadRegressingExerciseThreshold: 5,

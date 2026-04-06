@@ -106,47 +106,28 @@ export async function checkAndRefreshFitbitToken(userId: string) {
 }
 
 /**
- * Generic token refresh function for any provider
+ * Generic token refresh function for any provider.
+ * Delegates to checkAndRefreshFitbitToken for Fitbit accounts.
  */
 export async function refreshTokenIfNeeded(userId: string, provider: string, account: any) {
   if (!account) return null
-  
+
   const expiresAt = account.expires_at ? new Date(account.expires_at) : null
   const now = new Date()
-  
-  // If token is still valid (more than 15 minutes until expiration), return as-is
+
   if (expiresAt && expiresAt > new Date(now.getTime() + 15 * 60 * 1000)) {
     return account
   }
-  
-  // Token needs refresh
+
   if (provider === 'fitbit') {
-    try {
-      const response = await fetch(apiUrl('/api/fitbit/refresh'), {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await getIdToken()}`
-        },
-        body: JSON.stringify({})
-      })
-      
-      if (response.ok) {
-        const tokenData = await response.json()
-        await saveConnectedAccount(userId, 'fitbit', {
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token,
-          expires_at: tokenData.expires_at,
-          token_type: 'Bearer'
-        })
-        return { ...account, access_token: tokenData.access_token, expires_at: tokenData.expires_at }
-      }
-    } catch (error: any) {
-      logError('Error refreshing Fitbit token', error)
-      return account // Return original if refresh fails
+    const result = await checkAndRefreshFitbitToken(userId)
+    if (result.refreshed) {
+      const refreshed = await getConnectedAccount(userId, 'fitbit')
+      return refreshed ?? account
     }
+    return account
   }
-  
+
   return account
 }
 
@@ -184,7 +165,10 @@ async function isFitbitConnected(userId: string): Promise<boolean> {
   try {
     const accounts = await getAllConnectedAccounts(userId)
     return accounts.some((a: any) => a.provider === 'fitbit')
-  } catch { return false }
+  } catch (e) {
+    logError('Failed to verify Fitbit connection', e)
+    return false
+  }
 }
 
 /**
@@ -287,7 +271,7 @@ export function startFitbitSyncScheduler(userId: string): () => void {
   if (lastBackfillTs == null || Date.now() - lastBackfillTs >= BACKFILL_MIN_INTERVAL_MS) {
     backfillFitbitSync(userId, BACKFILL_DAYS)
       .then(() => writeTs(backfillKey, Date.now()))
-      .catch(() => {})
+      .catch((e) => logError('Fitbit backfill scheduling failed on app load', e))
   } else {
     // Still ensure current day gets a sync when app starts.
     triggerFitbitSync(userId, getLocalDateWithOffset(0))

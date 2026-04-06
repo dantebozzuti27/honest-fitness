@@ -13,7 +13,11 @@ export function errorHandler(err, req, res, next) {
     message: err?.message,
     code: err?.code
   })
-  
+
+  if (res.headersSent) {
+    return next(err)
+  }
+
   const status = err.status || err.statusCode || 500
   const message = err.publicMessage || err.message || 'Internal server error'
   const code = err.code || err.error?.code

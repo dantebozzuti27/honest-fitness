@@ -431,6 +431,10 @@ export default function Profile() {
     if (!user) return
     setSavingProfile(true)
     try {
+      // Fire-and-forget pre-warm: wake the serverless function if it's cold.
+      // The actual save follows immediately; if the function is already warm this is a no-op.
+      fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {})
+      await new Promise(r => setTimeout(r, 300))
       const payload: Record<string, any> = {
         training_goal: trainingProfile.training_goal || null,
         session_duration_minutes: trainingProfile.session_duration_minutes

@@ -332,11 +332,10 @@ export default function Profile() {
   const [avoidSearch, setAvoidSearch] = useState('')
 
   useEffect(() => {
-    // Wake the serverless container on mount so JWKS + DB pool initialize
-    // before the user clicks Save. /api/ping is unauthenticated and fast;
-    // importing the Express app triggers auth.js and pg.js module-level
-    // pre-warming (JWKS pre-fetch + SELECT 1).
     fetch('/api/ping').catch(() => {})
+    // Keep the serverless container warm while the user is on this page.
+    // Vercel Hobby can freeze functions within seconds of inactivity.
+    const keepalive = setInterval(() => { fetch('/api/ping').catch(() => {}) }, 25_000)
 
     if (user) {
       loadConnectedAccounts()
@@ -344,6 +343,7 @@ export default function Profile() {
       loadExerciseNames()
       loadLatestWeight()
     }
+    return () => clearInterval(keepalive)
   }, [user])
 
   const loadExerciseNames = async () => {
@@ -436,8 +436,8 @@ export default function Profile() {
   const handleSaveTrainingProfile = async () => {
     if (!user) return
     setSavingProfile(true)
-    // Fire pre-warm right before save in case the container went cold since mount
-    fetch('/api/ping').catch(() => {})
+    // Await pre-warm so the container is guaranteed warm before the save request
+    await fetch('/api/ping').catch(() => {})
     try {
       const payload: Record<string, any> = {
         training_goal: trainingProfile.training_goal || null,
@@ -488,9 +488,10 @@ export default function Profile() {
       }
 
       showToast('Training profile saved', 'success')
-    } catch (err) {
+    } catch (err: unknown) {
       logError('Training profile save error', err)
-      showToast('Failed to save training profile', 'error')
+      const detail = err instanceof Error ? err.message : ''
+      showToast(`Failed to save training profile${detail ? `: ${detail}` : ''}`, 'error')
     }
     setSavingProfile(false)
   }

@@ -1404,7 +1404,7 @@ function computeDeloadRecommendation(
     needed: signals.length >= DEFAULT_MODEL_CONFIG.deloadSignalCountThreshold,
     signals,
     suggestedDurationDays: 7,
-    suggestedVolumeMultiplier: 0.65,
+    suggestedVolumeMultiplier: DEFAULT_MODEL_CONFIG.deloadVolumeMultiplier,
   };
 }
 

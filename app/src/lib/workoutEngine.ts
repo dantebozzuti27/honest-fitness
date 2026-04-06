@@ -2359,9 +2359,8 @@ function stepSelectExercises(
           factors.push('Trained yesterday: recovery protection (-12)');
         }
       } else {
-        const adjustedNeverUsedPenalty = Math.max(-3, cfg.neverUsedPenalty);
-        score += adjustedNeverUsedPenalty;
-        factors.push(`Never used in your training history (${adjustedNeverUsedPenalty})`);
+        score += cfg.neverUsedPenalty;
+        factors.push(`Never used in your training history (${cfg.neverUsedPenalty})`);
       }
 
       // #9: Exercise Novelty Cycling — stronger rotation penalties

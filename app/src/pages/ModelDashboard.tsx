@@ -483,7 +483,7 @@ function RecoveryStatePanel({ profile: p }: { profile: TrainingProfile }) {
           <div className={`${S.branchIndicator} ${readinessTier === 'deload' ? S.branchIndicatorActive : ''}`} />
           <div>
             <span className={S.branchCondition}>Readiness &lt; 60%:</span>
-            <span className={S.branchResult}> Deload triggered — volume ×{deload.suggestedVolumeMultiplier ?? '0.5'}, RIR → 4, easy cardio only</span>
+            <span className={S.branchResult}> Deload triggered — volume ×{deload.suggestedVolumeMultiplier ?? '0.65'}, RIR → 4, easy cardio only</span>
           </div>
         </div>
         <div className={`${S.decisionBranch} ${readinessTier === 'reduced' ? S.decisionBranchActive : ''}`}>
@@ -695,25 +695,28 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
   const swappedFrequently = swaps.filter(s => s.swapCount >= 3).length
 
   const scoringFactors = [
-    { factor: 'Performance goal match',       weight: '+6',  cond: 'User has a specific target for this exercise', positive: true },
-    { factor: 'Staple exercise',              weight: '+4',  cond: 'Consistently used across training history', positive: true },
-    { factor: 'User preference (recency)',    weight: '+0–8', cond: 'recencyScore × 1.35 — proportional to recent usage', positive: true },
-    { factor: 'Recently used (<14d)',         weight: '+2',  cond: 'Last performed within 14 days', positive: true },
-    { factor: 'Progressing',                  weight: '+3',  cond: 'Positive slope on estimated 1RM trend', positive: true },
-    { factor: 'Compound movement',            weight: '+2',  cond: 'Multi-joint exercise', positive: true },
-    { factor: 'Stalled progression',          weight: '+1',  cond: 'No progress but not regressing', positive: true },
-    { factor: 'Regressing',                   weight: '−1',  cond: 'Negative slope on 1RM trend', positive: false },
-    { factor: 'Ordering interference',        weight: '−2',  cond: 'Negative interaction with preceding exercise', positive: false },
-    { factor: 'Pattern fatigue (moderate)',    weight: '−2',  cond: 'Movement pattern used recently with moderate fatigue', positive: false },
-    { factor: 'Plateaued (swap suggested)',    weight: '−3',  cond: 'Plateau detected, variation recommended', positive: false },
-    { factor: 'Never used',                   weight: '−3',  cond: 'Exercise not in user training history', positive: false },
-    { factor: 'Equipment unavailable',        weight: '−5',  cond: 'Requires unavailable equipment', positive: false },
-    { factor: 'Rotation suggested (4+ wks)',  weight: '−5',  cond: 'Same isolation used 4+ consecutive weeks', positive: false },
-    { factor: 'Swap learning (1–2×)',         weight: '−10',  cond: 'User previously swapped this exercise out', positive: false },
-    { factor: 'Pattern fatigue (high)',       weight: '−6',  cond: 'Movement pattern used recently with high fatigue', positive: false },
-    { factor: 'Stale exercise (6+ wks)',      weight: '−10', cond: 'Forced rotation — exercise used 6+ weeks', positive: false },
-    { factor: 'Often swapped (3×)',           weight: '−20', cond: 'User repeatedly swapped this exercise out', positive: false },
-    { factor: 'Frequently swapped (5+×)',     weight: '−30', cond: 'User consistently rejects — near-banned', positive: false },
+    { factor: 'Compound priority',             weight: '+8',  cond: 'Multi-joint compound movement', positive: true },
+    { factor: 'Performance goal match',        weight: '+6',  cond: 'User has a specific target for this exercise', positive: true },
+    { factor: 'Preferred exercise',            weight: '+5',  cond: 'In user\'s preferred_exercises list', positive: true },
+    { factor: 'Staple exercise',               weight: '+4',  cond: 'Consistently used across training history', positive: true },
+    { factor: 'User preference (recency)',     weight: '+0–8', cond: 'recencyScore × 1.35 — proportional to recent usage', positive: true },
+    { factor: 'Progressing',                   weight: '+3',  cond: 'Positive slope on estimated 1RM trend', positive: true },
+    { factor: 'Knee-flexion diversity',        weight: '+3',  cond: 'Hamstring curl/nordic when hinge already selected', positive: true },
+    { factor: 'Recently used (<14d)',          weight: '+2',  cond: 'Last performed within 14 days', positive: true },
+    { factor: 'Stalled progression',           weight: '+1',  cond: 'No progress but not regressing', positive: true },
+    { factor: 'Regressing',                    weight: '−1',  cond: 'Negative slope on 1RM trend', positive: false },
+    { factor: 'Ordering interference',         weight: '−2',  cond: 'Negative interaction with preceding exercise', positive: false },
+    { factor: 'Pattern fatigue (moderate)',     weight: '−2',  cond: 'Movement pattern used recently with moderate fatigue', positive: false },
+    { factor: 'Never used',                    weight: '−3',  cond: 'Exercise not in user training history', positive: false },
+    { factor: 'Plateaued (swap suggested)',     weight: '−3',  cond: 'Plateau detected, variation recommended', positive: false },
+    { factor: 'Equipment unavailable',         weight: '−5',  cond: 'Requires unavailable equipment', positive: false },
+    { factor: 'Rotation suggested (4+ wks)',   weight: '−5',  cond: 'Same isolation used 4+ consecutive weeks', positive: false },
+    { factor: 'Pattern diversity (hinge)',      weight: '−6',  cond: 'Hinge movement already selected this session', positive: false },
+    { factor: 'Swap learning (1–2×)',          weight: '−10', cond: 'User previously swapped this exercise out', positive: false },
+    { factor: 'Stale exercise (6+ wks)',       weight: '−10', cond: 'Forced rotation — exercise used 6+ weeks', positive: false },
+    { factor: 'Trained yesterday',             weight: '−12', cond: 'Exercise performed in yesterday\'s session', positive: false },
+    { factor: 'Often swapped (3×)',            weight: '−20', cond: 'User repeatedly swapped this exercise out', positive: false },
+    { factor: 'Frequently swapped (5+×)',      weight: '−30', cond: 'User consistently rejects — near-banned', positive: false },
   ]
 
   return (

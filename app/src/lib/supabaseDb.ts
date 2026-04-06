@@ -1695,30 +1695,56 @@ export async function getUserPreferences(userId: string) {
 }
 
 export async function saveUserPreferences(userId: string, prefs: any) {
-  // Fast path: dedicated endpoint (bypasses generic db proxy, much lower latency)
-  try {
-    const { getIdToken } = await import('./cognitoAuth')
-    const { apiUrl } = await import('./urlConfig')
+  const { getIdToken } = await import('./cognitoAuth')
+  const { apiUrl } = await import('./urlConfig')
+
+  const tryFastPath = async (): Promise<any> => {
     const token = await getIdToken().catch(() => '')
-    const resp = await fetch(apiUrl('/api/preferences'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(prefs),
-      signal: AbortSignal.timeout(30_000),
-    })
-    if (resp.ok) {
-      const body = await resp.json()
-      if (!body.error) {
-        invalidateDbCache()
-        return body.data
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 8_000)
+    try {
+      const resp = await fetch(apiUrl('/api/preferences'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(prefs),
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      if (resp.ok) {
+        const body = await resp.json()
+        if (!body.error) {
+          invalidateDbCache()
+          return body.data
+        }
+        throw new Error(body.error?.message || 'Save returned error')
       }
+      const text = await resp.text().catch(() => '')
+      throw new Error(`HTTP ${resp.status}: ${text.slice(0, 200)}`)
+    } catch (e: unknown) {
+      clearTimeout(timer)
+      throw e
     }
-    logWarn(`Fast-path preferences save failed (HTTP ${resp.status}), falling back to db proxy`)
-  } catch (fastErr: unknown) {
-    logWarn('Fast-path preferences save error, falling back to db proxy')
+  }
+
+  // Attempt 1
+  try {
+    return await tryFastPath()
+  } catch (e1: unknown) {
+    const msg = e1 instanceof Error ? e1.message : String(e1)
+    logWarn(`Preferences save attempt 1 failed: ${msg}`)
+  }
+
+  // Pre-warm and retry once
+  await fetch(apiUrl('/api/ping')).catch(() => {})
+  await new Promise(r => setTimeout(r, 300))
+  try {
+    return await tryFastPath()
+  } catch (e2: unknown) {
+    const msg = e2 instanceof Error ? e2.message : String(e2)
+    logWarn(`Preferences save attempt 2 failed: ${msg}, falling back to db proxy`)
   }
 
   // Fallback: generic db proxy with column-stripping retry

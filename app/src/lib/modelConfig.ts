@@ -211,7 +211,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   sleepDebtWeight: 0.05,
 
   // Deload
-  deloadVolumeMultiplier: 0.50,
+  deloadVolumeMultiplier: 0.65,
   deloadWeightMultiplier: 0.85,
   deloadCardioDurationMultiplier: 0.80,
   deloadCardioIntensityMultiplier: 0.85,
@@ -228,7 +228,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   maxProgressionPct: 0.10,
 
   // Exercise selection
-  neverUsedPenalty: -8,
+  neverUsedPenalty: -3,
   pushPullCorrectionThreshold: 1.50,
   correctiveSetsCount: 2,
   timeOfDayMinDataPoints: 10,

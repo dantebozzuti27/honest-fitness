@@ -39,10 +39,10 @@ apiRouter.post('/preferences', async (req, res) => {
 
     const fields = { user_id: userId, updated_at: new Date().toISOString() }
     // TEXT[] columns — pass raw JS arrays, pg handles the conversion
-    const textArrayCols = new Set(['exercises_to_avoid', 'preferred_exercises'])
+    const textArrayCols = new Set(['exercises_to_avoid', 'preferred_exercises', 'available_days'])
     const allowedCols = [
       'training_goal', 'session_duration_minutes', 'equipment_access',
-      'available_days_per_week', 'job_activity_level', 'injuries',
+      'available_days_per_week', 'available_days', 'job_activity_level', 'injuries',
       'exercises_to_avoid', 'performance_goals', 'preferred_split',
       'date_of_birth', 'gender', 'height_feet', 'height_inches',
       'body_weight_lbs', 'experience_level', 'cardio_preference',

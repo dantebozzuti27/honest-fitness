@@ -332,11 +332,11 @@ export default function Profile() {
   const [avoidSearch, setAvoidSearch] = useState('')
 
   useEffect(() => {
-    // Wake the serverless function on mount so JWKS + DB pool initialize
-    // before the user clicks Save. /health is unauthenticated and fast,
-    // but importing the Express app triggers auth.js and pg.js module-level
+    // Wake the serverless container on mount so JWKS + DB pool initialize
+    // before the user clicks Save. /api/ping is unauthenticated and fast;
+    // importing the Express app triggers auth.js and pg.js module-level
     // pre-warming (JWKS pre-fetch + SELECT 1).
-    fetch('/health').catch(() => {})
+    fetch('/api/ping').catch(() => {})
 
     if (user) {
       loadConnectedAccounts()

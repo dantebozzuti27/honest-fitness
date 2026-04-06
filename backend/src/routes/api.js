@@ -17,7 +17,11 @@ import { authenticate } from '../middleware/auth.js'
 
 export const apiRouter = express.Router()
 
-// Apply authentication to all API routes except health check
+// Unauthenticated ping — used by the client to wake the serverless container
+// (triggers JWKS pre-fetch + DB pool warm-up at module load) before critical writes.
+apiRouter.get('/ping', (_req, res) => res.json({ ok: true }))
+
+// Apply authentication to all API routes
 apiRouter.use(authenticate)
 
 // Returns the resolved user (maps cognito_sub → historical users.id)

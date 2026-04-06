@@ -56,3 +56,11 @@ export async function getClient() {
   const p = getPool()
   return p.connect()
 }
+
+// Eagerly establish one TCP+TLS connection during module initialization so the
+// first real query doesn't pay the ~2-5 s cold-connect penalty.
+if (process.env.DATABASE_URL) {
+  getPool().query('SELECT 1').catch(err => {
+    console.warn('[pg] Pre-warm connection failed:', err.message)
+  })
+}

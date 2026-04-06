@@ -3517,7 +3517,10 @@ function stepPrescribe(
       const knownLifts = {
         bench: profile.exerciseProgressions.find(p => p.exerciseName.includes('bench press'))?.lastWeight ?? null,
         squat: profile.exerciseProgressions.find(p => p.exerciseName.includes('squat') && !p.exerciseName.includes('front'))?.lastWeight ?? null,
-        deadlift: profile.exerciseProgressions.find(p => p.exerciseName.includes('deadlift') && !p.exerciseName.includes('romanian'))?.lastWeight ?? null,
+        deadlift: profile.exerciseProgressions.find(p => {
+          const n = p.exerciseName.toLowerCase();
+          return n.includes('deadlift') && !/(romanian|rdl|stiff.leg|single.leg)/i.test(n);
+        })?.lastWeight ?? null,
       };
       const estimated = estimateWeightFromRatios(
         sel.exercise.name,

@@ -332,6 +332,12 @@ export default function Profile() {
   const [avoidSearch, setAvoidSearch] = useState('')
 
   useEffect(() => {
+    // Wake the serverless function on mount so JWKS + DB pool initialize
+    // before the user clicks Save. /health is unauthenticated and fast,
+    // but importing the Express app triggers auth.js and pg.js module-level
+    // pre-warming (JWKS pre-fetch + SELECT 1).
+    fetch('/health').catch(() => {})
+
     if (user) {
       loadConnectedAccounts()
       loadTrainingProfile()
@@ -431,10 +437,6 @@ export default function Profile() {
     if (!user) return
     setSavingProfile(true)
     try {
-      // Fire-and-forget pre-warm: wake the serverless function if it's cold.
-      // The actual save follows immediately; if the function is already warm this is a no-op.
-      fetch('/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {})
-      await new Promise(r => setTimeout(r, 300))
       const payload: Record<string, any> = {
         training_goal: trainingProfile.training_goal || null,
         session_duration_minutes: trainingProfile.session_duration_minutes

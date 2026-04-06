@@ -1994,19 +1994,24 @@ function computeStrengthPercentiles(
   if (!classData) return [];
 
   // ── Big 3 from OpenPowerlifting data ────────────────────────────────
-  const big3Mappings: { lift: string; patterns: string[] }[] = [
+  const big3Mappings: { lift: string; patterns: string[]; exclude?: string[] }[] = [
     { lift: 'squat', patterns: ['squat', 'back squat', 'front squat'] },
     { lift: 'bench', patterns: ['bench press', 'barbell bench press'] },
-    { lift: 'deadlift', patterns: ['deadlift', 'conventional deadlift', 'sumo deadlift'] },
+    { lift: 'deadlift', patterns: ['deadlift', 'conventional deadlift', 'sumo deadlift'],
+      exclude: ['romanian', 'rdl', 'stiff leg', 'stiff-leg', 'single leg', 'single-leg'] },
   ];
 
   const results: StrengthPercentile[] = [];
 
-  const findBest1RM = (patterns: string[]): number => {
+  const findBest1RM = (patterns: string[], exclude?: string[]): number => {
     let best = 0;
     for (const prog of exerciseProgressions) {
       const name = prog.exerciseName.toLowerCase();
-      if (patterns.some(p => name.includes(p)) && prog.estimated1RM > best) {
+      if (
+        patterns.some(p => name.includes(p)) &&
+        !(exclude && exclude.some(e => name.includes(e))) &&
+        prog.estimated1RM > best
+      ) {
         best = prog.estimated1RM;
       }
     }
@@ -2033,10 +2038,10 @@ function computeStrengthPercentiles(
     return 50;
   };
 
-  for (const { lift, patterns } of big3Mappings) {
+  for (const { lift, patterns, exclude } of big3Mappings) {
     const liftData = classData[lift];
     if (!liftData) continue;
-    const best1RM = findBest1RM(patterns);
+    const best1RM = findBest1RM(patterns, exclude);
     if (best1RM <= 0) continue;
     const rawPct = interpolateFromTable(best1RM, liftData);
     results.push({

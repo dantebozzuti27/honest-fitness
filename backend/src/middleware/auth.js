@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { createLocalJWKSet, createRemoteJWKSet, jwtVerify } from 'jose'
 import { query } from '../database/pg.js'
 import { logError } from '../utils/logger.js'
 import { sendError } from '../utils/http.js'
@@ -10,9 +10,24 @@ const ISSUER = `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}`
 const JWKS_URI = `${ISSUER}/.well-known/jwks.json`
 
 let jwks = null
+let jwksInitPromise = null
 
-function getJwks() {
+// Pre-fetch JWKS during module initialization (runs during cold start, outside
+// the handler's maxDuration clock). By the time the first HTTP request arrives,
+// the key set is already in memory and jwtVerify makes zero network calls.
+if (USER_POOL_ID) {
+  jwksInitPromise = fetch(JWKS_URI)
+    .then(r => r.json())
+    .then(keySet => { jwks = createLocalJWKSet(keySet) })
+    .catch(() => { jwks = createRemoteJWKSet(new URL(JWKS_URI)) })
+}
+
+async function getJwksAsync() {
   if (jwks) return jwks
+  if (jwksInitPromise) {
+    await jwksInitPromise
+    if (jwks) return jwks
+  }
   if (!USER_POOL_ID) return null
   jwks = createRemoteJWKSet(new URL(JWKS_URI))
   return jwks
@@ -61,7 +76,7 @@ export async function authenticate(req, res, next) {
 
     const token = authHeader.substring(7)
 
-    const ks = getJwks()
+    const ks = await getJwksAsync()
     if (!ks) {
       logError('Auth not configured: missing COGNITO_USER_POOL_ID')
       return sendError(res, { status: 500, message: 'Server authentication is not configured' })
@@ -92,7 +107,7 @@ export async function optionalAuth(req, res, next) {
     const authHeader = req.headers.authorization
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7)
-      const ks = getJwks()
+      const ks = await getJwksAsync()
       if (ks) {
         try {
           const optVerify = { issuer: ISSUER }

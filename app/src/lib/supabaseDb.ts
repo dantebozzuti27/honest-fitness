@@ -1695,14 +1695,38 @@ export async function getUserPreferences(userId: string) {
 }
 
 export async function saveUserPreferences(userId: string, prefs: any) {
-  // Only include fields that the caller explicitly provided (non-undefined).
-  // This prevents overwriting fields the caller didn't intend to change.
+  // Fast path: dedicated endpoint (bypasses generic db proxy, much lower latency)
+  try {
+    const { getIdToken } = await import('./cognitoAuth')
+    const { apiUrl } = await import('./urlConfig')
+    const token = await getIdToken().catch(() => '')
+    const resp = await fetch(apiUrl('/api/preferences'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(prefs),
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (resp.ok) {
+      const body = await resp.json()
+      if (!body.error) {
+        invalidateDbCache()
+        return body.data
+      }
+    }
+    logWarn(`Fast-path preferences save failed (HTTP ${resp.status}), falling back to db proxy`)
+  } catch (fastErr: unknown) {
+    logWarn('Fast-path preferences save error, falling back to db proxy')
+  }
+
+  // Fallback: generic db proxy with column-stripping retry
   const upsertData: any = {
     user_id: userId,
     updated_at: new Date().toISOString()
   }
 
-  // ML-v2 training profile fields (snake_case — sent by Profile.tsx)
   const directFields = [
     'training_goal', 'session_duration_minutes', 'equipment_access',
     'sport_focus', 'sport_season',
@@ -1723,7 +1747,6 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     }
   }
 
-  // Legacy camelCase fields (sent by onboarding / other callers)
   if (prefs.planName !== undefined) upsertData.plan_name = prefs.planName || null
   if (prefs.fitnessGoal !== undefined) upsertData.fitness_goal = prefs.fitnessGoal || null
   if (prefs.experienceLevel !== undefined) upsertData.experience_level = prefs.experienceLevel || null
@@ -1760,7 +1783,10 @@ export async function saveUserPreferences(userId: string, prefs: any) {
       .upsert(upsertData, { onConflict: 'user_id' })
       .select()
 
-    if (!error) return data
+    if (!error) {
+      invalidateDbCache()
+      return data
+    }
 
     if (error.code === '42703') {
       const match = error.message?.match(/column "([^"]+)"/)
@@ -1792,6 +1818,7 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     .select()
 
   if (finalError) throw finalError
+  invalidateDbCache()
   return finalData
 }
 

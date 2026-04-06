@@ -87,11 +87,14 @@ async function sendRequestOnce<T = any>(payload: RequestPayload): Promise<DbResp
 async function sendRequest<T = any>(payload: RequestPayload): Promise<DbResponse<T>> {
   const result = await sendRequestOnce<T>(payload)
 
-  if (
-    result.error?.message === 'Request timed out' &&
-    payload.operation !== 'select'
-  ) {
-    return await sendRequestOnce<T>(payload)
+  if (payload.operation !== 'select' && result.error) {
+    const msg = result.error.message || ''
+    if (msg === 'Request timed out' || msg.includes('504') || msg.includes('502')) {
+      // Pre-warm before retry — the container likely died
+      await fetch(apiUrl('/api/ping')).catch(() => {})
+      await new Promise(r => setTimeout(r, 500))
+      return await sendRequestOnce<T>(payload)
+    }
   }
 
   return result

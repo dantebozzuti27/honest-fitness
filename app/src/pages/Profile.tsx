@@ -436,6 +436,8 @@ export default function Profile() {
   const handleSaveTrainingProfile = async () => {
     if (!user) return
     setSavingProfile(true)
+    // Fire pre-warm right before save in case the container went cold since mount
+    fetch('/api/ping').catch(() => {})
     try {
       const payload: Record<string, any> = {
         training_goal: trainingProfile.training_goal || null,

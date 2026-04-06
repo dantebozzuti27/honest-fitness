@@ -38,6 +38,8 @@ apiRouter.post('/preferences', async (req, res) => {
     if (!userId) return res.status(401).json({ data: null, error: { message: 'Not authenticated' } })
 
     const fields = { user_id: userId, updated_at: new Date().toISOString() }
+    // TEXT[] columns — pass raw JS arrays, pg handles the conversion
+    const textArrayCols = new Set(['exercises_to_avoid', 'preferred_exercises'])
     const allowedCols = [
       'training_goal', 'session_duration_minutes', 'equipment_access',
       'available_days_per_week', 'job_activity_level', 'injuries',
@@ -53,8 +55,16 @@ apiRouter.post('/preferences', async (req, res) => {
     ]
     for (const col of allowedCols) {
       if (prefs[col] !== undefined) {
-        fields[col] = prefs[col] !== null && typeof prefs[col] === 'object'
-          ? JSON.stringify(prefs[col]) : (prefs[col] ?? null)
+        const v = prefs[col]
+        if (v === null || v === undefined) {
+          fields[col] = null
+        } else if (textArrayCols.has(col)) {
+          fields[col] = Array.isArray(v) ? v : null
+        } else if (typeof v === 'object') {
+          fields[col] = JSON.stringify(v)
+        } else {
+          fields[col] = v
+        }
       }
     }
 

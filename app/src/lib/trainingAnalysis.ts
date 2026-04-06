@@ -285,6 +285,80 @@ export interface Rolling30DayTrends {
   muscleGroupTrends: MuscleGroupTrend[];
 }
 
+// ── Philosophical Theory Types ───────────────────────────────────────────────
+
+export type EffortTier = 'going_through_motions' | 'moderate' | 'genuinely_hard';
+
+export interface HonestEffortSession {
+  workoutId: string;
+  date: string;
+  avgIntensityPct: number;
+  volumeUtilizationPct: number;
+  effortTier: EffortTier;
+  compositeScore: number;
+}
+
+export interface HonestEffortSummary {
+  sessions: HonestEffortSession[];
+  last30Count: number;
+  genuinelyHard: number;
+  moderate: number;
+  goingThroughMotions: number;
+  avgCompositeScore: number;
+  effortVariance: number;
+  trend: TrendDirection;
+}
+
+export interface ConsistencyQuotient {
+  adherenceRate: number;
+  effortVariance: number;
+  quotientScore: number;
+  heroicSessionsDetected: number;
+  streakDays: number;
+  longestStreak: number;
+}
+
+export interface AntifragilityIndex {
+  muscleGroup: CanonicalMuscleGroup;
+  index: number;
+  dataPoints: number;
+  recommendation: 'aggressive' | 'moderate' | 'conservative';
+}
+
+export interface EgoAuditFlag {
+  exerciseName: string;
+  suspectedIssue: 'ego_lift' | 'genuine_weakness' | 'equipment_mismatch';
+  actualRatio: number;
+  expectedRange: [number, number];
+  referenceExercise: string;
+  recommendation: string;
+}
+
+export type PlateauType = 'neural' | 'structural' | 'recovery' | 'skill';
+
+export interface IdentityArchetype {
+  label: string;
+  confidence: number;
+  evidence: string[];
+  aspirationalGap: number;
+}
+
+export interface MortalityGradient {
+  healthTrajectory: 'improving' | 'stable' | 'declining';
+  functionalAge: number | null;
+  strengthAge: number | null;
+  cardioAge: number | null;
+  projectedDecadeLoss: number;
+  topRisks: string[];
+  protectiveFactors: string[];
+}
+
+export interface PsychReadinessScore {
+  score: number;
+  signals: Array<{ signal: string; impact: number }>;
+  recommendation: string;
+}
+
 export interface TrainingProfile {
   userId: string;
   computedAt: string;
@@ -510,6 +584,19 @@ export interface TrainingProfile {
   totalWorkoutCount: number;
   healthDataDays: number;
   connectedWearables: string[];
+
+  // ── Philosophical Theories ──
+  honestEffort: HonestEffortSummary;
+  consistencyQuotient: ConsistencyQuotient;
+  antifragilityIndices: AntifragilityIndex[];
+  egoAuditFlags: EgoAuditFlag[];
+  /** Extended plateau type classification (neural/structural/recovery/skill) */
+  plateauClassifications: Array<{ exerciseName: string; plateauType: PlateauType; evidence: string[]; intervention: string }>;
+
+  // ── Phase 3 Theories ──
+  identityArchetypes: IdentityArchetype[];
+  mortalityGradient: MortalityGradient;
+  psychReadiness: PsychReadinessScore;
 }
 
 export interface GoalProgress {
@@ -3786,6 +3873,665 @@ function computeCanonicalModelContext(
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Philosophical Theory Computations
+// ═══════════════════════════════════════════════════════════════════════════
+
+function computeHonestEffortScores(
+  workouts: WorkoutRecord[],
+  exerciseProgressions: ExerciseProgression[],
+): HonestEffortSummary {
+  const e1rmMap = new Map<string, number>();
+  for (const ep of exerciseProgressions) {
+    if (ep.estimated1RM > 0) e1rmMap.set(ep.exerciseName, ep.estimated1RM);
+  }
+
+  const sessions: HonestEffortSession[] = [];
+
+  for (const w of workouts.slice(-60)) {
+    if (!w.workout_exercises?.length) continue;
+    const intensities: number[] = [];
+    let totalSets = 0;
+    let workingSets = 0;
+
+    for (const ex of w.workout_exercises) {
+      const e1rm = e1rmMap.get(ex.exercise_name?.toLowerCase() ?? '');
+      if (!e1rm || !ex.workout_sets?.length) continue;
+
+      for (const s of ex.workout_sets) {
+        totalSets++;
+        const weight = Number(s.weight) || 0;
+        const reps = Number(s.reps) || 0;
+        if (weight <= 0 || reps <= 0) continue;
+        workingSets++;
+        intensities.push(weight / e1rm);
+      }
+    }
+
+    if (intensities.length < 2) continue;
+
+    const avgIntensity = mean(intensities);
+    const volumeUtil = totalSets > 0 ? workingSets / totalSets : 0;
+    const composite = avgIntensity * 0.7 + volumeUtil * 0.3;
+    const tier: EffortTier =
+      composite >= 0.72 ? 'genuinely_hard' :
+      composite >= 0.52 ? 'moderate' :
+      'going_through_motions';
+
+    sessions.push({
+      workoutId: w.id,
+      date: w.date,
+      avgIntensityPct: Math.round(avgIntensity * 1000) / 10,
+      volumeUtilizationPct: Math.round(volumeUtil * 100),
+      effortTier: tier,
+      compositeScore: Math.round(composite * 100),
+    });
+  }
+
+  const last30 = sessions.slice(-30);
+  const scores = last30.map(s => s.compositeScore);
+  const avg = scores.length > 0 ? mean(scores) : 50;
+  const variance = scores.length > 1
+    ? scores.reduce((sum, v) => sum + (v - avg) ** 2, 0) / (scores.length - 1)
+    : 0;
+
+  const firstHalf = scores.slice(0, Math.floor(scores.length / 2));
+  const secondHalf = scores.slice(Math.floor(scores.length / 2));
+  const trend: TrendDirection =
+    firstHalf.length > 0 && secondHalf.length > 0
+      ? mean(secondHalf) > mean(firstHalf) + 2 ? 'up'
+        : mean(secondHalf) < mean(firstHalf) - 2 ? 'down'
+        : 'flat'
+      : 'flat';
+
+  return {
+    sessions: last30,
+    last30Count: last30.length,
+    genuinelyHard: last30.filter(s => s.effortTier === 'genuinely_hard').length,
+    moderate: last30.filter(s => s.effortTier === 'moderate').length,
+    goingThroughMotions: last30.filter(s => s.effortTier === 'going_through_motions').length,
+    avgCompositeScore: Math.round(avg),
+    effortVariance: Math.round(Math.sqrt(variance) * 10) / 10,
+    trend,
+  };
+}
+
+function computeConsistencyQuotient(
+  workouts: WorkoutRecord[],
+  honestEffort: HonestEffortSummary,
+  availableDaysPerWeek: number,
+): ConsistencyQuotient {
+  const now = new Date();
+  const last12Weeks = workouts.filter(w => {
+    const d = new Date(w.date);
+    return (now.getTime() - d.getTime()) < 84 * 86400000;
+  });
+
+  const weekBuckets = new Map<number, number>();
+  for (const w of last12Weeks) {
+    const weekNum = Math.floor((now.getTime() - new Date(w.date).getTime()) / (7 * 86400000));
+    weekBuckets.set(weekNum, (weekBuckets.get(weekNum) ?? 0) + 1);
+  }
+
+  const planned = Math.max(1, availableDaysPerWeek) * 12;
+  const adherenceRate = Math.min(1, last12Weeks.length / planned);
+
+  // Detect heroic sessions: high effort after 2+ day gap
+  let heroicCount = 0;
+  const sorted = [...workouts].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = (new Date(sorted[i].date).getTime() - new Date(sorted[i - 1].date).getTime()) / 86400000;
+    if (gap >= 2) {
+      const session = honestEffort.sessions.find(s => s.workoutId === sorted[i].id);
+      if (session && session.compositeScore >= 75) heroicCount++;
+    }
+  }
+
+  // Streak calculation
+  let currentStreak = 0;
+  let longestStreak = 0;
+  let streak = 0;
+  const dateSorted = [...workouts].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  for (let i = 0; i < dateSorted.length; i++) {
+    if (i === 0) { streak = 1; continue; }
+    const gap = (new Date(dateSorted[i].date).getTime() - new Date(dateSorted[i - 1].date).getTime()) / 86400000;
+    if (gap <= 2) {
+      streak++;
+    } else {
+      longestStreak = Math.max(longestStreak, streak);
+      streak = 1;
+    }
+  }
+  longestStreak = Math.max(longestStreak, streak);
+  currentStreak = streak;
+
+  const effortVar = honestEffort.effortVariance;
+  const normalizedVar = Math.min(1, effortVar / 25);
+  const quotientScore = Math.round(adherenceRate * (1 - normalizedVar * 0.4) * 100);
+
+  return {
+    adherenceRate: Math.round(adherenceRate * 100) / 100,
+    effortVariance: effortVar,
+    quotientScore: Math.min(100, Math.max(0, quotientScore)),
+    heroicSessionsDetected: heroicCount,
+    streakDays: currentStreak,
+    longestStreak,
+  };
+}
+
+function computeAntifragilityIndices(
+  workouts: WorkoutRecord[],
+  exercises: EnrichedExercise[],
+  exerciseProgressions: ExerciseProgression[],
+): AntifragilityIndex[] {
+  if (workouts.length < 20) return [];
+
+  const muscleMap = buildMuscleExerciseMap(exercises);
+  const progMap = new Map<string, ExerciseProgression>();
+  for (const p of exerciseProgressions) progMap.set(p.exerciseName, p);
+
+  const weekData = new Map<string, Map<number, { sets: number; slopes: number[] }>>();
+
+  for (const w of workouts) {
+    const weekNum = Math.floor((Date.now() - new Date(w.date).getTime()) / (7 * 86400000));
+    if (weekNum > 16) continue;
+
+    for (const ex of (w.workout_exercises ?? [])) {
+      const name = (ex.exercise_name ?? '').toLowerCase();
+      const primary = muscleMap.get(name);
+      if (!primary) continue;
+
+      for (const mg of primary) {
+        if (!weekData.has(mg)) weekData.set(mg, new Map());
+        const mgWeeks = weekData.get(mg)!;
+        if (!mgWeeks.has(weekNum)) mgWeeks.set(weekNum, { sets: 0, slopes: [] });
+        const entry = mgWeeks.get(weekNum)!;
+        entry.sets += (ex.workout_sets?.length ?? 0);
+        const prog = progMap.get(name);
+        if (prog) entry.slopes.push(prog.progressionSlope);
+      }
+    }
+  }
+
+  const results: AntifragilityIndex[] = [];
+
+  for (const [mg, weeks] of weekData) {
+    const weekEntries = [...weeks.entries()].sort(([a], [b]) => a - b);
+    if (weekEntries.length < 6) continue;
+
+    const pairs: Array<{ stress: number; response: number }> = [];
+    const avgSets = mean(weekEntries.map(([, e]) => e.sets));
+    if (avgSets <= 0) continue;
+
+    for (let i = 0; i < weekEntries.length - 1; i++) {
+      const [, curr] = weekEntries[i];
+      const [, next] = weekEntries[i + 1];
+      const stress = curr.sets / avgSets;
+      const response = next.slopes.length > 0 ? mean(next.slopes) : 0;
+      pairs.push({ stress, response });
+    }
+
+    if (pairs.length < 5) continue;
+
+    const xs = pairs.map(p => p.stress);
+    const ys = pairs.map(p => p.response);
+    const xMean = mean(xs);
+    const yMean = mean(ys);
+    let num = 0, denomX = 0, denomY = 0;
+    for (let i = 0; i < pairs.length; i++) {
+      const dx = xs[i] - xMean;
+      const dy = ys[i] - yMean;
+      num += dx * dy;
+      denomX += dx * dx;
+      denomY += dy * dy;
+    }
+    const denom = Math.sqrt(denomX * denomY);
+    const correlation = denom > 0 ? num / denom : 0;
+    const clamped = Math.max(-1, Math.min(1, correlation));
+
+    results.push({
+      muscleGroup: mg as CanonicalMuscleGroup,
+      index: Math.round(clamped * 100) / 100,
+      dataPoints: pairs.length,
+      recommendation: clamped > 0.25 ? 'aggressive' : clamped > -0.1 ? 'moderate' : 'conservative',
+    });
+  }
+
+  return results;
+}
+
+function buildMuscleExerciseMap(exercises: EnrichedExercise[]): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const ex of exercises) {
+    const name = (ex.name ?? '').toLowerCase();
+    const muscles: string[] = [];
+    if (ex.primary_muscles) {
+      const pm = Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [];
+      for (const m of pm) {
+        const normalized = normalizeToCanonicalGroup(String(m));
+        if (normalized) muscles.push(normalized);
+      }
+    }
+    if (muscles.length > 0) map.set(name, muscles);
+  }
+  return map;
+}
+
+function normalizeToCanonicalGroup(muscle: string): string | null {
+  const m = muscle.toLowerCase().replace(/[_\s]+/g, '_');
+  const MAP: Record<string, string> = {
+    chest: 'chest', pectorals: 'chest', pecs: 'chest',
+    back: 'back', lats: 'back', latissimus: 'back', rhomboids: 'back', traps: 'back', trapezius: 'back',
+    shoulders: 'shoulders', delts: 'shoulders', deltoids: 'shoulders', anterior_deltoid: 'shoulders',
+    lateral_deltoid: 'shoulders', posterior_deltoid: 'shoulders', rear_delts: 'shoulders',
+    biceps: 'biceps', triceps: 'triceps', forearms: 'forearms',
+    quadriceps: 'quadriceps', quads: 'quadriceps',
+    hamstrings: 'hamstrings', glutes: 'glutes', calves: 'calves',
+    core: 'core', abs: 'core', abdominals: 'core', obliques: 'core',
+    adductors: 'adductors', abductors: 'abductors', hip_flexors: 'hip_flexors',
+  };
+  return MAP[m] ?? null;
+}
+
+const STRENGTH_RATIO_BENCHMARKS: Array<{
+  exercise: RegExp;
+  reference: RegExp;
+  expectedRange: [number, number];
+}> = [
+  { exercise: /incline.*bench|incline.*press/i, reference: /^bench press$/i, expectedRange: [0.72, 0.88] },
+  { exercise: /overhead press|ohp|military press/i, reference: /^bench press$/i, expectedRange: [0.55, 0.72] },
+  { exercise: /close.?grip.*bench/i, reference: /^bench press$/i, expectedRange: [0.82, 0.95] },
+  { exercise: /dumbbell.*bench|db.*bench/i, reference: /^bench press$/i, expectedRange: [0.35, 0.45] },
+  { exercise: /front squat/i, reference: /^(back )?squat$/i, expectedRange: [0.78, 0.92] },
+  { exercise: /leg press/i, reference: /^(back )?squat$/i, expectedRange: [1.2, 1.8] },
+  { exercise: /romanian deadlift|rdl/i, reference: /^(conventional )?deadlift$/i, expectedRange: [0.60, 0.78] },
+  { exercise: /barbell row|pendlay row/i, reference: /^bench press$/i, expectedRange: [0.70, 0.90] },
+  { exercise: /pull.?up|chin.?up/i, reference: /^barbell row$/i, expectedRange: [0.90, 1.15] },
+  { exercise: /lat pulldown/i, reference: /^barbell row$/i, expectedRange: [0.65, 0.85] },
+  { exercise: /dumbbell.*curl|bicep.*curl/i, reference: /^bench press$/i, expectedRange: [0.15, 0.25] },
+  { exercise: /skull.*crush|tricep.*extension/i, reference: /^bench press$/i, expectedRange: [0.20, 0.32] },
+  { exercise: /lateral raise/i, reference: /overhead press|ohp|military press/i, expectedRange: [0.18, 0.30] },
+];
+
+function computeEgoAudit(exerciseProgressions: ExerciseProgression[]): EgoAuditFlag[] {
+  const e1rmMap = new Map<string, number>();
+  for (const ep of exerciseProgressions) {
+    if (ep.estimated1RM > 0 && ep.sessionsTracked >= 3) {
+      e1rmMap.set(ep.exerciseName, ep.estimated1RM);
+    }
+  }
+
+  const flags: EgoAuditFlag[] = [];
+
+  for (const benchmark of STRENGTH_RATIO_BENCHMARKS) {
+    let exerciseName: string | null = null;
+    let exerciseE1rm = 0;
+    let refName: string | null = null;
+    let refE1rm = 0;
+
+    for (const [name, e1rm] of e1rmMap) {
+      if (benchmark.exercise.test(name) && e1rm > exerciseE1rm) {
+        exerciseName = name;
+        exerciseE1rm = e1rm;
+      }
+      if (benchmark.reference.test(name) && e1rm > refE1rm) {
+        refName = name;
+        refE1rm = e1rm;
+      }
+    }
+
+    if (!exerciseName || !refName || refE1rm <= 0) continue;
+
+    const actualRatio = exerciseE1rm / refE1rm;
+    const [low, high] = benchmark.expectedRange;
+
+    if (actualRatio > high * 1.2) {
+      flags.push({
+        exerciseName,
+        suspectedIssue: 'ego_lift',
+        actualRatio: Math.round(actualRatio * 100) / 100,
+        expectedRange: benchmark.expectedRange,
+        referenceExercise: refName,
+        recommendation: `Your ${exerciseName} 1RM (${Math.round(exerciseE1rm)}) is ${Math.round(actualRatio * 100)}% of ${refName} (${Math.round(refE1rm)}), expected ${Math.round(low * 100)}-${Math.round(high * 100)}%. Possible partial ROM or momentum — consider a form check.`,
+      });
+    } else if (actualRatio < low * 0.8) {
+      flags.push({
+        exerciseName,
+        suspectedIssue: 'genuine_weakness',
+        actualRatio: Math.round(actualRatio * 100) / 100,
+        expectedRange: benchmark.expectedRange,
+        referenceExercise: refName,
+        recommendation: `Your ${exerciseName} 1RM (${Math.round(exerciseE1rm)}) is only ${Math.round(actualRatio * 100)}% of ${refName} (${Math.round(refE1rm)}), expected ${Math.round(low * 100)}-${Math.round(high * 100)}%. This muscle/pattern may need prioritized training.`,
+      });
+    }
+  }
+
+  return flags;
+}
+
+function computePlateauClassifications(
+  plateauDetections: PlateauDetection[],
+  exerciseProgressions: ExerciseProgression[],
+  muscleVolumeStatuses: MuscleVolumeStatus[],
+  deloadRecommendation: DeloadRecommendation,
+  rolling30DayTrends: Rolling30DayTrends,
+): Array<{ exerciseName: string; plateauType: PlateauType; evidence: string[]; intervention: string }> {
+  const classifications: Array<{ exerciseName: string; plateauType: PlateauType; evidence: string[]; intervention: string }> = [];
+
+  for (const plateau of plateauDetections) {
+    if (!plateau.isPlateaued) continue;
+
+    const prog = exerciseProgressions.find(p => p.exerciseName === plateau.exerciseName);
+    if (!prog) continue;
+
+    const evidence: string[] = [];
+    let plateauType: PlateauType = 'structural';
+
+    // Recovery plateau: strength declining + deload signals or health declining
+    const hasDeloadSignals = deloadRecommendation.signals.length >= 2;
+    const sleepDown = rolling30DayTrends.sleep.direction === 'down';
+    const hrvDown = rolling30DayTrends.hrv.direction === 'down';
+
+    if (prog.status === 'regressing' && (hasDeloadSignals || sleepDown || hrvDown)) {
+      plateauType = 'recovery';
+      evidence.push(`${prog.exerciseName} is regressing (slope: ${(prog.progressionSlope * 100).toFixed(1)}%)`);
+      if (hasDeloadSignals) evidence.push(`${deloadRecommendation.signals.length} deload signals active`);
+      if (sleepDown) evidence.push('Sleep trending down');
+      if (hrvDown) evidence.push('HRV trending down');
+    }
+    // Neural plateau: volume load growing but 1RM flat
+    else if (prog.status === 'stalled' || prog.status === 'maintaining') {
+      const volumeTrend = rolling30DayTrends.exerciseTrends.find(
+        t => t.exerciseName === plateau.exerciseName
+      );
+      const volumeUp = volumeTrend && volumeTrend.volumeLoad.direction === 'up';
+
+      if (volumeUp) {
+        plateauType = 'neural';
+        evidence.push('Volume load is increasing but 1RM is flat');
+        evidence.push('Muscle may be growing without expressing as max strength');
+      }
+      // Skill plateau: high variance in performance
+      else if (prog.sessionsTracked >= 5) {
+        plateauType = 'structural';
+        evidence.push(`Stalled for ${plateau.sessionsSinceProgress} sessions`);
+
+        const volumeStatus = muscleVolumeStatuses.find(v => {
+          const exerciseMatch = exerciseProgressions.find(
+            ep => ep.exerciseName === plateau.exerciseName
+          );
+          return exerciseMatch && v.muscleGroup;
+        });
+
+        if (volumeStatus && (volumeStatus.status === 'in_mav' || volumeStatus.status === 'approaching_mrv')) {
+          evidence.push(`Volume at ${volumeStatus.status.replace(/_/g, ' ')} — may need novel stimulus`);
+        } else {
+          evidence.push('May need volume increase or exercise variation');
+        }
+      }
+    }
+
+    const interventions: Record<PlateauType, string> = {
+      neural: 'Try heavier singles/doubles, pause reps, or tempo variation to drive neural adaptation without more volume.',
+      structural: 'Increase volume, add a second exercise for this pattern, or increase training frequency for this muscle.',
+      recovery: 'Take a deload, prioritize sleep and nutrition. This isn\'t a training problem — it\'s a recovery problem.',
+      skill: 'Increase frequency at lower intensity to refine technique. Add pause reps or tempo work for motor pattern reinforcement.',
+    };
+
+    classifications.push({
+      exerciseName: plateau.exerciseName,
+      plateauType,
+      evidence,
+      intervention: interventions[plateauType],
+    });
+  }
+
+  return classifications;
+}
+
+function computeIdentityArchetypes(
+  workouts: WorkoutRecord[],
+  exerciseProgressions: ExerciseProgression[],
+  honestEffort: HonestEffortSummary,
+  consistencyQ: ConsistencyQuotient,
+  prefs: any,
+): IdentityArchetype[] {
+  const archetypes: IdentityArchetype[] = [];
+
+  const progressing = exerciseProgressions.filter(p => p.status === 'progressing');
+  const totalTracked = exerciseProgressions.filter(p => p.sessionsTracked >= 3);
+  const progressRate = totalTracked.length > 0 ? progressing.length / totalTracked.length : 0;
+
+  // Strength athlete archetype
+  const bigCompounds = exerciseProgressions.filter(p =>
+    /squat|deadlift|bench press|overhead press|row/i.test(p.exerciseName) && p.sessionsTracked >= 5
+  );
+  if (bigCompounds.length >= 3) {
+    const compoundProgRate = bigCompounds.filter(c => c.status === 'progressing').length / bigCompounds.length;
+    const evidence: string[] = [];
+    if (compoundProgRate > 0.5) evidence.push(`${Math.round(compoundProgRate * 100)}% of compounds progressing`);
+    if (honestEffort.avgCompositeScore >= 70) evidence.push(`High effort (${honestEffort.avgCompositeScore}%)`);
+    evidence.push(`Tracks ${bigCompounds.length} compound lifts`);
+    const conf = Math.min(1, (compoundProgRate * 0.4 + (honestEffort.avgCompositeScore / 100) * 0.3 + (bigCompounds.length / 5) * 0.3));
+    archetypes.push({
+      label: 'Strength Athlete',
+      confidence: Math.round(conf * 100) / 100,
+      evidence,
+      aspirationalGap: Math.round((1 - conf) * 100),
+    });
+  }
+
+  // Consistency athlete archetype
+  if (consistencyQ.adherenceRate >= 0.7 && workouts.length >= 30) {
+    const evidence = [
+      `${Math.round(consistencyQ.adherenceRate * 100)}% adherence rate`,
+      `${consistencyQ.longestStreak}-day longest streak`,
+      `Low effort variance (${honestEffort.effortVariance.toFixed(1)})`,
+    ];
+    const conf = Math.min(1, consistencyQ.adherenceRate * 0.5 + (1 - Math.min(1, honestEffort.effortVariance / 20)) * 0.3 + Math.min(1, workouts.length / 100) * 0.2);
+    archetypes.push({
+      label: 'Consistency Machine',
+      confidence: Math.round(conf * 100) / 100,
+      evidence,
+      aspirationalGap: Math.round((1 - conf) * 100),
+    });
+  }
+
+  // Volume athlete archetype
+  const avgSetsPerSession = workouts.slice(-20).reduce((sum, w) => {
+    return sum + (w.workout_exercises ?? []).reduce((es, ex) => es + (ex.workout_sets?.length ?? 0), 0);
+  }, 0) / Math.max(1, Math.min(20, workouts.length));
+
+  if (avgSetsPerSession >= 20) {
+    const evidence = [
+      `${Math.round(avgSetsPerSession)} avg sets per session`,
+      `High volume tolerance`,
+    ];
+    archetypes.push({
+      label: 'Volume Specialist',
+      confidence: Math.min(1, Math.round((avgSetsPerSession / 30) * 100) / 100),
+      evidence,
+      aspirationalGap: Math.round(Math.max(0, 1 - avgSetsPerSession / 30) * 100),
+    });
+  }
+
+  // Goal-specific identity
+  const goal = prefs?.training_goal ?? 'hypertrophy';
+  if (goal && progressRate > 0) {
+    archetypes.push({
+      label: goal === 'fat_loss' ? 'Body Recomposition Pursuer'
+        : goal === 'strength' ? 'Power Builder'
+        : goal === 'endurance' ? 'Endurance Athlete'
+        : 'Muscle Builder',
+      confidence: Math.round(Math.min(1, progressRate * 0.6 + 0.3) * 100) / 100,
+      evidence: [`Primary goal: ${goal.replace(/_/g, ' ')}`, `${Math.round(progressRate * 100)}% exercises progressing`],
+      aspirationalGap: Math.round((1 - progressRate) * 100),
+    });
+  }
+
+  return archetypes.sort((a, b) => b.confidence - a.confidence).slice(0, 3);
+}
+
+function computeMortalityGradient(
+  workouts: WorkoutRecord[],
+  health: HealthRecord[],
+  exerciseProgressions: ExerciseProgression[],
+  rolling30DayTrends: Rolling30DayTrends,
+  userAge: number | null,
+): MortalityGradient {
+  const risks: string[] = [];
+  const protectives: string[] = [];
+
+  // Trajectory from rolling trends
+  const strengthDir = rolling30DayTrends.totalStrengthIndex.direction;
+  const sleepDir = rolling30DayTrends.sleep.direction;
+  const stepsDir = rolling30DayTrends.steps.direction;
+  const hrvDir = rolling30DayTrends.hrv.direction;
+
+  let trajectoryScore = 0;
+  if (strengthDir === 'up') { trajectoryScore++; protectives.push('Strength trending up'); }
+  else if (strengthDir === 'down') { trajectoryScore--; risks.push('Strength trending down'); }
+
+  if (sleepDir === 'up') { trajectoryScore++; protectives.push('Sleep improving'); }
+  else if (sleepDir === 'down') { trajectoryScore--; risks.push('Sleep declining'); }
+
+  if (stepsDir === 'up') { trajectoryScore++; protectives.push('Daily activity increasing'); }
+  else if (stepsDir === 'down') { trajectoryScore--; risks.push('Daily activity declining'); }
+
+  if (hrvDir === 'up') { trajectoryScore++; protectives.push('HRV improving (autonomic health)'); }
+  else if (hrvDir === 'down') { trajectoryScore--; risks.push('HRV declining (stress/recovery imbalance)'); }
+
+  const recentWorkouts14d = workouts.filter(w => {
+    const d = new Date(w.date);
+    return (Date.now() - d.getTime()) < 14 * 86400000;
+  });
+  const weeklyFreq = recentWorkouts14d.length / 2;
+  if (weeklyFreq >= 3) protectives.push(`Training ${weeklyFreq.toFixed(1)}×/week`);
+  else if (weeklyFreq < 2) risks.push(`Low training frequency (${weeklyFreq.toFixed(1)}×/week)`);
+
+  const healthTrajectory: MortalityGradient['healthTrajectory'] =
+    trajectoryScore >= 2 ? 'improving' : trajectoryScore <= -2 ? 'declining' : 'stable';
+
+  // Functional age estimation based on strength percentiles and recovery markers
+  let strengthAge: number | null = null;
+  let cardioAge: number | null = null;
+  if (userAge != null) {
+    const progCount = exerciseProgressions.filter(p => p.status === 'progressing').length;
+    const totalCount = exerciseProgressions.filter(p => p.sessionsTracked >= 3).length;
+    const progRatio = totalCount > 0 ? progCount / totalCount : 0.5;
+    strengthAge = Math.round(userAge - (progRatio - 0.5) * 10);
+
+    const steps = rolling30DayTrends.steps.current;
+    if (steps != null) {
+      cardioAge = Math.round(userAge - (steps > 10000 ? 5 : steps > 7500 ? 2 : steps < 5000 ? 3 : 0));
+    }
+  }
+
+  const functionalAge = strengthAge != null && cardioAge != null
+    ? Math.round((strengthAge + cardioAge) / 2)
+    : strengthAge ?? cardioAge ?? null;
+
+  // Projected decade strength loss (baseline ~10%/decade after 30, training reduces this)
+  const baseDecayRate = 10;
+  const trainingProtection = weeklyFreq >= 3 ? 6 : weeklyFreq >= 2 ? 4 : weeklyFreq >= 1 ? 2 : 0;
+  const projectedDecadeLoss = Math.max(1, baseDecayRate - trainingProtection);
+
+  // Add context-specific risks
+  const rhr = rolling30DayTrends.rhr.current;
+  if (rhr != null && rhr > 72) risks.push(`Elevated resting heart rate (${Math.round(rhr)} bpm)`);
+  if (rhr != null && rhr < 60) protectives.push(`Low resting heart rate (${Math.round(rhr)} bpm)`);
+
+  const bodyWeight = rolling30DayTrends.bodyWeight;
+  if (bodyWeight.direction === 'up' && bodyWeight.slope > 0.5) risks.push('Body weight trending up faster than expected');
+
+  return {
+    healthTrajectory,
+    functionalAge,
+    strengthAge,
+    cardioAge,
+    projectedDecadeLoss,
+    topRisks: risks.slice(0, 5),
+    protectiveFactors: protectives.slice(0, 5),
+  };
+}
+
+function computePsychReadiness(
+  workouts: WorkoutRecord[],
+  honestEffort: HonestEffortSummary,
+  consistencyQ: ConsistencyQuotient,
+  recoveryContext: RecoveryContext,
+): PsychReadinessScore {
+  const signals: Array<{ signal: string; impact: number }> = [];
+  let score = 50; // baseline
+
+  // Effort trend
+  if (honestEffort.trend === 'up') {
+    signals.push({ signal: 'Effort trending up — motivation is high', impact: 15 });
+    score += 15;
+  } else if (honestEffort.trend === 'down') {
+    signals.push({ signal: 'Effort trending down — possible burnout or boredom', impact: -15 });
+    score -= 15;
+  }
+
+  // Recent session gap
+  const sorted = [...workouts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  if (sorted.length >= 2) {
+    const daysSinceLast = (Date.now() - new Date(sorted[0].date).getTime()) / 86400000;
+    if (daysSinceLast > 4) {
+      signals.push({ signal: `${Math.round(daysSinceLast)} days since last workout — momentum fading`, impact: -10 });
+      score -= 10;
+    } else if (daysSinceLast <= 1) {
+      signals.push({ signal: 'Trained yesterday — riding momentum', impact: 5 });
+      score += 5;
+    }
+  }
+
+  // Going through motions frequency
+  if (honestEffort.goingThroughMotions > honestEffort.genuinelyHard) {
+    signals.push({ signal: 'More "going through the motions" sessions than hard ones — discipline decay risk', impact: -12 });
+    score -= 12;
+  } else if (honestEffort.genuinelyHard > honestEffort.last30Count * 0.6) {
+    signals.push({ signal: 'Majority of sessions are genuinely hard — strong training mindset', impact: 12 });
+    score += 12;
+  }
+
+  // Consistency
+  if (consistencyQ.quotientScore >= 80) {
+    signals.push({ signal: 'High consistency quotient — reliable training pattern', impact: 10 });
+    score += 10;
+  } else if (consistencyQ.quotientScore < 50) {
+    signals.push({ signal: 'Low consistency — erratic training schedule', impact: -10 });
+    score -= 10;
+  }
+
+  // Sleep signal
+  if (recoveryContext.sleepDurationLastNight != null && recoveryContext.sleepBaseline30d != null) {
+    const sleepRatio = recoveryContext.sleepDurationLastNight / recoveryContext.sleepBaseline30d;
+    if (sleepRatio < 0.75) {
+      signals.push({ signal: 'Severely underslept — cognitive and motivational impact', impact: -12 });
+      score -= 12;
+    } else if (sleepRatio >= 1.0) {
+      signals.push({ signal: 'Well-rested — peak mental readiness', impact: 8 });
+      score += 8;
+    }
+  }
+
+  // Heroic sessions = sign of resilience
+  if (consistencyQ.heroicSessionsDetected > 0) {
+    signals.push({ signal: `${consistencyQ.heroicSessionsDetected} "heroic return" sessions — strong comeback ability`, impact: 5 });
+    score += 5;
+  }
+
+  score = Math.max(0, Math.min(100, score));
+
+  const recommendation = score >= 75 ? 'Push hard today — your mind is ready.'
+    : score >= 55 ? 'Solid baseline. Focus on showing up and executing the plan.'
+    : score >= 35 ? 'Motivation may be low. Consider a lighter, enjoyable session to rebuild momentum.'
+    : 'Discipline is depleted. Do the minimum today — consistency > intensity when you\'re here.';
+
+  return { score, signals, recommendation };
+}
+
 export async function computeTrainingProfile(userId: string): Promise<TrainingProfile> {
   const supabase = db as any;
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
@@ -4096,6 +4842,11 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const adherenceScore = (prescribedVsActual.complianceRate * evidenceConfidence) + (0.5 * (1 - evidenceConfidence));
   const fitScore = (sessionFitScore * executionEvidenceConfidence) + (0.5 * (1 - executionEvidenceConfidence));
 
+  const honestEffortResult = computeHonestEffortScores(workouts, exerciseProgressions);
+  const consistencyQuotientResult = computeConsistencyQuotient(
+    workouts, honestEffortResult, prefsResult?.data?.available_days_per_week ?? 5,
+  );
+
   const canonicalModelContext = computeCanonicalModelContext({
     adherenceScore,
     progressionScore,
@@ -4224,6 +4975,29 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     totalWorkoutCount,
     healthDataDays,
     connectedWearables,
+
+    // Philosophical theories
+    honestEffort: honestEffortResult,
+    consistencyQuotient: consistencyQuotientResult,
+    antifragilityIndices: computeAntifragilityIndices(workouts, exercises, exerciseProgressions),
+    egoAuditFlags: computeEgoAudit(exerciseProgressions),
+    plateauClassifications: computePlateauClassifications(
+      plateauDetections,
+      exerciseProgressions,
+      muscleVolumeStatuses,
+      computeDeloadRecommendation(exerciseProgressions, health),
+      rolling30DayTrends,
+    ),
+
+    identityArchetypes: computeIdentityArchetypes(
+      workouts, exerciseProgressions, honestEffortResult, consistencyQuotientResult, prefsResult?.data,
+    ),
+    mortalityGradient: computeMortalityGradient(
+      workouts, health, exerciseProgressions, rolling30DayTrends, prefsResult?.data?.age ?? null,
+    ),
+    psychReadiness: computePsychReadiness(
+      workouts, honestEffortResult, consistencyQuotientResult, recoveryCtx,
+    ),
   };
 }
 

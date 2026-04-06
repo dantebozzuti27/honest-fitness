@@ -456,6 +456,274 @@
   border-radius: 4px;
 }
 
+/* ── Honest Effort Breakdown ── */
+
+.effortBreakdown {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.effortTier {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  height: 24px;
+  background: #1a1a1a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.effortTierBar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 6px;
+  opacity: 0.2;
+  transition: width 0.6s ease-out;
+}
+
+.effortTierLabel {
+  position: relative;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  padding-left: 8px;
+  z-index: 1;
+}
+
+.effortTierPct {
+  position: relative;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ddd;
+  margin-left: auto;
+  padding-right: 8px;
+  z-index: 1;
+}
+
+/* ── Antifragility Grid ── */
+
+.antifragilityGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.antifragilityCard {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.antifragilityHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.antifragilityIndex {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.antifragilityRec {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ── Ego Audit ── */
+
+.egoCard {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.egoHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.egoBadge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.egoRatio {
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 6px;
+}
+
+.egoRec {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.5;
+}
+
+/* ── Plateau Classification ── */
+
+.plateauCard {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.plateauHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.plateauBadge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.plateauEvidence {
+  margin-bottom: 8px;
+}
+
+.plateauEvidenceLine {
+  font-size: 11px;
+  color: #aaa;
+  padding: 2px 0;
+}
+
+.plateauIntervention {
+  font-size: 11px;
+  color: #14b8a6;
+  line-height: 1.5;
+  padding-top: 6px;
+  border-top: 1px solid #222;
+}
+
+/* ── Identity Architecture ── */
+
+.identityCard {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.identityHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.identityLabel {
+  font-size: 14px;
+  font-weight: 700;
+  color: #eee;
+}
+
+.identityConf {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.identityEvidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.identityEvidenceTag {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(20, 184, 166, 0.1);
+  color: #14b8a6;
+}
+
+.identityGap {
+  font-size: 11px;
+  color: #666;
+  font-style: italic;
+}
+
+/* ── Mortality Gradient ── */
+
+.mortalityList {
+  margin-top: 10px;
+}
+
+.mortalityListTitle {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.mortalityItem {
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+/* ── Psych Readiness ── */
+
+.psychSignals {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.psychSignal {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: #1a1a1a;
+  border-radius: 6px;
+}
+
+.psychSignalText {
+  font-size: 11px;
+  color: #ccc;
+  flex: 1;
+}
+
+.psychSignalImpact {
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 36px;
+  text-align: right;
+}
+
+.psychRec {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #14b8a6;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: rgba(20, 184, 166, 0.08);
+  border-radius: 8px;
+}
+
 /* ── Rationale ── */
 
 .rationaleText {

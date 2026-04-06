@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import type { GeneratedWorkout, MuscleGroupDecision, ExerciseDecision, DecisionLogEntry } from '../lib/workoutEngine'
 import type { TrainingProfile } from '../lib/trainingAnalysis'
 import BackButton from '../components/BackButton'
@@ -11,14 +11,13 @@ interface LocationState {
 
 export default function WorkoutPipeline() {
   const location = useLocation()
-  const navigate = useNavigate()
   const state = location.state as LocationState | null
 
   if (!state?.workout || !state?.profile) {
     return (
       <div className={S.page}>
         <div className={S.header}>
-          <BackButton onClick={() => navigate(-1)} />
+          <BackButton />
           <h1 className={S.title}>Workout Pipeline</h1>
         </div>
         <div className={S.empty}>No workout data. Generate a workout first.</div>
@@ -31,15 +30,22 @@ export default function WorkoutPipeline() {
   return (
     <div className={S.page}>
       <div className={S.header}>
-        <BackButton onClick={() => navigate(-1)} />
+        <BackButton />
         <h1 className={S.title}>Why This Workout</h1>
       </div>
       <div className={S.scroll}>
         <SummaryBanner workout={w} profile={p} />
+        <HonestEffortPanel profile={p} />
         <RecoverySection workout={w} profile={p} />
         <MuscleGroupSection decisions={w.muscleGroupDecisions} profile={p} />
+        <AntifragilityPanel profile={p} />
         <ExerciseSection decisions={w.exerciseDecisions} exercises={w.exercises} />
+        <EgoAuditPanel profile={p} />
         <PrescriptionSection exercises={w.exercises} />
+        <PlateauPanel profile={p} />
+        <IdentityPanel profile={p} />
+        <MortalityPanel profile={p} />
+        <PsychReadinessPanel profile={p} />
         <DecisionLogSection log={w.decisionLog} />
         {w.policyState && <PolicySection policy={w.policyState} />}
         <RationaleSection workout={w} />
@@ -80,9 +86,9 @@ function StatCard({ label, value, color }: { label: string; value: string; color
 
 function RecoverySection({ workout: w, profile: p }: { workout: GeneratedWorkout; profile: TrainingProfile }) {
   const ctx = p.recoveryContext
-  const sleepRatio = ctx.sleepBaseline30d > 0 ? (ctx.sleepDurationLastNight ?? 0) / ctx.sleepBaseline30d : null
-  const hrvRatio = ctx.hrvBaseline30d > 0 ? (ctx.hrvLastNight ?? 0) / ctx.hrvBaseline30d : null
-  const rhrRatio = ctx.rhrBaseline30d > 0 ? (ctx.rhrLastNight ?? 0) / ctx.rhrBaseline30d : null
+  const sleepRatio = (ctx.sleepBaseline30d ?? 0) > 0 ? (ctx.sleepDurationLastNight ?? 0) / ctx.sleepBaseline30d! : null
+  const hrvRatio = (ctx.hrvBaseline30d ?? 0) > 0 ? (ctx.hrvLastNight ?? 0) / ctx.hrvBaseline30d! : null
+  const rhrRatio = (ctx.rhrBaseline30d ?? 0) > 0 ? (ctx.rhrLastNight ?? 0) / ctx.rhrBaseline30d! : null
 
   const signals: Array<{ label: string; value: string; status: 'good' | 'warning' | 'danger' | 'neutral' }> = []
 
@@ -325,6 +331,244 @@ function PolicySection({ policy }: { policy: NonNullable<GeneratedWorkout['polic
           </div>
         )}
       </div>
+    </section>
+  )
+}
+
+function HonestEffortPanel({ profile: p }: { profile: TrainingProfile }) {
+  const e = p.honestEffort
+  if (!e || e.last30Count === 0) return null
+  const cq = p.consistencyQuotient
+  const tierColors: Record<string, string> = {
+    genuinely_hard: '#22c55e',
+    moderate: '#eab308',
+    going_through_motions: '#ef4444',
+  }
+
+  return (
+    <section className={S.section}>
+      <h2 className={S.sectionTitle}>Honest Effort Score</h2>
+      <p className={S.sectionDesc}>
+        Are you actually training hard, or just showing up?
+      </p>
+      <div className={S.statsGrid}>
+        <StatCard label="Avg Effort" value={`${e.avgCompositeScore}%`} color={e.avgCompositeScore >= 72 ? '#22c55e' : e.avgCompositeScore >= 52 ? '#eab308' : '#ef4444'} />
+        <StatCard label="Hard Sessions" value={`${e.genuinelyHard}/${e.last30Count}`} color="#22c55e" />
+        <StatCard label="Effort Trend" value={e.trend === 'up' ? '↑ Rising' : e.trend === 'down' ? '↓ Falling' : '→ Flat'} color={e.trend === 'up' ? '#22c55e' : e.trend === 'down' ? '#ef4444' : '#eab308'} />
+        <StatCard label="Consistency Q" value={`${cq.quotientScore}%`} color={cq.quotientScore >= 80 ? '#22c55e' : cq.quotientScore >= 60 ? '#eab308' : '#ef4444'} />
+        <StatCard label="Streak" value={`${cq.streakDays}d`} color="#a78bfa" />
+        <StatCard label="Heroic Returns" value={String(cq.heroicSessionsDetected)} color="#14b8a6" />
+      </div>
+      <div className={S.effortBreakdown}>
+        {(['genuinely_hard', 'moderate', 'going_through_motions'] as const).map(tier => {
+          const count = tier === 'genuinely_hard' ? e.genuinelyHard : tier === 'moderate' ? e.moderate : e.goingThroughMotions
+          const pct = e.last30Count > 0 ? Math.round(count / e.last30Count * 100) : 0
+          return (
+            <div key={tier} className={S.effortTier}>
+              <div className={S.effortTierBar} style={{ width: `${pct}%`, background: tierColors[tier] }} />
+              <span className={S.effortTierLabel} style={{ color: tierColors[tier] }}>{tier.replace(/_/g, ' ')}</span>
+              <span className={S.effortTierPct}>{pct}%</span>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function AntifragilityPanel({ profile: p }: { profile: TrainingProfile }) {
+  const indices = p.antifragilityIndices
+  if (!indices || indices.length === 0) return null
+
+  const recColors: Record<string, string> = {
+    aggressive: '#22c55e',
+    moderate: '#eab308',
+    conservative: '#ef4444',
+  }
+
+  return (
+    <section className={S.section}>
+      <h2 className={S.sectionTitle}>Antifragility Index</h2>
+      <p className={S.sectionDesc}>
+        Which muscles get stronger from stress vs. which ones break down. Positive = thrives on volume. Negative = needs careful dosing.
+      </p>
+      <div className={S.antifragilityGrid}>
+        {indices.sort((a, b) => b.index - a.index).map(af => (
+          <div key={af.muscleGroup} className={S.antifragilityCard}>
+            <div className={S.antifragilityHeader}>
+              <span className={S.muscleLabel}>{af.muscleGroup.replace(/_/g, ' ')}</span>
+              <span className={S.antifragilityIndex} style={{ color: af.index > 0.15 ? '#22c55e' : af.index > -0.1 ? '#eab308' : '#ef4444' }}>
+                {af.index > 0 ? '+' : ''}{af.index.toFixed(2)}
+              </span>
+            </div>
+            <div className={S.antifragilityRec} style={{ color: recColors[af.recommendation] }}>
+              {af.recommendation} ({af.dataPoints} data points)
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function EgoAuditPanel({ profile: p }: { profile: TrainingProfile }) {
+  const flags = p.egoAuditFlags
+  if (!flags || flags.length === 0) return null
+
+  const issueColors: Record<string, string> = {
+    ego_lift: '#ef4444',
+    genuine_weakness: '#eab308',
+    equipment_mismatch: '#a78bfa',
+  }
+
+  return (
+    <section className={S.section}>
+      <h2 className={S.sectionTitle}>Ego Audit</h2>
+      <p className={S.sectionDesc}>
+        Strength ratio analysis — flags exercises where your numbers don't add up relative to biomechanical expectations.
+      </p>
+      {flags.map(f => (
+        <div key={f.exerciseName} className={S.egoCard}>
+          <div className={S.egoHeader}>
+            <span className={S.exerciseName}>{f.exerciseName}</span>
+            <span className={S.egoBadge} style={{ background: `${issueColors[f.suspectedIssue]}22`, color: issueColors[f.suspectedIssue] }}>
+              {f.suspectedIssue.replace(/_/g, ' ')}
+            </span>
+          </div>
+          <div className={S.egoRatio}>
+            Actual: <strong>{(f.actualRatio * 100).toFixed(0)}%</strong> of {f.referenceExercise} — Expected: {(f.expectedRange[0] * 100).toFixed(0)}-{(f.expectedRange[1] * 100).toFixed(0)}%
+          </div>
+          <div className={S.egoRec}>{f.recommendation}</div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function PlateauPanel({ profile: p }: { profile: TrainingProfile }) {
+  const classifications = p.plateauClassifications
+  if (!classifications || classifications.length === 0) return null
+
+  const typeColors: Record<string, string> = {
+    neural: '#a78bfa',
+    structural: '#eab308',
+    recovery: '#ef4444',
+    skill: '#14b8a6',
+  }
+
+  return (
+    <section className={S.section}>
+      <h2 className={S.sectionTitle}>Plateau Classification</h2>
+      <p className={S.sectionDesc}>
+        Not all plateaus are the same. The wrong intervention makes them worse.
+      </p>
+      {classifications.map(c => (
+        <div key={c.exerciseName} className={S.plateauCard}>
+          <div className={S.plateauHeader}>
+            <span className={S.exerciseName}>{c.exerciseName}</span>
+            <span className={S.plateauBadge} style={{ background: `${typeColors[c.plateauType]}22`, color: typeColors[c.plateauType] }}>
+              {c.plateauType}
+            </span>
+          </div>
+          <div className={S.plateauEvidence}>
+            {c.evidence.map((e, i) => <div key={i} className={S.plateauEvidenceLine}>• {e}</div>)}
+          </div>
+          <div className={S.plateauIntervention}>{c.intervention}</div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function IdentityPanel({ profile: p }: { profile: TrainingProfile }) {
+  const archetypes = p.identityArchetypes
+  if (!archetypes || archetypes.length === 0) return null
+
+  return (
+    <section className={S.section}>
+      <h2 className={S.sectionTitle}>Identity Architecture</h2>
+      <p className={S.sectionDesc}>
+        You don't have goals — you have an identity. These archetypes reflect who the data says you are.
+      </p>
+      {archetypes.map(a => (
+        <div key={a.label} className={S.identityCard}>
+          <div className={S.identityHeader}>
+            <span className={S.identityLabel}>{a.label}</span>
+            <span className={S.identityConf} style={{ color: a.confidence >= 0.7 ? '#22c55e' : a.confidence >= 0.4 ? '#eab308' : '#888' }}>
+              {Math.round(a.confidence * 100)}%
+            </span>
+          </div>
+          <div className={S.identityEvidence}>
+            {a.evidence.map((e, i) => <span key={i} className={S.identityEvidenceTag}>{e}</span>)}
+          </div>
+          {a.aspirationalGap > 0 && (
+            <div className={S.identityGap}>Aspirational gap: {a.aspirationalGap}%</div>
+          )}
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function MortalityPanel({ profile: p }: { profile: TrainingProfile }) {
+  const m = p.mortalityGradient
+  if (!m) return null
+
+  const trajColor = m.healthTrajectory === 'improving' ? '#22c55e' : m.healthTrajectory === 'declining' ? '#ef4444' : '#eab308'
+
+  return (
+    <section className={S.section}>
+      <h2 className={S.sectionTitle}>Mortality Gradient</h2>
+      <p className={S.sectionDesc}>
+        Every rep is a vote for or against the person you'll be in 20 years.
+      </p>
+      <div className={S.statsGrid}>
+        <StatCard label="Trajectory" value={m.healthTrajectory} color={trajColor} />
+        {m.functionalAge != null && <StatCard label="Functional Age" value={String(m.functionalAge)} color={m.functionalAge < (m.strengthAge ?? 99) ? '#22c55e' : '#eab308'} />}
+        {m.strengthAge != null && <StatCard label="Strength Age" value={String(m.strengthAge)} color="#a78bfa" />}
+        {m.cardioAge != null && <StatCard label="Cardio Age" value={String(m.cardioAge)} color="#14b8a6" />}
+        <StatCard label="Decade Loss" value={`${m.projectedDecadeLoss}%`} color={m.projectedDecadeLoss <= 4 ? '#22c55e' : m.projectedDecadeLoss <= 7 ? '#eab308' : '#ef4444'} />
+      </div>
+      {m.topRisks.length > 0 && (
+        <div className={S.mortalityList}>
+          <div className={S.mortalityListTitle} style={{ color: '#ef4444' }}>Risks</div>
+          {m.topRisks.map((r, i) => <div key={i} className={S.mortalityItem} style={{ color: '#ef4444' }}>• {r}</div>)}
+        </div>
+      )}
+      {m.protectiveFactors.length > 0 && (
+        <div className={S.mortalityList}>
+          <div className={S.mortalityListTitle} style={{ color: '#22c55e' }}>Protective Factors</div>
+          {m.protectiveFactors.map((f, i) => <div key={i} className={S.mortalityItem} style={{ color: '#22c55e' }}>• {f}</div>)}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function PsychReadinessPanel({ profile: p }: { profile: TrainingProfile }) {
+  const psych = p.psychReadiness
+  if (!psych) return null
+
+  return (
+    <section className={S.section}>
+      <h2 className={S.sectionTitle}>Psychological Readiness</h2>
+      <p className={S.sectionDesc}>
+        The body is ready when the mind says so. This isn't RPE — it's whether you're mentally present.
+      </p>
+      <div className={S.statsGrid}>
+        <StatCard label="Psych Score" value={`${psych.score}%`} color={psych.score >= 75 ? '#22c55e' : psych.score >= 50 ? '#eab308' : '#ef4444'} />
+      </div>
+      <div className={S.psychSignals}>
+        {psych.signals.map((s, i) => (
+          <div key={i} className={S.psychSignal}>
+            <span className={S.psychSignalText}>{s.signal}</span>
+            <span className={S.psychSignalImpact} style={{ color: s.impact >= 0 ? '#22c55e' : '#ef4444' }}>
+              {s.impact >= 0 ? '+' : ''}{s.impact}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className={S.psychRec}>{psych.recommendation}</div>
     </section>
   )
 }

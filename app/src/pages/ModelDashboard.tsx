@@ -1497,6 +1497,119 @@ function FinalOutputPanel({ profile: p }: { profile: TrainingProfile }) {
   )
 }
 
+function PhilosophyPanel({ profile: p }: { profile: TrainingProfile }) {
+  const effort = p.honestEffort
+  const cq = p.consistencyQuotient
+  const psych = p.psychReadiness
+  const mort = p.mortalityGradient
+  const af = p.antifragilityIndices ?? []
+  const ego = p.egoAuditFlags ?? []
+  const plateaus = p.plateauClassifications ?? []
+  const identities = p.identityArchetypes ?? []
+
+  return (
+    <>
+      <div className={S.decisionTree}>
+        <div className={S.decisionTreeTitle}>Training Philosophy Engine</div>
+
+        {effort && (
+          <div className={S.decisionBranch}>
+            <div className={`${S.branchIndicator} ${effort.avgCompositeScore >= 65 ? S.branchIndicatorActive : ''}`} />
+            <div>
+              <span className={S.branchCondition}>Honest Effort</span>
+              <span className={S.branchResult}>
+                {' '}avg {effort.avgCompositeScore}%, {effort.genuinelyHard}/{effort.last30Count} hard, trend {effort.trend}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {cq && (
+          <div className={S.decisionBranch}>
+            <div className={`${S.branchIndicator} ${cq.quotientScore >= 70 ? S.branchIndicatorActive : ''}`} />
+            <div>
+              <span className={S.branchCondition}>Consistency Quotient</span>
+              <span className={S.branchResult}>
+                {' '}{cq.quotientScore}%, adherence {Math.round(cq.adherenceRate * 100)}%, streak {cq.streakDays}d, longest {cq.longestStreak}d
+              </span>
+            </div>
+          </div>
+        )}
+
+        {psych && (
+          <div className={S.decisionBranch}>
+            <div className={`${S.branchIndicator} ${psych.score >= 60 ? S.branchIndicatorActive : ''}`} />
+            <div>
+              <span className={S.branchCondition}>Psych Readiness</span>
+              <span className={S.branchResult}> {psych.score}% — {psych.recommendation.split('.')[0]}</span>
+            </div>
+          </div>
+        )}
+
+        {mort && (
+          <div className={S.decisionBranch}>
+            <div className={`${S.branchIndicator} ${mort.healthTrajectory === 'improving' ? S.branchIndicatorActive : ''}`} />
+            <div>
+              <span className={S.branchCondition}>Mortality Gradient</span>
+              <span className={S.branchResult}>
+                {' '}{mort.healthTrajectory}{mort.functionalAge != null ? `, functional age ${mort.functionalAge}` : ''}, decade loss ~{mort.projectedDecadeLoss}%
+              </span>
+            </div>
+          </div>
+        )}
+
+        {af.length > 0 && (
+          <div className={S.decisionBranch}>
+            <div className={S.branchIndicator} />
+            <div>
+              <span className={S.branchCondition}>Antifragility</span>
+              <span className={S.branchResult}>
+                {' '}{af.filter(a => a.recommendation === 'aggressive').length} aggressive, {af.filter(a => a.recommendation === 'conservative').length} conservative, {af.length} total
+              </span>
+            </div>
+          </div>
+        )}
+
+        {ego.length > 0 && (
+          <div className={S.decisionBranch}>
+            <div className={S.branchIndicator} />
+            <div>
+              <span className={S.branchCondition}>Ego Audit</span>
+              <span className={S.branchResult}>
+                {' '}{ego.filter(f => f.suspectedIssue === 'ego_lift').length} ego lifts, {ego.filter(f => f.suspectedIssue === 'genuine_weakness').length} weaknesses flagged
+              </span>
+            </div>
+          </div>
+        )}
+
+        {plateaus.length > 0 && (
+          <div className={S.decisionBranch}>
+            <div className={S.branchIndicator} />
+            <div>
+              <span className={S.branchCondition}>Plateau Classifications</span>
+              <span className={S.branchResult}>
+                {' '}{plateaus.length} classified — {[...new Set(plateaus.map(p => p.plateauType))].join(', ')}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {identities.length > 0 && (
+          <div className={S.decisionBranch}>
+            <div className={`${S.branchIndicator} ${S.branchIndicatorActive}`} />
+            <div>
+              <span className={S.branchCondition}>Identity</span>
+              <span className={S.branchResult}>
+                {' '}{identities.map(i => `${i.label} (${Math.round(i.confidence * 100)}%)`).join(', ')}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
 export default function ModelDashboard() {
   const { user } = useAuth()
   const [profile, setProfile] = useState<TrainingProfile | null>(null)
@@ -1692,6 +1805,8 @@ export default function ModelDashboard() {
                 </div>
               ))}
             </div>
+
+            <PhilosophyPanel profile={profile} />
           </div>
         </div>
         )}

@@ -3319,6 +3319,21 @@ function stepPrescribe(
       if (sets !== oldSets) setsAdjustedByHighCapacity = { from: oldSets, to: sets };
     }
 
+    // Antifragility-driven volume scaling: muscles that thrive on stress get more volume
+    const afIndex = profile.antifragilityIndices?.find(
+      a => a.muscleGroup === sel.muscleGroup
+    );
+    let setsAdjustedByAntifragility: { from: number; to: number } | null = null;
+    if (afIndex && afIndex.dataPoints >= 6 && !recoveryAdj.isDeload) {
+      const oldSets = sets;
+      if (afIndex.recommendation === 'aggressive' && afIndex.index > 0.25) {
+        sets = Math.min(8, sets + 1);
+      } else if (afIndex.recommendation === 'conservative' && afIndex.index < -0.15) {
+        sets = Math.max(2, sets - 1);
+      }
+      if (sets !== oldSets) setsAdjustedByAntifragility = { from: oldSets, to: sets };
+    }
+
     let setsAdjustedByFatLossStall: { from: number; to: number } | null = null;
     if (
       fatLossController?.active
@@ -3382,6 +3397,9 @@ function stepPrescribe(
 
     let targetWeight: number | null = null;
     const adjustments: string[] = [];
+    if (setsAdjustedByAntifragility) {
+      adjustments.push(`Antifragility (${afIndex!.muscleGroup} index ${afIndex!.index.toFixed(2)}): sets ${setsAdjustedByAntifragility.from} → ${setsAdjustedByAntifragility.to}`);
+    }
     if (setsAdjustedByHighCapacity) {
       adjustments.push(`High-capacity mode: sets ${setsAdjustedByHighCapacity.from} → ${setsAdjustedByHighCapacity.to}`);
     }
@@ -3446,20 +3464,53 @@ function stepPrescribe(
           b => b.exerciseName === sel.exercise.name.toLowerCase()
         );
 
+        // Honest effort gate: don't award progression if recent effort is too low
+        const effortScore = profile.honestEffort?.avgCompositeScore ?? 70;
+        const effortGateMultiplier = effortScore < 45 ? 0 : effortScore < 55 ? 0.5 : 1.0;
+        if (effortGateMultiplier < 1.0 && effortGateMultiplier > 0) {
+          adjustments.push(`Effort-gated progression: only ${Math.round(effortGateMultiplier * 100)}% increment (avg effort: ${effortScore}%)`);
+        } else if (effortGateMultiplier === 0) {
+          adjustments.push(`Progression held: avg effort too low (${effortScore}%) — train harder to earn weight increases`);
+        }
+
         const lastReps = prog.bestSet.reps;
-        const canProgress = prog.status === 'progressing' || (prog.status === 'maintaining' && lastReps >= targetReps + 1);
+        const canProgress = (prog.status === 'progressing' || (prog.status === 'maintaining' && lastReps >= targetReps + 1)) && effortGateMultiplier > 0;
         if (lastReps >= targetReps + cfg.repsAboveTargetForProgression && canProgress) {
           if (bestPatternType === 'double_progression' && breakthrough && !breakthrough.readyForWeightJump) {
             adjustments.push(`Double progression: add reps before weight (${breakthrough.accumulatedRepsAtWeight} reps accumulated, need ${breakthrough.typicalRepsBeforeJump})`);
           } else {
-            targetWeight = snapToPlate(targetWeight + increment, equipment, exType);
-            adjustments.push(`Progressive overload: +${snapToPlate(increment, equipment, exType)} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
+            const gatedIncrement = Math.round(increment * effortGateMultiplier * 10) / 10;
+            targetWeight = snapToPlate(targetWeight + gatedIncrement, equipment, exType);
+            adjustments.push(`Progressive overload: +${snapToPlate(gatedIncrement, equipment, exType)} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
           }
         } else if (prog.status === 'stalled') {
           const plateauInfo = profile.plateauDetections.find(
             p => p.exerciseName === sel.exercise.name.toLowerCase() && p.isPlateaued
           );
-          if (plateauInfo && plateauInfo.sessionsSinceProgress >= 4) {
+          const plateauClass = profile.plateauClassifications?.find(
+            c => c.exerciseName === sel.exercise.name.toLowerCase()
+          );
+          if (plateauClass) {
+            switch (plateauClass.plateauType) {
+              case 'neural':
+                rir = Math.max(0, rir - 1);
+                adjustments.push(`Neural plateau: lower RIR to ${rir}, try heavier singles/pauses`);
+                break;
+              case 'structural':
+                sets = Math.min(8, sets + 1);
+                adjustments.push(`Structural plateau: +1 set (now ${sets}) for additional hypertrophy stimulus`);
+                break;
+              case 'recovery':
+                sets = Math.max(2, sets - 1);
+                targetWeight = snapToPlate(targetWeight * 0.90, equipment, exType);
+                adjustments.push(`Recovery plateau: -1 set, weight to ${targetWeight} lbs — recovery is the bottleneck`);
+                break;
+              case 'skill':
+                rir = Math.max(1, rir + 1);
+                adjustments.push(`Skill plateau: higher RIR (${rir}), focus on technique quality over load`);
+                break;
+            }
+          } else if (plateauInfo && plateauInfo.sessionsSinceProgress >= 4) {
             adjustments.push(`Plateau (${plateauInfo.sessionsSinceProgress} sessions): drop to ${sets - 1} sets × ${targetReps + 2} reps to break through`);
           } else {
             adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
@@ -3487,6 +3538,18 @@ function stepPrescribe(
           }
         } else if (prog.status === 'progressing') {
           adjustments.push(`Carry forward: ${targetWeight} lbs at RIR ${rir}`);
+        }
+      }
+
+      // Ego audit safety cap: if this exercise is flagged as an ego lift, moderate the weight
+      const egoFlag = profile.egoAuditFlags?.find(
+        f => f.exerciseName.toLowerCase() === sel.exercise.name.toLowerCase()
+      );
+      if (egoFlag && egoFlag.suspectedIssue === 'ego_lift' && targetWeight != null) {
+        const cap = snapToPlate(targetWeight * 0.92, equipment, exType);
+        if (cap < targetWeight) {
+          adjustments.push(`Ego audit: weight ${targetWeight} → ${cap} lbs (${egoFlag.exerciseName} ratio ${Math.round(egoFlag.actualRatio * 100)}% vs expected ${Math.round(egoFlag.expectedRange[0] * 100)}-${Math.round(egoFlag.expectedRange[1] * 100)}% of ${egoFlag.referenceExercise})`);
+          targetWeight = cap;
         }
       }
 
@@ -5544,6 +5607,18 @@ export async function generateWorkout(
     recoveryAdj.adjustmentReasons.push(`Return from break: volume ×${breakRampMultiplier.toFixed(2)} (ramp-back protocol)`);
   }
 
+  // Psychological readiness volume modulation
+  const psychScore = profile.psychReadiness?.score ?? 50;
+  if (psychScore < 35) {
+    const psychMult = 0.85;
+    recoveryAdj.volumeMultiplier *= psychMult;
+    recoveryAdj.adjustmentReasons.push(`Psych readiness low (${psychScore}%): volume ×${psychMult} — consistency > intensity today`);
+  } else if (psychScore >= 80) {
+    const psychMult = 1.05;
+    recoveryAdj.volumeMultiplier *= psychMult;
+    recoveryAdj.adjustmentReasons.push(`Psych readiness high (${psychScore}%): volume ×${psychMult} — push harder today`);
+  }
+
   // #15: Caloric-phase MRV scaling — cut reduces tolerance, bulk increases
   const weightPhase = profile.bodyWeightTrend.phase;
   let caloricPhaseScale = 1.0;
@@ -5850,6 +5925,39 @@ export async function generateWorkout(
         stateVersion: adaptiveContext.personalState.stateVersion,
       },
       confidence: adaptiveContext.policyConfidence,
+    },
+    {
+      sourceType: 'inferred' as const,
+      stage: 'honest_effort',
+      key: 'effort_score',
+      value: {
+        avgCompositeScore: profile.honestEffort?.avgCompositeScore ?? null,
+        trend: profile.honestEffort?.trend ?? null,
+        genuinelyHard: profile.honestEffort?.genuinelyHard ?? 0,
+        consistencyQuotient: profile.consistencyQuotient?.quotientScore ?? null,
+      },
+      confidence: (profile.honestEffort?.last30Count ?? 0) >= 10 ? 0.85 : 0.5,
+    },
+    {
+      sourceType: 'inferred' as const,
+      stage: 'antifragility',
+      key: 'muscle_indices',
+      value: {
+        count: profile.antifragilityIndices?.length ?? 0,
+        aggressive: profile.antifragilityIndices?.filter(a => a.recommendation === 'aggressive').length ?? 0,
+        conservative: profile.antifragilityIndices?.filter(a => a.recommendation === 'conservative').length ?? 0,
+      },
+      confidence: 0.7,
+    },
+    {
+      sourceType: 'inferred' as const,
+      stage: 'ego_audit',
+      key: 'flags',
+      value: {
+        egoLifts: profile.egoAuditFlags?.filter(f => f.suspectedIssue === 'ego_lift').length ?? 0,
+        weaknesses: profile.egoAuditFlags?.filter(f => f.suspectedIssue === 'genuine_weakness').length ?? 0,
+      },
+      confidence: 0.75,
     },
   ];
 

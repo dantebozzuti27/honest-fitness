@@ -44,35 +44,53 @@ async function getAccessToken(): Promise<string> {
   }
 }
 
-const REQUEST_TIMEOUT_MS = 20_000
+const READ_TIMEOUT_MS = 20_000
+const WRITE_TIMEOUT_MS = 45_000
+
+function timeoutForPayload(payload: RequestPayload): number {
+  return payload.operation === 'select' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS
+}
+
+async function sendRequestOnce<T = any>(payload: RequestPayload): Promise<DbResponse<T>> {
+  const token = await getAccessToken()
+  const url = apiUrl('/api/db')
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutForPayload(payload))
+  let resp: Response
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}))
+    return { data: null as any, error: { message: body?.error?.message || `HTTP ${resp.status}`, code: body?.error?.code } }
+  }
+
+  return await resp.json()
+}
 
 async function sendRequest<T = any>(payload: RequestPayload): Promise<DbResponse<T>> {
   try {
-    const token = await getAccessToken()
-    const url = apiUrl('/api/db')
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-    let resp: Response
-    try {
-      resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      })
-    } finally {
-      clearTimeout(timer)
+    const result = await sendRequestOnce<T>(payload)
+
+    if (
+      result.error?.message === 'Request timed out' &&
+      payload.operation !== 'select'
+    ) {
+      return await sendRequestOnce<T>(payload)
     }
 
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => ({}))
-      return { data: null as any, error: { message: body?.error?.message || `HTTP ${resp.status}`, code: body?.error?.code } }
-    }
-
-    return await resp.json()
+    return result
   } catch (err: any) {
     const msg = err?.name === 'AbortError' ? 'Request timed out' : (err?.message || 'Network error')
     return { data: null as any, error: { message: msg } }
@@ -241,7 +259,7 @@ async function rpc(fnName: string, params?: Record<string, any>): Promise<DbResp
       const token = await getAccessToken()
       const url = apiUrl('/api/rpc/weekly-plan')
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+      const timer = setTimeout(() => controller.abort(), WRITE_TIMEOUT_MS)
       let resp: Response
       try {
         resp = await fetch(url, {

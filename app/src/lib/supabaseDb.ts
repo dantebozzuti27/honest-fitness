@@ -1752,7 +1752,7 @@ export async function saveUserPreferences(userId: string, prefs: any) {
 
   const missingCols: string[] = []
   let attempts = 0
-  const maxAttempts = 15
+  const maxAttempts = 5
 
   while (attempts < maxAttempts) {
     attempts++
@@ -1764,8 +1764,6 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     if (!error) return data
 
     if (error.code === '42703') {
-      // Parse the missing column name from the error message
-      // Format: 'column "rest_days" of relation "user_preferences" does not exist'
       const match = error.message?.match(/column "([^"]+)"/)
       const badCol = match?.[1]
       if (badCol && badCol in upsertData) {
@@ -1774,7 +1772,6 @@ export async function saveUserPreferences(userId: string, prefs: any) {
         logWarn(`Column "${badCol}" not in DB — stripped and retrying (attempt ${attempts})`)
         continue
       }
-      // Couldn't parse — fall back to stripping everything non-essential
       const essentialCols = new Set(['user_id', 'updated_at'])
       for (const key of Object.keys(upsertData)) {
         if (!essentialCols.has(key)) delete upsertData[key]
@@ -1790,7 +1787,6 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     logWarn(`Profile saved with ${missingCols.length} columns stripped: ${missingCols.join(', ')}. Run the latest migration to add them.`)
   }
 
-  // Final attempt after all stripping
   const { data: finalData, error: finalError } = await supabase
     .from('user_preferences')
     .upsert(upsertData, { onConflict: 'user_id' })

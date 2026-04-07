@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { computeTrainingProfile, type TrainingProfile } from '../lib/trainingAnalysis'
+import { computeTrainingProfile, computeTrainingProfileFromData, type TrainingProfile, type PreFetchedTrainingData } from '../lib/trainingAnalysis'
 import {
   generateWorkout,
   saveGeneratedWorkout,
   generateWeeklyPlan,
   recomputeWeeklyPlanWithDiff,
+  parseRawPreferences,
   type WeeklyPlan,
   type WeeklyPlanDay,
   type GeneratedWorkout,
@@ -14,6 +15,8 @@ import {
   type SessionOverrides,
 } from '../lib/workoutEngine'
 import { db } from '../lib/dbClient'
+import { apiUrl } from '../lib/urlConfig'
+import { getIdToken } from '../lib/cognitoAuth'
 import { fetchWorkoutReview, fetchWorkoutValidation, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
 import { getActiveWeeklyPlanFromSupabase, saveLlmValidationArtifact, saveWeeklyPlanToSupabase } from '../lib/supabaseDb'
 import { useToast } from '../hooks/useToast'
@@ -22,7 +25,7 @@ import BackButton from '../components/BackButton'
 import Button from '../components/Button'
 import { getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
-import { evaluateSchemaGate, probeSchemaCapabilities } from '../lib/schemaCapability'
+// Schema probing removed — server-side schema is controlled by migrations
 import {
   buildWeekGlanceCards,
   estimateDisplayedMinutesForDay,
@@ -501,17 +504,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     if (user) initialLoad()
   }, [user])
 
-  useEffect(() => {
-    if (!user?.id) return
-    Promise.all([
-      getPausedWorkoutFromSupabase(user.id).catch(() => null),
-      getActiveWorkoutSession(user.id).catch(() => null),
-    ]).then(([paused, session]) => {
-      setPausedWorkout2(paused || null)
-      const isRecent = session && (Date.now() - new Date(session.workout_start_time).getTime() < 7200000)
-      setActiveSession(isRecent ? session : null)
-    })
-  }, [user?.id])
+  // Paused/active session data now comes from /api/workout-load in initialLoad
 
   useEffect(() => {
     if (!weeklyPlan?.days?.length) return
@@ -550,35 +543,28 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     }).catch(e => logError('Failed to persist LLM validation artifact', e))
   }, [llmValidation, workout, user, selectedWorkoutVersion])
 
-  // Initial load: fetch prefs, compute profile, generate first workout
+  // Initial load: single API call for all data, then pure client-side computation
   const initialLoad = async () => {
     if (!user) return
     setViewState('loading')
     try {
       const t0 = performance.now()
-      const caps = await probeSchemaCapabilities().catch(() => null)
-      console.log(`[PERF] probeSchemaCapabilities: ${(performance.now()-t0).toFixed(0)}ms`)
-      const gate = evaluateSchemaGate(caps)
-      if (!gate.ok) {
-        setErrorMsg(gate.message || 'Database schema is incompatible with this feature path.')
-        setViewState('error')
-        return
-      }
+      const today = getLocalDate()
 
-      const supabase = db as any
-      const t1 = performance.now()
-      // Use select('*') to avoid errors when specific columns don't exist in the schema
-      const { data: prefsData, error: prefsError } = await supabase
-        .from('user_preferences')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle()
-      console.log(`[PERF] fetchPrefs: ${(performance.now()-t1).toFixed(0)}ms`)
+      // Single HTTP request for ALL data
+      const token = await getIdToken().catch(() => '')
+      const resp = await fetch(apiUrl('/api/workout-load') + `?date=${today}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!resp.ok) throw new Error(`workout-load failed: HTTP ${resp.status}`)
+      const serverData = await resp.json()
+      console.log(`[PERF] workout-load: ${(performance.now()-t0).toFixed(0)}ms`)
 
-      // Only update prefsSet if we actually got a result; don't flip to false on query errors
-      if (prefsData && !prefsError) {
+      // Extract preferences and set UI state
+      const prefsData = serverData.preferences
+      if (prefsData) {
         setPrefsSet(!!(prefsData.training_goal && prefsData.session_duration_minutes))
-      } else if (!prefsError && !prefsData) {
+      } else {
         setPrefsSet(false)
       }
       if (prefsData?.session_duration_minutes != null) {
@@ -591,24 +577,41 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       setPreferredSplit(prefsData?.preferred_split ?? null)
       setSplitSchedule(prefsData?.weekly_split_schedule ?? null)
       setMesocycleWeek(prefsData?.mesocycle_week ?? null)
-
-      // Finish-by is now an explicit per-generation override in this screen.
-      // Do not auto-apply persisted weekday deadlines silently.
       setFinishByTime('')
 
+      // Set paused/active session state from server data (no separate queries needed)
+      if (serverData.pausedWorkout) setPausedWorkout2(serverData.pausedWorkout)
+      if (serverData.activeSession) {
+        const isRecent = serverData.activeSession.workout_start_time &&
+          (Date.now() - new Date(serverData.activeSession.workout_start_time).getTime() < 7200000)
+        setActiveSession(isRecent ? serverData.activeSession : null)
+      }
+
+      // Pure computation: training profile from pre-fetched data (no DB calls)
       const t2 = performance.now()
-      const tp = await computeTrainingProfile(user.id)
-      console.log(`[PERF] computeTrainingProfile: ${(performance.now()-t2).toFixed(0)}ms`)
+      const prefetchedTrainingData: PreFetchedTrainingData = {
+        preferences: prefsData,
+        workouts: serverData.workouts || [],
+        healthMetrics: serverData.healthMetrics || [],
+        exerciseLibrary: serverData.exerciseLibrary || [],
+        modelFeedback: serverData.modelFeedback || [],
+        connectedAccounts: serverData.connectedAccounts || [],
+        cardioCapabilities: serverData.cardioCapabilities || [],
+        exerciseSwaps: serverData.exerciseSwaps || [],
+        generatedWorkouts: serverData.generatedWorkouts || [],
+        workoutOutcomes: serverData.workoutOutcomes || [],
+        executionEvents: serverData.executionEvents || [],
+      }
+      const tp = computeTrainingProfileFromData(user.id, prefetchedTrainingData)
+      console.log(`[PERF] computeTrainingProfileFromData: ${(performance.now()-t2).toFixed(0)}ms`)
       setCachedProfile(tp)
       setProfile(tp)
 
-      const today = getLocalDate()
-      console.log(`[PERF] today=${today}`)
-      const t3 = performance.now()
-      const existingWorkout = await fetchWorkoutForDate(today)
-      console.log(`[PERF] fetchWorkoutForDate: ${(performance.now()-t3).toFixed(0)}ms, found=${!!existingWorkout}`)
+      // Today's workout is already in the server response
+      const existingWorkout = serverData.todayWorkout
+      console.log(`[PERF] today=${today}, found=${!!existingWorkout}`)
 
-      const todayDone = !!(existingWorkout && !forceGenerateRef.current)
+      const todayDone = !!(existingWorkout && existingWorkout.workout_exercises?.length > 0 && !forceGenerateRef.current)
       const hydratePromise = hydrateWeeklyPlan(tp, loadedRestDays, prefsData?.preferred_split ?? null, prefsData?.weekly_split_schedule ?? null)
       const quickFallbackTimer = setTimeout(async () => {
         if (weeklyPlanRef.current?.days?.length) return
@@ -618,9 +621,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           if (!weeklyPlanRef.current?.days?.length) {
             setWeeklyPlan(quickMerged)
           }
-        } catch {
-          // keep existing fallback UI; hard-fail is handled by retry action
-        }
+        } catch { /* handled by retry */ }
       }, 3000)
       void hydratePromise.finally(() => clearTimeout(quickFallbackTimer)).catch(() => clearTimeout(quickFallbackTimer))
       if (existingWorkout) {
@@ -629,19 +630,13 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           return {
             ...prev,
             days: prev.days.map(d => d.planDate === today
-              ? {
-                  ...d,
-                  dayStatus: 'completed',
-                  actualWorkoutId: existingWorkout.id,
-                  actualWorkout: existingWorkout,
-                }
+              ? { ...d, dayStatus: 'completed', actualWorkoutId: existingWorkout.id, actualWorkout: existingWorkout }
               : d),
           }
         })
       }
 
       if (todayDone) {
-        console.log(`[PERF] Today is done, showing completed state`)
         setCompletedWorkout(existingWorkout)
         setViewState('completed')
         return
@@ -649,14 +644,17 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       forceGenerateRef.current = false
 
       if (tp.trainingAgeDays < 3) {
-        console.log(`[PERF] trainingAgeDays=${tp.trainingAgeDays}, showing empty state`)
         setViewState('empty')
         return
       }
 
+      // Pure computation: generate workout from pre-fetched prefs + exercise library (no DB calls)
+      const parsedPrefs = parseRawPreferences(prefsData)
       const t4 = performance.now()
-      console.log(`[PERF] Starting generateWorkout...`)
-      const w = await generateWorkout(tp)
+      const w = await generateWorkout(tp, undefined, {
+        preferences: parsedPrefs,
+        exerciseLibrary: serverData.exerciseLibrary || [],
+      })
       console.log(`[PERF] generateWorkout: ${(performance.now()-t4).toFixed(0)}ms, exercises=${w?.exercises?.length}`)
       setWorkout(w)
       setOriginalWorkout(w)

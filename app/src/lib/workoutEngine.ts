@@ -250,21 +250,7 @@ function cloneExercises(exercises: EnrichedExercise[]): EnrichedExercise[] {
   }));
 }
 
-async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
-  const now = Date.now();
-  const cached = prefsCache.get(userId);
-  if (cached && (now - cached.at) <= PREFS_CACHE_TTL_MS) {
-    return clonePrefs(cached.value);
-  }
-  const supabase = db as any;
-  const { data, error } = await supabase
-    .from('user_preferences')
-    .select('*')
-    .eq('user_id', userId)
-    .single();
-
-  if (error && error.code !== 'PGRST116') throw error;
-
+export function parseRawPreferences(data: any): UserPreferences {
   const rawInjuries = data?.injuries;
   const rawAvoid = data?.exercises_to_avoid;
   const rawGoals = data?.performance_goals;
@@ -283,7 +269,7 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     }
   }
 
-  const parsed: UserPreferences = {
+  return {
     training_goal: data?.training_goal ?? 'hypertrophy',
     primary_goal: data?.primary_goal ?? null,
     secondary_goal: data?.secondary_goal ?? null,
@@ -324,6 +310,24 @@ async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
     mesocycle_week: data?.mesocycle_week != null ? Number(data.mesocycle_week) : null,
     mesocycle_start_date: data?.mesocycle_start_date ?? null,
   };
+}
+
+async function fetchUserPreferences(userId: string): Promise<UserPreferences> {
+  const now = Date.now();
+  const cached = prefsCache.get(userId);
+  if (cached && (now - cached.at) <= PREFS_CACHE_TTL_MS) {
+    return clonePrefs(cached.value);
+  }
+  const supabase = db as any;
+  const { data, error } = await supabase
+    .from('user_preferences')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error;
+
+  const parsed = parseRawPreferences(data);
   prefsCache.set(userId, { at: now, value: parsed });
   return clonePrefs(parsed);
 }
@@ -5496,9 +5500,15 @@ function validateAndCorrect(
   return exercises;
 }
 
+export interface PreFetchedEngineData {
+  preferences?: UserPreferences;
+  exerciseLibrary?: EnrichedExercise[];
+}
+
 export async function generateWorkout(
   profile: TrainingProfile,
-  overrides?: SessionOverrides
+  overrides?: SessionOverrides,
+  prefetched?: PreFetchedEngineData,
 ): Promise<GeneratedWorkout> {
   const perfStart = nowMs();
   const stageMarks: Record<string, number> = {};
@@ -5510,10 +5520,12 @@ export async function generateWorkout(
   const planningDow = planningDate.getDay();
 
   const tFetch = stageStart('fetch_inputs');
-  const [prefs, allExercises] = await Promise.all([
-    fetchUserPreferences(profile.userId),
-    fetchAllExercises(),
-  ]);
+  const [prefs, allExercises] = prefetched?.preferences && prefetched?.exerciseLibrary
+    ? [prefetched.preferences, prefetched.exerciseLibrary] as const
+    : await Promise.all([
+        fetchUserPreferences(profile.userId),
+        fetchAllExercises(),
+      ]);
   stageEnd(tFetch);
 
   if (overrides?.goalOverride) {

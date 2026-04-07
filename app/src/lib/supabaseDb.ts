@@ -171,508 +171,230 @@ function disablePausedWorkouts(reason: any) {
 // NEVER call this function automatically or with dummy/test data.
 
 export async function saveWorkoutToSupabase(workout: any, userId: string) {
-  // Data pipeline: Validate -> Clean -> Enrich -> Save
+  // Data pipeline: Validate -> Clean -> Build payload -> POST to dedicated endpoint
   const allowUnvalidatedSave = (import.meta as any)?.env?.VITE_ALLOW_UNVALIDATED_WORKOUT_SAVE === '1'
-  
-  // Step 1: Validate data (dynamic import for code-splitting)
-  let validation: { valid: boolean; errors: string[] } = { valid: true, errors: [] }
+
+  // Step 1: Validate
   try {
-    const validationModule = await import('./dataValidation')
-    const { validateWorkout } = validationModule || {}
-    if (validateWorkout && typeof validateWorkout === 'function') {
-      validation = validateWorkout(workout)
-      if (!validation.valid) {
-        logError('Workout validation failed', validation.errors)
-        throw new Error(`Workout validation failed: ${validation.errors.join(', ')}`)
-      }
-    } else {
-      logError('validateWorkout is not a function', { validationModule })
-      if (!allowUnvalidatedSave) {
-        throw new Error('Workout validation unavailable: validateWorkout missing')
+    const { validateWorkout } = await import('./dataValidation')
+    if (typeof validateWorkout === 'function') {
+      const v = validateWorkout(workout)
+      if (!v.valid) {
+        logError('Workout validation failed', v.errors)
+        throw new Error(`Workout validation failed: ${v.errors.join(', ')}`)
       }
     }
-  } catch (validationError) {
-    logError('Workout validation unavailable', validationError)
-    if (!allowUnvalidatedSave) {
-      throw validationError instanceof Error
-        ? validationError
-        : new Error('Workout validation failed to initialize')
-    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('Workout validation')) throw e
+    logError('Validation module unavailable', e)
+    if (!allowUnvalidatedSave) throw e instanceof Error ? e : new Error('Validation unavailable')
   }
-  
-  // Step 2: Clean and normalize data (dynamic import for code-splitting)
-  let cleanedWorkout = workout
+
+  // Step 2: Clean
+  let workoutToSave = workout
   try {
-    const cleaningModule = await import('./dataCleaning')
-    const { cleanWorkoutData } = cleaningModule || {}
-    if (cleanWorkoutData && typeof cleanWorkoutData === 'function') {
-      cleanedWorkout = cleanWorkoutData(workout)
-    } else {
-      logError('cleanWorkoutData is not a function', { cleaningModule })
-      // Use original workout if cleaning function is not available
-    }
-  } catch (cleaningError) {
-    logError('Validation module unavailable, saving raw data', cleaningError)
-    // Use original workout if import fails
-  }
-  
-  // Allow workouts with 0 exercises (user may want to log a workout session without exercises)
-  // Only validate that exercises is an array if it exists
-  if (cleanedWorkout.exercises && !Array.isArray(cleanedWorkout.exercises)) {
+    const { cleanWorkoutData } = await import('./dataCleaning')
+    if (typeof cleanWorkoutData === 'function') workoutToSave = cleanWorkoutData(workout)
+  } catch { /* use original */ }
+
+  if (workoutToSave.exercises && !Array.isArray(workoutToSave.exercises)) {
     throw new Error('Workout exercises must be an array')
   }
-  
-  // If exercises exist, ensure they have valid structure (but allow empty array)
-  if (cleanedWorkout.exercises && cleanedWorkout.exercises.length > 0) {
-    // Validate exercise structure if exercises are provided
-    const hasInvalidExercise = cleanedWorkout.exercises.some((ex: any) => 
-      !ex || typeof ex !== 'object' || !ex.name
-    )
-    if (hasInvalidExercise) {
-      throw new Error('All exercises must have a name')
-    }
+  if (workoutToSave.exercises?.length > 0 && workoutToSave.exercises.some((ex: any) => !ex?.name)) {
+    throw new Error('All exercises must have a name')
   }
-  
-  // Use cleaned workout from here on
-  const workoutToSave = cleanedWorkout
 
-  // -------------------------
-  // Session type: 'workout' | 'recovery'
-  // - If caller provided a sessionType, use it.
-  // - Otherwise infer: recovery if ALL exercises are Recovery category.
-  // -------------------------
+  // Step 3: Infer session type
   const inferSessionType = () => {
     const exs = Array.isArray(workoutToSave.exercises) ? workoutToSave.exercises : []
     if (exs.length === 0) return 'workout'
-    const nonRecovery = exs.some((e: any) => (e?.category || '').toString().toLowerCase() !== 'recovery')
-    return nonRecovery ? 'workout' : 'recovery'
+    return exs.every((e: any) => (e?.category || '').toLowerCase() === 'recovery') ? 'recovery' : 'workout'
   }
-  const sessionType = (workoutToSave.sessionType || workoutToSave.session_type || inferSessionType())
-    .toString()
-    .toLowerCase() === 'recovery'
-    ? 'recovery'
-    : 'workout'
-  
-  // Idempotency: always persist workouts with a stable UUID so retries don't create duplicates.
-  // - If caller provided a valid UUID, keep it.
-  // - Otherwise generate one (and use it for this write).
+  const sessionType = String(workoutToSave.sessionType || workoutToSave.session_type || inferSessionType()).toLowerCase() === 'recovery' ? 'recovery' : 'workout'
+
   const workoutId = isUuidV4(workoutToSave?.id) ? workoutToSave.id : uuidv4()
 
-  const templateName = workoutToSave.templateName || null
-
-  const upsertPayload: Record<string, any> = {
-    id: workoutId,
-    user_id: userId,
-    date: workoutToSave.date,
-    duration: workoutToSave.duration,
-    completed: true,
-    template_name: templateName,
-    perceived_effort: workoutToSave.perceivedEffort || null,
-    session_rpe: workoutToSave.perceivedEffort || null,
-    training_density: workoutToSave.trainingDensity != null ? Number(workoutToSave.trainingDensity) : null,
-    mood_after: workoutToSave.moodAfter || null,
-    notes: workoutToSave.notes || null,
-    day_of_week: workoutToSave.dayOfWeek ?? null,
-    workout_calories_burned: workoutToSave.workoutCaloriesBurned != null ? Number(workoutToSave.workoutCaloriesBurned) : null,
-    workout_steps: workoutToSave.workoutSteps != null ? Number(workoutToSave.workoutSteps) : null,
-    generated_workout_id: isUuidV4(workoutToSave.generatedWorkoutId) ? workoutToSave.generatedWorkoutId : null,
-    updated_at: new Date().toISOString()
-  }
-
-  if (workoutToSave.workoutStartTime) upsertPayload.workout_start_time = workoutToSave.workoutStartTime
-  if (workoutToSave.workoutEndTime) upsertPayload.workout_end_time = workoutToSave.workoutEndTime
-
-  let workoutData = null
-  let workoutError = null
-  try {
-    const { data, error } = await supabase
-      .from('workouts')
-      .upsert({ ...upsertPayload, session_type: sessionType }, { onConflict: 'id' })
-      .select()
-      .single()
-    workoutData = data
-    workoutError = error
-    if (workoutError && (workoutError.code === '42703' || workoutError.code === 'PGRST204' || `${workoutError.message || ''}`.toLowerCase().includes('column'))) {
-      const migrationCols = new Set([
-        'session_type', 'session_rpe', 'training_density', 'workout_calories_burned',
-        'workout_steps', 'generated_workout_id', 'workout_start_time', 'workout_end_time'
-      ])
-      const cleaned = { ...upsertPayload } as Record<string, unknown>
-      for (const col of migrationCols) delete cleaned[col]
-      const retry = await supabase
-        .from('workouts')
-        .upsert(cleaned, { onConflict: 'id' })
-        .select()
-        .single()
-      workoutData = retry.data
-      workoutError = retry.error
-    }
-  } catch (e: any) {
-    workoutError = e
-  }
-
-  if (workoutError) throw workoutError
-
-  // Replace exercises/sets for this workout id (safe for both new inserts and retries).
-  const { data: oldExercises, error: exercisesError } = await supabase
-    .from('workout_exercises')
-    .select('id')
-    .eq('workout_id', workoutData.id)
-
-  if (exercisesError) {
-    logError('Error fetching old exercises for workout upsert', exercisesError)
-    throw exercisesError
-  }
-
-  if (oldExercises && Array.isArray(oldExercises) && oldExercises.length > 0) {
-    const exerciseIds = oldExercises.map(ex => ex?.id).filter(id => id != null)
-    if (exerciseIds.length > 0) {
-      const { error: setsDeleteError } = await supabase
-        .from('workout_sets')
-        .delete()
-        .in('workout_exercise_id', exerciseIds)
-      if (setsDeleteError) {
-        logError('Error deleting workout sets', setsDeleteError)
-        throw setsDeleteError
-      }
-
-      const { error: exercisesDeleteError } = await supabase
-        .from('workout_exercises')
-        .delete()
-        .in('id', exerciseIds)
-      if (exercisesDeleteError) {
-        logError('Error deleting workout exercises', exercisesDeleteError)
-        throw exercisesDeleteError
-      }
-    }
-  }
-  
-  // Step 3: Enrich data (after saving to get workout ID)
-  try {
-    // Fetch full workout with exercises for enrichment
-    const { data: fullWorkout } = await supabase
-      .from('workouts')
-      .select(`
-        *,
-        workout_exercises (
-          *,
-          workout_sets (*)
-        )
-      `)
-      .eq('id', workoutData.id)
-      .single()
-    
-  } catch (enrichError) {
-    logError('Non-critical: failed to fetch workout for enrichment after save', enrichError)
-  }
-
-  // Insert exercises (only those with valid sets data).
-  // If any exercise/set insert fails, delete the orphaned workout row
-  // so we don't leave a shell workout with 0 exercises.
-  const exercisesToSave = Array.isArray(workoutToSave.exercises) ? workoutToSave.exercises : []
-  let exerciseOrder = 0
+  // Step 4: Build exercises payload with normalized set data
+  const rawExercises = Array.isArray(workoutToSave.exercises) ? workoutToSave.exercises : []
+  const exercises: any[] = []
   const executionEvents: any[] = []
-  const setTransformAuditRows: any[] = []
-  try {
-  for (let i = 0; i < exercisesToSave.length; i++) {
-    const ex = exercisesToSave[i]
-    
-    const exSets = Array.isArray(ex.sets) ? ex.sets : []
-    if (exSets.length === 0 || !exSets.some((s: any) =>
+
+  const scoreAccuracy = (target: number | null, actual: number | null) => {
+    if (!Number.isFinite(target as number) || target == null || target <= 0) return null
+    if (!Number.isFinite(actual as number) || actual == null) return null
+    return Math.max(0, Math.min(1, Math.min(target, actual) / Math.max(target, actual)))
+  }
+
+  for (let i = 0; i < rawExercises.length; i++) {
+    const ex = rawExercises[i]
+    const rawSets = Array.isArray(ex.sets) ? ex.sets : []
+    const validSets = rawSets.filter((s: any) =>
       s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline
-    )) {
-      continue
-    }
-    
-    // Try to find exercise in exercise_library first
-    let exerciseLibraryId = null
-    if (ex.name) {
-      const { data: libraryExercise } = await supabase
-        .from('exercise_library')
-        .select('id')
-        .eq('name', ex.name)
-        .eq('is_custom', false)
-        .maybeSingle()
-      
-      if (libraryExercise) {
-        exerciseLibraryId = libraryExercise.id
-      } else if (ex.isCustom) {
-        // Create custom exercise in library
-        const { data: customExercise, error: customError } = await supabase
-          .from('exercise_library')
-          .insert({
-            name: ex.name,
-            category: ex.category || 'strength',
-            body_part: ex.bodyPart || 'Other',
-            sub_body_parts: ex.subBodyParts || [],
-            equipment: ex.equipment ? [ex.equipment] : [],
-            is_custom: true,
-            created_by_user_id: userId
-          })
-          .select()
-          .single()
-        
-        if (!customError && customExercise) {
-          exerciseLibraryId = customExercise.id
-        }
-      }
-    }
-    
-    // Determine exercise type (weightlifting vs cardio)
+    )
+    if (validSets.length === 0) continue
+
     const exerciseType = ex.exerciseType || (ex.distance || ex.time ? 'cardio' : 'weightlifting')
-    
-    const { data: exerciseData, error: exerciseError } = await supabase
-      .from('workout_exercises')
-      .insert({
-        workout_id: workoutData.id,
-        exercise_name: ex.name,
-        category: ex.category,
-        body_part: ex.bodyPart,
-        equipment: ex.equipment,
-        exercise_order: exerciseOrder++,
-        exercise_type: exerciseType,
-        exercise_library_id: exerciseLibraryId,
-        distance: ex.distance || null,
-        distance_unit: ex.distanceUnit || 'km',
-        stacked: ex.stacked || false,
-        stack_group: ex.stackGroup || null
-      })
-      .select()
-      .single()
+    const exOrder = exercises.length
 
-    if (exerciseError) throw exerciseError
-
-    // Insert sets (only sets with actual data — including cardio fields)
-    const validSets = ex.sets.filter((s: any) => s.weight || s.reps || s.time || s.time_seconds || s.speed || s.incline)
-    if (validSets.length > 0) {
-      const setsToInsert = validSets.map((set: any, idx: number) => {
-        // Resolve time: prefer time string, fall back to time_seconds
-        let timeVal = set.time || null
-        if (!timeVal && set.time_seconds != null && Number(set.time_seconds) > 0) {
-          const ts = Math.floor(Number(set.time_seconds))
-          timeVal = String(ts)
-        }
-        const loadNorm = normalizeSetLoadForStorage(ex.name, set)
-        const rawWeight = (String(set?.weight || '').trim().toUpperCase() === 'BW') ? null : (set.weight ? Number(set.weight) : null)
-        if (
-          loadNorm.isUnilateral
-          && loadNorm.loadInterpretation === 'total_both_per_side'
-          && Number.isFinite(rawWeight as number)
-          && Number.isFinite(loadNorm.normalizedWeight as number)
-          && rawWeight != null
-          && loadNorm.normalizedWeight != null
-          && rawWeight !== loadNorm.normalizedWeight
-        ) {
-          setTransformAuditRows.push({
-            user_id: userId,
-            workout_set_id: null,
-            workout_id: workoutData.id,
-            exercise_name: ex.name || null,
-            original_weight: rawWeight,
-            transformed_weight: loadNorm.normalizedWeight,
-            original_load_interpretation: 'total_both_per_side',
-            transformed_load_interpretation: 'per_hand_per_side',
-            reason: 'live_unilateral_normalization',
-            confidence: 1.0,
-            batch_id: null,
-            metadata: { source: 'saveWorkoutToSupabase', set_number: idx + 1 },
-          })
-        }
-        const loggedAt = set.logged_at || set.loggedAt || null;
-        const prevLoggedAt = idx > 0 ? (validSets[idx - 1]?.logged_at || validSets[idx - 1]?.loggedAt || null) : null;
-        let restSecondsBefore: number | null = null;
-        if (loggedAt && prevLoggedAt) {
-          const diff = (new Date(loggedAt).getTime() - new Date(prevLoggedAt).getTime()) / 1000;
-          if (diff > 10 && diff < 1200) restSecondsBefore = Math.round(diff);
-        }
-        return {
-          workout_exercise_id: exerciseData.id,
-          set_number: idx + 1,
-          weight: loadNorm.normalizedWeight,
-          is_bodyweight: loadNorm.isBodyweight,
-          weight_label: loadNorm.isBodyweight ? 'BW' : null,
-          reps: set.reps ? Number(set.reps) : null,
-          time: timeVal,
-          speed: set.speed ? Number(set.speed) : null,
-          incline: set.incline ? Number(set.incline) : null,
-          is_warmup: set._is_warmup === true || set.is_warmup === true || false,
-          is_unilateral: loadNorm.isUnilateral,
-          load_interpretation: loadNorm.loadInterpretation,
-          reps_interpretation: loadNorm.repsInterpretation,
-          logged_at: loggedAt,
-          rest_seconds_before: restSecondsBefore,
-        }
-      })
-
-      const tryInsert = async (rows: any[]) => supabase.from('workout_sets').insert(rows)
-      let { error: setsError } = await tryInsert(setsToInsert)
-      if (setsError && (setsError.code === '42703' || `${setsError.message || ''}`.toLowerCase().includes('column'))) {
-        // Retry without optional columns for older schemas.
-        const stripped = setsToInsert.map(({ is_bodyweight, weight_label, is_warmup, is_unilateral, load_interpretation, reps_interpretation, ...rest }: any) => rest)
-        const retry = await tryInsert(stripped)
-        setsError = retry.error
+    const normalizedSets = validSets.map((set: any, idx: number) => {
+      let timeVal = set.time || null
+      if (!timeVal && set.time_seconds != null && Number(set.time_seconds) > 0) {
+        timeVal = String(Math.floor(Number(set.time_seconds)))
       }
-      if (setsError) throw setsError
-
-      const generatedWorkoutId = isUuidV4(workoutToSave.generatedWorkoutId) ? workoutToSave.generatedWorkoutId : null
-      const workoutDate = workoutToSave.date || getLocalDate()
-      const scoreAccuracy = (target: number | null, actual: number | null) => {
-        if (!Number.isFinite(target as number) || target == null || target <= 0) return null
-        if (!Number.isFinite(actual as number) || actual == null) return null
-        const ratio = Math.min(target, actual) / Math.max(target, actual)
-        return Math.max(0, Math.min(1, ratio))
+      const loadNorm = normalizeSetLoadForStorage(ex.name, set)
+      const loggedAt = set.logged_at || set.loggedAt || null
+      const prevLoggedAt = idx > 0 ? (validSets[idx - 1]?.logged_at || validSets[idx - 1]?.loggedAt || null) : null
+      let restSecondsBefore: number | null = null
+      if (loggedAt && prevLoggedAt) {
+        const diff = (new Date(loggedAt).getTime() - new Date(prevLoggedAt).getTime()) / 1000
+        if (diff > 10 && diff < 1200) restSecondsBefore = Math.round(diff)
       }
 
-      for (let si = 0; si < validSets.length; si++) {
-        const s = validSets[si]
-        const targetWeight = s?.target_weight != null ? Number(s.target_weight) : null
-        const norm = normalizeSetLoadForStorage(ex.name, s)
-        const actualWeight = norm.isBodyweight ? null : norm.normalizedWeight
-        const targetReps = s?.target_reps != null ? Number(s.target_reps) : null
-        const actualReps = s?.reps != null && s.reps !== '' ? Number(s.reps) : null
-        const targetTimeSeconds = s?.target_time_seconds != null ? Number(s.target_time_seconds) : null
-        const actualTimeSeconds = s?.time_seconds != null && s.time_seconds !== '' ? Number(s.time_seconds) : null
-        const targetRir = ex?._prescription?.targetRir != null ? Number(ex._prescription.targetRir) : null
-        const actualRir = s?.actual_rir != null ? Number(s.actual_rir) : null
+      // Build execution event data for this set
+      const targetWeight = set?.target_weight != null ? Number(set.target_weight) : null
+      const actualWeight = loadNorm.isBodyweight ? null : loadNorm.normalizedWeight
+      const targetReps = set?.target_reps != null ? Number(set.target_reps) : null
+      const actualReps = set?.reps != null && set.reps !== '' ? Number(set.reps) : null
+      const targetTimeSeconds = set?.target_time_seconds != null ? Number(set.target_time_seconds) : null
+      const actualTimeSeconds = set?.time_seconds != null && set.time_seconds !== '' ? Number(set.time_seconds) : null
+      const targetRir = ex?._prescription?.targetRir != null ? Number(ex._prescription.targetRir) : null
+      const actualRir = set?.actual_rir != null ? Number(set.actual_rir) : null
+      const wAcc = scoreAccuracy(targetWeight, actualWeight)
+      const rAcc = scoreAccuracy(targetReps, actualReps)
+      const tAcc = scoreAccuracy(targetTimeSeconds, actualTimeSeconds)
+      const accParts = [wAcc, rAcc, tAcc].filter((v): v is number => v != null)
+      const execAcc = accParts.length > 0 ? accParts.reduce((a, b) => a + b, 0) / accParts.length : null
 
-        const weightAcc = scoreAccuracy(targetWeight, actualWeight)
-        const repsAcc = scoreAccuracy(targetReps, actualReps)
-        const timeAcc = scoreAccuracy(targetTimeSeconds, actualTimeSeconds)
-        const accParts = [weightAcc, repsAcc, timeAcc].filter((v): v is number => v != null)
-        const executionAccuracy = accParts.length > 0
-          ? accParts.reduce((a, b) => a + b, 0) / accParts.length
-          : null
-
-        const idempotencyKey = [
-          workoutData.id,
-          exerciseData.id,
-          si + 1,
-          targetWeight ?? 'x',
-          actualWeight ?? 'x',
-          targetReps ?? 'x',
-          actualReps ?? 'x',
-          targetTimeSeconds ?? 'x',
-          actualTimeSeconds ?? 'x',
-        ].join(':')
-
+      if (targetWeight != null || targetReps != null || targetTimeSeconds != null) {
         executionEvents.push({
-          user_id: userId,
-          workout_id: workoutData.id,
-          workout_exercise_id: exerciseData.id,
-          generated_workout_id: generatedWorkoutId,
-          workout_date: workoutDate,
+          _exercise_order: exOrder,
           exercise_name: ex.name || null,
-          set_number: si + 1,
-          target_weight: targetWeight,
-          actual_weight: actualWeight,
-          target_reps: targetReps,
-          actual_reps: actualReps,
-          target_time_seconds: targetTimeSeconds,
-          actual_time_seconds: actualTimeSeconds,
-          target_rir: targetRir,
-          actual_rir: actualRir,
-          execution_accuracy: executionAccuracy,
-          idempotency_key: idempotencyKey,
+          set_number: idx + 1,
+          target_weight: targetWeight, actual_weight: actualWeight,
+          target_reps: targetReps, actual_reps: actualReps,
+          target_time_seconds: targetTimeSeconds, actual_time_seconds: actualTimeSeconds,
+          target_rir: targetRir, actual_rir: actualRir,
+          execution_accuracy: execAcc,
         })
       }
-    }
-  }
-  } catch (exerciseInsertErr: any) {
-    logError('Exercise insert failed — deleting orphaned workout row', exerciseInsertErr)
-    try {
-      await supabase.from('workouts').delete().eq('id', workoutData.id)
-    } catch (cleanupErr) {
-      logError('Failed to clean up orphaned workout row', cleanupErr)
-    }
-    throw exerciseInsertErr
-  }
 
-  if (executionEvents.length > 0) {
-    let { error: executionError } = await supabase
-      .from('prescription_execution_events')
-      .upsert(executionEvents, { onConflict: 'user_id,idempotency_key', ignoreDuplicates: true })
-    if (executionError) {
-      // Fallback for older schema: strip idempotency key and try plain insert.
-      const emsg = `${executionError.message || ''}`.toLowerCase()
-      if (
-        executionError.code === '42703' ||
-        emsg.includes('column') ||
-        emsg.includes('constraint') ||
-        emsg.includes('on conflict')
-      ) {
-        const stripped = executionEvents.map(({ idempotency_key, ...rest }: any) => rest)
-        const retry = await supabase
-          .from('prescription_execution_events')
-          .insert(stripped)
-        executionError = retry.error
+      return {
+        weight: loadNorm.normalizedWeight,
+        is_bodyweight: loadNorm.isBodyweight,
+        weight_label: loadNorm.isBodyweight ? 'BW' : null,
+        reps: set.reps ? Number(set.reps) : null,
+        time: timeVal,
+        speed: set.speed ? Number(set.speed) : null,
+        incline: set.incline ? Number(set.incline) : null,
+        is_warmup: set._is_warmup === true || set.is_warmup === true || false,
+        is_unilateral: loadNorm.isUnilateral,
+        load_interpretation: loadNorm.loadInterpretation,
+        reps_interpretation: loadNorm.repsInterpretation,
+        logged_at: loggedAt,
+        rest_seconds_before: restSecondsBefore,
       }
-      // Non-fatal while migration propagates.
-      if (executionError) logWarn('Failed to persist prescription_execution_events', executionError)
-    }
+    })
+
+    exercises.push({
+      name: ex.name,
+      category: ex.category || null,
+      bodyPart: ex.bodyPart || null,
+      equipment: ex.equipment || null,
+      exerciseType,
+      isCustom: ex.isCustom || false,
+      distance: ex.distance || null,
+      distanceUnit: ex.distanceUnit || 'km',
+      stacked: ex.stacked || false,
+      stackGroup: ex.stackGroup || null,
+      sets: normalizedSets,
+    })
   }
 
-  if (setTransformAuditRows.length > 0) {
-    try {
-      const { error: auditErr } = await supabase
-        .from('set_transformation_audit')
-        .insert(setTransformAuditRows)
-      if (auditErr) {
-        const msg = `${auditErr?.message || ''}`.toLowerCase()
-        if (!(auditErr?.code === 'PGRST205' || msg.includes('set_transformation_audit') || msg.includes('column'))) {
-          logWarn('Failed to persist set_transformation_audit rows', auditErr)
-        }
-      }
-    } catch (e) {
-      logWarn('set_transformation_audit insert skipped', e)
-    }
-  }
-
-  // Reconcile adaptive weekly plan day with completed workout payload.
-  try {
-    const workoutDate = workoutToSave.date || getLocalDate()
-    const weekStartDate = getWeekStartMondayFromDateString(workoutDate)
-    const actualWorkoutPayload = {
-      id: workoutData.id,
-      date: workoutDate,
-      duration: workoutToSave.duration ?? null,
+  // Step 5: Build the full payload
+  const payload = {
+    workout: {
+      id: workoutId,
+      date: workoutToSave.date,
+      duration: workoutToSave.duration,
       templateName: workoutToSave.templateName || null,
-      exercises: Array.isArray(workoutToSave.exercises) ? workoutToSave.exercises : [],
-    }
-    const { data: activeVersion } = await supabase
-      .from('weekly_plan_versions')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('week_start_date', weekStartDate)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    if (activeVersion?.id) {
-      const { error: reconcileError } = await supabase
-        .from('weekly_plan_days')
-        .update({
-          day_status: 'completed',
-          actual_workout_id: workoutData.id,
-          actual_workout: actualWorkoutPayload,
-          last_reconciled_at: new Date().toISOString(),
-        })
-        .eq('weekly_plan_id', activeVersion.id)
-        .eq('user_id', userId)
-        .eq('plan_date', workoutDate)
-      if (reconcileError) {
-        // Non-fatal while schema rolls out.
-        logWarn('Failed to reconcile weekly_plan_days with completed workout', reconcileError)
-      }
-    }
-  } catch (reconcileErr) {
-    logWarn('Weekly plan reconciliation skipped', reconcileErr)
+      perceivedEffort: workoutToSave.perceivedEffort || null,
+      trainingDensity: workoutToSave.trainingDensity ?? null,
+      moodAfter: workoutToSave.moodAfter || null,
+      notes: workoutToSave.notes || null,
+      dayOfWeek: workoutToSave.dayOfWeek ?? null,
+      workoutCaloriesBurned: workoutToSave.workoutCaloriesBurned ?? null,
+      workoutSteps: workoutToSave.workoutSteps ?? null,
+      generatedWorkoutId: workoutToSave.generatedWorkoutId || null,
+      workoutStartTime: workoutToSave.workoutStartTime || null,
+      workoutEndTime: workoutToSave.workoutEndTime || null,
+      sessionType,
+    },
+    exercises,
+    executionEvents,
   }
 
-  // Learn cardio capability envelopes from completed sessions (best-effort).
-  await upsertCardioCapabilityFromWorkout(userId, workoutToSave)
+  // Step 6: POST to dedicated endpoint with retry
+  const { getIdToken } = await import('./cognitoAuth')
+  const { apiUrl } = await import('./urlConfig')
 
+  const doPost = async (): Promise<any> => {
+    const token = await getIdToken().catch(() => '')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 8_000)
+    try {
+      const resp = await fetch(apiUrl('/api/workout-save'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        throw new Error(`HTTP ${resp.status}: ${text.slice(0, 200)}`)
+      }
+      const body = await resp.json()
+      if (body.error) throw new Error(body.error.message || 'Server returned error')
+      return body.data
+    } catch (e) {
+      clearTimeout(timer)
+      throw e
+    }
+  }
+
+  // Attempt 1
+  try {
+    const result = await doPost()
+    // Post-save: cardio capability upsert (best-effort, runs locally)
+    await upsertCardioCapabilityFromWorkout(userId, workoutToSave).catch(() => {})
+    invalidateDbCache()
+    return result
+  } catch (e1) {
+    logWarn('Workout save attempt 1 failed:', e1 instanceof Error ? e1.message : String(e1))
+  }
+
+  // Pre-warm and retry
+  const { apiUrl: getUrl } = await import('./urlConfig')
+  await fetch(getUrl('/api/ping')).catch(() => {})
+  await new Promise(r => setTimeout(r, 500))
+
+  try {
+    const result = await doPost()
+    await upsertCardioCapabilityFromWorkout(userId, workoutToSave).catch(() => {})
+    invalidateDbCache()
+    return result
+  } catch (e2) {
+    logWarn('Workout save attempt 2 failed:', e2 instanceof Error ? e2.message : String(e2))
+  }
+
+  // Queue in outbox so data is never lost
+  logError('Both workout save attempts failed — queuing in outbox for background retry')
+  enqueueOutboxItem({ userId, kind: 'workout', payload: { workout: workoutToSave } })
   invalidateDbCache()
-  return workoutData
+  return { id: workoutId, date: workoutToSave.date, queued: true }
 }
 
 export async function getWorkoutsFromSupabase(userId: string) {

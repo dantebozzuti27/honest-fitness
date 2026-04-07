@@ -4532,6 +4532,20 @@ function computePsychReadiness(
   return { score, signals, recommendation };
 }
 
+export interface PreFetchedTrainingData {
+  preferences: any | null;
+  workouts: WorkoutRecord[];
+  healthMetrics: HealthRecord[];
+  exerciseLibrary: EnrichedExercise[];
+  modelFeedback: any[];
+  connectedAccounts: any[];
+  cardioCapabilities: any[];
+  exerciseSwaps: any[];
+  generatedWorkouts: any[];
+  workoutOutcomes: any[];
+  executionEvents: any[];
+}
+
 export async function computeTrainingProfile(userId: string): Promise<TrainingProfile> {
   const supabase = db as any;
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
@@ -4566,15 +4580,60 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
       }
     })(),
   ]) as [WorkoutRecord[], HealthRecord[], EnrichedExercise[], any, any, any[], any];
-  const userGender = prefsResult?.data?.gender ?? null;
-  const userRecoverySpeed = prefsResult?.data?.recovery_speed != null ? Number(prefsResult.data.recovery_speed) : 1.0;
-  const userExperienceLevel: string | null = prefsResult?.data?.experience_level ?? null;
-  const userBodyWeightLbs = prefsResult?.data?.body_weight_lbs != null ? Number(prefsResult.data.body_weight_lbs) : null;
-  const userWeightGoalLbs = prefsResult?.data?.weight_goal_lbs != null ? Number(prefsResult.data.weight_goal_lbs) : null;
 
-  let userAge: number | null = prefsResult?.data?.age != null ? Number(prefsResult.data.age) : null;
-  if (userAge == null && prefsResult?.data?.date_of_birth) {
-    const dob = new Date(prefsResult.data.date_of_birth);
+  const swapLearningData = await (async () => {
+    try {
+      const { data } = await supabase.from('exercise_swaps')
+        .select('exercise_name, swap_date, created_at, replacement_exercise_name')
+        .eq('user_id', userId);
+      return data || [];
+    } catch { return []; }
+  })();
+
+  const linkedGenIds = workouts.map((w: any) => w.generated_workout_id).filter(Boolean);
+  let genWorkouts: any[] = [], outcomes: any[] = [], execEvents: any[] = [];
+  if (linkedGenIds.length > 0) {
+    const ids = linkedGenIds.slice(0, 20);
+    try {
+      const [g, o, e] = await Promise.all([
+        supabase.from('generated_workouts').select('id, exercises').in('id', ids).then((r: any) => r.data || []),
+        supabase.from('workout_outcomes').select('generated_workout_id, session_outcome_score').eq('user_id', userId).in('generated_workout_id', ids).then((r: any) => r.data || []),
+        supabase.from('prescription_execution_events').select('execution_accuracy').eq('user_id', userId).in('generated_workout_id', ids).then((r: any) => r.data || []),
+      ]);
+      genWorkouts = g; outcomes = o; execEvents = e;
+    } catch { /* non-fatal */ }
+  }
+
+  return computeTrainingProfileFromData(userId, {
+    preferences: prefsResult?.data ?? null,
+    workouts,
+    healthMetrics: health,
+    exerciseLibrary: exercises,
+    modelFeedback: feedbackResult?.data ?? [],
+    connectedAccounts: connectedAccounts ?? [],
+    cardioCapabilities: cardioCapabilityResult?.data ?? [],
+    exerciseSwaps: swapLearningData,
+    generatedWorkouts: genWorkouts,
+    workoutOutcomes: outcomes,
+    executionEvents: execEvents,
+  });
+}
+
+export function computeTrainingProfileFromData(userId: string, data: PreFetchedTrainingData): TrainingProfile {
+  const { preferences: prefs, workouts, healthMetrics: health, exerciseLibrary: exercises,
+    modelFeedback: feedbackRows, connectedAccounts, cardioCapabilities: cardioRows,
+    exerciseSwaps: swapRows, generatedWorkouts: genWorkouts,
+    workoutOutcomes: outcomesRows, executionEvents: execEventsRows } = data;
+
+  const userGender = prefs?.gender ?? null;
+  const userRecoverySpeed = prefs?.recovery_speed != null ? Number(prefs.recovery_speed) : 1.0;
+  const userExperienceLevel: string | null = prefs?.experience_level ?? null;
+  const userBodyWeightLbs = prefs?.body_weight_lbs != null ? Number(prefs.body_weight_lbs) : null;
+  const userWeightGoalLbs = prefs?.weight_goal_lbs != null ? Number(prefs.weight_goal_lbs) : null;
+
+  let userAge: number | null = prefs?.age != null ? Number(prefs.age) : null;
+  if (userAge == null && prefs?.date_of_birth) {
+    const dob = new Date(prefs.date_of_birth);
     if (!isNaN(dob.getTime())) {
       userAge = Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
     }
@@ -4778,7 +4837,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const plateauDetections = computePlateauDetections(workouts, userBodyWeight, weightByDate);
 
   const bodyWeightTrendResolved = computeBodyWeightTrend(health);
-  const swapLearning = await computeSwapLearningFeatures(userId);
+  const swapLearning = computeSwapLearningFeaturesFromData(swapRows);
   const nutritionLoggingCoverage14d = computeNutritionLoggingCoverage14d(health);
 
   const athleteProfileResult = computeAthleteProfile(spResults, hpResults, muscleVolumeStatuses, {
@@ -4801,17 +4860,17 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
   const healthDataDays = new Set(health.map(h => h.date)).size;
   const connectedWearables = (connectedAccounts ?? []).map((a: any) => a.provider as string);
   const prefsForSnapshot = {
-    training_goal: prefsResult?.data?.training_goal ?? null,
-    secondary_goal: prefsResult?.data?.secondary_goal ?? null,
-    session_duration_minutes: prefsResult?.data?.session_duration_minutes ?? null,
-    cardio_duration_minutes: prefsResult?.data?.cardio_duration_minutes ?? null,
-    preferred_split: prefsResult?.data?.preferred_split ?? null,
-    rest_days: prefsResult?.data?.rest_days ?? null,
-    priority_muscles: prefsResult?.data?.priority_muscles ?? null,
-    experience_level: prefsResult?.data?.experience_level ?? null,
-    recovery_speed: prefsResult?.data?.recovery_speed ?? null,
-    equipment_access: prefsResult?.data?.equipment_access ?? null,
-    hotel_mode: prefsResult?.data?.hotel_mode ?? null,
+    training_goal: prefs?.training_goal ?? null,
+    secondary_goal: prefs?.secondary_goal ?? null,
+    session_duration_minutes: prefs?.session_duration_minutes ?? null,
+    cardio_duration_minutes: prefs?.cardio_duration_minutes ?? null,
+    preferred_split: prefs?.preferred_split ?? null,
+    rest_days: prefs?.rest_days ?? null,
+    priority_muscles: prefs?.priority_muscles ?? null,
+    experience_level: prefs?.experience_level ?? null,
+    recovery_speed: prefs?.recovery_speed ?? null,
+    equipment_access: prefs?.equipment_access ?? null,
+    hotel_mode: prefs?.hotel_mode ?? null,
   };
   const featureSnapshotId = createFeatureSnapshotId([
     userId,
@@ -4819,11 +4878,11 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     workouts[workouts.length - 1]?.date ?? null,
     health.length,
     health[health.length - 1]?.date ?? null,
-    (feedbackResult?.data ?? []).length,
+    (feedbackRows ?? []).length,
     JSON.stringify(prefsForSnapshot),
   ]);
 
-  const prescribedVsActual = await computePrescribedVsActual(userId, workouts, exercises);
+  const prescribedVsActual = computePrescribedVsActualFromData(genWorkouts, outcomesRows, execEventsRows, workouts, exercises);
   const progressionScore = (() => {
     const eligible = exerciseProgressions.filter(p => p.sessionsTracked >= 3);
     if (eligible.length === 0) return 0.5;
@@ -4844,7 +4903,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
 
   const honestEffortResult = computeHonestEffortScores(workouts, exerciseProgressions);
   const consistencyQuotientResult = computeConsistencyQuotient(
-    workouts, honestEffortResult, prefsResult?.data?.available_days_per_week ?? 5,
+    workouts, honestEffortResult, prefs?.available_days_per_week ?? 5,
   );
 
   const canonicalModelContext = computeCanonicalModelContext({
@@ -4854,8 +4913,8 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     recoveryReadinessScore: fitnessFatigueResult.readiness,
     evidenceConfidence,
   });
-  const cardioCapabilityProfiles: CardioCapabilityProfile[] = Array.isArray(cardioCapabilityResult?.data)
-    ? cardioCapabilityResult.data.map((r: any) => {
+  const cardioCapabilityProfiles: CardioCapabilityProfile[] = Array.isArray(cardioRows)
+    ? cardioRows.map((r: any) => {
         const modality = String(r?.modality || '').toLowerCase();
         let maxSpeed = r?.max_speed != null ? Number(r.max_speed) : null;
         let comfortableSpeed = r?.comfortable_speed != null ? Number(r.comfortable_speed) : null;
@@ -4907,7 +4966,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     healthPercentiles: hpResults,
     athleteProfile: athleteProfileResult,
     gender: userGender,
-    hotel_mode: Boolean(prefsResult?.data?.hotel_mode),
+    hotel_mode: Boolean(prefs?.hotel_mode),
 
     detectedSplit: detectTrainingSplit(workouts, exercises),
     dayOfWeekPatterns: computeDayOfWeekPatterns(workouts, exercises),
@@ -4941,7 +5000,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     sleepVolumeModifier: computeSleepVolumeModifier(health),
 
     goalProgress: computeGoalProgress(
-      prefsResult?.data,
+      prefs,
       rolling30DayTrends,
       bodyWeightTrendResolved,
       exerciseProgressions,
@@ -4958,7 +5017,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     trainingAgeDays: Math.round(trainingAgeDays),
     consistencyScore: Math.round(consistencyScore * 100) / 100,
     muscleGroupFrequency,
-    llmPatternObservations: (feedbackResult?.data ?? [])
+    llmPatternObservations: (feedbackRows ?? [])
       .filter((r: any) => {
         // Keep legacy rows with no provenance metadata, but exclude unverified model-only observations.
         const source = r?.feedback_source ?? null;
@@ -4990,10 +5049,10 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     ),
 
     identityArchetypes: computeIdentityArchetypes(
-      workouts, exerciseProgressions, honestEffortResult, consistencyQuotientResult, prefsResult?.data,
+      workouts, exerciseProgressions, honestEffortResult, consistencyQuotientResult, prefs,
     ),
     mortalityGradient: computeMortalityGradient(
-      workouts, health, exerciseProgressions, rolling30DayTrends, prefsResult?.data?.age ?? null,
+      workouts, health, exerciseProgressions, rolling30DayTrends, prefs?.age ?? null,
     ),
     psychReadiness: computePsychReadiness(
       workouts, honestEffortResult, consistencyQuotientResult, recoveryCtx,
@@ -5681,6 +5740,141 @@ async function computeSwapLearningFeatures(userId: string): Promise<{
   } catch {
     return empty;
   }
+}
+
+function computeSwapLearningFeaturesFromData(data: any[]): {
+  exerciseSwapHistory: TrainingProfile['exerciseSwapHistory'];
+  substitutionAffinities: TrainingProfile['substitutionAffinities'];
+} {
+  const halfLife = DEFAULT_MODEL_CONFIG.swapDecayHalfLifeDays;
+  const empty = { exerciseSwapHistory: [] as TrainingProfile['exerciseSwapHistory'], substitutionAffinities: [] as TrainingProfile['substitutionAffinities'] };
+  if (!Array.isArray(data) || data.length === 0) return empty;
+  const decayForRow = (row: any): number => {
+    const ts = row.created_at || `${String(row.swap_date || '').slice(0, 10)}T12:00:00`;
+    const t = new Date(ts).getTime();
+    if (Number.isNaN(t)) return 1;
+    return Math.exp(-Math.LN2 * Math.max(0, (Date.now() - t) / 86_400_000) / halfLife);
+  };
+  const byExercise = new Map<string, { weight: number; count: number; lastDate: string }>();
+  const pairMap = new Map<string, { weight: number; count: number }>();
+  for (const row of data) {
+    const name = String(row.exercise_name || '').toLowerCase().trim();
+    if (!name) continue;
+    const w = decayForRow(row);
+    const date = String(row.swap_date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const ex = byExercise.get(name) ?? { weight: 0, count: 0, lastDate: date };
+    ex.weight += w; ex.count += 1;
+    if (date > ex.lastDate) ex.lastDate = date;
+    byExercise.set(name, ex);
+    const to = String(row.replacement_exercise_name || '').toLowerCase().trim();
+    if (to) {
+      const key = `${name}\t${to}`;
+      const p = pairMap.get(key) ?? { weight: 0, count: 0 };
+      p.weight += w; p.count += 1;
+      pairMap.set(key, p);
+    }
+  }
+  return {
+    exerciseSwapHistory: Array.from(byExercise.entries())
+      .map(([exerciseName, v]) => ({ exerciseName, swapCount: v.count, lastSwapDate: v.lastDate, effectiveSwapWeight: Math.round(v.weight * 100) / 100 }))
+      .sort((a, b) => b.effectiveSwapWeight - a.effectiveSwapWeight),
+    substitutionAffinities: Array.from(pairMap.entries())
+      .map(([key, v]) => { const [fromExercise, toExercise] = key.split('\t'); return { fromExercise, toExercise, affinity: Math.round(v.weight * 100) / 100, eventCount: v.count }; })
+      .sort((a, b) => b.affinity - a.affinity)
+      .slice(0, 48),
+  };
+}
+
+function computePrescribedVsActualFromData(
+  generated: any[], outcomes: any[], executionEvents: any[],
+  workouts: WorkoutRecord[], exercises: EnrichedExercise[],
+) {
+  const defaultResult = {
+    complianceRate: 0.5, avgWeightDeviation: 0, avgRepsDeviation: 0,
+    exercisesCompleted: 0, exercisesSkipped: 0,
+    avgSessionOutcomeScore: 0, outcomeSampleSize: 0,
+    avgSetExecutionAccuracy: 0, executionSampleSize: 0,
+    muscleGroupExecutionDeltas: {} as Record<string, { completionRate: number; avgWeightDeviation: number; avgRepsDeviation: number; sampleSize: number; prescribedCount: number; completedCount: number }>,
+  };
+  if (!generated || generated.length === 0) return defaultResult;
+
+  const linkedWorkouts = workouts.filter((w: any) => w.generated_workout_id);
+  if (linkedWorkouts.length === 0) return defaultResult;
+
+  const normalizeMuscleHeads = (heads: unknown): string[] =>
+    (Array.isArray(heads) ? heads : []).map(m => String(m || '').toLowerCase().trim()).filter(Boolean);
+  const dominantGroupByExercise = new Map<string, string>();
+  for (const ex of exercises) {
+    const groups = normalizeMuscleHeads(ex.primary_muscles).map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+    if (groups.length > 0) dominantGroupByExercise.set(ex.name.toLowerCase(), groups[0]);
+  }
+  const getDominantGroup = (exerciseName: unknown): string | null => {
+    const key = String(exerciseName || '').toLowerCase().trim();
+    if (!key) return null;
+    const cached = dominantGroupByExercise.get(key);
+    if (cached) return cached;
+    const mapping = getExerciseMapping(key);
+    if (!mapping) return null;
+    const groups = normalizeMuscleHeads(mapping.primary_muscles).map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+    const dominant = groups[0] ?? null;
+    if (dominant) dominantGroupByExercise.set(key, dominant);
+    return dominant;
+  };
+
+  let totalPrescribed = 0, totalCompleted = 0, totalSkipped = 0;
+  let weightDeviations: number[] = [], repsDeviations: number[] = [];
+  const byGroup = new Map<string, { prescribed: number; completed: number; weightDev: number[]; repsDev: number[] }>();
+  const ensureGroup = (g: string) => { if (!byGroup.has(g)) byGroup.set(g, { prescribed: 0, completed: 0, weightDev: [], repsDev: [] }); return byGroup.get(g)!; };
+
+  for (const gen of generated) {
+    const actual = linkedWorkouts.find((w: any) => w.generated_workout_id === gen.id);
+    if (!actual) continue;
+    const prescribedExercises: any[] = Array.isArray(gen.exercises) ? gen.exercises : [];
+    const actualExNames = new Set(actual.workout_exercises.map(e => e.exercise_name.toLowerCase()));
+    for (const pe of prescribedExercises) {
+      if (!pe.exerciseName) continue;
+      totalPrescribed++;
+      const group = getDominantGroup(pe.exerciseName);
+      if (group) ensureGroup(group).prescribed += 1;
+      if (actualExNames.has(pe.exerciseName.toLowerCase())) {
+        totalCompleted++;
+        if (group) ensureGroup(group).completed += 1;
+        const actualEx = actual.workout_exercises.find(e => e.exercise_name.toLowerCase() === pe.exerciseName.toLowerCase());
+        if (actualEx && pe.targetWeight && pe.targetWeight > 0) {
+          const actualSets = Array.isArray(actualEx.workout_sets) ? actualEx.workout_sets : [];
+          const actualWeight = actualSets.find((s: any) => s.weight)?.weight;
+          if (actualWeight) { const wDev = (actualWeight - pe.targetWeight) / pe.targetWeight; weightDeviations.push(wDev); if (group) ensureGroup(group).weightDev.push(wDev); }
+          const actualReps = actualSets.find((s: any) => s.reps)?.reps;
+          if (actualReps && pe.targetReps) { const rDev = actualReps - pe.targetReps; repsDeviations.push(rDev); if (group) ensureGroup(group).repsDev.push(rDev); }
+        }
+      } else { totalSkipped++; }
+    }
+  }
+
+  const mean = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+  const outcomesArr = Array.isArray(outcomes) ? outcomes : [];
+  const execArr = Array.isArray(executionEvents) ? executionEvents : [];
+  const outcomeScores = outcomesArr.map((o: any) => o.session_outcome_score).filter((v: any) => v != null);
+  const execAccuracies = execArr.map((e: any) => e.execution_accuracy).filter((v: any) => v != null);
+
+  const muscleGroupExecutionDeltas: Record<string, any> = {};
+  for (const [group, g] of byGroup.entries()) {
+    muscleGroupExecutionDeltas[group] = {
+      completionRate: g.prescribed > 0 ? g.completed / g.prescribed : 0,
+      avgWeightDeviation: mean(g.weightDev), avgRepsDeviation: mean(g.repsDev),
+      sampleSize: g.weightDev.length + g.repsDev.length,
+      prescribedCount: g.prescribed, completedCount: g.completed,
+    };
+  }
+
+  return {
+    complianceRate: totalPrescribed > 0 ? totalCompleted / totalPrescribed : 0.5,
+    avgWeightDeviation: mean(weightDeviations), avgRepsDeviation: mean(repsDeviations),
+    exercisesCompleted: totalCompleted, exercisesSkipped: totalSkipped,
+    avgSessionOutcomeScore: mean(outcomeScores), outcomeSampleSize: outcomeScores.length,
+    avgSetExecutionAccuracy: mean(execAccuracies), executionSampleSize: execAccuracies.length,
+    muscleGroupExecutionDeltas,
+  };
 }
 
 // Feature #3: HRV-Gated Intensity

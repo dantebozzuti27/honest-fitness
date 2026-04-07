@@ -13,8 +13,10 @@ import { chatRouter } from './chat.js'
 import { insightsRouter } from './insights.js'
 import { dbRouter } from './db.js'
 import { rpcRouter } from './rpc.js'
+import { workoutSaveRouter } from './workoutSave.js'
+import { workoutLoadRouter } from './workoutLoad.js'
 import { authenticate } from '../middleware/auth.js'
-import { query } from '../database/pg.js'
+import { query, transaction } from '../database/pg.js'
 
 export const apiRouter = express.Router()
 
@@ -82,6 +84,100 @@ apiRouter.post('/preferences', async (req, res) => {
   } catch (err) {
     console.error('[preferences] Save error:', err.message)
     return res.status(500).json({ data: null, error: { message: err.message } })
+  }
+})
+
+// Dedicated workout save — single request, transaction-safe, batch inserts
+apiRouter.use('/workout-save', workoutSaveRouter)
+
+// Dedicated workout load — all TodayWorkout data in one response
+apiRouter.use('/workout-load', workoutLoadRouter)
+
+// TEMPORARY: One-time recovery for corrupted 2026-04-07 leg day workout. Remove after use.
+apiRouter.post('/recover-0407', async (req, res) => {
+  try {
+    const userId = req.userId
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' })
+
+    const result = await transaction(async (client) => {
+      const existing = await client.query(
+        `SELECT id FROM workouts WHERE user_id = $1 AND date = '2026-04-07' LIMIT 1`, [userId]
+      )
+      let workoutId
+      if (existing.rows.length > 0) {
+        workoutId = existing.rows[0].id
+        await client.query(
+          `DELETE FROM workout_sets WHERE workout_exercise_id IN
+           (SELECT id FROM workout_exercises WHERE workout_id = $1)`, [workoutId]
+        )
+        await client.query('DELETE FROM workout_exercises WHERE workout_id = $1', [workoutId])
+        await client.query(
+          `UPDATE workouts SET duration=100, completed=true, template_name='Legs',
+           session_type='workout', day_of_week='Tuesday', updated_at=$1,
+           workout_start_time='2026-04-07T10:00:00Z', workout_end_time='2026-04-07T11:40:00Z'
+           WHERE id=$2`, [new Date().toISOString(), workoutId]
+        )
+      } else {
+        const ins = await client.query(
+          `INSERT INTO workouts (user_id, date, duration, completed, template_name, session_type,
+             day_of_week, updated_at, workout_start_time, workout_end_time)
+           VALUES ($1,'2026-04-07',100,true,'Legs','workout','Tuesday',$2,
+             '2026-04-07T10:00:00Z','2026-04-07T11:40:00Z') RETURNING id`,
+          [userId, new Date().toISOString()]
+        )
+        workoutId = ins.rows[0].id
+      }
+
+      const lib = await client.query(
+        `SELECT id, name FROM exercise_library WHERE name = ANY($1)`,
+        [['Barbell Back Squat','Leg Press','Dumbbell Romanian Deadlift','Leg Extension','Seated Leg Curl','Standing Calf Raise','Treadmill Walk']]
+      )
+      const lm = new Map()
+      for (const r of lib.rows) lm.set(r.name, r.id)
+
+      const exercises = [
+        { n:'Barbell Back Squat', c:'strength', bp:'legs', eq:'barbell', t:'weightlifting', sets:[{w:185,r:8},{w:225,r:5},{w:245,r:4},{w:255,r:3},{w:265,r:3}] },
+        { n:'Leg Press', c:'strength', bp:'legs', eq:'machine', t:'weightlifting', sets:[{w:360,r:12},{w:410,r:12},{w:455,r:11},{w:500,r:11}] },
+        { n:'Dumbbell Romanian Deadlift', c:'strength', bp:'legs', eq:'dumbbell', t:'weightlifting', sets:[{w:70,r:10},{w:70,r:10},{w:70,r:10},{w:70,r:10}] },
+        { n:'Leg Extension', c:'strength', bp:'legs', eq:'machine', t:'weightlifting', sets:[{w:120,r:12},{w:130,r:12},{w:140,r:10},{w:150,r:10}] },
+        { n:'Seated Leg Curl', c:'strength', bp:'legs', eq:'machine', t:'weightlifting', sets:[{w:90,r:12},{w:100,r:12},{w:110,r:10},{w:110,r:10}] },
+        { n:'Standing Calf Raise', c:'strength', bp:'legs', eq:'machine', t:'weightlifting', sets:[{w:180,r:15},{w:200,r:15},{w:200,r:12},{w:200,r:12}] },
+        { n:'Treadmill Walk', c:'cardio', bp:'cardio', eq:'treadmill', t:'cardio', sets:[{time:'1800'}] },
+      ]
+
+      const exCols = ['workout_id','exercise_name','category','body_part','equipment','exercise_order','exercise_type','exercise_library_id']
+      let pi = 1
+      const exVals = exercises.map(() => { const p = exCols.map(() => `$${pi++}`); return `(${p.join(',')})` })
+      const exParams = exercises.flatMap((ex, i) => [workoutId, ex.n, ex.c, ex.bp, ex.eq, i, ex.t, lm.get(ex.n) || null])
+      const exRes = await client.query(
+        `INSERT INTO workout_exercises (${exCols.map(c=>`"${c}"`).join(',')}) VALUES ${exVals.join(',')} RETURNING id, exercise_order`,
+        exParams
+      )
+      const eid = new Map()
+      for (const r of exRes.rows) eid.set(r.exercise_order, r.id)
+
+      const allSets = []
+      exercises.forEach((ex, ei) => {
+        const exId = eid.get(ei)
+        ex.sets.forEach((s, si) => {
+          allSets.push([exId, si+1, s.w ?? null, s.r ?? null, s.time ?? null])
+        })
+      })
+      let si = 1
+      const sVals = allSets.map(() => { const p = [1,2,3,4,5].map(() => `$${si++}`); return `(${p.join(',')})` })
+      await client.query(
+        `INSERT INTO workout_sets (workout_exercise_id, set_number, weight, reps, time) VALUES ${sVals.join(',')}`,
+        allSets.flat()
+      )
+
+      return { workoutId, exercises: exercises.length, sets: allSets.length }
+    })
+
+    console.log('[recover-0407] Success:', result)
+    return res.json({ ok: true, ...result })
+  } catch (err) {
+    console.error('[recover-0407] Error:', err)
+    return res.status(500).json({ error: err.message })
   }
 })
 

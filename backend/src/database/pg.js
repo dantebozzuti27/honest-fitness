@@ -57,6 +57,21 @@ export async function getClient() {
   return p.connect()
 }
 
+export async function transaction(fn) {
+  const client = await getClient()
+  try {
+    await client.query('BEGIN')
+    const result = await fn(client)
+    await client.query('COMMIT')
+    return result
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
 // Eagerly establish one TCP+TLS connection during module initialization so the
 // first real query doesn't pay the ~2-5 s cold-connect penalty.
 if (process.env.DATABASE_URL) {

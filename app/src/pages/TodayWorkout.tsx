@@ -551,13 +551,34 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       const t0 = performance.now()
       const today = getLocalDate()
 
-      // Single HTTP request for ALL data
-      const token = await getIdToken().catch(() => '')
-      const resp = await fetch(apiUrl('/api/workout-load') + `?date=${today}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-      if (!resp.ok) throw new Error(`workout-load failed: HTTP ${resp.status}`)
-      const serverData = await resp.json()
+      // Single HTTP request for ALL data — with timeout, retry, and pre-warm
+      const fetchData = async (timeoutMs: number): Promise<any> => {
+        const token = await getIdToken().catch(() => '')
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+        try {
+          const resp = await fetch(apiUrl('/api/workout-load') + `?date=${today}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: ctrl.signal,
+          })
+          clearTimeout(timer)
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+          return await resp.json()
+        } catch (e) {
+          clearTimeout(timer)
+          throw e
+        }
+      }
+
+      let serverData: any
+      try {
+        serverData = await fetchData(12_000)
+      } catch (e1) {
+        console.warn(`[workout-load] Attempt 1 failed:`, e1 instanceof Error ? e1.message : e1)
+        await fetch(apiUrl('/api/ping')).catch(() => {})
+        await new Promise(r => setTimeout(r, 500))
+        serverData = await fetchData(12_000)
+      }
       console.log(`[PERF] workout-load: ${(performance.now()-t0).toFixed(0)}ms`)
 
       // Extract preferences and set UI state

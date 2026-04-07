@@ -24,7 +24,13 @@ function stitchWorkouts(workouts, exercises, sets) {
 }
 
 function safeQuery(text, params) {
-  return query(text, params).then(r => r.rows).catch(() => [])
+  return query(text, params).then(r => r.rows).catch(err => {
+    const code = err?.code || ''
+    if (code === '42P01' || code === '42703' || /does not exist|column.*not found/i.test(err?.message || '')) {
+      return []
+    }
+    throw err
+  })
 }
 
 workoutLoadRouter.get('/', async (req, res) => {
@@ -53,15 +59,15 @@ workoutLoadRouter.get('/', async (req, res) => {
       pausedRows,
       sessionRows,
     ] = await Promise.all([
-      // 1. User preferences
+      // 1. User preferences (critical — propagate connection errors)
       query('SELECT * FROM user_preferences WHERE user_id = $1', [userId])
-        .then(r => r.rows[0] || null).catch(() => null),
+        .then(r => r.rows[0] || null),
 
-      // 2-4. Workout history with exercises and sets (120 days)
+      // 2-4. Workout history with exercises and sets (critical)
       query(
         `SELECT * FROM workouts WHERE user_id = $1 AND date >= $2 ORDER BY date ASC`,
         [userId, sinceDate]
-      ).then(r => r.rows).catch(() => []),
+      ).then(r => r.rows),
 
       query(
         `SELECT we.* FROM workout_exercises we
@@ -69,7 +75,7 @@ workoutLoadRouter.get('/', async (req, res) => {
          WHERE w.user_id = $1 AND w.date >= $2
          ORDER BY we.exercise_order ASC`,
         [userId, sinceDate]
-      ).then(r => r.rows).catch(() => []),
+      ).then(r => r.rows),
 
       query(
         `SELECT ws.* FROM workout_sets ws
@@ -78,21 +84,21 @@ workoutLoadRouter.get('/', async (req, res) => {
          WHERE w.user_id = $1 AND w.date >= $2
          ORDER BY ws.set_number ASC`,
         [userId, sinceDate]
-      ).then(r => r.rows).catch(() => []),
+      ).then(r => r.rows),
 
-      // 5. Health metrics (120 days)
+      // 5. Health metrics (critical)
       query(
         `SELECT * FROM health_metrics WHERE user_id = $1 AND date >= $2 ORDER BY date ASC`,
         [userId, sinceDate]
-      ).then(r => r.rows).catch(() => []),
+      ).then(r => r.rows),
 
-      // 6. Exercise library (global, non-custom)
+      // 6. Exercise library (critical)
       query(
         `SELECT id, name, body_part, category, primary_muscles, secondary_muscles,
                 stabilizer_muscles, movement_pattern, ml_exercise_type, force_type,
                 difficulty, default_tempo, equipment
          FROM exercise_library WHERE is_custom = false`
-      ).then(r => r.rows).catch(() => []),
+      ).then(r => r.rows),
 
       // 7. Model feedback (30 days)
       safeQuery(

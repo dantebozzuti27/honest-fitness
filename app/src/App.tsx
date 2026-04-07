@@ -59,20 +59,19 @@ export default function App() {
   useEffect(() => {
     if (!user) return
 
-    import('./lib/syncOutbox')
-      .then(({ migrateLegacyFailedWorkouts, flushOutbox }) => {
-        migrateLegacyFailedWorkouts(user.id)
-        flushOutbox(user.id).catch(() => {})
-      })
-      .catch(() => {})
-
-    const onOnline = () => {
+    const doFlush = () =>
       import('./lib/syncOutbox')
         .then(({ flushOutbox }) => flushOutbox(user.id).catch(() => {}))
         .catch(() => {})
-    }
-    window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
+
+    import('./lib/syncOutbox')
+      .then(({ migrateLegacyFailedWorkouts }) => migrateLegacyFailedWorkouts(user.id))
+      .catch(() => {})
+    doFlush()
+
+    window.addEventListener('online', doFlush)
+    const poll = setInterval(doFlush, 60_000)
+    return () => { window.removeEventListener('online', doFlush); clearInterval(poll) }
   }, [user])
 
   // Ensure local exercise cache exists

@@ -20,7 +20,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Button from '../components/Button'
 import TextAreaField from '../components/TextAreaField'
 import SearchField from '../components/SearchField'
-import { enqueueOutboxItem } from '../lib/syncOutbox'
+// Outbox enqueuing is now handled internally by saveWorkoutToSupabase
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import { getFitbitDaily, getMostRecentFitbitData, fetchAndSaveWorkoutFitbitMetrics } from '../lib/wearables'
@@ -2385,49 +2385,31 @@ export default function ActiveWorkout() {
       // Save to local IndexedDB first (fast, local backup)
       await saveWorkout(workout)
       
-      // Save to Supabase if logged in (with retry logic)
+      // Save to server (function handles retry + outbox internally)
       if (user) {
-        let retries = 3
-        let saved = false
-        while (retries > 0 && !saved) {
-          try {
-            await saveWorkoutToSupabase(workout, user.id)
-            saved = true
-            trackEvent('workout_completed', { sessionType, exerciseCount: workout.exercises?.length ?? 0, duration: workout.duration })
+        const result = await saveWorkoutToSupabase(workout, user.id)
+        const wasQueued = result && (result as any).queued === true
 
-            // Emit model outcome event so the ML pipeline can score this session
-            if (workout.generatedWorkoutId) {
-              const completedCount = workout.exercises.filter((ex: any) => ex.sets?.length > 0).length
-              const prescribedCount = exercises.length
-              trackEvent('model_outcome_completed', {
-                generatedWorkoutId: workout.generatedWorkoutId,
-                workoutDate: workout.date,
-                outcomeScore: prescribedCount > 0 ? Math.min(1, completedCount / prescribedCount) : 1,
-                completionPct: prescribedCount > 0 ? Math.round((completedCount / prescribedCount) * 100) : 100,
-                sessionType,
-                durationMinutes: workout.duration,
-                rpe: feedback.rpe,
-              })
-            }
-
-            showToast(sessionType === 'recovery' ? 'Recovery session saved successfully!' : 'Workout saved successfully!', 'success')
-            
-            // Trigger history refresh event for Fitness page
-            window.dispatchEvent(new CustomEvent('workoutSaved', { detail: { workout } }))
-          } catch (err) {
-            retries--
-            logError(`Error saving workout to Supabase (${3 - retries}/3 attempts)`, err)
-            if (retries > 0) {
-              // Wait before retry
-              await new Promise(resolve => setTimeout(resolve, 1000))
-            } else {
-              // All retries failed
-              showToast('Workout saved locally. Syncing to cloud failed - will retry later.', 'warning')
-              // Persist for eventual sync
-              enqueueOutboxItem({ userId: user.id, kind: 'workout', payload: { workout } })
-            }
+        if (wasQueued) {
+          showToast('Workout saved locally — will sync to cloud when connection returns.', 'warning')
+        } else {
+          trackEvent('workout_completed', { sessionType, exerciseCount: workout.exercises?.length ?? 0, duration: workout.duration })
+          if (workout.generatedWorkoutId) {
+            const completedCount = workout.exercises.filter((ex: any) => ex.sets?.length > 0).length
+            const prescribedCount = exercises.length
+            trackEvent('model_outcome_completed', {
+              generatedWorkoutId: workout.generatedWorkoutId,
+              workoutDate: workout.date,
+              outcomeScore: prescribedCount > 0 ? Math.min(1, completedCount / prescribedCount) : 1,
+              completionPct: prescribedCount > 0 ? Math.round((completedCount / prescribedCount) * 100) : 100,
+              sessionType,
+              durationMinutes: workout.duration,
+              rpe: feedback.rpe,
+            })
           }
+          showToast(sessionType === 'recovery' ? 'Recovery session saved successfully!' : 'Workout saved successfully!', 'success')
         }
+        window.dispatchEvent(new CustomEvent('workoutSaved', { detail: { workout } }))
       } else {
         showToast(sessionType === 'recovery' ? 'Recovery session saved locally!' : 'Workout saved locally!', 'success')
       }

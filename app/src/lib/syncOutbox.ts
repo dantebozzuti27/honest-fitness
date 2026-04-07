@@ -46,15 +46,10 @@ function nextAttemptAtMs(tries: number) {
   return base[Math.min(base.length - 1, Math.max(0, tries))]
 }
 
-export function enqueueOutboxItem({ userId, kind, payload }: { userId: string; kind: string; payload: any }) {
-  if (!userId || !kind) return
+export function enqueueOutboxItem({ userId, kind, payload }: { userId: string; kind: string; payload: any }): string | null {
+  if (!userId || !kind) return null
   const now = Date.now()
 
-  // Normalize payloads for idempotency so retries don't create duplicates.
-  // This is especially important for:
-  // - workouts: inserts must be keyed by a stable UUID
-  // - feed items: inserts must be keyed by a stable UUID
-  // - meals: JSON array updates must use a stable meal.id to avoid duplicated meals
   const normalizedPayload = (() => {
     try {
       if (kind === 'workout') {
@@ -69,20 +64,32 @@ export function enqueueOutboxItem({ userId, kind, payload }: { userId: string; k
     }
   })()
 
+  const itemId = uuidv4()
   const item = {
-    id: uuidv4(),
+    id: itemId,
     userId,
     kind,
     payload: normalizedPayload ?? null,
     createdAt: now,
     tries: 0,
-    nextAttemptAt: now // try asap
+    nextAttemptAt: now
   }
 
   const current = loadOutbox()
   const updated = [...current, item].slice(-MAX_ITEMS)
   saveOutbox(updated)
-  logDebug('Outbox enqueued', { kind, userId })
+  logDebug('Outbox enqueued', { kind, userId, itemId })
+  return itemId
+}
+
+export function removeOutboxItem(itemId: string) {
+  if (!itemId) return
+  const current = loadOutbox()
+  const updated = current.filter((i: any) => i?.id !== itemId)
+  if (updated.length < current.length) {
+    saveOutbox(updated)
+    logDebug('Outbox item removed', { itemId })
+  }
 }
 
 export function migrateLegacyFailedWorkouts(userId: string) {

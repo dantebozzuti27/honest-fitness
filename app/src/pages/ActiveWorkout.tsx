@@ -20,7 +20,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Button from '../components/Button'
 import TextAreaField from '../components/TextAreaField'
 import SearchField from '../components/SearchField'
-// Outbox enqueuing is now handled internally by saveWorkoutToSupabase
+import { enqueueOutboxItem, removeOutboxItem } from '../lib/syncOutbox'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import { getFitbitDaily, getMostRecentFitbitData, fetchAndSaveWorkoutFitbitMetrics } from '../lib/wearables'
@@ -2385,14 +2385,14 @@ export default function ActiveWorkout() {
       // Save to local IndexedDB first (fast, local backup)
       await saveWorkout(workout)
       
-      // Save to server (function handles retry + outbox internally)
+      // Write-ahead outbox: enqueue BEFORE the POST so closing the tab can't lose data.
+      // If POST succeeds, dequeue. If the tab dies mid-flight, the outbox item
+      // persists and syncs on next app load. Server upsert makes duplicates harmless.
       if (user) {
-        const result = await saveWorkoutToSupabase(workout, user.id)
-        const wasQueued = result && (result as any).queued === true
-
-        if (wasQueued) {
-          showToast('Workout saved locally — will sync to cloud when connection returns.', 'warning')
-        } else {
+        const outboxId = enqueueOutboxItem({ userId: user.id, kind: 'workout', payload: { workout } })
+        try {
+          await saveWorkoutToSupabase(workout, user.id)
+          if (outboxId) removeOutboxItem(outboxId)
           trackEvent('workout_completed', { sessionType, exerciseCount: workout.exercises?.length ?? 0, duration: workout.duration })
           if (workout.generatedWorkoutId) {
             const completedCount = workout.exercises.filter((ex: any) => ex.sets?.length > 0).length
@@ -2408,6 +2408,9 @@ export default function ActiveWorkout() {
             })
           }
           showToast(sessionType === 'recovery' ? 'Recovery session saved successfully!' : 'Workout saved successfully!', 'success')
+        } catch (err) {
+          logError('Workout cloud save failed — outbox will retry', err)
+          showToast('Workout saved locally — will sync to cloud when connection returns.', 'warning')
         }
         window.dispatchEvent(new CustomEvent('workoutSaved', { detail: { workout } }))
       } else {

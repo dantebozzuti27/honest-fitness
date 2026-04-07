@@ -333,7 +333,8 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     executionEvents,
   }
 
-  // Step 6: POST to dedicated endpoint with retry
+  // Step 6: POST to dedicated endpoint with retry. Throws on failure — caller
+  // is responsible for outbox queuing (write-ahead pattern in ActiveWorkout).
   const { getIdToken } = await import('./cognitoAuth')
   const { apiUrl } = await import('./urlConfig')
 
@@ -368,7 +369,6 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   // Attempt 1
   try {
     const result = await doPost()
-    // Post-save: cardio capability upsert (best-effort, runs locally)
     await upsertCardioCapabilityFromWorkout(userId, workoutToSave).catch(() => {})
     invalidateDbCache()
     return result
@@ -377,24 +377,13 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   }
 
   // Pre-warm and retry
-  const { apiUrl: getUrl } = await import('./urlConfig')
-  await fetch(getUrl('/api/ping')).catch(() => {})
+  await fetch(apiUrl('/api/ping')).catch(() => {})
   await new Promise(r => setTimeout(r, 500))
 
-  try {
-    const result = await doPost()
-    await upsertCardioCapabilityFromWorkout(userId, workoutToSave).catch(() => {})
-    invalidateDbCache()
-    return result
-  } catch (e2) {
-    logWarn('Workout save attempt 2 failed:', e2 instanceof Error ? e2.message : String(e2))
-  }
-
-  // Queue in outbox so data is never lost
-  logError('Both workout save attempts failed — queuing in outbox for background retry')
-  enqueueOutboxItem({ userId, kind: 'workout', payload: { workout: workoutToSave } })
+  const result = await doPost()
+  await upsertCardioCapabilityFromWorkout(userId, workoutToSave).catch(() => {})
   invalidateDbCache()
-  return { id: workoutId, date: workoutToSave.date, queued: true }
+  return result
 }
 
 export async function getWorkoutsFromSupabase(userId: string) {

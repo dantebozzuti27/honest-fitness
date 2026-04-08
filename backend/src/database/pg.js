@@ -3,6 +3,7 @@ const { Pool } = pg
 
 pg.types.setTypeParser(20, Number)    // INT8 (bigint)
 pg.types.setTypeParser(1700, Number)  // NUMERIC / DECIMAL
+pg.types.setTypeParser(1082, String)  // DATE → keep as "YYYY-MM-DD" string (default parses to Date object)
 
 let pool = null
 

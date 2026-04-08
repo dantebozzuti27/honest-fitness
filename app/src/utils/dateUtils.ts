@@ -33,7 +33,8 @@ export function getESTDate(date: Date = new Date()): string {
  * which shifts getDay() by -1 for west-of-UTC timezones.
  */
 export function localDayOfWeek(dateStr: string): number {
-  const parts = dateStr.split('-')
+  const iso = dateStr?.slice(0, 10) ?? ''
+  const parts = iso.split('-')
   return new Date(+parts[0], +parts[1] - 1, +parts[2]).getDay()
 }
 
@@ -41,7 +42,8 @@ export function localDayOfWeek(dateStr: string): number {
  * Parse a YYYY-MM-DD string as LOCAL midnight Date object.
  */
 export function parseLocalDate(dateStr: string): Date {
-  const parts = dateStr.split('-')
+  const iso = dateStr?.slice(0, 10) ?? ''
+  const parts = iso.split('-')
   return new Date(+parts[0], +parts[1] - 1, +parts[2])
 }
 

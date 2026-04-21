@@ -44,6 +44,24 @@ import {
   type AdaptiveExercise,
 } from './adaptiveLearningPolicy';
 
+/**
+ * Normalize a raw muscle name from the exercise library to the snake_case
+ * key format used by MUSCLE_HEAD_TO_GROUP. Handles spaces, mixed case,
+ * and common DB variants (e.g. "Latissimus Dorsi" → "latissimus_dorsi").
+ */
+function normalizeMuscleName(raw: string): string {
+  return String(raw || '').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+/**
+ * Resolve a raw primary_muscles entry to its canonical group, tolerating
+ * case/space mismatches in the exercise library data.
+ */
+function resolveToCanonicalGroup(raw: string): CanonicalMuscleGroup | undefined {
+  const key = normalizeMuscleName(raw);
+  return MUSCLE_HEAD_TO_GROUP[key] ?? MUSCLE_HEAD_TO_GROUP[raw];
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface PerformanceGoal {
@@ -935,9 +953,14 @@ function computeImpactScore(
   let score = compoundBonus * w.compound + massBonus * w.mass;
   if (!isCompound) score += w.metabolic;
 
-  const V_TAPER_MUSCLES = ['lateral_deltoid', 'lats', 'latissimus_dorsi', 'upper_chest'];
-  const primaries = Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles.map((m: string) => m.toLowerCase()) : [];
-  if (primaries.some((m: string) => V_TAPER_MUSCLES.includes(m))) score += 2;
+  const V_TAPER_HEAD_NAMES = new Set([
+    'lateral_deltoid', 'latissimus_dorsi', 'teres_major',
+    'pectoralis_major_clavicular', 'pectoralis_minor',
+  ]);
+  const primaries = Array.isArray(exercise.primary_muscles)
+    ? exercise.primary_muscles.map((m: string) => normalizeMuscleName(m))
+    : [];
+  if (primaries.some((m: string) => V_TAPER_HEAD_NAMES.has(m))) score += 2;
 
   if (role === 'corrective') score *= 2.0;
   if (role === 'primary') score *= 1.3;
@@ -1035,12 +1058,13 @@ function runtimeFlagEnabled(flag: string, defaultValue = true): boolean {
 }
 
 function getNutritionAdherenceSignal(profile: TrainingProfile): number {
-  const cmc = profile.canonicalModelContext;
-  const fromContext = Number((cmc as Record<string, unknown>)?.nutritionAdherenceScore);
-  if (Number.isFinite(fromContext)) return clampNumber(fromContext, 0, 1);
+  // Prefer actual nutrition logging coverage (from meal_logs / health_metrics) over workout compliance
+  const nutritionCov = profile.nutritionLoggingCoverage14d;
+  if (nutritionCov != null && nutritionCov > 0) return clampNumber(nutritionCov, 0, 1);
 
+  // Fall back to workout compliance as a rough proxy when no nutrition data exists
   const fromCompliance = Number(profile.prescribedVsActual?.complianceRate ?? 0.7);
-  return clampNumber(fromCompliance, 0, 1);
+  return clampNumber(fromCompliance * 0.8, 0, 1);
 }
 
 function computePolicyFusion(
@@ -2259,11 +2283,12 @@ function weightedShuffle<T extends { score: number }>(
 const APOLLO_IDEAL_PROPORTIONS: Record<string, number> = {
   mid_chest: 0.09, upper_chest: 0.05, lower_chest: 0.03,
   back_lats: 0.10, back_upper: 0.06,
-  lateral_deltoid: 0.06, front_deltoid: 0.04, rear_deltoid: 0.04,
+  upper_traps: 0.02, mid_traps: 0.005, lower_traps: 0.005,
+  lateral_deltoid: 0.06, anterior_deltoid: 0.04, posterior_deltoid: 0.04,
   quadriceps: 0.10, hamstrings: 0.08, glutes: 0.06,
   biceps: 0.04, triceps: 0.05,
-  calves: 0.03, abs: 0.04, forearms: 0.02,
-  traps: 0.03,
+  calves: 0.03, core: 0.04, forearms: 0.02,
+  erector_spinae: 0.02, rotator_cuff: 0.01,
 };
 
 function computeAestheticDeficitMultiplier(
@@ -2355,7 +2380,7 @@ function stepSelectExercises(
       if (!isHotelModeStrengthAllowed(ex)) return false;
 
       const primaryGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
-        .map(m => MUSCLE_HEAD_TO_GROUP[m])
+        .map(m => resolveToCanonicalGroup(m))
         .filter(Boolean);
       return primaryGroups.includes(group.muscleGroup);
     });
@@ -2519,7 +2544,7 @@ function stepSelectExercises(
         const patternFatigue = profile.movementPatternFatigue.find(p => {
           const exMp = (ex.movement_pattern || '').toLowerCase();
           const exGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
-            .map(m => MUSCLE_HEAD_TO_GROUP[m?.toLowerCase()])
+            .map(m => resolveToCanonicalGroup(m ?? ''))
             .filter(Boolean);
           if (p.pattern === 'horizontal_push' && (exMp.includes('press') || exGroups.includes('mid_chest') || exGroups.includes('upper_chest') || exGroups.includes('lower_chest'))) return true;
           if (p.pattern === 'vertical_pull' && (exMp.includes('pull') || exGroups.includes('back_lats'))) return true;
@@ -2743,7 +2768,7 @@ function stepSelectExercises(
         if (usedExercises.has(ex.name.toLowerCase())) return false;
         const n = ex.name.toLowerCase();
         const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
-          .map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+          .map(m => resolveToCanonicalGroup(m)).filter(Boolean);
         return groups.includes('hamstrings') && /curl|nordic|glute.ham/i.test(n);
       });
       const userPreferred = kneeFlexionExercises.find(ex => {
@@ -2783,7 +2808,7 @@ function stepSelectExercises(
       const diverseCore = strengthExercises.filter(ex => {
         if (usedExercises.has(ex.name.toLowerCase())) return false;
         const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
-          .map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+          .map(m => resolveToCanonicalGroup(m)).filter(Boolean);
         if (!groups.includes('core')) return false;
         const n = ex.name.toLowerCase();
         if (dominantPattern === 'flexion') {
@@ -2987,9 +3012,9 @@ function stepSelectExercises(
     return true;
   };
   const primaryGroupOf = (ex: EnrichedExercise): MuscleGroupOrCardio => {
-    const heads = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : []).map((m) => String(m || '').toLowerCase());
+    const heads = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : []);
     for (const h of heads) {
-      const g = MUSCLE_HEAD_TO_GROUP[h];
+      const g = resolveToCanonicalGroup(h);
       if (g) return g;
     }
     return 'mid_chest';
@@ -4338,7 +4363,7 @@ function stepApplyConstraints(
     )
     .map(ex => {
       const primaryGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
-        .map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
+        .map(m => resolveToCanonicalGroup(m)).filter(Boolean);
       return {
         exercise: ex,
         muscleGroup: primaryGroups[0] || 'other',
@@ -5688,16 +5713,18 @@ export async function generateWorkout(
   let goalTimelineVolumeScale = 1.0;
   let goalTimelineCardioMult = 1.0;
   let goalTimelineRirShift = 0;
-  if (prefs.weight_goal_lbs != null && prefs.weight_goal_date && prefs.body_weight_lbs) {
+  // Prefer the most recent measured weight from bodyWeightTrend over the static prefs value
+  const currentBw = profile.bodyWeightTrend.currentWeight ?? prefs.body_weight_lbs;
+  if (prefs.weight_goal_lbs != null && prefs.weight_goal_date && currentBw) {
     const goalDate = new Date(`${prefs.weight_goal_date}T12:00:00`);
     const msRemaining = goalDate.getTime() - Date.now();
     const weeksRemaining = Math.max(0.5, msRemaining / (7 * 24 * 60 * 60 * 1000));
-    const lbsToGoal = prefs.weight_goal_lbs - prefs.body_weight_lbs;
+    const lbsToGoal = prefs.weight_goal_lbs - currentBw;
     const weeklyRate = lbsToGoal / weeksRemaining;
 
     if (goalPhase === 'cut' && lbsToGoal < 0) {
       const absRate = Math.abs(weeklyRate);
-      const bwPctRate = absRate / prefs.body_weight_lbs;
+      const bwPctRate = absRate / currentBw;
       if (bwPctRate > 0.008) {
         // Aggressive cut: reduce volume to protect strength, increase cardio
         goalTimelineVolumeScale = Math.max(0.85, 1.0 - (bwPctRate - 0.005) * 8);
@@ -5921,7 +5948,9 @@ export async function generateWorkout(
     experience_level: prefs.experience_level ?? null,
     age: prefs.age ?? null,
   });
-  const adaptedRaw = optimizePrescription(validated as unknown as AdaptiveExercise[], adaptiveContext) as unknown as GeneratedExercise[];
+  const adaptedRaw = runtimeFlags.policy_learning
+    ? optimizePrescription(validated as unknown as AdaptiveExercise[], adaptiveContext) as unknown as GeneratedExercise[]
+    : validated;
   const recalcEstimatedMinutes = (exercises: GeneratedExercise[]): GeneratedExercise[] => exercises.map((ex) => {
     if (ex.isCardio) {
       return {
@@ -6846,8 +6875,8 @@ export async function generateWeeklyPlan(
   }
 
   // Split adherence validation: check push/pull/leg volume balance
-  const PUSH_GROUPS = new Set(['upper_chest', 'mid_chest', 'lower_chest', 'front_delts', 'side_delts', 'triceps']);
-  const PULL_GROUPS = new Set(['back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps', 'rear_delts', 'biceps']);
+  const PUSH_GROUPS = new Set(['upper_chest', 'mid_chest', 'lower_chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps']);
+  const PULL_GROUPS = new Set(['back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps', 'posterior_deltoid', 'biceps']);
   const LEG_GROUPS_SET = new Set(['quadriceps', 'hamstrings', 'glutes', 'adductors', 'abductors', 'hip_flexors']);
   let pushExercises = 0, pullExercises = 0, legExercises = 0;
   for (const day of days) {

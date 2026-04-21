@@ -239,17 +239,29 @@ nutritionApiRouter.get('/targets', async (req, res) => {
     const userId = req.userId
     if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
-    const { rows: [prefs] } = await query(
-      `SELECT body_weight_lbs, gender, age, training_goal, job_activity_level,
-              available_days_per_week, session_duration_minutes,
-              height_feet, height_inches, weight_goal_lbs, weight_goal_date
-       FROM user_preferences WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    )
+    const [prefsResult, recentWeightResult] = await Promise.all([
+      query(
+        `SELECT body_weight_lbs, gender, age, training_goal, job_activity_level,
+                available_days_per_week, session_duration_minutes,
+                height_feet, height_inches, weight_goal_lbs, weight_goal_date
+         FROM user_preferences WHERE user_id = $1 LIMIT 1`,
+        [userId]
+      ),
+      query(
+        `SELECT weight FROM health_metrics
+         WHERE user_id = $1 AND weight IS NOT NULL
+         ORDER BY date DESC LIMIT 1`,
+        [userId]
+      ),
+    ])
+    const prefs = prefsResult.rows[0]
 
     if (!prefs) return res.json({ targets: null, reason: 'No preferences set' })
 
-    const bw = Number(prefs.body_weight_lbs) || 170
+    const measuredWeight = recentWeightResult.rows[0]?.weight != null
+      ? Number(recentWeightResult.rows[0].weight)
+      : null
+    const bw = measuredWeight || Number(prefs.body_weight_lbs) || 170
     const bwKg = bw * 0.453592
     const age = Number(prefs.age) || 30
     const gender = (prefs.gender || 'male').toLowerCase()

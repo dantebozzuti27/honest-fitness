@@ -1808,7 +1808,7 @@ function computeMuscleVolumeStatuses(
 ): MuscleVolumeStatus[] {
   const normalizeMuscleHeads = (heads: unknown): string[] =>
     (Array.isArray(heads) ? heads : [])
-      .map((m) => String(m || '').toLowerCase().trim())
+      .map((m) => String(m || '').trim().toLowerCase().replace(/\s+/g, '_'))
       .filter(Boolean);
   const exerciseToMuscles = new Map<string, { primary: string[]; secondary: string[]; mlType: string | null }>();
   for (const ex of exercises) {
@@ -3859,8 +3859,9 @@ function computeCanonicalModelContext(
   const fit = clamp01(profileSignals.sessionFitScore);
   const readiness = clamp01(profileSignals.recoveryReadinessScore);
   const evidenceConfidence = clamp01(profileSignals.evidenceConfidence);
-  // Objective redesign: optimize long-horizon utility around adherence + progression + fit.
-  const utilityBase = adherence * 0.5 + progression * 0.35 + fit * 0.15;
+  // Utility weights: adherence drives consistency, progression drives growth,
+  // fit ensures session quality, readiness prevents overtraining.
+  const utilityBase = adherence * 0.40 + progression * 0.30 + fit * 0.15 + readiness * 0.15;
   const utility = clamp01((utilityBase * evidenceConfidence) + (0.5 * (1 - evidenceConfidence)));
   return {
     version: 'utility_v2',
@@ -4790,7 +4791,7 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
   // Used by the engine to derive per-session volume ceilings: weeklyTarget / frequency
   const normalizeMuscleHeads = (heads: unknown): string[] =>
     (Array.isArray(heads) ? heads : [])
-      .map((m) => String(m || '').toLowerCase().trim())
+      .map((m) => String(m || '').trim().toLowerCase().replace(/\s+/g, '_'))
       .filter(Boolean);
   const exToGroups = new Map<string, string[]>();
   for (const ex of exercises) {
@@ -5732,7 +5733,7 @@ function computePrescribedVsActualFromData(
   if (linkedWorkouts.length === 0) return defaultResult;
 
   const normalizeMuscleHeads = (heads: unknown): string[] =>
-    (Array.isArray(heads) ? heads : []).map(m => String(m || '').toLowerCase().trim()).filter(Boolean);
+    (Array.isArray(heads) ? heads : []).map(m => String(m || '').trim().toLowerCase().replace(/\s+/g, '_')).filter(Boolean);
   const dominantGroupByExercise = new Map<string, string>();
   for (const ex of exercises) {
     const groups = normalizeMuscleHeads(ex.primary_muscles).map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
@@ -6189,7 +6190,7 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
 
     const normalizeMuscleHeads = (heads: unknown): string[] =>
       (Array.isArray(heads) ? heads : [])
-        .map((m) => String(m || '').toLowerCase().trim())
+        .map((m) => String(m || '').trim().toLowerCase().replace(/\s+/g, '_'))
         .filter(Boolean);
     const dominantGroupByExercise = new Map<string, string>();
     for (const ex of exercises) {
@@ -6320,7 +6321,7 @@ function computeIndividualRecoveryRates(workouts: WorkoutRecord[], exercises: En
 
   const normalizeMuscleHeads = (heads: unknown): string[] =>
     (Array.isArray(heads) ? heads : [])
-      .map((m) => String(m || '').toLowerCase().trim())
+      .map((m) => String(m || '').trim().toLowerCase().replace(/\s+/g, '_'))
       .filter(Boolean);
   const exerciseBodyMap = new Map<string, string>();
   for (const ex of exercises) {

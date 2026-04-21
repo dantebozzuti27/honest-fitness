@@ -8,7 +8,7 @@ import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferenc
 import { ageRecoveryFactor } from '../lib/recoveryModel'
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { getTodayEST } from '../utils/dateUtils'
-import { getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metricsDb'
+import { getMetricsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metricsDb'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -375,7 +375,10 @@ export default function Profile() {
   const loadTrainingProfile = async () => {
     if (!user) return
     try {
-      const prefs = await getUserPreferences(user.id)
+      const [prefs, recentMetrics] = await Promise.all([
+        getUserPreferences(user.id),
+        getMetricsFromSupabase(user.id, getTodayEST(), getTodayEST()).catch(() => []),
+      ])
       if (prefs) {
         const rawInjuries = prefs.injuries;
         const rawAvoid = prefs.exercises_to_avoid;
@@ -385,6 +388,13 @@ export default function Profile() {
           : typeof rawAvoid === 'string' && rawAvoid.trim()
             ? rawAvoid.split(',').map((s: string) => s.trim()).filter(Boolean)
             : []
+        // Use the most recent measured weight from health_metrics if available
+        const latestMeasuredWeight = Array.isArray(recentMetrics) && recentMetrics.length > 0
+          ? recentMetrics.find((m: any) => m.weight != null)?.weight
+          : null
+        const displayWeight = latestMeasuredWeight != null
+          ? String(latestMeasuredWeight)
+          : prefs.body_weight_lbs != null ? String(prefs.body_weight_lbs) : ''
         setTrainingProfile({
           training_goal: prefs.training_goal || '',
           session_duration_minutes: String(Number(prefs.session_duration_minutes || 120)),
@@ -399,7 +409,7 @@ export default function Profile() {
           gender: prefs.gender || '',
           height_feet: prefs.height_feet != null ? String(prefs.height_feet) : '',
           height_inches: prefs.height_inches != null ? String(prefs.height_inches) : '',
-          body_weight_lbs: prefs.body_weight_lbs != null ? String(prefs.body_weight_lbs) : '',
+          body_weight_lbs: displayWeight,
           experience_level: prefs.experience_level || '',
           cardio_preference: prefs.cardio_preference || '',
           cardio_frequency_per_week: prefs.cardio_frequency_per_week != null ? String(prefs.cardio_frequency_per_week) : '',

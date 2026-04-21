@@ -173,7 +173,14 @@ export default function Home() {
     }
     setSavingWeight(true)
     try {
-      const result = await saveMetricsToSupabase(user.id, getTodayEST(), { weight: val }, { allowOutbox: false })
+      const [result] = await Promise.all([
+        saveMetricsToSupabase(user.id, getTodayEST(), { weight: val }, { allowOutbox: false }),
+        // Keep user_preferences.body_weight_lbs in sync so nutrition targets,
+        // workout engine goal timeline, and BMR all use the latest measured weight
+        import('../lib/db/userPreferencesDb').then(m =>
+          m.saveUserPreferences(user.id, { body_weight_lbs: val })
+        ).catch(() => {}),
+      ])
       if (result && typeof result === 'object' && 'queued' in result) {
         showToast('Weight queued — will sync when online', 'error')
         return

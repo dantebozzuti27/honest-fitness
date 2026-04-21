@@ -342,10 +342,14 @@ nutritionApiRouter.get('/targets', async (req, res) => {
 
     const targetCal = Math.round(tdee + calAdjust)
 
-    // Protein scales with deficit severity: deeper cuts need more protein to preserve muscle
-    const baseProteinPerLb = { bulk: 1.0, cut: 1.2, maintain: 0.9 }
-    let proteinMultiplier = baseProteinPerLb[phase] || 1.0
-    if (phase === 'cut' && calAdjust < -600) proteinMultiplier = 1.3 // aggressive deficit
+    // Protein per lb of bodyweight — evidence-based ranges:
+    // Bulk: 0.9g/lb (surplus provides protein-sparing effect)
+    // Cut: 1.0g/lb (higher end to preserve muscle in deficit)
+    // Maintain: 0.8g/lb (adequate for maintenance)
+    // Only push to 1.1 in aggressive deficit (>600 cal) for very lean individuals
+    const baseProteinPerLb = { bulk: 0.9, cut: 1.0, maintain: 0.8 }
+    let proteinMultiplier = baseProteinPerLb[phase] || 0.9
+    if (phase === 'cut' && calAdjust < -600) proteinMultiplier = 1.1
     const proteinG = Math.round(bw * proteinMultiplier)
 
     const fatPct = phase === 'cut' ? 0.30 : 0.25
@@ -525,9 +529,11 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
 
     // Phase-specific checklist
     const checklist = []
+    const cutProteinTarget = Math.round(latestWeight * 1.0)
+    const bulkProteinTarget = Math.round(latestWeight * 0.9)
     if (phase === 'cut') {
       checklist.push({ key: 'deficit', label: 'Maintain caloric deficit', status: nutritionStats.avg_calories && nutritionStats.avg_calories < 2500 ? 'on_track' : 'needs_attention' })
-      checklist.push({ key: 'protein', label: `Hit protein target (${Math.round(latestWeight * 1.2)}g+/day)`, status: nutritionStats.avg_protein && nutritionStats.avg_protein >= latestWeight * 1.0 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'protein', label: `Hit protein target (${cutProteinTarget}g+/day)`, status: nutritionStats.avg_protein && nutritionStats.avg_protein >= cutProteinTarget * 0.9 ? 'on_track' : 'needs_attention' })
       checklist.push({ key: 'strength', label: 'Preserve strength on key lifts', status: 'monitor' })
       checklist.push({ key: 'training', label: `Train ${prefs.available_days_per_week || 4}+ days/week`, status: workoutStats.training_days >= (prefs.available_days_per_week || 4) * 2 ? 'on_track' : 'needs_attention' })
       checklist.push({ key: 'logging', label: 'Log weight daily', status: recentWeights.length >= 10 ? 'on_track' : 'needs_attention' })
@@ -535,7 +541,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
       checklist.push({ key: 'rate', label: 'Lose 0.5-1% bodyweight/week', status: pacing === 'on_track' ? 'on_track' : pacing === 'behind' ? 'needs_attention' : 'monitor' })
     } else {
       checklist.push({ key: 'surplus', label: 'Maintain caloric surplus', status: nutritionStats.avg_calories && nutritionStats.avg_calories > 2800 ? 'on_track' : 'needs_attention' })
-      checklist.push({ key: 'protein', label: `Hit protein target (${Math.round(latestWeight * 1.0)}g+/day)`, status: nutritionStats.avg_protein && nutritionStats.avg_protein >= latestWeight * 0.8 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'protein', label: `Hit protein target (${bulkProteinTarget}g+/day)`, status: nutritionStats.avg_protein && nutritionStats.avg_protein >= bulkProteinTarget * 0.9 ? 'on_track' : 'needs_attention' })
       checklist.push({ key: 'progressive', label: 'Progressive overload on compounds', status: 'monitor' })
       checklist.push({ key: 'training', label: `Train ${prefs.available_days_per_week || 5}+ days/week`, status: workoutStats.training_days >= (prefs.available_days_per_week || 5) * 2 ? 'on_track' : 'needs_attention' })
       checklist.push({ key: 'logging', label: 'Log weight weekly', status: recentWeights.length >= 2 ? 'on_track' : 'needs_attention' })
@@ -546,6 +552,131 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     const weightChart = weightHistory
       .filter(w => new Date(w.date) >= new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000))
       .map(w => ({ date: typeof w.date === 'string' ? w.date.slice(0, 10) : w.date, weight: Number(w.weight) }))
+
+    // ── Compute daily targets ──────────────────────────────────────────────
+    const age = Number(prefs.age) || 30
+    const gender = (prefs.gender || 'male').toLowerCase()
+    const activityLevel = (prefs.job_activity_level || 'moderate').toLowerCase()
+    const heightFt = Number(prefs.height_feet) || 0
+    const heightIn = Number(prefs.height_inches) || 0
+    const totalInches = heightFt > 0 ? heightFt * 12 + heightIn : (gender === 'female' ? 64 : 69)
+    const heightCm = totalInches * 2.54
+    const bwKg = latestWeight * 0.453592
+    const bmr = gender === 'female'
+      ? 10 * bwKg + 6.25 * heightCm - 5 * age - 161
+      : 10 * bwKg + 6.25 * heightCm - 5 * age + 5
+    const activityMultipliers = {
+      sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9,
+    }
+    const tdee = bmr * (activityMultipliers[activityLevel] || 1.55)
+
+    // Caloric targets
+    let calAdjust = 0
+    if (weeksRemaining > 0 && Math.abs(lbsRemaining) >= 1) {
+      const rawRate = lbsRemaining / weeksRemaining
+      if (phase === 'cut') {
+        const maxLoss = latestWeight * 0.01
+        const clamped = Math.max(-maxLoss, Math.min(-latestWeight * 0.003, rawRate))
+        calAdjust = Math.round(clamped * 3500 / 7)
+      } else {
+        const clamped = Math.min(0.75, rawRate)
+        calAdjust = Math.round(clamped * 3500 / 7)
+      }
+    } else {
+      calAdjust = phase === 'cut' ? -500 : phase === 'bulk' ? 300 : 0
+    }
+    const targetCalories = Math.round(tdee + calAdjust)
+
+    // Macros
+    const proteinPerLb = phase === 'cut' ? 1.0 : phase === 'bulk' ? 0.9 : 0.8
+    const proteinG = Math.round(latestWeight * proteinPerLb)
+    const fatPct = phase === 'cut' ? 0.30 : 0.25
+    const fatG = Math.round((targetCalories * fatPct) / 9)
+    const carbG = Math.max(0, Math.round((targetCalories - proteinG * 4 - fatG * 9) / 4))
+
+    // Calories to burn (exercise activity)
+    // TDEE already accounts for baseline activity; exercise burn target is the
+    // delta between TDEE and BMR * sedentary multiplier, plus phase-specific bonus
+    const baselineNonExercise = bmr * 1.2
+    const exerciseBurnFromTdee = Math.round(Math.max(0, tdee - baselineNonExercise))
+    const exerciseBurnTarget = phase === 'cut'
+      ? Math.round(exerciseBurnFromTdee + Math.abs(calAdjust) * 0.3) // cut: burn more to support deficit
+      : exerciseBurnFromTdee
+
+    // Steps target
+    const stepsTarget = phase === 'cut' ? 10000 : phase === 'bulk' ? 7500 : 8000
+
+    // Sleep target (hours)
+    const sleepTarget = phase === 'bulk' ? 8.0 : phase === 'cut' ? 7.5 : 7.5
+
+    // Training days per week
+    const trainingDaysTarget = Number(prefs.available_days_per_week) || (phase === 'bulk' ? 5 : 4)
+
+    // Session duration
+    const sessionDurationTarget = Number(prefs.session_duration_minutes) || (phase === 'bulk' ? 90 : 75)
+
+    // Water intake (oz)
+    const waterOz = Math.round(latestWeight * 0.5) + (phase === 'cut' ? 16 : 0)
+
+    const dailyTargets = {
+      calories_eat: targetCalories,
+      calories_burn: exerciseBurnTarget,
+      protein_g: proteinG,
+      carbs_g: carbG,
+      fat_g: fatG,
+      steps: stepsTarget,
+      sleep_hours: sleepTarget,
+      training_days_per_week: trainingDaysTarget,
+      session_duration_min: sessionDurationTarget,
+      water_oz: waterOz,
+    }
+
+    // ── Workout milestones ─────────────────────────────────────────────────
+    const workoutMilestones = []
+    const totalWorkouts = workoutStats.total_workouts || 0
+    if (phase === 'cut') {
+      workoutMilestones.push({
+        label: 'Maintain strength on all compound lifts',
+        detail: 'Squat, bench, deadlift within 5% of pre-cut maxes',
+        status: 'monitor',
+      })
+      workoutMilestones.push({
+        label: `Complete ${trainingDaysTarget} workouts/week consistently`,
+        detail: `${totalWorkouts} total workouts logged`,
+        status: totalWorkouts > 0 ? 'on_track' : 'needs_attention',
+      })
+      workoutMilestones.push({
+        label: 'Hit cardio targets',
+        detail: `${phase === 'cut' ? '3-5' : '2-3'} sessions/week, ${phase === 'cut' ? '20-40' : '15-25'} min each`,
+        status: 'monitor',
+      })
+      workoutMilestones.push({
+        label: 'Maintain training volume',
+        detail: 'Keep total weekly sets stable — reduce load before dropping sets',
+        status: 'monitor',
+      })
+    } else {
+      workoutMilestones.push({
+        label: 'Progressive overload on compounds',
+        detail: 'Increase weight or reps on squat, bench, deadlift, OHP each mesocycle',
+        status: 'monitor',
+      })
+      workoutMilestones.push({
+        label: `Complete ${trainingDaysTarget}+ workouts/week`,
+        detail: `${totalWorkouts} total workouts logged`,
+        status: totalWorkouts > 0 ? 'on_track' : 'needs_attention',
+      })
+      workoutMilestones.push({
+        label: 'Increase training volume over time',
+        detail: 'Add 1-2 sets per muscle group per mesocycle as capacity allows',
+        status: 'monitor',
+      })
+      workoutMilestones.push({
+        label: 'Bring up weak points',
+        detail: 'Extra volume on lagging muscle groups identified by aesthetic scoring',
+        status: 'monitor',
+      })
+    }
 
     return res.json({
       plan: {
@@ -563,6 +694,8 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
         pacing,
         milestones,
         checklist,
+        daily_targets: dailyTargets,
+        workout_milestones: workoutMilestones,
         weight_chart: weightChart,
         workout_stats: {
           total: workoutStats.total_workouts || 0,

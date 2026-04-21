@@ -19,6 +19,25 @@ interface ChecklistItem {
   status: 'on_track' | 'needs_attention' | 'monitor'
 }
 
+interface DailyTargets {
+  calories_eat: number
+  calories_burn: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  steps: number
+  sleep_hours: number
+  training_days_per_week: number
+  session_duration_min: number
+  water_oz: number
+}
+
+interface WorkoutMilestone {
+  label: string
+  detail: string
+  status: 'on_track' | 'needs_attention' | 'monitor'
+}
+
 interface PhasePlan {
   phase: 'cut' | 'bulk'
   start_weight: number
@@ -33,6 +52,8 @@ interface PhasePlan {
   pacing: 'on_track' | 'behind' | 'off_track' | 'no_data'
   milestones: Milestone[]
   checklist: ChecklistItem[]
+  daily_targets: DailyTargets
+  workout_milestones: WorkoutMilestone[]
   weight_chart: { date: string; weight: number }[]
   workout_stats: { total: number; avg_duration: number | null }
   nutrition_stats: { days_logged_30d: number; avg_calories: number | null; avg_protein: number | null }
@@ -203,6 +224,57 @@ export default function PhasePlan() {
             )}
           </div>
 
+          {/* Daily targets */}
+          {p.daily_targets && (
+            <div className={styles.section}>
+              <h3 className={styles.sectionTitle}>Daily Targets</h3>
+              <div className={styles.targetsGrid}>
+                <div className={styles.targetCard}>
+                  <div className={styles.targetValue}>{p.daily_targets.calories_eat.toLocaleString()}</div>
+                  <div className={styles.targetLabel}>Cal to eat</div>
+                </div>
+                <div className={styles.targetCard}>
+                  <div className={styles.targetValue}>{p.daily_targets.calories_burn.toLocaleString()}</div>
+                  <div className={styles.targetLabel}>Cal to burn</div>
+                </div>
+                <div className={styles.targetCard}>
+                  <div className={styles.targetValue}>{p.daily_targets.protein_g}g</div>
+                  <div className={styles.targetLabel}>Protein</div>
+                </div>
+                <div className={styles.targetCard}>
+                  <div className={styles.targetValue}>{p.daily_targets.carbs_g}g</div>
+                  <div className={styles.targetLabel}>Carbs</div>
+                </div>
+                <div className={styles.targetCard}>
+                  <div className={styles.targetValue}>{p.daily_targets.fat_g}g</div>
+                  <div className={styles.targetLabel}>Fat</div>
+                </div>
+                <div className={styles.targetCard}>
+                  <div className={styles.targetValue}>{(p.daily_targets.steps / 1000).toFixed(0)}k</div>
+                  <div className={styles.targetLabel}>Steps</div>
+                </div>
+                <div className={styles.targetCard}>
+                  <div className={styles.targetValue}>{p.daily_targets.sleep_hours}h</div>
+                  <div className={styles.targetLabel}>Sleep</div>
+                </div>
+                <div className={styles.targetCard}>
+                  <div className={styles.targetValue}>{p.daily_targets.water_oz}oz</div>
+                  <div className={styles.targetLabel}>Water</div>
+                </div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <div className={styles.rateRow}>
+                  <span className={styles.rateLabel}>Training days/week</span>
+                  <span className={styles.rateValue}>{p.daily_targets.training_days_per_week}</span>
+                </div>
+                <div className={styles.rateRow}>
+                  <span className={styles.rateLabel}>Session duration</span>
+                  <span className={styles.rateValue}>{p.daily_targets.session_duration_min} min</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Milestones */}
           <div className={styles.section}>
             <h3 className={styles.sectionTitle}>Milestones</h3>
@@ -235,6 +307,25 @@ export default function PhasePlan() {
               </div>
             ))}
           </div>
+
+          {/* Workout milestones */}
+          {p.workout_milestones && p.workout_milestones.length > 0 && (
+            <div className={styles.section}>
+              <h3 className={styles.sectionTitle}>Workout Milestones</h3>
+              {p.workout_milestones.map((wm, i) => (
+                <div key={i} className={styles.checklistItem}>
+                  <div className={`${styles.checkDot} ${styles[wm.status]}`} />
+                  <div style={{ flex: 1 }}>
+                    <span className={styles.checkLabel}>{wm.label}</span>
+                    <div className={styles.milestoneDetail}>{wm.detail}</div>
+                  </div>
+                  <span className={`${styles.checkStatus} ${styles[wm.status]}`}>
+                    {wm.status === 'on_track' ? 'Good' : wm.status === 'needs_attention' ? 'Attention' : 'Monitor'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Nutrition snapshot */}
           {(p.nutrition_stats.avg_calories || p.nutrition_stats.avg_protein) && (

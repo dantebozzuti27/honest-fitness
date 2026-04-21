@@ -353,6 +353,35 @@
   color: var(--text-primary);
 }
 
+/* Daily targets grid */
+.targetsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.targetCard {
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.targetValue {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.targetLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
 /* Empty state */
 .emptyState {
   text-align: center;

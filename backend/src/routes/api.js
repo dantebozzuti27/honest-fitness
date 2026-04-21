@@ -25,16 +25,6 @@ export const apiRouter = express.Router()
 // (triggers JWKS pre-fetch + DB pool warm-up at module load) before critical writes.
 apiRouter.get('/ping', (_req, res) => res.json({ ok: true }))
 
-// One-shot idempotent DDL migration — safe to call repeatedly, no auth required
-apiRouter.post('/run-migration-phase-start-date', async (_req, res) => {
-  try {
-    await query('ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS phase_start_date DATE')
-    res.json({ ok: true, message: 'phase_start_date column ensured' })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
 // Apply authentication to all API routes
 apiRouter.use(authenticate)
 

@@ -55,12 +55,23 @@ interface Targets {
   fiber_g: number
 }
 
+interface WeightGoalInfo {
+  target_lbs: number
+  target_date: string
+  lbs_to_goal: number | null
+  weeks_remaining: number | null
+  weekly_rate_lbs: number
+  timeline_status: string | null
+}
+
 interface TargetsResponse {
   targets: Targets | null
   phase: string
   body_weight_lbs: number
   bmr: number
   tdee: number
+  caloric_adjustment?: number
+  weight_goal?: WeightGoalInfo | null
 }
 
 function localDateStr(d: Date): string {
@@ -103,6 +114,8 @@ export default function Nutrition() {
   const [totals, setTotals] = useState<DailyTotals>({ calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fiber_g: 0 })
   const [targets, setTargets] = useState<Targets | null>(null)
   const [phase, setPhase] = useState<string>('maintain')
+  const [weightGoal, setWeightGoal] = useState<WeightGoalInfo | null>(null)
+  const [caloricAdjustment, setCaloricAdjustment] = useState<number>(0)
   const [loading, setLoading] = useState(true)
 
   // AI parse state
@@ -137,6 +150,8 @@ export default function Nutrition() {
       const data: TargetsResponse = await apiFetch('/api/nutrition/targets')
       if (data.targets) setTargets(data.targets)
       if (data.phase) setPhase(data.phase)
+      setWeightGoal(data.weight_goal ?? null)
+      setCaloricAdjustment(data.caloric_adjustment ?? 0)
     } catch (err) {
       console.error('Failed to load targets:', err)
     }
@@ -322,6 +337,55 @@ export default function Nutrition() {
             </div>
           </div>
         </div>
+
+        {/* Weight goal timeline */}
+        {weightGoal && weightGoal.lbs_to_goal != null && (
+          <div className={styles.macroCard} style={{ background: 'var(--bg-secondary)' }}>
+            <div className={styles.macroLabel}>
+              {weightGoal.lbs_to_goal < 0 ? 'Weight Loss Goal' : 'Weight Gain Goal'}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span className={styles.macroValue}>
+                {Math.abs(weightGoal.lbs_to_goal).toFixed(1)} lbs
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+                {weightGoal.lbs_to_goal < 0 ? 'to lose' : 'to gain'}
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.5 }}>
+              <div>
+                Target: {weightGoal.target_lbs} lbs by {new Date(weightGoal.target_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </div>
+              <div>
+                Rate: {Math.abs(weightGoal.weekly_rate_lbs).toFixed(2)} lbs/week
+                {weightGoal.weeks_remaining != null && ` · ${Math.round(weightGoal.weeks_remaining)} weeks left`}
+              </div>
+              <div>
+                Daily adjustment: {caloricAdjustment > 0 ? '+' : ''}{caloricAdjustment} cal
+                {weightGoal.timeline_status === 'aggressive' && (
+                  <span style={{ color: '#f59e0b', fontWeight: 600 }}> — timeline is aggressive, rate clamped for safety</span>
+                )}
+                {weightGoal.timeline_status === 'past_deadline' && (
+                  <span style={{ color: '#ef4444', fontWeight: 600 }}> — past target date, using default rate</span>
+                )}
+                {weightGoal.timeline_status === 'at_goal' && (
+                  <span style={{ color: '#22c55e', fontWeight: 600 }}> — at goal weight</span>
+                )}
+              </div>
+            </div>
+            {weightGoal.weeks_remaining != null && weightGoal.weeks_remaining > 0 && Math.abs(weightGoal.lbs_to_goal) > 0.5 && (
+              <div className={styles.macroBar} style={{ marginTop: 10 }}>
+                <div
+                  className={`${styles.macroBarFill}`}
+                  style={{
+                    width: `${Math.min(100, Math.max(0, 100 - (Math.abs(weightGoal.lbs_to_goal) / (Math.abs(weightGoal.weekly_rate_lbs * (weightGoal.weeks_remaining + (weightGoal.weeks_remaining > 0 ? weightGoal.weeks_remaining * 0.1 : 0))))) * 100))}%`,
+                    background: weightGoal.lbs_to_goal < 0 ? '#ef4444' : '#22c55e',
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* AI input */}
         <div className={styles.inputSection}>

@@ -5176,6 +5176,24 @@ function computeGoalProgress(
     alignment.push({ factor: 'Compound Focus', status: compoundPct >= 0.3 ? 'aligned' : 'partial', detail: compoundPct >= 0.3 ? 'Training includes compound movements — foundation of Apollo building phase' : 'More compound lifts needed for optimal strength + size gains' });
     alignment.push({ factor: 'Volume per Muscle', status: inMav >= totalMuscles * 0.5 ? 'aligned' : 'misaligned', detail: inMav >= totalMuscles * 0.5 ? `${inMav} groups at effective volume` : `${belowMev} groups below minimum — needs more sets` });
 
+    // Goal timeline pacing (bulk)
+    const goalWeightBulk = prefs?.weight_goal_lbs;
+    const goalDateBulk = prefs?.weight_goal_date;
+    if (goalWeightBulk && goalDateBulk && bwt.currentWeight != null && goalWeightBulk > bwt.currentWeight) {
+      const goalD = new Date(goalDateBulk + 'T12:00:00');
+      const wksLeft = Math.max(0.5, (goalD.getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000));
+      const lbsToGo = goalWeightBulk - bwt.currentWeight;
+      const neededRate = lbsToGo / wksLeft;
+      const actualRate = bwt.slope;
+      const pacing = actualRate >= neededRate * 0.8 ? 'positive' : actualRate >= neededRate * 0.4 ? 'neutral' : 'negative';
+      addSignal({
+        label: 'Goal Pacing', value: `${lbsToGo.toFixed(1)} lbs to go`,
+        trend: pacing,
+        detail: `Need ${neededRate.toFixed(2)} lbs/wk to reach ${goalWeightBulk} lbs by ${goalD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Current rate: ${actualRate > 0 ? '+' : ''}${actualRate.toFixed(2)} lbs/wk.${pacing === 'negative' ? ' Increase caloric surplus.' : ''}`,
+        weight: 0.10,
+      });
+    }
+
   } else if (goal === 'cut') {
     // ════════════════════════════════════════════════════════════════════
     //  FAT LOSS: Outcome = weight trend. Everything else is supporting.
@@ -5224,14 +5242,41 @@ function computeGoalProgress(
         trend, detail, weight: 0.35,
       });
 
-      if (weightGoal && bwt.currentWeight > weightGoal && slopePerWeek < 0) {
+      if (weightGoal && bwt.currentWeight > weightGoal) {
         const lbsToGo = bwt.currentWeight - weightGoal;
-        const weeksToGoal = Math.round(lbsToGo / Math.abs(slopePerWeek));
-        addSignal({
-          label: 'Weight Goal', value: `${lbsToGo.toFixed(1)} lbs to go`,
-          trend: 'positive', detail: `At current rate, ~${weeksToGoal} weeks to ${weightGoal} lbs`,
-          weight: 0.05,
-        });
+        const goalDateCut = prefs?.weight_goal_date;
+        if (goalDateCut && slopePerWeek < 0) {
+          const goalD = new Date(goalDateCut + 'T12:00:00');
+          const wksLeft = Math.max(0.5, (goalD.getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000));
+          const neededRate = lbsToGo / wksLeft;
+          const actualRate = Math.abs(slopePerWeek);
+          const onPace = actualRate >= neededRate * 0.85;
+          const ahead = actualRate >= neededRate * 1.15;
+          const etaWeeks = actualRate > 0 ? Math.round(lbsToGo / actualRate) : null;
+          addSignal({
+            label: 'Goal Pacing', value: `${lbsToGo.toFixed(1)} lbs to go`,
+            trend: ahead ? 'positive' : onPace ? 'positive' : 'neutral',
+            detail: ahead
+              ? `Ahead of schedule: losing ${actualRate.toFixed(1)} lbs/wk vs ${neededRate.toFixed(1)} needed. ETA: ~${etaWeeks} weeks (deadline: ${goalD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+              : onPace
+              ? `On pace: losing ${actualRate.toFixed(1)} lbs/wk vs ${neededRate.toFixed(1)} needed to reach ${weightGoal} lbs by ${goalD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+              : `Behind schedule: losing ${actualRate.toFixed(1)} lbs/wk but need ${neededRate.toFixed(1)} to hit ${weightGoal} lbs by ${goalD.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Increase deficit or extend timeline.`,
+            weight: 0.10,
+          });
+        } else if (slopePerWeek < 0) {
+          const weeksToGoal = Math.round(lbsToGo / Math.abs(slopePerWeek));
+          addSignal({
+            label: 'Weight Goal', value: `${lbsToGo.toFixed(1)} lbs to go`,
+            trend: 'positive', detail: `At current rate, ~${weeksToGoal} weeks to ${weightGoal} lbs. Set a target date for timeline-aware coaching.`,
+            weight: 0.05,
+          });
+        } else {
+          addSignal({
+            label: 'Weight Goal', value: `${lbsToGo.toFixed(1)} lbs to go`,
+            trend: 'negative', detail: `Not losing weight yet. ${goalDateCut ? `Deadline: ${new Date(goalDateCut + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. ` : ''}Create a caloric deficit to begin progress.`,
+            weight: 0.10,
+          });
+        }
       }
     } else {
       // No weight data — can't assess fat loss at all

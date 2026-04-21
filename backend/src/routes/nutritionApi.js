@@ -233,7 +233,7 @@ nutritionApiRouter.get('/history', async (req, res) => {
   }
 })
 
-// ── GET /targets — compute Apollo-aware macro targets ──────────────────────
+// ── GET /targets — compute Apollo-aware macro targets from weight goal timeline ─
 nutritionApiRouter.get('/targets', async (req, res) => {
   try {
     const userId = req.userId
@@ -241,7 +241,8 @@ nutritionApiRouter.get('/targets', async (req, res) => {
 
     const { rows: [prefs] } = await query(
       `SELECT body_weight_lbs, gender, age, training_goal, job_activity_level,
-              available_days_per_week, session_duration_minutes
+              available_days_per_week, session_duration_minutes,
+              height_feet, height_inches, weight_goal_lbs, weight_goal_date
        FROM user_preferences WHERE user_id = $1 LIMIT 1`,
       [userId]
     )
@@ -255,28 +256,88 @@ nutritionApiRouter.get('/targets', async (req, res) => {
     const phase = prefs.training_goal || 'maintain'
     const activityLevel = (prefs.job_activity_level || 'moderate').toLowerCase()
 
-    // Mifflin-St Jeor BMR
+    // Height: use actual data, fall back to population averages
+    const heightFt = Number(prefs.height_feet) || 0
+    const heightIn = Number(prefs.height_inches) || 0
+    const totalInches = heightFt > 0 ? heightFt * 12 + heightIn : (gender === 'female' ? 64 : 69)
+    const heightCm = totalInches * 2.54
+
+    // Mifflin-St Jeor BMR (the gold standard for non-indirect-calorimetry)
     const bmr = gender === 'female'
-      ? 10 * bwKg + 6.25 * (bwKg / 0.453592 / 2.20462 * 2.54 * 69 / 100) - 5 * age - 161
-      : 10 * bwKg + 6.25 * (bwKg / 0.453592 / 2.20462 * 2.54 * 69 / 100) - 5 * age + 5
+      ? 10 * bwKg + 6.25 * heightCm - 5 * age - 161
+      : 10 * bwKg + 6.25 * heightCm - 5 * age + 5
 
     const activityMultipliers = {
       sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9,
     }
     const tdee = bmr * (activityMultipliers[activityLevel] || 1.55)
 
-    const phaseCalAdjust = { bulk: 300, cut: -500, maintain: 0 }
-    const targetCal = Math.round(tdee + (phaseCalAdjust[phase] || 0))
+    // Timeline-aware caloric adjustment
+    const goalWeight = Number(prefs.weight_goal_lbs) || null
+    const goalDateStr = prefs.weight_goal_date || null
+    let calAdjust = 0
+    let weeklyRateLbs = 0
+    let weeksRemaining = null
+    let lbsToGoal = null
+    let timelineStatus = null
 
-    // Protein: 1g/lb for bulk, 1.2g/lb for cut (preserve muscle), 0.9g/lb maintain
-    const proteinPerLb = { bulk: 1.0, cut: 1.2, maintain: 0.9 }
-    const proteinG = Math.round(bw * (proteinPerLb[phase] || 1.0))
+    if (goalWeight && goalDateStr && bw) {
+      const goalDate = new Date(goalDateStr + 'T12:00:00')
+      const now = new Date()
+      const msRemaining = goalDate.getTime() - now.getTime()
+      weeksRemaining = Math.max(0.5, msRemaining / (7 * 24 * 60 * 60 * 1000))
+      lbsToGoal = goalWeight - bw
 
-    // Fat: 25% of calories for bulk/maintain, 30% for cut
+      if (Math.abs(lbsToGoal) < 1) {
+        // Already at goal
+        calAdjust = 0
+        weeklyRateLbs = 0
+        timelineStatus = 'at_goal'
+      } else if (weeksRemaining <= 0) {
+        // Past deadline — use moderate defaults
+        calAdjust = lbsToGoal > 0 ? 300 : -500
+        weeklyRateLbs = lbsToGoal > 0 ? 0.5 : -1.0
+        timelineStatus = 'past_deadline'
+      } else {
+        weeklyRateLbs = lbsToGoal / weeksRemaining
+
+        if (lbsToGoal < 0) {
+          // CUTTING: need to lose weight
+          // 1 lb fat ≈ 3500 kcal. Clamp to evidence-based safe range: 0.5-1% BW/wk
+          const maxLossPerWk = bw * 0.01
+          const minLossPerWk = bw * 0.003
+          const clampedRate = Math.max(-maxLossPerWk, Math.min(-minLossPerWk, weeklyRateLbs))
+          calAdjust = Math.round(clampedRate * 3500 / 7) // daily deficit
+          weeklyRateLbs = clampedRate
+          timelineStatus = weeklyRateLbs < -maxLossPerWk
+            ? 'aggressive' // timeline demands faster than safe rate
+            : 'on_track'
+        } else {
+          // BULKING: need to gain weight
+          // Lean gain ceiling ~0.25-0.5 lb/wk for advanced lifters, 0.5-1.0 for intermediates
+          const maxGainPerWk = 0.75
+          const clampedRate = Math.min(maxGainPerWk, weeklyRateLbs)
+          calAdjust = Math.round(clampedRate * 3500 / 7) // daily surplus
+          weeklyRateLbs = clampedRate
+          timelineStatus = 'on_track'
+        }
+      }
+    } else {
+      // No goal set — use flat defaults
+      const phaseCalAdjust = { bulk: 300, cut: -500, maintain: 0 }
+      calAdjust = phaseCalAdjust[phase] || 0
+    }
+
+    const targetCal = Math.round(tdee + calAdjust)
+
+    // Protein scales with deficit severity: deeper cuts need more protein to preserve muscle
+    const baseProteinPerLb = { bulk: 1.0, cut: 1.2, maintain: 0.9 }
+    let proteinMultiplier = baseProteinPerLb[phase] || 1.0
+    if (phase === 'cut' && calAdjust < -600) proteinMultiplier = 1.3 // aggressive deficit
+    const proteinG = Math.round(bw * proteinMultiplier)
+
     const fatPct = phase === 'cut' ? 0.30 : 0.25
     const fatG = Math.round((targetCal * fatPct) / 9)
-
-    // Carbs: remaining calories
     const carbG = Math.round((targetCal - proteinG * 4 - fatG * 9) / 4)
 
     return res.json({
@@ -291,6 +352,15 @@ nutritionApiRouter.get('/targets', async (req, res) => {
       body_weight_lbs: bw,
       bmr: Math.round(bmr),
       tdee: Math.round(tdee),
+      caloric_adjustment: calAdjust,
+      weight_goal: goalWeight ? {
+        target_lbs: goalWeight,
+        target_date: goalDateStr,
+        lbs_to_goal: lbsToGoal != null ? Math.round(lbsToGoal * 10) / 10 : null,
+        weeks_remaining: weeksRemaining != null ? Math.round(weeksRemaining * 10) / 10 : null,
+        weekly_rate_lbs: Math.round(weeklyRateLbs * 100) / 100,
+        timeline_status: timelineStatus,
+      } : null,
     })
   } catch (err) {
     console.error('[nutrition/targets] Error:', err.message)

@@ -5682,6 +5682,47 @@ export async function generateWorkout(
     recoveryAdj.adjustmentReasons.push('Bulking phase: MRV increased 8% (caloric surplus supports recovery)');
   }
 
+  // Weight goal timeline modulation: when the user has a goal weight + date,
+  // compute how aggressive the rate needs to be and adjust programming accordingly.
+  const goalPhase = getEffectiveGoal(prefs);
+  let goalTimelineVolumeScale = 1.0;
+  let goalTimelineCardioMult = 1.0;
+  let goalTimelineRirShift = 0;
+  if (prefs.weight_goal_lbs != null && prefs.weight_goal_date && prefs.body_weight_lbs) {
+    const goalDate = new Date(`${prefs.weight_goal_date}T12:00:00`);
+    const msRemaining = goalDate.getTime() - Date.now();
+    const weeksRemaining = Math.max(0.5, msRemaining / (7 * 24 * 60 * 60 * 1000));
+    const lbsToGoal = prefs.weight_goal_lbs - prefs.body_weight_lbs;
+    const weeklyRate = lbsToGoal / weeksRemaining;
+
+    if (goalPhase === 'cut' && lbsToGoal < 0) {
+      const absRate = Math.abs(weeklyRate);
+      const bwPctRate = absRate / prefs.body_weight_lbs;
+      if (bwPctRate > 0.008) {
+        // Aggressive cut: reduce volume to protect strength, increase cardio
+        goalTimelineVolumeScale = Math.max(0.85, 1.0 - (bwPctRate - 0.005) * 8);
+        goalTimelineCardioMult = Math.min(1.3, 1.0 + (bwPctRate - 0.005) * 20);
+        goalTimelineRirShift = 1; // extra buffer to prevent injury during deficit
+        recoveryAdj.adjustmentReasons.push(
+          `Goal timeline: ${Math.abs(lbsToGoal).toFixed(0)} lbs to lose in ${weeksRemaining.toFixed(0)} wks (${absRate.toFixed(1)} lbs/wk) — volume ×${goalTimelineVolumeScale.toFixed(2)}, cardio ×${goalTimelineCardioMult.toFixed(2)}, RIR +${goalTimelineRirShift}`
+        );
+      } else if (bwPctRate >= 0.003) {
+        goalTimelineCardioMult = 1.1;
+        recoveryAdj.adjustmentReasons.push(
+          `Goal timeline: moderate cut pace (${absRate.toFixed(1)} lbs/wk) — cardio ×${goalTimelineCardioMult}`
+        );
+      }
+    } else if (goalPhase === 'bulk' && lbsToGoal > 0) {
+      if (weeksRemaining > 4) {
+        goalTimelineVolumeScale = Math.min(1.12, 1.0 + weeklyRate * 0.15);
+        recoveryAdj.adjustmentReasons.push(
+          `Goal timeline: ${lbsToGoal.toFixed(0)} lbs to gain in ${weeksRemaining.toFixed(0)} wks — volume ×${goalTimelineVolumeScale.toFixed(2)}`
+        );
+      }
+    }
+  }
+  recoveryAdj.volumeMultiplier *= goalTimelineVolumeScale;
+
   // Sport-specific season adjustments
   const sportProfile = getSportProfile(prefs.sport_focus);
   if (sportProfile && prefs.sport_season) {
@@ -5710,6 +5751,10 @@ export async function generateWorkout(
     userFacingLine: '',
   };
   const effectiveFatLossController = runtimeFlags.pid_controller ? fatLossController : neutralFatLossController;
+  // Apply goal timeline cardio multiplier on top of PID controller
+  if (goalTimelineCardioMult !== 1.0) {
+    effectiveFatLossController.cardioDurationMultiplier *= goalTimelineCardioMult;
+  }
   if (effectiveFatLossController.active) {
     recoveryAdj.volumeMultiplier *= effectiveFatLossController.strengthVolumeMultiplier;
     recoveryAdj.volumeMultiplier = Math.max(cfg.volumeMultiplierFloor, recoveryAdj.volumeMultiplier);
@@ -5848,7 +5893,7 @@ export async function generateWorkout(
     highCapacityPush,
     dayOccurrenceIndex,
     mesocycleConfig.volumeMult,
-    mesocycleConfig.rirOffset,
+    (mesocycleConfig.rirOffset ?? 0) + goalTimelineRirShift,
   );
   stageEnd(tPrescribe);
 

@@ -26,38 +26,6 @@ export const apiRouter = express.Router()
 // (triggers JWKS pre-fetch + DB pool warm-up at module load) before critical writes.
 apiRouter.get('/ping', (_req, res) => res.json({ ok: true }))
 
-// TEMPORARY: Run body_assessments migration (unauthenticated). Remove after use.
-apiRouter.post('/run-migration-body-assessments', async (req, res) => {
-  try {
-    await query(`
-      CREATE TABLE IF NOT EXISTS body_assessments (
-        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        date DATE NOT NULL,
-        scores JSONB NOT NULL DEFAULT '{}',
-        shoulder_to_waist_ratio NUMERIC,
-        left_right_symmetry NUMERIC,
-        estimated_body_fat_pct NUMERIC,
-        measurements JSONB DEFAULT '{}',
-        reeves_ideals JSONB DEFAULT '{}',
-        weak_points JSONB DEFAULT '[]',
-        strong_points JSONB DEFAULT '[]',
-        proportional_deficits JSONB DEFAULT '{}',
-        analysis_notes TEXT,
-        photos_used INTEGER DEFAULT 0,
-        source TEXT DEFAULT 'photo_ai' CHECK (source IN ('photo_ai', 'manual', 'combined')),
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(user_id, date)
-      )
-    `)
-    await query(`CREATE INDEX IF NOT EXISTS idx_body_assessments_user_date ON body_assessments (user_id, date DESC)`)
-    await query(`ALTER TABLE exercise_library ADD COLUMN IF NOT EXISTS estimated_rom_meters NUMERIC`)
-    return res.json({ ok: true, message: 'Migration complete' })
-  } catch (err) {
-    return res.status(500).json({ error: err.message })
-  }
-})
-
 // Apply authentication to all API routes
 apiRouter.use(authenticate)
 

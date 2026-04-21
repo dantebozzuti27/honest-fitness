@@ -3359,7 +3359,14 @@ function stepPrescribe(
 
     const equipment = (Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : []).map(normalizeEquipment);
     const exType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
-    const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
+    const nameLC = sel.exercise.name.toLowerCase();
+    // Bodyweight detection: equipment tag OR name-based override for movements
+    // that use a machine/bench as support but are fundamentally bodyweight.
+    // Excludes "weighted" variants (pull-ups, dips, chin-ups) which show added load.
+    const UNLOADED_BW_PATTERNS = /\b(glute[- ]?ham|ghr|nordic|sissy squat|pistol squat|body\s*weight|bw |muscle[- ]?up|human flag|l[- ]?sit|planche|dragon flag|burpee|mountain climber|plank|dead hang|inverted row)\b/;
+    const isBodyweight = (equipment.length === 1 && equipment[0] === 'bodyweight')
+      || UNLOADED_BW_PATTERNS.test(nameLC)
+      || equipment.includes('bodyweight');
     const isTimedHold = isTimedHoldExercise(sel.exercise.name);
 
     // ── Learned-first prescription ──
@@ -3743,6 +3750,28 @@ function stepPrescribe(
           )
         )
       : estimateExerciseMinutes(sets, restSeconds, role, warmupSets?.length ?? 0, targetReps, tempo);
+
+    // Weight sanity cap: prevent absurd prescriptions from bad estimates or inflated 1RMs.
+    // Isolation and accessory exercises should never approach compound-lift territory.
+    if (targetWeight != null && !isBodyweight) {
+      const bw = prefs.body_weight_lbs ?? 200;
+      let maxPlausible: number;
+      if (exType === 'isolation') {
+        maxPlausible = bw * 0.75;
+      } else if (role === 'corrective' || role === 'isolation') {
+        maxPlausible = bw * 0.50;
+      } else if (equipment.includes('machine') || equipment.includes('cable')) {
+        maxPlausible = bw * 2.5;
+      } else if (equipment.includes('dumbbell')) {
+        maxPlausible = bw * 0.65;
+      } else {
+        maxPlausible = bw * 3.0;
+      }
+      if (targetWeight > maxPlausible) {
+        adjustments.push(`Weight capped: ${targetWeight} → ${Math.round(maxPlausible)} lbs (sanity limit for ${exType ?? 'exercise'})`);
+        targetWeight = Math.round(maxPlausible);
+      }
+    }
 
     return {
       exerciseName: sel.exercise.name,

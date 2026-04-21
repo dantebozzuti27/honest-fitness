@@ -139,6 +139,29 @@ export const LIFT_RATIOS: Record<string, LiftRatio> = {
   'goblet squat':                     squatRatio(0.35),
   'hack squat':                       squatRatio(0.80),
   'machine hack squat':               squatRatio(0.80),
+  'glute ham raise':                  squatRatio(0.0),
+  'glute-ham raise':                  squatRatio(0.0),
+  'ghr':                              squatRatio(0.0),
+  'nordic curl':                      squatRatio(0.0),
+  'nordic hamstring curl':            squatRatio(0.0),
+  'reverse hyper':                    squatRatio(0.25),
+  'reverse hyperextension':           squatRatio(0.25),
+  'back extension':                   squatRatio(0.20),
+  'hyperextension':                   squatRatio(0.20),
+  'sissy squat':                      squatRatio(0.0),
+  'pistol squat':                     squatRatio(0.0),
+  'leg press machine':                squatRatio(1.75),
+  'single leg press':                 squatRatio(0.90),
+  'belt squat':                       squatRatio(0.75),
+  'pendulum squat':                   squatRatio(0.70),
+  'smith machine squat':              squatRatio(0.85),
+  'adductor machine':                 squatRatio(0.30),
+  'abductor machine':                 squatRatio(0.25),
+  'hip adduction':                    squatRatio(0.30),
+  'hip abduction':                    squatRatio(0.25),
+  'glute kickback':                   squatRatio(0.15),
+  'cable glute kickback':             squatRatio(0.15),
+  'donkey calf raise':                squatRatio(0.60),
 
   // ═══ From Deadlift (Conventional Deadlift) ══════════════════
   'romanian deadlift':                deadliftRatio(0.70),
@@ -174,6 +197,43 @@ export const LIFT_RATIOS: Record<string, LiftRatio> = {
   'barbell shrugs':                   deadliftRatio(0.65),
   'shrugs':                           deadliftRatio(0.65),
   'shrug':                            deadliftRatio(0.65),
+  'dumbbell shrug':                   deadliftRatio(0.30, true),
+  'dumbbell shrugs':                  deadliftRatio(0.30, true),
+  'face pull':                        deadliftRatio(0.20),
+  'face pulls':                       deadliftRatio(0.20),
+  'cable face pull':                  deadliftRatio(0.20),
+  'straight arm pulldown':            deadliftRatio(0.25),
+  'straight-arm pulldown':            deadliftRatio(0.25),
+  'dumbbell pullover':                deadliftRatio(0.25, true),
+  'pullover':                         deadliftRatio(0.25),
+  'dumbbell curl':                    deadliftRatio(0.15, true),
+  'barbell curl':                     deadliftRatio(0.30),
+  'ez bar curl':                      deadliftRatio(0.28),
+  'preacher curl':                    deadliftRatio(0.25),
+  'hammer curl':                      deadliftRatio(0.15, true),
+  'hammer curls':                     deadliftRatio(0.15, true),
+  'concentration curl':               deadliftRatio(0.12, true),
+  'cable curl':                       deadliftRatio(0.25),
+  'cable bicep curl':                 deadliftRatio(0.25),
+  'reverse curl':                     deadliftRatio(0.18),
+  'wrist curl':                       deadliftRatio(0.12),
+  'reverse wrist curl':               deadliftRatio(0.08),
+  'rear delt fly':                    benchRatio(0.10, true),
+  'reverse fly':                      benchRatio(0.10, true),
+  'rear delt raise':                  benchRatio(0.10, true),
+  'cable lateral raise':              benchRatio(0.08),
+  'front raise':                      benchRatio(0.10, true),
+  'dumbbell front raise':             benchRatio(0.10, true),
+  'cable tricep extension':           benchRatio(0.30),
+  'overhead tricep extension':        benchRatio(0.25),
+  'tricep kickback':                  benchRatio(0.10, true),
+  'machine chest press':              benchRatio(0.75),
+  'machine shoulder press':           benchRatio(0.55),
+  'smith machine bench press':        benchRatio(0.90),
+  'chest press':                      benchRatio(0.75),
+  'pec deck':                         benchRatio(0.35),
+  'machine fly':                      benchRatio(0.35),
+  'pec fly':                          benchRatio(0.35),
 };
 
 /* ────────────────── Big-3 Identification ──────────────────── */
@@ -355,10 +415,16 @@ export function estimateWeight(
     return null;
   }
 
-  // 3. Keyword-based muscle-group fallback → P90 of inferred anchor
+  // 3. Keyword-based muscle-group fallback — apply a conservative fraction of
+  // the anchor P90. Never return the full compound P90 for an unknown accessory.
   const guessedAnchor = guessAnchor(name);
   if (guessedAnchor) {
-    return getP90FromStandards(guessedAnchor, bodyWeightLbs, gender);
+    const p90 = getP90FromStandards(guessedAnchor, bodyWeightLbs, gender);
+    if (p90 !== null) {
+      // Unknown exercises get 30% of the anchor P90 — safe for most accessories/machines.
+      // This is deliberately conservative: first real session overrides this estimate.
+      return Math.round(p90 * 0.30);
+    }
   }
 
   return null;

@@ -21,7 +21,7 @@
  */
 
 import { db } from './dbClient';
-import { DEFAULT_MODEL_CONFIG } from './modelConfig';
+import { DEFAULT_MODEL_CONFIG, WORKOUT_ENGINE_VERSION } from './modelConfig';
 import { MUSCLE_HEAD_TO_GROUP, VOLUME_GUIDELINES, SYNERGIST_FATIGUE, type CanonicalMuscleGroup, type MuscleGroupOrCardio, type ExerciseType, type MovementPattern, type ForceType, type Difficulty } from './volumeGuidelines';
 import { getAllConnectedAccounts } from './wearables';
 import {
@@ -4881,6 +4881,7 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
     health[health.length - 1]?.date ?? null,
     (feedbackRows ?? []).length,
     JSON.stringify(prefsForSnapshot),
+    WORKOUT_ENGINE_VERSION,
   ]);
 
   const prescribedVsActual = computePrescribedVsActualFromData(genWorkouts, outcomesRows, execEventsRows, workouts, exercises);

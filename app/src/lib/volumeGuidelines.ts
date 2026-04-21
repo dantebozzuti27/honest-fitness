@@ -83,7 +83,7 @@ export type ForceType = 'push' | 'pull' | 'static' | 'dynamic';
 
 export type Difficulty = 'beginner' | 'intermediate' | 'advanced';
 
-export type GoalKind = 'strength' | 'hypertrophy' | 'general_fitness' | 'fat_loss' | 'endurance';
+export type GoalKind = 'bulk' | 'cut' | 'maintain';
 
 export const MUSCLE_GROUP_ALIASES: Record<string, string> = {
   chest: 'mid_chest',

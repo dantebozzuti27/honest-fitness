@@ -115,8 +115,8 @@ export default function HowItWorks() {
           <h2 style={S.sectionTitle}>Step 6: Sets, Reps & Rest</h2>
           <ul style={S.list}>
             <li><strong>Sets</strong> — tiered by exercise role: primary (3-5), secondary (3-4), isolation (2-3), adjusted by goal and experience</li>
-            <li><strong>Reps</strong> — goal-driven ranges: strength (3-6), hypertrophy (8-12), endurance (12-20)</li>
-            <li><strong>RIR</strong> — Reps In Reserve target scales with goal: strength (2-3), hypertrophy (1-2), endurance (2-4)</li>
+            <li><strong>Reps</strong> — phase-driven ranges: bulk (5-8 primary, 8-12 secondary), cut (4-6 primary, 6-10 secondary), maintain (5-8 primary, 8-12 secondary)</li>
+            <li><strong>RIR</strong> — Reps In Reserve target scales with phase: bulk (0-1), cut (+1 shift for muscle preservation), maintain (0-1)</li>
             <li><strong>Rest</strong> — computed from exercise demand score (muscle mass recruited, compound vs isolation, CNS load) × goal multiplier. Range: 30-300 seconds</li>
             <li><strong>Tempo</strong> — eccentric-pause-concentric prescription based on goal and exercise type</li>
           </ul>
@@ -149,18 +149,15 @@ export default function HowItWorks() {
           <h2 style={S.sectionTitle}>Goal Scoring</h2>
           <p style={S.p}>
             Your goal progress score (0-100) is computed from weighted signals specific to each goal.
-            An <strong>outcome cap</strong> prevents inflated scores — if the primary metric isn't moving
-            (e.g., weight not dropping for fat loss, strength index not rising), the score is hard-capped
-            regardless of how good the supporting signals look.
+            An <strong>outcome cap</strong> prevents inflated scores — if the primary metric isn't moving,
+            the score is hard-capped regardless of how good the supporting signals look.
           </p>
-          <p style={S.sub}>Fat Loss</p>
+          <p style={S.sub}>Bulk (Building)</p>
+          <p style={S.p}>Primary: strength index (20%), weekly volume (15%), volume coverage (15%). Supporting: body weight trend, lift progression. Cap at 60 if strength not rising.</p>
+          <p style={S.sub}>Cut (Cutting)</p>
           <p style={S.p}>Primary: weight trend (35%). Supporting: calories burned, active minutes, steps, workout calorie burn, strength retention, HR zones. Cap at 35 if no weight loss detected.</p>
-          <p style={S.sub}>Strength</p>
-          <p style={S.p}>Primary: strength index trend (30%). Supporting: lift progression, volume load trend. Cap at 55 if strength not rising.</p>
-          <p style={S.sub}>Hypertrophy</p>
-          <p style={S.p}>Primary: weekly volume trend (25%). Supporting: volume coverage across muscle groups, body weight trend, lift progression. Cap at 60 if volume declining.</p>
-          <p style={S.sub}>Endurance</p>
-          <p style={S.p}>Primary: cardio volume (25%). Supporting: RHR trend, active minutes, HRV, strength maintenance, sleep. Cap at 55 if cardio &lt;2x/week.</p>
+          <p style={S.sub}>Maintain</p>
+          <p style={S.p}>Balanced scoring: fitness level, strength progression, consistency, movement, sleep, HRV, volume coverage, training variety.</p>
         </div>
 
         <div style={S.section}>

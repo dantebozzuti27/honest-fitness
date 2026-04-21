@@ -27,7 +27,7 @@ export default function BottomNav() {
     { id: 'today', label: 'Today', path: '/', icon: <HomeIcon /> },
     { id: 'workouts', label: 'Workouts', path: '/workout', icon: <FitnessIcon /> },
     { id: 'progress', label: 'Progress', path: '/progress', icon: <ProgressIcon /> },
-    { id: 'analytics', label: 'Analytics', path: '/analytics', icon: <AnalyticsIcon /> },
+    { id: 'nutrition', label: 'Nutrition', path: '/nutrition', icon: <AnalyticsIcon /> },
     { id: 'profile', label: 'Profile', path: '/profile', icon: <ProfileIcon /> },
   ]
 

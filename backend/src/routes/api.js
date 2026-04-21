@@ -15,6 +15,7 @@ import { dbRouter } from './db.js'
 import { rpcRouter } from './rpc.js'
 import { workoutSaveRouter } from './workoutSave.js'
 import { workoutLoadRouter } from './workoutLoad.js'
+import { nutritionApiRouter } from './nutritionApi.js'
 import { authenticate } from '../middleware/auth.js'
 import { query, transaction } from '../database/pg.js'
 
@@ -92,6 +93,9 @@ apiRouter.use('/workout-save', workoutSaveRouter)
 
 // Dedicated workout load — all TodayWorkout data in one response
 apiRouter.use('/workout-load', workoutLoadRouter)
+
+// Nutrition logging and analysis
+apiRouter.use('/nutrition', nutritionApiRouter)
 
 // TEMPORARY: One-time recovery for corrupted 2026-04-07 leg day workout. Remove after use.
 apiRouter.post('/recover-0407', async (req, res) => {

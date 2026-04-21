@@ -725,7 +725,7 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
         Scored {totalCandidates} candidate exercises. {staples} are staples (auto +4).
         {swappedFrequently > 0 ? ` ${swappedFrequently} exercise${swappedFrequently > 1 ? 's' : ''} penalized from frequent swaps (−20/−30).` : ''}
         {nutritionCov != null
-          ? ` Nutrition logging coverage (14d): ${Math.round(nutritionCov * 100)}% — feeds fat-loss controller dampening.`
+          ? ` Nutrition logging coverage (14d): ${Math.round(nutritionCov * 100)}% — feeds cut phase controller dampening.`
           : ''}
         {affinities.length > 0
           ? ` Learned ${affinities.length} substitution pair${affinities.length > 1 ? 's' : ''} (decay-weighted).`
@@ -734,10 +734,10 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
 
       {nutritionCov != null && (
         <>
-          <div className={S.sectionLabel}>Nutrition signal (fat-loss PID)</div>
+          <div className={S.sectionLabel}>Nutrition signal (cut phase PID)</div>
           <div className={S.counterfactual}>
             Last 14 days with calorie entries: {Math.round(nutritionCov * 100)}%.
-            Sparse logging reduces confidence in nutrition-adherence coupling and damps aggressive fat-loss dosing.
+            Sparse logging reduces confidence in nutrition-adherence coupling and damps aggressive cut phase dosing.
           </div>
         </>
       )}
@@ -962,7 +962,7 @@ function PrescriptionPanel({ profile: p }: { profile: TrainingProfile }) {
     { param: 'Sets',   primary: 'Learned median sets (≥2 recent sessions)', fallbackSrc: 'Tiered by role, goal, priority, deload', threshold: '≥2 sessions' },
     { param: 'Weight', primary: 'Epley e1RM → weightForReps(e1RM, reps, RIR)', fallbackSrc: 'Safety floor: never < 50% of last working weight', threshold: '≥1 tracked set' },
     { param: 'Rest',   primary: 'Learned inter-set rest from timestamps', fallbackSrc: 'Movement-pattern-aware table by role × goal', threshold: '≥2 sessions' },
-    { param: 'Tempo',  primary: 'Exercise default_tempo from library', fallbackSrc: 'Goal-based default (e.g., hypertrophy: 3-1-2)', threshold: 'Library entry exists' },
+    { param: 'Tempo',  primary: 'Exercise default_tempo from library', fallbackSrc: 'Phase-based default (e.g., bulk: 3-1-1, cut: 2-0-1)', threshold: 'Library entry exists' },
     { param: 'RIR',    primary: 'Role × goal lookup', fallbackSrc: 'Deload override → RIR 4', threshold: 'Always available' },
   ]
 

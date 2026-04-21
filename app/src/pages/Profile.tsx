@@ -78,12 +78,11 @@ const SEASON_OPTIONS = [
   { value: 'in_season', label: 'In-Season (maintain)' },
 ]
 
-const GOAL_OPTIONS = [
-  { value: '', label: 'Select goal...' },
-  { value: 'strength', label: 'Strength' },
-  { value: 'hypertrophy', label: 'Hypertrophy (Muscle Growth)' },
-  { value: 'general_fitness', label: 'General Fitness' },
-  { value: 'fat_loss', label: 'Fat Loss' },
+const PHASE_OPTIONS = [
+  { value: '', label: 'Select phase...' },
+  { value: 'bulk', label: 'Building — maximize strength + muscle growth' },
+  { value: 'cut', label: 'Cutting — preserve muscle, lose fat' },
+  { value: 'maintain', label: 'Maintaining — sustain physique + performance' },
 ]
 
 const EXPERIENCE_OPTIONS = [
@@ -224,13 +223,7 @@ const RECOVERY_SPEED_OPTIONS = [
   { value: '2.5', label: 'Extreme (daily training tolerance)' },
 ]
 
-const PRIMARY_GOAL_OPTIONS = [
-  { value: '', label: 'Select goal...' },
-  { value: 'strength', label: 'Strength' },
-  { value: 'hypertrophy', label: 'Hypertrophy' },
-  { value: 'fat_loss', label: 'Fat Loss' },
-  { value: 'endurance', label: 'Endurance' },
-]
+const PRIMARY_GOAL_OPTIONS = PHASE_OPTIONS
 
 const MUSCLE_GROUPS = [
   { value: 'upper_chest', label: 'Upper Chest' },
@@ -463,8 +456,8 @@ export default function Profile() {
         recovery_speed: trainingProfile.recovery_speed ? Number(trainingProfile.recovery_speed) : null,
         weight_goal_lbs: trainingProfile.weight_goal_lbs ? Number(trainingProfile.weight_goal_lbs) : null,
         weight_goal_date: trainingProfile.weight_goal_date || null,
-        primary_goal: trainingProfile.primary_goal || null,
-        secondary_goal: trainingProfile.secondary_goal || null,
+        primary_goal: null,
+        secondary_goal: null,
         priority_muscles: trainingProfile.priority_muscles.length > 0 ? trainingProfile.priority_muscles : null,
         weekday_deadlines: Object.values(trainingProfile.weekday_deadlines).some(v => v) ? trainingProfile.weekday_deadlines : null,
         age: trainingProfile.age ? Number(trainingProfile.age) : null,
@@ -674,25 +667,10 @@ export default function Profile() {
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <SelectField
-                  label="Training Goal"
+                  label="Apollo Phase"
                   value={trainingProfile.training_goal}
                   onChange={e => setTrainingProfile(p => ({ ...p, training_goal: e.target.value }))}
-                  options={GOAL_OPTIONS}
-                />
-                <SelectField
-                  label="Primary Goal"
-                  value={trainingProfile.primary_goal}
-                  onChange={e => setTrainingProfile(p => ({ ...p, primary_goal: e.target.value }))}
-                  options={PRIMARY_GOAL_OPTIONS}
-                />
-                <SelectField
-                  label="Secondary Goal"
-                  value={trainingProfile.secondary_goal}
-                  onChange={e => setTrainingProfile(p => ({ ...p, secondary_goal: e.target.value }))}
-                  options={[
-                    { value: '', label: 'None' },
-                    ...PRIMARY_GOAL_OPTIONS.filter(o => o.value && o.value !== trainingProfile.primary_goal),
-                  ]}
+                  options={PHASE_OPTIONS}
                 />
                 <SelectField
                   label="Equipment Access"

@@ -52,10 +52,12 @@ export interface PerformanceGoal {
   targetReps: string;
 }
 
+export type ApolloPhase = 'bulk' | 'cut' | 'maintain';
+
 export interface UserPreferences {
-  training_goal: 'strength' | 'hypertrophy' | 'general_fitness' | 'fat_loss';
-  primary_goal: 'strength' | 'hypertrophy' | 'fat_loss' | 'endurance' | null;
-  secondary_goal: 'strength' | 'hypertrophy' | 'fat_loss' | 'endurance' | null;
+  training_goal: ApolloPhase;
+  primary_goal: string | null;
+  secondary_goal: string | null;
   session_duration_minutes: number;
   equipment_access: 'full_gym' | 'home_gym' | 'limited';
   available_days_per_week: number;
@@ -139,8 +141,8 @@ function isTimedHoldExercise(exerciseName: string): boolean {
 }
 
 function getTimedHoldSeconds(goal: string): number {
-  if (goal === 'strength') return 45;
-  if (goal === 'endurance') return 75;
+  if (goal === 'bulk') return 45;
+  if (goal === 'cut') return 60;
   return 60;
 }
 
@@ -270,7 +272,7 @@ export function parseRawPreferences(data: any): UserPreferences {
   }
 
   return {
-    training_goal: data?.training_goal ?? 'hypertrophy',
+    training_goal: (['bulk', 'cut', 'maintain'].includes(data?.training_goal) ? data.training_goal : 'maintain') as ApolloPhase,
     primary_goal: data?.primary_goal ?? null,
     secondary_goal: data?.secondary_goal ?? null,
     session_duration_minutes: (() => {
@@ -388,11 +390,9 @@ function generateId(): string {
  * If a secondary goal is set, ranges are blended 70/30.
  */
 const REP_RANGE_TABLE: Record<string, Record<string, { min: number; max: number; target: number }>> = {
-  strength:        { primary: { min: 3, max: 5, target: 4 },  secondary: { min: 5, max: 8, target: 6 },  isolation: { min: 8, max: 12, target: 10 } },
-  hypertrophy:     { primary: { min: 6, max: 10, target: 8 }, secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
-  fat_loss:        { primary: { min: 8, max: 12, target: 10 }, secondary: { min: 10, max: 15, target: 12 }, isolation: { min: 12, max: 20, target: 15 } },
-  endurance:       { primary: { min: 12, max: 15, target: 12 }, secondary: { min: 15, max: 20, target: 15 }, isolation: { min: 15, max: 25, target: 20 } },
-  general_fitness: { primary: { min: 6, max: 10, target: 8 }, secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
+  bulk:     { primary: { min: 5, max: 8, target: 6 },  secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
+  cut:      { primary: { min: 4, max: 6, target: 5 },  secondary: { min: 6, max: 10, target: 8 },  isolation: { min: 10, max: 12, target: 10 } },
+  maintain: { primary: { min: 5, max: 8, target: 6 },  secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
 };
 
 function humanizeRepTarget(value: number, min: number, max: number): number {
@@ -436,7 +436,7 @@ function getRepRangeByRole(
     return { min: cfg.metabolicRepRange[0], max: cfg.metabolicRepRange[1], target: Math.round((cfg.metabolicRepRange[0] + cfg.metabolicRepRange[1]) / 2) };
   }
 
-  const primary = REP_RANGE_TABLE[primaryGoal]?.[roleKey] ?? REP_RANGE_TABLE.general_fitness[roleKey];
+  const primary = REP_RANGE_TABLE[primaryGoal]?.[roleKey] ?? REP_RANGE_TABLE.maintain[roleKey];
   let result: { min: number; max: number; target: number };
   if (!secondaryGoal || secondaryGoal === primaryGoal) {
     result = primary;
@@ -492,8 +492,8 @@ function getTieredSets(
   };
   let sets = roleBase[role] ?? 3;
 
-  if (goal === 'strength' && role === 'primary') sets += 1;
-  if (goal === 'endurance') sets = Math.max(sets - 1, 2);
+  if (goal === 'bulk' && (role === 'primary' || role === 'secondary')) sets += 1;
+  if (goal === 'cut') sets = Math.max(sets - 1, 2);
 
   if (isPriorityMuscle && role !== 'corrective') sets += 1;
 
@@ -547,7 +547,7 @@ function getRirTarget(
   }
 
   const goalRirShift: Record<string, number> = {
-    strength: 1, hypertrophy: 0, fat_loss: 0, endurance: 1, general_fitness: 0,
+    bulk: 0, cut: 1, maintain: 0,
   };
   baseRir += goalRirShift[goal] ?? 0;
 
@@ -690,7 +690,7 @@ function getRestByExercise(
 
   const baseRest = 40 + (demandScore / 10) * 160;
   const goalMultiplier: Record<string, number> = {
-    strength: 1.40, hypertrophy: 1.0, general_fitness: 1.0, fat_loss: 0.75, endurance: 0.65,
+    bulk: 1.15, cut: 0.85, maintain: 1.0,
   };
   const scaled = baseRest * (goalMultiplier[goal] ?? 1.0);
   return Math.max(30, Math.min(300, Math.round(scaled)));
@@ -718,9 +718,8 @@ function getTempo(
   if (isIsolation) return '2-1-2';
 
   if (defaultTempo) return defaultTempo;
-  if (goal === 'strength') return '2-0-X';
-  if (goal === 'hypertrophy') return '3-1-1';
-  if (goal === 'endurance') return '2-0-1';
+  if (goal === 'bulk') return '3-1-1';
+  if (goal === 'cut') return '2-0-1';
   return '2-1-1';
 }
 
@@ -911,49 +910,49 @@ function snapToPlate(weight: number, equipment?: string[], exerciseType?: string
 }
 
 /**
- * Pareto impact score: how much training stimulus does this exercise deliver per minute?
- * Higher = more impactful. Used for time-constrained session trimming.
- * Score = primary_goal_impact * 0.7 + secondary_goal_impact * 0.3
+ * Apollo impact score: how much training value does this exercise deliver?
+ * Always values compounds, muscle mass, and aesthetic contribution.
+ * Phase modulates emphasis: bulk maximizes growth stimulus, cut preserves
+ * strength with metabolic benefit, maintain balances both.
  */
 function computeImpactScore(
   exercise: EnrichedExercise,
   role: ExerciseRole,
   primaryGoal: string,
-  secondaryGoal: string | null
+  _secondaryGoal: string | null
 ): number {
   const primaryMuscleCount = Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles.length : 0;
+  const isCompound = exercise.ml_exercise_type === 'compound';
+  const compoundBonus = isCompound ? 3 : 0;
+  const massBonus = Math.min(primaryMuscleCount, 5);
 
-  function goalImpact(goal: string): number {
-    const compoundBonus = exercise.ml_exercise_type === 'compound' ? 3 : 0;
-    const massBonus = Math.min(primaryMuscleCount, 5);
-    switch (goal) {
-      case 'strength': return compoundBonus * 2 + massBonus;
-      case 'hypertrophy': return compoundBonus + massBonus * 1.5;
-      case 'fat_loss': return compoundBonus * 1.5 + massBonus * 1.5;
-      case 'endurance': return massBonus * 2;
-      default: return compoundBonus + massBonus;
-    }
-  }
+  const phaseWeights: Record<string, { compound: number; mass: number; metabolic: number }> = {
+    bulk:     { compound: 1.5, mass: 1.5, metabolic: 0.5 },
+    cut:      { compound: 1.2, mass: 1.0, metabolic: 1.5 },
+    maintain: { compound: 1.3, mass: 1.2, metabolic: 0.8 },
+  };
+  const w = phaseWeights[primaryGoal] ?? phaseWeights.maintain;
+  let score = compoundBonus * w.compound + massBonus * w.mass;
+  if (!isCompound) score += w.metabolic;
 
-  const primary = goalImpact(primaryGoal);
-  const secondary = secondaryGoal ? goalImpact(secondaryGoal) : primary;
-  let score = primary * 0.7 + secondary * 0.3;
+  const V_TAPER_MUSCLES = ['lateral_deltoid', 'lats', 'latissimus_dorsi', 'upper_chest'];
+  const primaries = Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles.map((m: string) => m.toLowerCase()) : [];
+  if (primaries.some((m: string) => V_TAPER_MUSCLES.includes(m))) score += 2;
 
-  if (role === 'corrective') score *= 2.0; // correctives are never cut
+  if (role === 'corrective') score *= 2.0;
   if (role === 'primary') score *= 1.3;
 
-  // #14: Stimulus-to-fatigue ratio — isolation exercises deliver targeted stimulus
-  // with less systemic fatigue, prefer them during deloads or reduced capacity
   const isIsolation = exercise.ml_exercise_type === 'isolation';
-  const sfrBonus = isIsolation ? 1.5 : 0;
-  score += sfrBonus;
+  if (isIsolation) score += 1.5;
 
   return Math.round(score * 10) / 10;
 }
 
-/** Resolve effective goal: use primary_goal if set, fall back to training_goal */
-function getEffectiveGoal(prefs: UserPreferences): string {
-  return prefs.primary_goal ?? prefs.training_goal;
+/** Apollo phase is the single source of truth for all goal-keyed logic */
+function getEffectiveGoal(prefs: UserPreferences): ApolloPhase {
+  const phase = prefs.training_goal;
+  if (phase === 'bulk' || phase === 'cut' || phase === 'maintain') return phase;
+  return 'maintain';
 }
 
 // ─── Step 1: Recovery Check ─────────────────────────────────────────────────
@@ -1143,13 +1142,13 @@ function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreference
       };
 
   // Goal-specific shaping: keep fat-loss pushes more recovery-safe.
-  if (goal === 'fat_loss') {
+  if (goal === 'cut') {
     out = {
       ...out,
       volumeMultiplier: Math.min(out.volumeMultiplier, aggressive ? 1.10 : 1.06),
       restSecondsMultiplier: Math.max(out.restSecondsMultiplier, aggressive ? 0.88 : 0.94),
       rirDelta: Math.max(out.rirDelta, -1),
-      reason: `${out.reason} Fat-loss guardrail: capped push to preserve lean mass.`,
+      reason: `${out.reason} Cut phase guardrail: capped push to preserve lean mass.`,
     };
   }
 
@@ -1158,7 +1157,7 @@ function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreference
 
 function computeFatLossController(profile: TrainingProfile, prefs: UserPreferences): FatLossControllerAdjustment {
   const effectiveGoal = getEffectiveGoal(prefs);
-  const fatLossActive = effectiveGoal === 'fat_loss' || prefs.secondary_goal === 'fat_loss';
+  const fatLossActive = effectiveGoal === 'cut';
   const blankMeta = (): Pick<FatLossControllerAdjustment, 'weightTrendConfidence' | 'nutritionDampeningFactor' | 'userFacingLine'> => ({
     weightTrendConfidence: 0,
     nutritionDampeningFactor: 1,
@@ -2251,6 +2250,46 @@ function weightedShuffle<T extends { score: number }>(
   return [...shuffled, ...rest];
 }
 
+/**
+ * Ideal Apollo volume proportions by muscle group.
+ * These represent the target distribution for a balanced, aesthetic physique.
+ * Groups with less than their ideal share get a priority boost; overrepresented
+ * groups get a slight dampening. V-taper muscles always get a baseline bump.
+ */
+const APOLLO_IDEAL_PROPORTIONS: Record<string, number> = {
+  mid_chest: 0.09, upper_chest: 0.05, lower_chest: 0.03,
+  back_lats: 0.10, back_upper: 0.06,
+  lateral_deltoid: 0.06, front_deltoid: 0.04, rear_deltoid: 0.04,
+  quadriceps: 0.10, hamstrings: 0.08, glutes: 0.06,
+  biceps: 0.04, triceps: 0.05,
+  calves: 0.03, abs: 0.04, forearms: 0.02,
+  traps: 0.03,
+};
+
+function computeAestheticDeficitMultiplier(
+  muscleGroup: string,
+  volumeStatuses: TrainingProfile['muscleVolumeStatuses']
+): { multiplier: number; detail: string } {
+  const ideal = APOLLO_IDEAL_PROPORTIONS[muscleGroup];
+  if (!ideal || !volumeStatuses?.length) return { multiplier: 1.0, detail: '' };
+
+  const totalSets = volumeStatuses.reduce((sum, v) => sum + (v.currentWeekly ?? 0), 0);
+  if (totalSets === 0) return { multiplier: 1.0, detail: '' };
+
+  const entry = volumeStatuses.find(v => v.muscleGroup === muscleGroup);
+  const actual = entry ? (entry.currentWeekly ?? 0) / totalSets : 0;
+  const deficit = ideal - actual;
+
+  if (deficit > 0.03) {
+    const mult = Math.min(2.0, 1.0 + deficit * 15);
+    return { multiplier: mult, detail: `Aesthetic deficit: ${muscleGroup} under-trained (${(actual * 100).toFixed(0)}% vs ${(ideal * 100).toFixed(0)}% ideal, ×${mult.toFixed(2)})` };
+  } else if (deficit < -0.03) {
+    const mult = Math.max(0.7, 1.0 + deficit * 5);
+    return { multiplier: mult, detail: `Aesthetic surplus: ${muscleGroup} over-represented (×${mult.toFixed(2)})` };
+  }
+  return { multiplier: 1.0, detail: '' };
+}
+
 function stepSelectExercises(
   muscleGroups: MuscleGroupSelection[],
   allExercises: EnrichedExercise[],
@@ -2508,6 +2547,14 @@ function stepSelectExercises(
           score -= 3;
           factors.push(`Plateaued — swap/variation suggested (-3)`);
         }
+      }
+
+      // Apollo aesthetic proportionality
+      const aestheticAdj = computeAestheticDeficitMultiplier(group.muscleGroup, profile.muscleVolumeStatuses);
+      if (aestheticAdj.multiplier !== 1.0) {
+        const oldScore = score;
+        score = Math.round(score * aestheticAdj.multiplier * 10) / 10;
+        factors.push(`${aestheticAdj.detail} (${oldScore.toFixed(1)} → ${score.toFixed(1)})`);
       }
 
       return { exercise: ex, score, factors };
@@ -3047,8 +3094,7 @@ function stepPrescribe(
 
       // #1: Goal-based cardio duration fallback instead of hardcoded 30 min
       const goalCardioDefaults: Record<string, number> = {
-        fat_loss: 25 * 60, strength: 15 * 60, hypertrophy: 20 * 60,
-        endurance: 30 * 60, general_fitness: 20 * 60,
+        bulk: 15 * 60, cut: 25 * 60, maintain: 20 * 60,
       };
       const prefDuration = prefs.cardio_duration_minutes ? prefs.cardio_duration_minutes * 60 : null;
       const baseDuration = cardio?.avgDurationSeconds
@@ -3109,26 +3155,24 @@ function stepPrescribe(
         if (speed != null) {
           speed = Math.round(speed * cfg.deloadCardioIntensityMultiplier * 10) / 10;
         }
-      } else if (goal === 'fat_loss' || secondaryGoal === 'fat_loss') {
-        // Fat loss: alternate between longer Zone 2 and shorter Zone 3
+      } else if (goal === 'cut') {
         if (sessionIdx % 2 === 0) {
           targetHrZone = 2;
           duration = Math.round(baseDuration * 1.15);
-          adjustments.push(`Fat loss: extended Zone 2 (${Math.round(duration / 60)} min) — maximize fat oxidation`);
+          adjustments.push(`Cut phase: extended Zone 2 (${Math.round(duration / 60)} min) — maximize fat oxidation`);
         } else {
           targetHrZone = 3;
           duration = Math.round(baseDuration * 0.75);
           if (speed != null) speed = Math.round(speed * 1.10 * 10) / 10;
           if (incline != null) incline = Math.round(Math.min(incline + 1, 15) * 10) / 10;
-          adjustments.push(`Fat loss: Zone 3 tempo (${Math.round(duration / 60)} min) — higher calorie burn rate`);
+          adjustments.push(`Cut phase: Zone 3 tempo (${Math.round(duration / 60)} min) — higher calorie burn rate`);
         }
-      } else if (goal === 'strength') {
-        // Strength: keep cardio short and easy to minimize interference
+      } else if (goal === 'bulk') {
         targetHrZone = 2;
         duration = Math.min(duration, 20 * 60);
-        adjustments.push(`Strength focus: capped at ${Math.round(duration / 60)} min Zone 2 — minimize interference`);
+        adjustments.push(`Bulk phase: capped at ${Math.round(duration / 60)} min Zone 2 — minimize interference with growth`);
       } else {
-        // General fitness / hypertrophy: rotate through varied styles
+        // Maintain: rotate through varied styles
         switch (sessionIdx) {
           case 0: // Steady-state Zone 2
             targetHrZone = 2;
@@ -3205,21 +3249,21 @@ function stepPrescribe(
         const oldSpeed = speed;
         speed = modalitySpeedCap;
         adjustments.push(`Safety cap: ${speedLabel ?? 'intensity'} ${oldSpeed} → ${speed} (${isWalkLike ? 'walk-mode cap' : 'modality cap'})`);
-        if ((goal === 'fat_loss' || secondaryGoal === 'fat_loss') && targetHrZone != null && targetHrZone >= 2) {
+        if (goal === 'cut' && targetHrZone != null && targetHrZone >= 2) {
           if (incline != null) {
             const oldIncline = incline;
             incline = Math.round(Math.min(incline + 1.5, 15) * 10) / 10;
             if (incline !== oldIncline) {
-              adjustments.push(`Fat-loss HR compensation: incline ${oldIncline} → ${incline}`);
+              adjustments.push(`Cut phase HR compensation: incline ${oldIncline} → ${incline}`);
             }
           } else {
             const oldDuration = duration;
             duration = Math.round(duration * 1.1);
-            adjustments.push(`Fat-loss HR compensation: duration ${Math.round(oldDuration / 60)} → ${Math.round(duration / 60)} min`);
+            adjustments.push(`Cut phase HR compensation: duration ${Math.round(oldDuration / 60)} → ${Math.round(duration / 60)} min`);
           }
         }
       }
-      if ((goal === 'fat_loss' || secondaryGoal === 'fat_loss') && capability) {
+      if (goal === 'cut' && capability) {
         const zoneLow = capability.preferredHrZoneLow != null ? Math.round(capability.preferredHrZoneLow) : null;
         const zoneHigh = capability.preferredHrZoneHigh != null ? Math.round(capability.preferredHrZoneHigh) : null;
         if (zoneLow != null && zoneHigh != null && zoneLow >= 1 && zoneHigh <= 5 && zoneLow <= zoneHigh) {
@@ -3227,7 +3271,7 @@ function stepPrescribe(
           targetHrZone = Math.max(zoneLow, Math.min(zoneHigh, defaultZone));
         }
       }
-      if ((goal === 'fat_loss' || secondaryGoal === 'fat_loss') && targetHrZone != null && targetHrZone < 2) {
+      if (goal === 'cut' && targetHrZone != null && targetHrZone < 2) {
         targetHrZone = 2;
       }
 
@@ -3343,7 +3387,7 @@ function stepPrescribe(
       fatLossController?.active
       && fatLossController.tier === 'stalled'
       && !recoveryAdj.isDeload
-      && (goal === 'fat_loss' || secondaryGoal === 'fat_loss')
+      && goal === 'cut'
       && (role === 'primary' || role === 'secondary')
       && exType === 'compound'
       && sets < 6
@@ -4079,9 +4123,8 @@ function stepApplyConstraints(
   //   2. Total cardio cap: percentage of session based on goal (never more than 40%)
   // Strength always gets at least 60% of the session.
   const goal = getEffectiveGoal(prefs);
-  const maxCardioPct = goal === 'fat_loss' ? cfg.maxCardioPctFatLoss
-    : goal === 'endurance' ? cfg.maxCardioPctDefault * 1.15
-    : goal === 'strength' ? cfg.maxCardioPctDefault * 0.65
+  const maxCardioPct = goal === 'cut' ? cfg.maxCardioPctFatLoss
+    : goal === 'bulk' ? cfg.maxCardioPctDefault * 0.65
     : cfg.maxCardioPctDefault;
   const profileCardioTargetMin = Number.isFinite(Number(prefs.cardio_duration_minutes))
     ? Math.max(8, Math.round(Number(prefs.cardio_duration_minutes)))
@@ -4089,7 +4132,6 @@ function stepApplyConstraints(
   // Profile cardio target is a ceiling unless the user is explicitly in endurance focus.
   const maxTotalCardioMin = (() => {
     const goalCap = Math.round(effectiveBudget * maxCardioPct);
-    if (goal === 'endurance') return goalCap;
     if (profileCardioTargetMin == null) return goalCap;
     return Math.max(8, Math.min(goalCap, Math.round(profileCardioTargetMin * 1.05)));
   })();
@@ -4105,13 +4147,11 @@ function stepApplyConstraints(
     const histAvgMin = cardioHist ? Math.round(cardioHist.avgDurationSeconds / 60) : null;
     let perExerciseCapMin = cfg.maxCardioPerExerciseMinutes;
     if (histAvgMin != null) perExerciseCapMin = Math.max(perExerciseCapMin, Math.round(histAvgMin * 1.3));
-    if (prefCardioDur != null) perExerciseCapMin = goal === 'endurance'
-      ? Math.max(perExerciseCapMin, prefCardioDur)
-      : Math.min(perExerciseCapMin, Math.max(8, prefCardioDur));
+    if (prefCardioDur != null) perExerciseCapMin = Math.min(perExerciseCapMin, Math.max(8, prefCardioDur));
 
     // On long sessions or cardio-priority goals, let cardio use most of the
     // cardio budget instead of clipping near a static 45-minute cap.
-    if (prefs.session_duration_minutes >= 100 || goal === 'endurance' || goal === 'fat_loss') {
+    if (prefs.session_duration_minutes >= 100 || goal === 'cut') {
       perExerciseCapMin = Math.max(perExerciseCapMin, Math.round(maxTotalCardioMin * 0.95));
     }
 
@@ -5832,7 +5872,7 @@ export async function generateWorkout(
   const tValidate = stageStart('validate_adapt');
   const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes);
   const adaptiveContext = buildAdaptivePolicyContext(profile, {
-    training_goal: (prefs.training_goal as GoalKind) ?? 'hypertrophy',
+    training_goal: (prefs.training_goal as GoalKind) ?? 'maintain',
     experience_level: prefs.experience_level ?? null,
     age: prefs.age ?? null,
   });

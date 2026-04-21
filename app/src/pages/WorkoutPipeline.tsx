@@ -303,7 +303,7 @@ function PolicySection({ policy }: { policy: NonNullable<GeneratedWorkout['polic
       <div className={S.policyGrid}>
         {policy.pid && (
           <div className={S.policyCard}>
-            <div className={S.policyLabel}>Fat-Loss PID Controller</div>
+            <div className={S.policyLabel}>Cut Phase PID Controller</div>
             <div className={S.policyStats}>
               <span>Error: {policy.pid.error.toFixed(3)}</span>
               <span>Integral: {policy.pid.integral.toFixed(3)}</span>

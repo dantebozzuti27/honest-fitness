@@ -94,22 +94,22 @@ function defaultRoleTargets(
   const corrective: RolePriors = { setRange: [2, 4], repRange: [10, 20], restRangeSec: [30, 90], rirRange: [2, 4] }
   const cardio: RolePriors = { setRange: [1, 2], repRange: [1, 1], restRangeSec: [0, 45], rirRange: [0, 0] }
 
-  const primary = goal === 'strength' ? primaryStrength : primaryHypertrophy
+  const primary = goal === 'cut' ? primaryStrength : primaryHypertrophy
   return { primary, secondary, isolation, corrective, cardio }
 }
 
 export function buildScientificPriors(prefs: AdaptiveUserPreferences): ScientificPriors {
-  const goal = prefs.training_goal || 'hypertrophy'
+  const goal = prefs.training_goal || 'maintain'
   const exp = String(prefs.experience_level || 'intermediate').toLowerCase()
   const age = Number(prefs.age || 30)
 
   const progressionSensitivity = clamp(
-    (goal === 'strength' ? 0.72 : 0.6) + (exp === 'advanced' || exp === 'elite' ? 0.08 : 0) - (age > 35 ? 0.05 : 0),
+    (goal === 'bulk' ? 0.72 : 0.6) + (exp === 'advanced' || exp === 'elite' ? 0.08 : 0) - (age > 35 ? 0.05 : 0),
     0.45,
     0.85
   )
   const fatigueSensitivity = clamp((age > 35 ? 0.7 : 0.58) + (exp === 'beginner' ? 0.08 : 0), 0.45, 0.85)
-  const adherenceSensitivity = clamp(goal === 'fat_loss' ? 0.72 : 0.62, 0.45, 0.85)
+  const adherenceSensitivity = clamp(goal === 'cut' ? 0.72 : 0.62, 0.45, 0.85)
 
   return {
     priorsVersion: 'science_priors_v1',

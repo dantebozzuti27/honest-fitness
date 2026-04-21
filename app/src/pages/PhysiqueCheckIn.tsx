@@ -236,7 +236,6 @@ export default function PhysiqueCheckIn() {
                   ref={frontInputRef}
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   style={{ display: 'none' }}
                   onChange={e => {
                     const f = e.target.files?.[0]
@@ -261,7 +260,6 @@ export default function PhysiqueCheckIn() {
                   ref={backInputRef}
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   style={{ display: 'none' }}
                   onChange={e => {
                     const f = e.target.files?.[0]

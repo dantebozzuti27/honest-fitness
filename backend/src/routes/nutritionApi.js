@@ -379,3 +379,190 @@ nutritionApiRouter.get('/targets', async (req, res) => {
     return res.status(500).json({ error: err.message })
   }
 })
+
+// ── GET /phase-plan — compute full phase plan with milestones ──────────────
+nutritionApiRouter.get('/phase-plan', async (req, res) => {
+  try {
+    const userId = req.userId
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' })
+
+    const [prefsResult, weightHistoryResult, workoutStatsResult, nutritionStatsResult] = await Promise.all([
+      query(
+        `SELECT body_weight_lbs, gender, age, training_goal, job_activity_level,
+                available_days_per_week, session_duration_minutes,
+                height_feet, height_inches, weight_goal_lbs, weight_goal_date,
+                experience_level, created_at
+         FROM user_preferences WHERE user_id = $1 LIMIT 1`,
+        [userId]
+      ),
+      query(
+        `SELECT date, weight FROM health_metrics
+         WHERE user_id = $1 AND weight IS NOT NULL
+         ORDER BY date ASC`,
+        [userId]
+      ),
+      query(
+        `SELECT COUNT(*)::int AS total_workouts,
+                COUNT(DISTINCT date)::int AS training_days,
+                MIN(date) AS first_workout,
+                MAX(date) AS last_workout,
+                AVG(duration_minutes)::numeric AS avg_duration
+         FROM workouts WHERE user_id = $1`,
+        [userId]
+      ),
+      query(
+        `SELECT COUNT(DISTINCT date)::int AS days_logged,
+                AVG(total_calories)::numeric AS avg_calories,
+                AVG(total_protein_g)::numeric AS avg_protein
+         FROM meal_logs WHERE user_id = $1
+         AND date >= CURRENT_DATE - 30`,
+        [userId]
+      ),
+    ])
+
+    const prefs = prefsResult.rows[0]
+    if (!prefs) return res.json({ plan: null, reason: 'No preferences set' })
+
+    const phase = prefs.training_goal || 'maintain'
+    if (phase === 'maintain') {
+      return res.json({ plan: null, reason: 'No active cut or bulk phase — currently maintaining' })
+    }
+
+    const goalWeight = Number(prefs.weight_goal_lbs) || null
+    const goalDateStr = prefs.weight_goal_date || null
+    if (!goalWeight || !goalDateStr) {
+      return res.json({ plan: null, reason: 'Set a goal weight and target date in your Profile to activate phase planning' })
+    }
+
+    const weightHistory = weightHistoryResult.rows
+    const workoutStats = workoutStatsResult.rows[0] || {}
+    const nutritionStats = nutritionStatsResult.rows[0] || {}
+
+    const latestWeight = weightHistory.length > 0
+      ? Number(weightHistory[weightHistory.length - 1].weight)
+      : Number(prefs.body_weight_lbs) || 170
+    const startWeight = weightHistory.length > 0
+      ? Number(weightHistory[0].weight)
+      : Number(prefs.body_weight_lbs) || latestWeight
+
+    const goalDate = new Date(goalDateStr + 'T12:00:00')
+    const now = new Date()
+    const totalLbsToChange = goalWeight - startWeight
+    const lbsRemaining = goalWeight - latestWeight
+    const lbsCompleted = latestWeight - startWeight
+    const msTotal = goalDate.getTime() - new Date(prefs.created_at || goalDateStr).getTime()
+    const msRemaining = goalDate.getTime() - now.getTime()
+    const weeksRemaining = Math.max(0, msRemaining / (7 * 24 * 60 * 60 * 1000))
+    const weeksTotal = Math.max(1, msTotal / (7 * 24 * 60 * 60 * 1000))
+    const progressPct = totalLbsToChange !== 0
+      ? Math.min(100, Math.max(0, Math.round((lbsCompleted / totalLbsToChange) * 100)))
+      : (Math.abs(lbsRemaining) < 1 ? 100 : 0)
+
+    // Compute actual rate from recent weight trend (last 14 days)
+    const recentWeights = weightHistory.filter(w => {
+      const d = new Date(w.date)
+      return d >= new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
+    })
+    let actualWeeklyRate = 0
+    if (recentWeights.length >= 2) {
+      const first = Number(recentWeights[0].weight)
+      const last = Number(recentWeights[recentWeights.length - 1].weight)
+      const daySpan = (new Date(recentWeights[recentWeights.length - 1].date).getTime() - new Date(recentWeights[0].date).getTime()) / (24 * 60 * 60 * 1000)
+      if (daySpan > 0) actualWeeklyRate = Math.round(((last - first) / daySpan) * 7 * 100) / 100
+    }
+
+    const neededRate = weeksRemaining > 0 ? Math.round((lbsRemaining / weeksRemaining) * 100) / 100 : 0
+
+    // Pacing status
+    let pacing = 'no_data'
+    if (recentWeights.length >= 2) {
+      if (phase === 'cut') {
+        const absActual = Math.abs(actualWeeklyRate)
+        const absNeeded = Math.abs(neededRate)
+        if (actualWeeklyRate > 0) pacing = 'off_track'
+        else if (absActual >= absNeeded * 0.85) pacing = 'on_track'
+        else if (absActual >= absNeeded * 0.5) pacing = 'behind'
+        else pacing = 'off_track'
+      } else {
+        if (actualWeeklyRate < 0) pacing = 'off_track'
+        else if (actualWeeklyRate >= neededRate * 0.7) pacing = 'on_track'
+        else if (actualWeeklyRate > 0) pacing = 'behind'
+        else pacing = 'off_track'
+      }
+    }
+
+    // Generate milestones
+    const milestones = []
+    const milestoneCount = Math.min(5, Math.max(2, Math.ceil(Math.abs(totalLbsToChange) / 5)))
+    for (let i = 1; i <= milestoneCount; i++) {
+      const fraction = i / milestoneCount
+      const milestoneWeight = Math.round((startWeight + totalLbsToChange * fraction) * 10) / 10
+      const milestoneDate = new Date(new Date(prefs.created_at || goalDateStr).getTime() + msTotal * fraction)
+      const reached = phase === 'cut'
+        ? latestWeight <= milestoneWeight
+        : latestWeight >= milestoneWeight
+      milestones.push({
+        label: i === milestoneCount ? 'Goal' : `Milestone ${i}`,
+        target_weight: milestoneWeight,
+        target_date: milestoneDate.toISOString().slice(0, 10),
+        reached,
+        is_final: i === milestoneCount,
+      })
+    }
+
+    // Phase-specific checklist
+    const checklist = []
+    if (phase === 'cut') {
+      checklist.push({ key: 'deficit', label: 'Maintain caloric deficit', status: nutritionStats.avg_calories && nutritionStats.avg_calories < 2500 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'protein', label: `Hit protein target (${Math.round(latestWeight * 1.2)}g+/day)`, status: nutritionStats.avg_protein && nutritionStats.avg_protein >= latestWeight * 1.0 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'strength', label: 'Preserve strength on key lifts', status: 'monitor' })
+      checklist.push({ key: 'training', label: `Train ${prefs.available_days_per_week || 4}+ days/week`, status: workoutStats.training_days >= (prefs.available_days_per_week || 4) * 2 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'logging', label: 'Log weight daily', status: recentWeights.length >= 10 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'nutrition_logging', label: 'Log meals consistently', status: nutritionStats.days_logged >= 20 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'rate', label: 'Lose 0.5-1% bodyweight/week', status: pacing === 'on_track' ? 'on_track' : pacing === 'behind' ? 'needs_attention' : 'monitor' })
+    } else {
+      checklist.push({ key: 'surplus', label: 'Maintain caloric surplus', status: nutritionStats.avg_calories && nutritionStats.avg_calories > 2800 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'protein', label: `Hit protein target (${Math.round(latestWeight * 1.0)}g+/day)`, status: nutritionStats.avg_protein && nutritionStats.avg_protein >= latestWeight * 0.8 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'progressive', label: 'Progressive overload on compounds', status: 'monitor' })
+      checklist.push({ key: 'training', label: `Train ${prefs.available_days_per_week || 5}+ days/week`, status: workoutStats.training_days >= (prefs.available_days_per_week || 5) * 2 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'logging', label: 'Log weight weekly', status: recentWeights.length >= 2 ? 'on_track' : 'needs_attention' })
+      checklist.push({ key: 'rate', label: 'Gain 0.25-0.75 lbs/week (lean)', status: pacing === 'on_track' ? 'on_track' : pacing === 'behind' ? 'needs_attention' : 'monitor' })
+    }
+
+    // Weight history for chart (last 90 days)
+    const weightChart = weightHistory
+      .filter(w => new Date(w.date) >= new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000))
+      .map(w => ({ date: typeof w.date === 'string' ? w.date.slice(0, 10) : w.date, weight: Number(w.weight) }))
+
+    return res.json({
+      plan: {
+        phase,
+        start_weight: Math.round(startWeight * 10) / 10,
+        current_weight: Math.round(latestWeight * 10) / 10,
+        goal_weight: goalWeight,
+        goal_date: goalDateStr,
+        lbs_remaining: Math.round(lbsRemaining * 10) / 10,
+        progress_pct: progressPct,
+        weeks_remaining: Math.round(weeksRemaining * 10) / 10,
+        actual_weekly_rate: actualWeeklyRate,
+        needed_weekly_rate: neededRate,
+        pacing,
+        milestones,
+        checklist,
+        weight_chart: weightChart,
+        workout_stats: {
+          total: workoutStats.total_workouts || 0,
+          avg_duration: workoutStats.avg_duration ? Math.round(Number(workoutStats.avg_duration)) : null,
+        },
+        nutrition_stats: {
+          days_logged_30d: nutritionStats.days_logged || 0,
+          avg_calories: nutritionStats.avg_calories ? Math.round(Number(nutritionStats.avg_calories)) : null,
+          avg_protein: nutritionStats.avg_protein ? Math.round(Number(nutritionStats.avg_protein)) : null,
+        },
+      },
+    })
+  } catch (err) {
+    console.error('[nutrition/phase-plan] Error:', err.message)
+    return res.status(500).json({ error: err.message })
+  }
+})

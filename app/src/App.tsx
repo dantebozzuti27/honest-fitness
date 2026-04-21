@@ -20,6 +20,7 @@ const ModelDashboard = lazy(() => import('./pages/ModelDashboard'))
 const OntologyDashboard = lazy(() => import('./pages/OntologyDashboard'))
 const WorkoutPipeline = lazy(() => import('./pages/WorkoutPipeline'))
 const Nutrition = lazy(() => import('./pages/Nutrition'))
+const PhasePlan = lazy(() => import('./pages/PhasePlan'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -143,6 +144,7 @@ export default function App() {
           <Route path="/ontology" element={<ProtectedRoute><OntologyDashboard /></ProtectedRoute>} />
           <Route path="/workout/pipeline" element={<ProtectedRoute><WorkoutPipeline /></ProtectedRoute>} />
           <Route path="/nutrition" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
+          <Route path="/phase-plan" element={<ProtectedRoute><PhasePlan /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

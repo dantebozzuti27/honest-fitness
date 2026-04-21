@@ -1,0 +1,386 @@
+.container {
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.phaseBadge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.phaseBadge.cut {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.phaseBadge.bulk {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.content {
+  padding: 16px;
+  padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Hero card */
+.heroCard {
+  background: var(--bg-secondary);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+}
+
+.heroNumbers {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+.heroStat {
+  text-align: center;
+}
+
+.heroStatLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.heroStatValue {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.heroStatUnit {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.heroArrow {
+  font-size: 20px;
+  color: var(--text-tertiary);
+  padding: 0 8px;
+}
+
+.progressBarOuter {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  height: 10px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progressBarFill {
+  height: 100%;
+  border-radius: 8px;
+  transition: width 0.6s ease;
+}
+
+.progressBarFill.cut {
+  background: linear-gradient(90deg, #ef4444, #f97316);
+}
+
+.progressBarFill.bulk {
+  background: linear-gradient(90deg, #22c55e, #3b82f6);
+}
+
+.progressMeta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* Pacing banner */
+.pacingBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.pacingBanner.on_track {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.pacingBanner.behind {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.pacingBanner.off_track {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.pacingBanner.no_data {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.pacingIcon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* Section card */
+.section {
+  background: var(--bg-secondary);
+  border-radius: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+
+.sectionTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Milestones */
+.milestoneList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.milestone {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  position: relative;
+}
+
+.milestone:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 34px;
+  bottom: -10px;
+  width: 2px;
+  background: var(--border);
+}
+
+.milestone.reached:not(:last-child)::after {
+  background: #22c55e;
+}
+
+.milestoneIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px;
+  border: 2px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-tertiary);
+}
+
+.milestone.reached .milestoneIcon {
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #fff;
+}
+
+.milestone.final .milestoneIcon {
+  border-color: var(--accent);
+}
+
+.milestone.reached.final .milestoneIcon {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.milestoneBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.milestoneLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.milestoneDetail {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.milestone.reached .milestoneLabel {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-tertiary);
+}
+
+.milestoneWeight {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.milestone.reached .milestoneWeight {
+  color: #22c55e;
+}
+
+/* Checklist */
+.checklistItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.checklistItem:last-child {
+  border-bottom: none;
+}
+
+.checkDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.checkDot.on_track {
+  background: #22c55e;
+}
+
+.checkDot.needs_attention {
+  background: #f59e0b;
+}
+
+.checkDot.monitor {
+  background: var(--text-tertiary);
+}
+
+.checkLabel {
+  font-size: 14px;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.checkStatus {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.checkStatus.on_track {
+  color: #22c55e;
+}
+
+.checkStatus.needs_attention {
+  color: #f59e0b;
+}
+
+.checkStatus.monitor {
+  color: var(--text-tertiary);
+}
+
+/* Rate detail */
+.rateRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rateRow:last-child {
+  border-bottom: none;
+}
+
+.rateLabel {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.rateValue {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Empty state */
+.emptyState {
+  text-align: center;
+  padding: 60px 24px;
+  color: var(--text-secondary);
+}
+
+.emptyState h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.emptyState p {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 20px 0;
+}
+
+.emptyBtn {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}

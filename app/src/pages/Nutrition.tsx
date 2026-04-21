@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getIdToken } from '../lib/cognitoAuth'
 import { apiUrl } from '../lib/urlConfig'
@@ -109,6 +110,7 @@ async function apiFetch(path: string, opts: RequestInit = {}): Promise<any> {
 
 export default function Nutrition() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [selectedDate, setSelectedDate] = useState(localDateStr(new Date()))
   const [meals, setMeals] = useState<MealLog[]>([])
   const [totals, setTotals] = useState<DailyTotals>({ calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fiber_g: 0 })
@@ -384,6 +386,16 @@ export default function Nutrition() {
                 />
               </div>
             )}
+            <button
+              onClick={() => navigate('/phase-plan')}
+              style={{
+                marginTop: 12, width: '100%', padding: '10px 0', borderRadius: 10,
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                color: 'var(--text-primary)', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              View Full Phase Plan &rarr;
+            </button>
           </div>
         )}
 

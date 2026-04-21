@@ -203,7 +203,7 @@ export default function PhysiqueCheckIn() {
         <div className={styles.header}>
           <button className={styles.backBtn} onClick={() => navigate(-1)}>Back</button>
           <h1>Physique Check-In</h1>
-          <div style={{ width: 40 }} />
+          <button className={styles.backBtn} onClick={() => navigate('/proportions')}>Dashboard</button>
         </div>
 
         <div className={styles.content}>

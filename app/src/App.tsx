@@ -22,6 +22,7 @@ const WorkoutPipeline = lazy(() => import('./pages/WorkoutPipeline'))
 const Nutrition = lazy(() => import('./pages/Nutrition'))
 const PhasePlan = lazy(() => import('./pages/PhasePlan'))
 const PhysiqueCheckIn = lazy(() => import('./pages/PhysiqueCheckIn'))
+const ProportionsDashboard = lazy(() => import('./pages/ProportionsDashboard'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -147,6 +148,7 @@ export default function App() {
           <Route path="/nutrition" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
           <Route path="/phase-plan" element={<ProtectedRoute><PhasePlan /></ProtectedRoute>} />
           <Route path="/physique" element={<ProtectedRoute><PhysiqueCheckIn /></ProtectedRoute>} />
+          <Route path="/proportions" element={<ProtectedRoute><ProportionsDashboard /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

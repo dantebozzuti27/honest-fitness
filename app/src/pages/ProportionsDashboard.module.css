@@ -1,0 +1,499 @@
+.container {
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.content {
+  padding: 16px;
+  padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Adonis Index hero card */
+.adonisHero {
+  background: var(--bg-secondary);
+  border-radius: 14px;
+  padding: 24px 16px;
+  text-align: center;
+  border: 1px solid var(--border);
+}
+
+.adonisValue {
+  font-size: 48px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.adonisSubtitle {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+.adonisLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 8px;
+}
+
+.adonisDelta {
+  font-size: 12px;
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.adonisDelta.positive {
+  color: #22c55e;
+}
+
+.adonisDelta.negative {
+  color: #ef4444;
+}
+
+.adonisDelta.neutral {
+  color: var(--text-tertiary);
+}
+
+/* Trend sparkline row */
+.trendRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.trendDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+.trendDot.latest {
+  width: 8px;
+  height: 8px;
+  opacity: 1;
+}
+
+.trendBar {
+  width: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  min-height: 4px;
+  transition: height 0.2s;
+}
+
+/* Section cards */
+.section {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.sectionSubtitle {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+/* Reeves measurements table */
+.reevesTable {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.reevesRow {
+  display: grid;
+  grid-template-columns: 1fr 60px 60px 70px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.reevesRow:last-child {
+  border-bottom: none;
+}
+
+.reevesRowHeader {
+  composes: reevesRow;
+  padding: 6px 0;
+}
+
+.reevesRowHeader span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.reevesBodyPart {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.reevesActual {
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.reevesIdeal {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.reevesDeficit {
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  padding-right: 4px;
+}
+
+.reevesDeficit.behind {
+  color: #ef4444;
+}
+
+.reevesDeficit.ahead {
+  color: #22c55e;
+}
+
+.reevesDeficit.onTarget {
+  color: var(--text-tertiary);
+}
+
+/* Engine boost cards */
+.boostGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.boostCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.boostBar {
+  flex-shrink: 0;
+  width: 4px;
+  border-radius: 2px;
+  min-height: 32px;
+  transition: height 0.3s;
+}
+
+.boostBar.boost {
+  background: #3b82f6;
+}
+
+.boostBar.dampen {
+  background: #f59e0b;
+}
+
+.boostInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.boostMuscle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.boostReason {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.boostMultiplier {
+  font-size: 15px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.boostMultiplier.up {
+  color: #3b82f6;
+}
+
+.boostMultiplier.down {
+  color: #f59e0b;
+}
+
+/* Weak point progression */
+.progressionList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.progressionItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progressionLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: capitalize;
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.progressionBarTrack {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progressionBarFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.progressionBarFill.low {
+  background: #ef4444;
+}
+
+.progressionBarFill.mid {
+  background: #f59e0b;
+}
+
+.progressionBarFill.high {
+  background: #22c55e;
+}
+
+.progressionScore {
+  font-size: 13px;
+  font-weight: 700;
+  width: 32px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.progressionScore.low {
+  color: #ef4444;
+}
+
+.progressionScore.mid {
+  color: #f59e0b;
+}
+
+.progressionScore.high {
+  color: #22c55e;
+}
+
+/* Score trend mini chart */
+.scoreTrendRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 24px;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.scoreTrendBar {
+  width: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.3;
+  transition: height 0.2s;
+}
+
+.scoreTrendBar.latest {
+  opacity: 1;
+}
+
+/* Body fat trend */
+.bfRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+}
+
+.bfLabel {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.bfValue {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bfTrend {
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.bfTrend.down {
+  color: #22c55e;
+}
+
+.bfTrend.up {
+  color: #ef4444;
+}
+
+/* Action buttons */
+.actionRow {
+  display: flex;
+  gap: 10px;
+}
+
+.actionBtn {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+
+.actionBtn:active {
+  opacity: 0.7;
+}
+
+.actionBtnPrimary {
+  composes: actionBtn;
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Empty state */
+.emptyState {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-tertiary);
+}
+
+.emptyState h3 {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.emptyState p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+/* Loading */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 8px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.symmetryCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.symmetryLabel {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.symmetryValue {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.assessmentAge {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
+  margin-top: 8px;
+}

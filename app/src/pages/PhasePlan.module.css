@@ -382,6 +382,21 @@
   margin-top: 2px;
 }
 
+.targetActual {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+  opacity: 0.8;
+}
+
+.dataSourceTag {
+  font-size: 11px;
+  font-weight: 600;
+  color: #22c55e;
+  margin-bottom: 10px;
+  padding: 4px 0;
+}
+
 /* Empty state */
 .emptyState {
   text-align: center;

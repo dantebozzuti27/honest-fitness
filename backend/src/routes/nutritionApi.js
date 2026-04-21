@@ -390,7 +390,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     const userId = req.userId
     if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
-    const [prefsResult, weightHistoryResult, workoutStatsResult, nutritionStatsResult] = await Promise.all([
+    const [prefsResult, weightHistoryResult, workoutStatsResult, nutritionStatsResult, fitbitStatsResult] = await Promise.all([
       query(
         `SELECT body_weight_lbs, gender, age, training_goal, job_activity_level,
                 available_days_per_week, session_duration_minutes,
@@ -422,6 +422,17 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
          AND date >= CURRENT_DATE - 30`,
         [userId]
       ),
+      query(
+        `SELECT AVG(calories_burned)::numeric AS avg_total_cal,
+                AVG(steps)::numeric AS avg_steps,
+                AVG(sleep_duration)::numeric AS avg_sleep,
+                AVG(COALESCE(active_minutes_fairly, 0) + COALESCE(active_minutes_very, 0))::numeric AS avg_active_min
+         FROM health_metrics
+         WHERE user_id = $1
+           AND date >= CURRENT_DATE - 14
+           AND calories_burned IS NOT NULL`,
+        [userId]
+      ),
     ])
 
     const prefs = prefsResult.rows[0]
@@ -441,6 +452,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     const weightHistory = weightHistoryResult.rows
     const workoutStats = workoutStatsResult.rows[0] || {}
     const nutritionStats = nutritionStatsResult.rows[0] || {}
+    const fitbitStats = fitbitStatsResult.rows[0] || {}
 
     const phaseStartDateStr = prefs.phase_start_date || null
     const phaseStartDate = phaseStartDateStr
@@ -553,7 +565,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
       .filter(w => new Date(w.date) >= new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000))
       .map(w => ({ date: typeof w.date === 'string' ? w.date.slice(0, 10) : w.date, weight: Number(w.weight) }))
 
-    // ── Compute daily targets ──────────────────────────────────────────────
+    // ── Compute daily targets (Fitbit-data-driven when available) ─────────
     const age = Number(prefs.age) || 30
     const gender = (prefs.gender || 'male').toLowerCase()
     const activityLevel = (prefs.job_activity_level || 'moderate').toLowerCase()
@@ -568,7 +580,17 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     const activityMultipliers = {
       sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9,
     }
-    const tdee = bmr * (activityMultipliers[activityLevel] || 1.55)
+    const estimatedTdee = bmr * (activityMultipliers[activityLevel] || 1.55)
+
+    // Prefer actual Fitbit TDEE (calories_burned = total daily burn from Fitbit)
+    const fitbitTdee = fitbitStats.avg_total_cal ? Math.round(Number(fitbitStats.avg_total_cal)) : null
+    const tdee = fitbitTdee || estimatedTdee
+    const tdeeSource = fitbitTdee ? 'fitbit' : 'estimated'
+
+    // Actual Fitbit averages for display
+    const fitbitAvgSteps = fitbitStats.avg_steps ? Math.round(Number(fitbitStats.avg_steps)) : null
+    const fitbitAvgSleep = fitbitStats.avg_sleep ? Math.round(Number(fitbitStats.avg_sleep) * 10) / 10 : null
+    const fitbitAvgActiveMins = fitbitStats.avg_active_min ? Math.round(Number(fitbitStats.avg_active_min)) : null
 
     // Caloric targets
     let calAdjust = 0
@@ -594,20 +616,27 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     const fatG = Math.round((targetCalories * fatPct) / 9)
     const carbG = Math.max(0, Math.round((targetCalories - proteinG * 4 - fatG * 9) / 4))
 
-    // Calories to burn (exercise activity)
-    // TDEE already accounts for baseline activity; exercise burn target is the
-    // delta between TDEE and BMR * sedentary multiplier, plus phase-specific bonus
-    const baselineNonExercise = bmr * 1.2
-    const exerciseBurnFromTdee = Math.round(Math.max(0, tdee - baselineNonExercise))
-    const exerciseBurnTarget = phase === 'cut'
-      ? Math.round(exerciseBurnFromTdee + Math.abs(calAdjust) * 0.3) // cut: burn more to support deficit
-      : exerciseBurnFromTdee
+    // Calories to burn target: derived from actual Fitbit TDEE or estimated
+    // Total burn target = TDEE that supports the desired caloric intake + deficit/surplus
+    // For cuts: target burn should be enough that (burn - intake) = desired deficit
+    const totalBurnTarget = Math.round(targetCalories - calAdjust)
+    // Exercise-specific burn: the delta the user needs from exercise beyond sedentary baseline
+    const sedentaryBaseline = Math.round(bmr * 1.2)
+    const exerciseBurnTarget = Math.max(0, totalBurnTarget - sedentaryBaseline)
 
-    // Steps target
-    const stepsTarget = phase === 'cut' ? 10000 : phase === 'bulk' ? 7500 : 8000
+    // Steps target based on Fitbit actuals + phase goals
+    let stepsTarget = phase === 'cut' ? 10000 : phase === 'bulk' ? 7500 : 8000
+    if (fitbitAvgSteps) {
+      if (phase === 'cut') {
+        stepsTarget = Math.max(10000, Math.round(fitbitAvgSteps * 1.1 / 500) * 500)
+      } else {
+        stepsTarget = Math.max(7500, Math.round(fitbitAvgSteps / 500) * 500)
+      }
+    }
 
-    // Sleep target (hours)
-    const sleepTarget = phase === 'bulk' ? 8.0 : phase === 'cut' ? 7.5 : 7.5
+    // Sleep target (hours) — Fitbit sleep is in minutes
+    const sleepTargetHours = phase === 'bulk' ? 8.0 : 7.5
+    const fitbitAvgSleepHours = fitbitAvgSleep ? Math.round(fitbitAvgSleep / 60 * 10) / 10 : null
 
     // Training days per week
     const trainingDaysTarget = Number(prefs.available_days_per_week) || (phase === 'bulk' ? 5 : 4)
@@ -618,14 +647,28 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     // Water intake (oz)
     const waterOz = Math.round(latestWeight * 0.5) + (phase === 'cut' ? 16 : 0)
 
+    // Active minutes target
+    let activeMinTarget = phase === 'cut' ? 45 : 30
+    if (fitbitAvgActiveMins && phase === 'cut') {
+      activeMinTarget = Math.max(45, Math.round(fitbitAvgActiveMins * 1.1))
+    }
+
     const dailyTargets = {
       calories_eat: targetCalories,
-      calories_burn: exerciseBurnTarget,
+      calories_burn: totalBurnTarget,
+      exercise_burn: exerciseBurnTarget,
+      tdee_source: tdeeSource,
+      tdee_actual: fitbitTdee,
+      tdee_estimated: Math.round(estimatedTdee),
       protein_g: proteinG,
       carbs_g: carbG,
       fat_g: fatG,
       steps: stepsTarget,
-      sleep_hours: sleepTarget,
+      steps_actual: fitbitAvgSteps,
+      sleep_hours: sleepTargetHours,
+      sleep_actual_hours: fitbitAvgSleepHours,
+      active_minutes: activeMinTarget,
+      active_minutes_actual: fitbitAvgActiveMins,
       training_days_per_week: trainingDaysTarget,
       session_duration_min: sessionDurationTarget,
       water_oz: waterOz,

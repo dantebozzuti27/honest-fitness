@@ -22,11 +22,19 @@ interface ChecklistItem {
 interface DailyTargets {
   calories_eat: number
   calories_burn: number
+  exercise_burn: number
+  tdee_source: 'fitbit' | 'estimated'
+  tdee_actual: number | null
+  tdee_estimated: number
   protein_g: number
   carbs_g: number
   fat_g: number
   steps: number
+  steps_actual: number | null
   sleep_hours: number
+  sleep_actual_hours: number | null
+  active_minutes: number
+  active_minutes_actual: number | null
   training_days_per_week: number
   session_duration_min: number
   water_oz: number
@@ -68,6 +76,16 @@ async function apiFetch(path: string): Promise<any> {
   })
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
   return resp.json()
+}
+
+function TargetTile({ label, value, actual }: { label: string; value: string; actual?: string }) {
+  return (
+    <div className={styles.targetCard}>
+      <div className={styles.targetValue}>{value}</div>
+      <div className={styles.targetLabel}>{label}</div>
+      {actual && <div className={styles.targetActual}>{actual}</div>}
+    </div>
+  )
 }
 
 const PACING_CONFIG = {
@@ -225,55 +243,51 @@ export default function PhasePlan() {
           </div>
 
           {/* Daily targets */}
-          {p.daily_targets && (
-            <div className={styles.section}>
-              <h3 className={styles.sectionTitle}>Daily Targets</h3>
-              <div className={styles.targetsGrid}>
-                <div className={styles.targetCard}>
-                  <div className={styles.targetValue}>{p.daily_targets.calories_eat.toLocaleString()}</div>
-                  <div className={styles.targetLabel}>Cal to eat</div>
+          {p.daily_targets && (() => {
+            const t = p.daily_targets
+            const isFitbit = t.tdee_source === 'fitbit'
+            return (
+              <div className={styles.section}>
+                <h3 className={styles.sectionTitle}>Daily Targets</h3>
+                {isFitbit && (
+                  <div className={styles.dataSourceTag}>Based on your Fitbit data (14-day avg)</div>
+                )}
+                {!isFitbit && (
+                  <div className={styles.dataSourceTag} style={{ color: 'var(--text-tertiary)' }}>Estimated &mdash; connect Fitbit for personalized targets</div>
+                )}
+                <div className={styles.targetsGrid}>
+                  <TargetTile label="Cal to eat" value={t.calories_eat.toLocaleString()} />
+                  <TargetTile label="Cal to burn" value={t.calories_burn.toLocaleString()} actual={t.tdee_actual ? `Avg: ${t.tdee_actual.toLocaleString()}` : undefined} />
+                  <TargetTile label="Protein" value={`${t.protein_g}g`} />
+                  <TargetTile label="Carbs" value={`${t.carbs_g}g`} />
+                  <TargetTile label="Fat" value={`${t.fat_g}g`} />
+                  <TargetTile label="Steps" value={`${(t.steps / 1000).toFixed(0)}k`} actual={t.steps_actual ? `Avg: ${(t.steps_actual / 1000).toFixed(1)}k` : undefined} />
+                  <TargetTile label="Sleep" value={`${t.sleep_hours}h`} actual={t.sleep_actual_hours ? `Avg: ${t.sleep_actual_hours}h` : undefined} />
+                  <TargetTile label="Active min" value={`${t.active_minutes}`} actual={t.active_minutes_actual ? `Avg: ${t.active_minutes_actual}` : undefined} />
                 </div>
-                <div className={styles.targetCard}>
-                  <div className={styles.targetValue}>{p.daily_targets.calories_burn.toLocaleString()}</div>
-                  <div className={styles.targetLabel}>Cal to burn</div>
-                </div>
-                <div className={styles.targetCard}>
-                  <div className={styles.targetValue}>{p.daily_targets.protein_g}g</div>
-                  <div className={styles.targetLabel}>Protein</div>
-                </div>
-                <div className={styles.targetCard}>
-                  <div className={styles.targetValue}>{p.daily_targets.carbs_g}g</div>
-                  <div className={styles.targetLabel}>Carbs</div>
-                </div>
-                <div className={styles.targetCard}>
-                  <div className={styles.targetValue}>{p.daily_targets.fat_g}g</div>
-                  <div className={styles.targetLabel}>Fat</div>
-                </div>
-                <div className={styles.targetCard}>
-                  <div className={styles.targetValue}>{(p.daily_targets.steps / 1000).toFixed(0)}k</div>
-                  <div className={styles.targetLabel}>Steps</div>
-                </div>
-                <div className={styles.targetCard}>
-                  <div className={styles.targetValue}>{p.daily_targets.sleep_hours}h</div>
-                  <div className={styles.targetLabel}>Sleep</div>
-                </div>
-                <div className={styles.targetCard}>
-                  <div className={styles.targetValue}>{p.daily_targets.water_oz}oz</div>
-                  <div className={styles.targetLabel}>Water</div>
-                </div>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <div className={styles.rateRow}>
-                  <span className={styles.rateLabel}>Training days/week</span>
-                  <span className={styles.rateValue}>{p.daily_targets.training_days_per_week}</span>
-                </div>
-                <div className={styles.rateRow}>
-                  <span className={styles.rateLabel}>Session duration</span>
-                  <span className={styles.rateValue}>{p.daily_targets.session_duration_min} min</span>
+                <div style={{ marginTop: 12 }}>
+                  <div className={styles.rateRow}>
+                    <span className={styles.rateLabel}>Water intake</span>
+                    <span className={styles.rateValue}>{t.water_oz} oz</span>
+                  </div>
+                  <div className={styles.rateRow}>
+                    <span className={styles.rateLabel}>Training days/week</span>
+                    <span className={styles.rateValue}>{t.training_days_per_week}</span>
+                  </div>
+                  <div className={styles.rateRow}>
+                    <span className={styles.rateLabel}>Session duration</span>
+                    <span className={styles.rateValue}>{t.session_duration_min} min</span>
+                  </div>
+                  {isFitbit && (
+                    <div className={styles.rateRow}>
+                      <span className={styles.rateLabel}>Exercise burn target</span>
+                      <span className={styles.rateValue}>{t.exercise_burn.toLocaleString()} cal</span>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Milestones */}
           <div className={styles.section}>

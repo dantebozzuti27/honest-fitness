@@ -53,6 +53,7 @@ interface TrainingProfileData {
   recovery_speed: string;
   weight_goal_lbs: string;
   weight_goal_date: string;
+  phase_start_date: string;
   primary_goal: string;
   secondary_goal: string;
   priority_muscles: string[];
@@ -304,6 +305,7 @@ export default function Profile() {
     recovery_speed: '',
     weight_goal_lbs: '',
     weight_goal_date: '',
+    phase_start_date: '',
     primary_goal: '',
     secondary_goal: '',
     priority_muscles: [],
@@ -417,6 +419,7 @@ export default function Profile() {
           recovery_speed: prefs.recovery_speed != null ? String(prefs.recovery_speed) : '',
           weight_goal_lbs: prefs.weight_goal_lbs != null ? String(prefs.weight_goal_lbs) : '',
           weight_goal_date: prefs.weight_goal_date || '',
+          phase_start_date: prefs.phase_start_date || '',
           primary_goal: prefs.primary_goal || '',
           secondary_goal: prefs.secondary_goal || '',
           priority_muscles: Array.isArray(prefs.priority_muscles) ? prefs.priority_muscles : [],
@@ -466,6 +469,7 @@ export default function Profile() {
         recovery_speed: trainingProfile.recovery_speed ? Number(trainingProfile.recovery_speed) : null,
         weight_goal_lbs: trainingProfile.weight_goal_lbs ? Number(trainingProfile.weight_goal_lbs) : null,
         weight_goal_date: trainingProfile.weight_goal_date || null,
+        phase_start_date: trainingProfile.phase_start_date || null,
         primary_goal: null,
         secondary_goal: null,
         priority_muscles: trainingProfile.priority_muscles.length > 0 ? trainingProfile.priority_muscles : null,
@@ -981,6 +985,17 @@ export default function Profile() {
                       onChange={(e: any) => setTrainingProfile(p => ({ ...p, weight_goal_date: e.target.value }))}
                     />
                   </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ flex: 1 }}>
+                    <InputField
+                      label="Phase Start Date"
+                      type="date"
+                      value={trainingProfile.phase_start_date}
+                      onChange={(e: any) => setTrainingProfile(p => ({ ...p, phase_start_date: e.target.value }))}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }} />
                 </div>
 
                 <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '-4px', marginTop: '4px' }}>

@@ -391,7 +391,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
         `SELECT body_weight_lbs, gender, age, training_goal, job_activity_level,
                 available_days_per_week, session_duration_minutes,
                 height_feet, height_inches, weight_goal_lbs, weight_goal_date,
-                experience_level, created_at
+                phase_start_date, experience_level, created_at
          FROM user_preferences WHERE user_id = $1 LIMIT 1`,
         [userId]
       ),
@@ -438,19 +438,32 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     const workoutStats = workoutStatsResult.rows[0] || {}
     const nutritionStats = nutritionStatsResult.rows[0] || {}
 
+    const phaseStartDateStr = prefs.phase_start_date || null
+    const phaseStartDate = phaseStartDateStr
+      ? new Date(phaseStartDateStr + 'T12:00:00')
+      : null
+
     const latestWeight = weightHistory.length > 0
       ? Number(weightHistory[weightHistory.length - 1].weight)
       : Number(prefs.body_weight_lbs) || 170
-    const startWeight = weightHistory.length > 0
-      ? Number(weightHistory[0].weight)
-      : Number(prefs.body_weight_lbs) || latestWeight
+
+    // Start weight: use weight at phase start date if available, else first weight log, else prefs
+    let startWeight = Number(prefs.body_weight_lbs) || latestWeight
+    if (phaseStartDate && weightHistory.length > 0) {
+      const atStart = weightHistory.find(w => new Date(w.date + 'T12:00:00') >= phaseStartDate)
+      if (atStart) startWeight = Number(atStart.weight)
+      else startWeight = Number(weightHistory[0].weight)
+    } else if (weightHistory.length > 0) {
+      startWeight = Number(weightHistory[0].weight)
+    }
 
     const goalDate = new Date(goalDateStr + 'T12:00:00')
     const now = new Date()
+    const phaseOrigin = phaseStartDate || new Date(prefs.created_at || goalDateStr)
     const totalLbsToChange = goalWeight - startWeight
     const lbsRemaining = goalWeight - latestWeight
     const lbsCompleted = latestWeight - startWeight
-    const msTotal = goalDate.getTime() - new Date(prefs.created_at || goalDateStr).getTime()
+    const msTotal = goalDate.getTime() - phaseOrigin.getTime()
     const msRemaining = goalDate.getTime() - now.getTime()
     const weeksRemaining = Math.max(0, msRemaining / (7 * 24 * 60 * 60 * 1000))
     const weeksTotal = Math.max(1, msTotal / (7 * 24 * 60 * 60 * 1000))
@@ -497,7 +510,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     for (let i = 1; i <= milestoneCount; i++) {
       const fraction = i / milestoneCount
       const milestoneWeight = Math.round((startWeight + totalLbsToChange * fraction) * 10) / 10
-      const milestoneDate = new Date(new Date(prefs.created_at || goalDateStr).getTime() + msTotal * fraction)
+      const milestoneDate = new Date(phaseOrigin.getTime() + msTotal * fraction)
       const reached = phase === 'cut'
         ? latestWeight <= milestoneWeight
         : latestWeight >= milestoneWeight
@@ -537,6 +550,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     return res.json({
       plan: {
         phase,
+        phase_start_date: phaseStartDateStr,
         start_weight: Math.round(startWeight * 10) / 10,
         current_weight: Math.round(latestWeight * 10) / 10,
         goal_weight: goalWeight,

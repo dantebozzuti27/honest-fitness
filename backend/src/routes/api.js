@@ -25,6 +25,16 @@ export const apiRouter = express.Router()
 // (triggers JWKS pre-fetch + DB pool warm-up at module load) before critical writes.
 apiRouter.get('/ping', (_req, res) => res.json({ ok: true }))
 
+// One-shot idempotent DDL migration — safe to call repeatedly, no auth required
+apiRouter.post('/run-migration-phase-start-date', async (_req, res) => {
+  try {
+    await query('ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS phase_start_date DATE')
+    res.json({ ok: true, message: 'phase_start_date column ensured' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Apply authentication to all API routes
 apiRouter.use(authenticate)
 
@@ -51,7 +61,7 @@ apiRouter.post('/preferences', async (req, res) => {
       'body_weight_lbs', 'experience_level', 'cardio_preference',
       'cardio_frequency_per_week', 'cardio_duration_minutes',
       'preferred_exercises', 'recovery_speed', 'weight_goal_lbs',
-      'weight_goal_date', 'primary_goal', 'secondary_goal',
+      'weight_goal_date', 'phase_start_date', 'primary_goal', 'secondary_goal',
       'priority_muscles', 'weekday_deadlines', 'gym_profiles',
       'active_gym_profile', 'age', 'rest_days', 'sport_focus',
       'sport_season', 'hotel_mode',

@@ -406,7 +406,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
                 COUNT(DISTINCT date)::int AS training_days,
                 MIN(date) AS first_workout,
                 MAX(date) AS last_workout,
-                AVG(duration_minutes)::numeric AS avg_duration
+                AVG(duration)::numeric AS avg_duration
          FROM workouts WHERE user_id = $1`,
         [userId]
       ),

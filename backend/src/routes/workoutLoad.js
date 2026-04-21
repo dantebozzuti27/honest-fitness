@@ -58,6 +58,7 @@ workoutLoadRouter.get('/', async (req, res) => {
       execEventsRows,
       pausedRows,
       sessionRows,
+      bodyAssessmentRows,
     ] = await Promise.all([
       // 1. User preferences (critical — propagate connection errors)
       query('SELECT * FROM user_preferences WHERE user_id = $1', [userId])
@@ -96,7 +97,7 @@ workoutLoadRouter.get('/', async (req, res) => {
       query(
         `SELECT id, name, body_part, category, primary_muscles, secondary_muscles,
                 stabilizer_muscles, movement_pattern, ml_exercise_type, force_type,
-                difficulty, default_tempo, equipment
+                difficulty, default_tempo, equipment, estimated_rom_meters
          FROM exercise_library WHERE is_custom = false`
       ).then(r => r.rows),
 
@@ -162,6 +163,16 @@ workoutLoadRouter.get('/', async (req, res) => {
 
       // 15. Active workout session
       safeQuery('SELECT * FROM active_workout_sessions WHERE user_id = $1', [userId]),
+
+      // 16. Latest body assessment (for physique-aware programming)
+      safeQuery(
+        `SELECT scores, proportional_deficits, shoulder_to_waist_ratio,
+                weak_points, strong_points, measurements, reeves_ideals, date
+         FROM body_assessments
+         WHERE user_id = $1 AND date >= CURRENT_DATE - 30
+         ORDER BY date DESC LIMIT 1`,
+        [userId]
+      ),
     ])
 
     // Stitch workout history into nested format
@@ -188,6 +199,7 @@ workoutLoadRouter.get('/', async (req, res) => {
       todayWorkout,
       pausedWorkout: pausedRows[0] || null,
       activeSession: sessionRows[0] || null,
+      bodyAssessment: bodyAssessmentRows[0] || null,
     })
   } catch (err) {
     console.error(`[workout-load] FAIL ${Date.now() - t0}ms:`, err.message)

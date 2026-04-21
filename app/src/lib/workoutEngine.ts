@@ -1918,6 +1918,23 @@ function stepSelectMuscleGroups(
 
     let weeklyTarget = (guideline.mavLow + guideline.mavHigh) / 2;
 
+    // Proportional deficit priority: when a body assessment exists, scale volume
+    // targets based on how far the muscle group is from its ideal proportions.
+    if (_activeBodyAssessment) {
+      const deficit = _activeBodyAssessment.proportional_deficits[vol.muscleGroup];
+      if (deficit !== undefined && deficit !== 0) {
+        // deficit < 0 means below ideal → increase target; > 0 means above → decrease
+        const deficitMult = clampNumber(1.0 - deficit * 3.0, 0.6, 2.0);
+        weeklyTarget *= deficitMult;
+      } else {
+        const score = _activeBodyAssessment.scores[vol.muscleGroup];
+        if (score !== undefined) {
+          const visualMult = clampNumber(1.0 + (7 - score) / 10 * 2.0, 0.6, 1.8);
+          weeklyTarget *= visualMult;
+        }
+      }
+    }
+
     // Sport-specific volume scaling
     const sportProfile = getSportProfile(prefs.sport_focus);
     const sportMuscle = sportProfile?.muscleGroupPriorities.find(p => p.muscleGroup === vol.muscleGroup);
@@ -2291,26 +2308,73 @@ const APOLLO_IDEAL_PROPORTIONS: Record<string, number> = {
   erector_spinae: 0.02, rotator_cuff: 0.01,
 };
 
+export interface BodyAssessment {
+  scores: Record<string, number>;
+  proportional_deficits: Record<string, number>;
+  shoulder_to_waist_ratio: number | null;
+  weak_points: string[];
+  strong_points: string[];
+  measurements: Record<string, number>;
+  reeves_ideals: Record<string, number>;
+  date: string;
+}
+
+let _activeBodyAssessment: BodyAssessment | null = null;
+
+export function setActiveBodyAssessment(assessment: BodyAssessment | null): void {
+  _activeBodyAssessment = assessment;
+}
+
 function computeAestheticDeficitMultiplier(
   muscleGroup: string,
   volumeStatuses: TrainingProfile['muscleVolumeStatuses']
 ): { multiplier: number; detail: string } {
   const ideal = APOLLO_IDEAL_PROPORTIONS[muscleGroup];
-  if (!ideal || !volumeStatuses?.length) return { multiplier: 1.0, detail: '' };
+  if (!ideal) return { multiplier: 1.0, detail: '' };
 
-  const totalSets = volumeStatuses.reduce((sum, v) => sum + (v.currentWeekly ?? 0), 0);
+  // Visual assessment layer: when a recent body assessment exists, use it as the primary signal
+  if (_activeBodyAssessment) {
+    const deficit = _activeBodyAssessment.proportional_deficits[muscleGroup];
+    if (deficit !== undefined && deficit !== 0) {
+      // deficit is negative when below ideal, positive when above
+      // e.g. -0.15 = 15% below ideal → boost; +0.10 = 10% above → dampen
+      const mult = clampNumber(1.0 - deficit * 3.0, 0.6, 2.0);
+      const direction = deficit < 0 ? 'below' : 'above';
+      return {
+        multiplier: mult,
+        detail: `Physique assessment: ${muscleGroup} ${Math.abs(deficit * 100).toFixed(0)}% ${direction} ideal (×${mult.toFixed(2)})`,
+      };
+    }
+    // If the muscle group has a visual score, derive a deficit from that
+    const score = _activeBodyAssessment.scores[muscleGroup];
+    if (score !== undefined) {
+      const visualDeficit = (7 - score) / 10; // 7 is the "proportionate" threshold
+      if (Math.abs(visualDeficit) > 0.05) {
+        const mult = clampNumber(1.0 + visualDeficit * 2.5, 0.6, 2.0);
+        return {
+          multiplier: mult,
+          detail: `Visual score: ${muscleGroup} ${score.toFixed(1)}/10 (×${mult.toFixed(2)})`,
+        };
+      }
+    }
+  }
+
+  // Fallback: volume-based proportional scoring
+  if (!volumeStatuses?.length) return { multiplier: 1.0, detail: '' };
+
+  const totalSets = volumeStatuses.reduce((sum, v) => sum + (v.weeklyDirectSets ?? 0), 0);
   if (totalSets === 0) return { multiplier: 1.0, detail: '' };
 
   const entry = volumeStatuses.find(v => v.muscleGroup === muscleGroup);
-  const actual = entry ? (entry.currentWeekly ?? 0) / totalSets : 0;
-  const deficit = ideal - actual;
+  const actual = entry ? (entry.weeklyDirectSets ?? 0) / totalSets : 0;
+  const volumeDeficit = ideal - actual;
 
-  if (deficit > 0.03) {
-    const mult = Math.min(2.0, 1.0 + deficit * 15);
-    return { multiplier: mult, detail: `Aesthetic deficit: ${muscleGroup} under-trained (${(actual * 100).toFixed(0)}% vs ${(ideal * 100).toFixed(0)}% ideal, ×${mult.toFixed(2)})` };
-  } else if (deficit < -0.03) {
-    const mult = Math.max(0.7, 1.0 + deficit * 5);
-    return { multiplier: mult, detail: `Aesthetic surplus: ${muscleGroup} over-represented (×${mult.toFixed(2)})` };
+  if (volumeDeficit > 0.03) {
+    const mult = Math.min(2.0, 1.0 + volumeDeficit * 15);
+    return { multiplier: mult, detail: `Volume deficit: ${muscleGroup} under-trained (${(actual * 100).toFixed(0)}% vs ${(ideal * 100).toFixed(0)}% ideal, ×${mult.toFixed(2)})` };
+  } else if (volumeDeficit < -0.03) {
+    const mult = Math.max(0.7, 1.0 + volumeDeficit * 5);
+    return { multiplier: mult, detail: `Volume surplus: ${muscleGroup} over-represented (×${mult.toFixed(2)})` };
   }
   return { multiplier: 1.0, detail: '' };
 }
@@ -5597,6 +5661,7 @@ function validateAndCorrect(
 export interface PreFetchedEngineData {
   preferences?: UserPreferences;
   exerciseLibrary?: EnrichedExercise[];
+  bodyAssessment?: BodyAssessment | null;
 }
 
 export async function generateWorkout(
@@ -5621,6 +5686,11 @@ export async function generateWorkout(
         fetchAllExercises(),
       ]);
   stageEnd(tFetch);
+
+  // Activate body assessment for physique-aware programming
+  if (prefetched?.bodyAssessment) {
+    setActiveBodyAssessment(prefetched.bodyAssessment);
+  }
 
   if (overrides?.goalOverride) {
     prefs.training_goal = overrides.goalOverride;
@@ -6141,6 +6211,10 @@ export async function generateWorkout(
     totalMs: Math.round((nowMs() - perfStart) * 100) / 100,
     stagesMs: stageMarks,
   };
+
+  // Clear the active body assessment to prevent leaking across calls
+  setActiveBodyAssessment(null);
+
   return workout;
 }
 

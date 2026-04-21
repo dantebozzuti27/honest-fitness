@@ -31,6 +31,7 @@ import Sheet from '../components/ui/Sheet'
 import IconButton from '../components/ui/IconButton'
 import { uuidv4 } from '../utils/uuid'
 import { logExerciseSwapToSupabase } from '../lib/swapLogging'
+import { getExerciseRom, computeMechanicalWork, formatJoules } from '../lib/exerciseRom'
 import styles from './ActiveWorkout.module.css'
 
 function normalizeActiveWorkoutEntry(location: any) {
@@ -185,7 +186,7 @@ export default function ActiveWorkout() {
   }, [location.key])
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
-  const [calculatedWorkoutMetrics, setCalculatedWorkoutMetrics] = useState<{ calories: number | null; steps: number | null }>({ calories: null, steps: null }) // Calculated workout metrics for display
+  const [calculatedWorkoutMetrics, setCalculatedWorkoutMetrics] = useState<{ calories: number | null; steps: number | null; mechanicalWork: number | null }>({ calories: null, steps: null, mechanicalWork: null })
   const pauseStartTime = useRef<number | null>(null)
   const pausedTimeRef = useRef(0) // Ref to track paused time for timer calculations
   const workoutTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -2147,10 +2148,22 @@ export default function ActiveWorkout() {
       }
     }
     
-    // Store calculated metrics for display in summary modal
+    // Compute mechanical work from current exercises
+    let mechWork = 0
+    for (const ex of exercises) {
+      if (ex.category === 'Cardio' || ex.category === 'Recovery') continue
+      const rom = getExerciseRom(ex.name || '', ex.movementPattern, ex.exerciseType)
+      for (const s of (ex.sets || [])) {
+        const w = Number(s.weight) || 0
+        const r = Number(s.reps) || 0
+        mechWork += computeMechanicalWork(w, r, rom)
+      }
+    }
+
     setCalculatedWorkoutMetrics({
       calories: workoutCaloriesBurned,
-      steps: workoutSteps
+      steps: workoutSteps,
+      mechanicalWork: mechWork > 0 ? mechWork : null,
     })
     
     setShowSummary(true)
@@ -2426,6 +2439,7 @@ export default function ActiveWorkout() {
           ).then(intradayMetrics => {
             if (intradayMetrics?.totalCalories != null || intradayMetrics?.avgHr != null) {
               setCalculatedWorkoutMetrics(prev => ({
+                ...prev,
                 calories: intradayMetrics.totalCalories ?? prev.calories,
                 steps: intradayMetrics.totalSteps ?? prev.steps,
               }))
@@ -3235,8 +3249,7 @@ export default function ActiveWorkout() {
             </div>
             <p className={styles.summaryDuration}>{formatTime(workoutTime)}</p>
             
-            {/* Display calculated workout metrics if available */}
-            {(calculatedWorkoutMetrics.calories != null || calculatedWorkoutMetrics.steps != null) && (
+            {(calculatedWorkoutMetrics.calories != null || calculatedWorkoutMetrics.steps != null || calculatedWorkoutMetrics.mechanicalWork != null) && (
               <div className={styles.summaryMetrics}>
                 {calculatedWorkoutMetrics.calories != null && (
                   <div className={styles.summaryMetric}>
@@ -3248,6 +3261,12 @@ export default function ActiveWorkout() {
                   <div className={styles.summaryMetric}>
                     <span className={styles.summaryMetricLabel}>Steps:</span>
                     <span className={styles.summaryMetricValue}>{calculatedWorkoutMetrics.steps.toLocaleString()}</span>
+                  </div>
+                )}
+                {calculatedWorkoutMetrics.mechanicalWork != null && (
+                  <div className={styles.summaryMetric}>
+                    <span className={styles.summaryMetricLabel}>Mechanical Work:</span>
+                    <span className={styles.summaryMetricValue}>{formatJoules(calculatedWorkoutMetrics.mechanicalWork)}</span>
                   </div>
                 )}
               </div>

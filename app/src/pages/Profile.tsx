@@ -1316,6 +1316,13 @@ export default function Profile() {
               </div>
             </section>
 
+            {/* Physique Check-In */}
+            <section style={{ padding: '16px', margin: '0 16px 16px' }}>
+              <Button variant="secondary" onClick={() => navigate('/physique')} style={{ width: '100%' }}>
+                Physique Check-In
+              </Button>
+            </section>
+
             {/* How It Works */}
             <section style={{ padding: '16px', margin: '0 16px 16px' }}>
               <Button variant="secondary" onClick={() => navigate('/how-it-works')} style={{ width: '100%' }}>

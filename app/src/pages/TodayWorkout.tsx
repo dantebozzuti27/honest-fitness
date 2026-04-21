@@ -675,6 +675,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       const w = await generateWorkout(tp, undefined, {
         preferences: parsedPrefs,
         exerciseLibrary: serverData.exerciseLibrary || [],
+        bodyAssessment: serverData.bodyAssessment || null,
       })
       console.log(`[PERF] generateWorkout: ${(performance.now()-t4).toFixed(0)}ms, exercises=${w?.exercises?.length}`)
       setWorkout(w)

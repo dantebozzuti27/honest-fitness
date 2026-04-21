@@ -239,7 +239,7 @@ nutritionApiRouter.get('/targets', async (req, res) => {
     const userId = req.userId
     if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
-    const [prefsResult, recentWeightResult] = await Promise.all([
+    const [prefsResult, recentWeightResult, fitbitResult] = await Promise.all([
       query(
         `SELECT body_weight_lbs, gender, age, training_goal, job_activity_level,
                 available_days_per_week, session_duration_minutes,
@@ -251,6 +251,17 @@ nutritionApiRouter.get('/targets', async (req, res) => {
         `SELECT weight FROM health_metrics
          WHERE user_id = $1 AND weight IS NOT NULL
          ORDER BY date DESC LIMIT 1`,
+        [userId]
+      ),
+      query(
+        `SELECT AVG(calories_burned)::numeric AS avg_total_cal,
+                AVG(steps)::numeric AS avg_steps,
+                AVG(sleep_duration)::numeric AS avg_sleep,
+                AVG(COALESCE(active_minutes_fairly, 0) + COALESCE(active_minutes_very, 0))::numeric AS avg_active_min
+         FROM health_metrics
+         WHERE user_id = $1
+           AND date >= CURRENT_DATE - 14
+           AND calories_burned IS NOT NULL`,
         [userId]
       ),
     ])
@@ -274,7 +285,7 @@ nutritionApiRouter.get('/targets', async (req, res) => {
     const totalInches = heightFt > 0 ? heightFt * 12 + heightIn : (gender === 'female' ? 64 : 69)
     const heightCm = totalInches * 2.54
 
-    // Mifflin-St Jeor BMR (the gold standard for non-indirect-calorimetry)
+    // Mifflin-St Jeor BMR
     const bmr = gender === 'female'
       ? 10 * bwKg + 6.25 * heightCm - 5 * age - 161
       : 10 * bwKg + 6.25 * heightCm - 5 * age + 5
@@ -282,7 +293,13 @@ nutritionApiRouter.get('/targets', async (req, res) => {
     const activityMultipliers = {
       sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9,
     }
-    const tdee = bmr * (activityMultipliers[activityLevel] || 1.55)
+    const estimatedTdee = bmr * (activityMultipliers[activityLevel] || 1.55)
+
+    // Prefer actual Fitbit TDEE when available
+    const fitbitStats = fitbitResult.rows[0] || {}
+    const fitbitTdee = fitbitStats.avg_total_cal ? Math.round(Number(fitbitStats.avg_total_cal)) : null
+    const tdee = fitbitTdee || estimatedTdee
+    const tdeeSource = fitbitTdee ? 'fitbit' : 'estimated'
 
     // Timeline-aware caloric adjustment
     const goalWeight = Number(prefs.weight_goal_lbs) || null
@@ -301,12 +318,10 @@ nutritionApiRouter.get('/targets', async (req, res) => {
       lbsToGoal = goalWeight - bw
 
       if (Math.abs(lbsToGoal) < 1) {
-        // Already at goal
         calAdjust = 0
         weeklyRateLbs = 0
         timelineStatus = 'at_goal'
       } else if (weeksRemaining <= 0) {
-        // Past deadline — use moderate defaults
         calAdjust = lbsToGoal > 0 ? 300 : -500
         weeklyRateLbs = lbsToGoal > 0 ? 0.5 : -1.0
         timelineStatus = 'past_deadline'
@@ -314,39 +329,28 @@ nutritionApiRouter.get('/targets', async (req, res) => {
         weeklyRateLbs = lbsToGoal / weeksRemaining
 
         if (lbsToGoal < 0) {
-          // CUTTING: need to lose weight
-          // 1 lb fat ≈ 3500 kcal. Clamp to evidence-based safe range: 0.5-1% BW/wk
           const maxLossPerWk = bw * 0.01
           const minLossPerWk = bw * 0.003
           const clampedRate = Math.max(-maxLossPerWk, Math.min(-minLossPerWk, weeklyRateLbs))
-          calAdjust = Math.round(clampedRate * 3500 / 7) // daily deficit
+          calAdjust = Math.round(clampedRate * 3500 / 7)
           weeklyRateLbs = clampedRate
-          timelineStatus = weeklyRateLbs < -maxLossPerWk
-            ? 'aggressive' // timeline demands faster than safe rate
-            : 'on_track'
+          timelineStatus = weeklyRateLbs < -maxLossPerWk ? 'aggressive' : 'on_track'
         } else {
-          // BULKING: need to gain weight
-          // Lean gain ceiling ~0.25-0.5 lb/wk for advanced lifters, 0.5-1.0 for intermediates
           const maxGainPerWk = 0.75
           const clampedRate = Math.min(maxGainPerWk, weeklyRateLbs)
-          calAdjust = Math.round(clampedRate * 3500 / 7) // daily surplus
+          calAdjust = Math.round(clampedRate * 3500 / 7)
           weeklyRateLbs = clampedRate
           timelineStatus = 'on_track'
         }
       }
     } else {
-      // No goal set — use flat defaults
       const phaseCalAdjust = { bulk: 300, cut: -500, maintain: 0 }
       calAdjust = phaseCalAdjust[phase] || 0
     }
 
     const targetCal = Math.round(tdee + calAdjust)
 
-    // Protein per lb of bodyweight — evidence-based ranges:
-    // Bulk: 0.9g/lb (surplus provides protein-sparing effect)
-    // Cut: 1.0g/lb (higher end to preserve muscle in deficit)
-    // Maintain: 0.8g/lb (adequate for maintenance)
-    // Only push to 1.1 in aggressive deficit (>600 cal) for very lean individuals
+    // Protein per lb — evidence-based
     const baseProteinPerLb = { bulk: 0.9, cut: 1.0, maintain: 0.8 }
     let proteinMultiplier = baseProteinPerLb[phase] || 0.9
     if (phase === 'cut' && calAdjust < -600) proteinMultiplier = 1.1
@@ -355,6 +359,11 @@ nutritionApiRouter.get('/targets', async (req, res) => {
     const fatPct = phase === 'cut' ? 0.30 : 0.25
     const fatG = Math.round((targetCal * fatPct) / 9)
     const carbG = Math.round((targetCal - proteinG * 4 - fatG * 9) / 4)
+
+    // Fitbit actuals for display
+    const fitbitAvgSteps = fitbitStats.avg_steps ? Math.round(Number(fitbitStats.avg_steps)) : null
+    const fitbitAvgSleep = fitbitStats.avg_sleep ? Math.round(Number(fitbitStats.avg_sleep) / 60 * 10) / 10 : null
+    const fitbitAvgActiveMins = fitbitStats.avg_active_min ? Math.round(Number(fitbitStats.avg_active_min)) : null
 
     return res.json({
       targets: {
@@ -368,7 +377,16 @@ nutritionApiRouter.get('/targets', async (req, res) => {
       body_weight_lbs: bw,
       bmr: Math.round(bmr),
       tdee: Math.round(tdee),
+      tdee_source: tdeeSource,
+      tdee_estimated: Math.round(estimatedTdee),
+      tdee_fitbit: fitbitTdee,
       caloric_adjustment: calAdjust,
+      fitbit: {
+        avg_steps: fitbitAvgSteps,
+        avg_sleep_hours: fitbitAvgSleep,
+        avg_active_minutes: fitbitAvgActiveMins,
+        avg_calories_burned: fitbitTdee,
+      },
       weight_goal: goalWeight ? {
         target_lbs: goalWeight,
         target_date: goalDateStr,

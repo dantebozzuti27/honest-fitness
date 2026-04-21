@@ -65,13 +65,24 @@ interface WeightGoalInfo {
   timeline_status: string | null
 }
 
+interface FitbitData {
+  avg_steps: number | null
+  avg_sleep_hours: number | null
+  avg_active_minutes: number | null
+  avg_calories_burned: number | null
+}
+
 interface TargetsResponse {
   targets: Targets | null
   phase: string
   body_weight_lbs: number
   bmr: number
   tdee: number
+  tdee_source?: 'fitbit' | 'estimated'
+  tdee_estimated?: number
+  tdee_fitbit?: number | null
   caloric_adjustment?: number
+  fitbit?: FitbitData | null
   weight_goal?: WeightGoalInfo | null
 }
 
@@ -118,6 +129,9 @@ export default function Nutrition() {
   const [phase, setPhase] = useState<string>('maintain')
   const [weightGoal, setWeightGoal] = useState<WeightGoalInfo | null>(null)
   const [caloricAdjustment, setCaloricAdjustment] = useState<number>(0)
+  const [tdeeSource, setTdeeSource] = useState<string>('estimated')
+  const [fitbitData, setFitbitData] = useState<FitbitData | null>(null)
+  const [tdeeValue, setTdeeValue] = useState<number>(0)
   const [loading, setLoading] = useState(true)
 
   // AI parse state
@@ -154,6 +168,9 @@ export default function Nutrition() {
       if (data.phase) setPhase(data.phase)
       setWeightGoal(data.weight_goal ?? null)
       setCaloricAdjustment(data.caloric_adjustment ?? 0)
+      setTdeeSource(data.tdee_source ?? 'estimated')
+      setFitbitData(data.fitbit ?? null)
+      setTdeeValue(data.tdee ?? 0)
     } catch (err) {
       console.error('Failed to load targets:', err)
     }
@@ -283,6 +300,31 @@ export default function Nutrition() {
           <span className={styles.dateLabel}>{formatDate(selectedDate)}</span>
           <button className={styles.dateBtn} onClick={() => shiftDate(1)}>&rarr;</button>
         </div>
+
+        {/* TDEE source + Fitbit actuals */}
+        {targets && (
+          <div style={{ fontSize: 11, fontWeight: 600, color: tdeeSource === 'fitbit' ? '#22c55e' : 'var(--text-tertiary)', marginBottom: -8 }}>
+            {tdeeSource === 'fitbit'
+              ? `Targets based on Fitbit data \u2014 TDEE: ${tdeeValue.toLocaleString()} cal/day`
+              : 'Targets estimated \u2014 connect Fitbit for personalized data'}
+          </div>
+        )}
+        {fitbitData && tdeeSource === 'fitbit' && (
+          <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--text-secondary)', flexWrap: 'wrap', marginBottom: -4 }}>
+            {fitbitData.avg_calories_burned != null && (
+              <span>Burn avg: {fitbitData.avg_calories_burned.toLocaleString()} cal</span>
+            )}
+            {fitbitData.avg_steps != null && (
+              <span>Steps avg: {(fitbitData.avg_steps / 1000).toFixed(1)}k</span>
+            )}
+            {fitbitData.avg_sleep_hours != null && (
+              <span>Sleep avg: {fitbitData.avg_sleep_hours}h</span>
+            )}
+            {fitbitData.avg_active_minutes != null && (
+              <span>Active avg: {fitbitData.avg_active_minutes} min</span>
+            )}
+          </div>
+        )}
 
         {/* Macro summary */}
         <div className={styles.macroGrid}>

@@ -196,7 +196,7 @@ export interface ModelConfig {
 
 // Version stamps persisted with generated workouts for reproducibility.
 export const MODEL_CONFIG_VERSION = '2026-03-24.1';
-export const WORKOUT_ENGINE_VERSION = '2026-03-26.2';
+export const WORKOUT_ENGINE_VERSION = '2026-04-21.1';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery

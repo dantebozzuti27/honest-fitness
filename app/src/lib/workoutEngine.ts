@@ -3816,9 +3816,13 @@ function stepPrescribe(
       : estimateExerciseMinutes(sets, restSeconds, role, warmupSets?.length ?? 0, targetReps, tempo);
 
     // Weight sanity cap: prevent absurd prescriptions from bad estimates or inflated 1RMs.
-    // Isolation and accessory exercises should never approach compound-lift territory.
+    // Caps are tiered by equipment, exercise type, AND exercise role.
     if (targetWeight != null && !isBodyweight) {
       const bw = prefs.body_weight_lbs ?? 200;
+      const exName = sel.exercise.name.toLowerCase();
+
+      const isBigThree = /^(bench press|barbell bench press|flat bench press|squat|back squat|barbell squat|barbell back squat|deadlift|conventional deadlift|barbell deadlift)$/i.test(exName);
+
       let maxPlausible: number;
       if (exType === 'isolation') {
         maxPlausible = bw * 0.75;
@@ -3828,9 +3832,14 @@ function stepPrescribe(
         maxPlausible = bw * 2.5;
       } else if (equipment.includes('dumbbell')) {
         maxPlausible = bw * 0.65;
-      } else {
+      } else if (isBigThree) {
         maxPlausible = bw * 3.0;
+      } else if (role === 'primary') {
+        maxPlausible = bw * 2.0;
+      } else {
+        maxPlausible = bw * 1.5;
       }
+
       if (targetWeight > maxPlausible) {
         adjustments.push(`Weight capped: ${targetWeight} → ${Math.round(maxPlausible)} lbs (sanity limit for ${exType ?? 'exercise'})`);
         targetWeight = Math.round(maxPlausible);

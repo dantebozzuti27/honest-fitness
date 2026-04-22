@@ -62,6 +62,192 @@ function resolveToCanonicalGroup(raw: string): CanonicalMuscleGroup | undefined 
   return MUSCLE_HEAD_TO_GROUP[key] ?? MUSCLE_HEAD_TO_GROUP[raw];
 }
 
+// ─── Exercise Identity (structured lookup layer) ─────────────────────────────
+
+const COMPOUND_MOVEMENT_PATTERNS = new Set([
+  'squat', 'hip_hinge', 'horizontal_push', 'vertical_push',
+  'horizontal_pull', 'vertical_pull', 'lunge', 'compound',
+]);
+
+const BIG_THREE_RE = /^(bench press|barbell bench press|flat bench press|squat|back squat|barbell squat|barbell back squat|deadlift|conventional deadlift|barbell deadlift)$/i;
+const HINGE_NAME_RE = /(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning|deadlift)(\b|$)/i;
+const KNEE_FLEXION_RE = /curl|nordic|glute.ham/i;
+const CORE_FLEXION_RE = /crunch|sit.?up|v.?up/i;
+const CORE_ANTI_RE = /plank|dead.?bug|bird.?dog|pallof|anti/i;
+const CORE_ANTI_EXT_RE = /rollout|ab.?wheel|wheel/i;
+const CORE_ROTATION_RE = /woodchop|russian.?twist|cable.?rotation/i;
+const CORE_HIP_FLEXION_RE = /leg.?raise|hanging|knee.?raise/i;
+const UNLOADED_BW_RE = /\b(glute[- ]?ham|ghr|nordic|sissy squat|pistol squat|body\s*weight|bw |muscle[- ]?up|human flag|l[- ]?sit|planche|dragon flag|burpee|mountain climber|plank|dead hang|inverted row)\b/;
+
+const CNS_DEMAND_NAME_PATTERNS: [RegExp, number][] = [
+  [/\bdeadlift\b/i, 0],
+  [/\bsquat\b/i, 0],
+  [/\bfront squat\b/i, 0],
+  [/\bpower clean\b/i, 0],
+  [/\bclean and press\b/i, 0],
+  [/\bsnatch\b/i, 0],
+  [/\bbench press\b/i, 1],
+  [/\boverhead press\b/i, 1],
+  [/\bmilitary press\b/i, 1],
+  [/\bbarbell row\b/i, 1],
+  [/\bromanian deadlift\b/i, 1],
+  [/\bhip thrust\b/i, 1],
+  [/\bpendlay row\b/i, 1],
+  [/\bt-bar row\b/i, 1],
+  [/\bincline.*press\b/i, 2],
+  [/\bdumbbell.*press\b/i, 2],
+  [/\bdb.*press\b/i, 2],
+  [/\blunge\b/i, 2],
+  [/\bbulgarian\b/i, 2],
+  [/\bpull-?up\b/i, 2],
+  [/\bchin-?up\b/i, 2],
+  [/\bdip\b/i, 2],
+  [/\brow\b/i, 2],
+];
+
+export interface ExerciseIdentity {
+  name: string;
+  movementPattern: string | null;
+  equipment: string | null;
+  exerciseType: string | null;
+  muscleGroup: string | null;
+  isPrimaryLift: boolean;
+  isHinge: boolean;
+  isKneeFlexion: boolean;
+  cardioModality: 'walk' | 'run' | 'stair' | 'bike' | 'row' | 'elliptical' | 'other' | null;
+  corePattern: 'flexion' | 'anti_movement' | 'anti_extension' | 'rotation' | 'hip_flexion' | null;
+  isBodyweight: boolean;
+  cnsDemandTier: number;
+}
+
+function classifyCorePattern(nameLC: string): ExerciseIdentity['corePattern'] {
+  if (CORE_FLEXION_RE.test(nameLC)) return 'flexion';
+  if (CORE_ANTI_RE.test(nameLC)) return 'anti_movement';
+  if (CORE_ANTI_EXT_RE.test(nameLC)) return 'anti_extension';
+  if (CORE_ROTATION_RE.test(nameLC)) return 'rotation';
+  if (CORE_HIP_FLEXION_RE.test(nameLC)) return 'hip_flexion';
+  return null;
+}
+
+function classifyCardioModality(nameLC: string): ExerciseIdentity['cardioModality'] {
+  if (/stairmaster|stair master|stepmill/.test(nameLC)) return 'stair';
+  if (/bike|cycle/.test(nameLC)) return 'bike';
+  if (/row/.test(nameLC)) return 'row';
+  if (/elliptical/.test(nameLC)) return 'elliptical';
+  if (/run|jog|sprint/.test(nameLC)) return 'run';
+  if (/walk|treadmill|incline|hike|ruck/.test(nameLC)) return 'walk';
+  return null;
+}
+
+function classifyCnsDemandFromName(nameLC: string, movementPattern: string | null): number {
+  for (const [pattern, tier] of CNS_DEMAND_NAME_PATTERNS) {
+    if (pattern.test(nameLC)) return tier;
+  }
+  const mp = (movementPattern ?? '').toLowerCase();
+  if (COMPOUND_MOVEMENT_PATTERNS.has(mp)) return 2;
+  if (nameLC.includes('leg press') || nameLC.includes('hack squat') || nameLC.includes('smith')) return 2;
+  if (nameLC.includes('machine') || nameLC.includes('cable')) return 3;
+  if (mp === 'isolation' || mp === 'corrective') return 4;
+  return 3;
+}
+
+/**
+ * Build an ExerciseIdentity from an exercise library entry when available,
+ * falling back to regex-based heuristics for backward compatibility.
+ *
+ * When libraryEntry is provided (from the exercise library DB), structured
+ * fields like movement_pattern, equipment, ml_exercise_type are used directly.
+ * When absent, the existing regex patterns provide identical classification.
+ */
+function classifyExercise(name: string, libraryEntry?: EnrichedExercise | null): ExerciseIdentity {
+  const nameLC = String(name || '').toLowerCase().trim();
+  const equipment = libraryEntry
+    ? (Array.isArray(libraryEntry.equipment) ? libraryEntry.equipment : []).map(normalizeEquipment)
+    : [];
+  const primaryEquipment = equipment[0] ?? null;
+
+  const movementPattern = libraryEntry?.movement_pattern
+    ? String(libraryEntry.movement_pattern).toLowerCase()
+    : null;
+
+  const exerciseType = libraryEntry?.ml_exercise_type
+    ? String(libraryEntry.ml_exercise_type).toLowerCase()
+    : null;
+
+  const muscleGroup = libraryEntry?.primary_muscles?.[0]
+    ? resolveToCanonicalGroup(libraryEntry.primary_muscles[0]) ?? null
+    : null;
+
+  const isHingeByPattern = movementPattern != null
+    && (movementPattern.includes('hinge') || movementPattern === 'hip_hinge');
+  const isHinge = isHingeByPattern || HINGE_NAME_RE.test(nameLC);
+
+  const isPrimaryLift = BIG_THREE_RE.test(nameLC);
+  const isKneeFlexion = KNEE_FLEXION_RE.test(nameLC);
+
+  const isCardioType = exerciseType === 'cardio';
+  const cardioModality = isCardioType
+    ? (classifyCardioModality(nameLC) ?? 'other')
+    : classifyCardioModality(nameLC);
+
+  const corePattern = classifyCorePattern(nameLC);
+
+  const isBodyweight = (equipment.length === 1 && equipment[0] === 'bodyweight')
+    || UNLOADED_BW_RE.test(nameLC)
+    || equipment.includes('bodyweight');
+
+  const cnsDemandTier = classifyCnsDemandFromName(nameLC, movementPattern);
+
+  return {
+    name: nameLC,
+    movementPattern,
+    equipment: primaryEquipment,
+    exerciseType,
+    muscleGroup,
+    isPrimaryLift,
+    isHinge,
+    isKneeFlexion,
+    cardioModality,
+    corePattern,
+    isBodyweight,
+    cnsDemandTier,
+  };
+}
+
+/**
+ * Build ExerciseIdentity from a GeneratedExercise (post-prescription).
+ * Uses the already-resolved fields rather than re-querying the library.
+ */
+function classifyGeneratedExercise(ex: GeneratedExercise): ExerciseIdentity {
+  const nameLC = String(ex.exerciseName || '').toLowerCase().trim();
+  const mp = (ex.movementPattern || '').toLowerCase() || null;
+
+  return {
+    name: nameLC,
+    movementPattern: mp,
+    equipment: null,
+    exerciseType: null,
+    muscleGroup: ex.targetMuscleGroup ?? null,
+    isPrimaryLift: BIG_THREE_RE.test(nameLC),
+    isHinge: (mp != null && (mp.includes('hinge') || mp === 'hip_hinge')) || HINGE_NAME_RE.test(nameLC),
+    isKneeFlexion: KNEE_FLEXION_RE.test(nameLC),
+    cardioModality: ex.isCardio ? (classifyCardioModality(nameLC) ?? 'other') : classifyCardioModality(nameLC),
+    corePattern: classifyCorePattern(nameLC),
+    isBodyweight: ex.isBodyweight,
+    cnsDemandTier: classifyCnsDemandFromName(nameLC, mp),
+  };
+}
+
+const STAPLE_RDL_RE = /(^|\b)(rdl|romanian deadlift)(\b|$)/;
+const STAPLE_LEG_PRESS_RE = /leg\s*press|sled\s*press|45[\s-]*degree\s*leg\s*press/;
+
+function stapleFamilyKey(exerciseName: string): string {
+  const n = String(exerciseName || '').trim().toLowerCase();
+  if (STAPLE_RDL_RE.test(n)) return 'romanian_deadlift';
+  if (STAPLE_LEG_PRESS_RE.test(n)) return 'leg_press';
+  return n;
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface PerformanceGoal {
@@ -77,7 +263,7 @@ export interface UserPreferences {
   primary_goal: string | null;
   secondary_goal: string | null;
   session_duration_minutes: number;
-  equipment_access: 'full_gym' | 'home_gym' | 'limited';
+  equipment_access: 'full_gym' | 'home_gym' | 'limited' | 'bodyweight';
   available_days_per_week: number;
   injuries: Array<{ body_part: string; description: string; severity: string }>;
   exercises_to_avoid: string[];
@@ -149,13 +335,14 @@ export interface GeneratedExercise {
   warmupSets: WarmupSet[] | null;
   supersetGroupId: number | null;
   supersetType: 'antagonist' | 'pre_exhaust' | 'compound_set' | null;
+  rirRange: [number, number] | null;
   impactScore: number | null;
   estimatedMinutes: number;
 }
 
 function isTimedHoldExercise(exerciseName: string): boolean {
-  const n = String(exerciseName || '').toLowerCase();
-  return n.includes('plank');
+  return classifyCorePattern(String(exerciseName || '').toLowerCase()) === 'anti_movement'
+    && String(exerciseName || '').toLowerCase().includes('plank');
 }
 
 function getTimedHoldSeconds(goal: string): number {
@@ -297,7 +484,7 @@ export function parseRawPreferences(data: any): UserPreferences {
       const v = Number(data?.session_duration_minutes ?? data?.session_duration ?? DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes);
       return Number.isFinite(v) && v > 0 ? v : DEFAULT_MODEL_CONFIG.defaultSessionDurationMinutes;
     })(),
-    equipment_access: data?.equipment_access ?? 'full_gym',
+    equipment_access: data?.equipment_access ?? 'bodyweight',
     available_days_per_week: data?.available_days_per_week ?? 5,
     injuries: Array.isArray(rawInjuries) ? rawInjuries : [],
     exercises_to_avoid: Array.isArray(rawAvoid) ? rawAvoid : [],
@@ -407,11 +594,8 @@ function generateId(): string {
  *
  * If a secondary goal is set, ranges are blended 70/30.
  */
-const REP_RANGE_TABLE: Record<string, Record<string, { min: number; max: number; target: number }>> = {
-  bulk:     { primary: { min: 5, max: 8, target: 6 },  secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
-  cut:      { primary: { min: 4, max: 6, target: 5 },  secondary: { min: 6, max: 10, target: 8 },  isolation: { min: 10, max: 12, target: 10 } },
-  maintain: { primary: { min: 5, max: 8, target: 6 },  secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
-};
+const REP_RANGE_TABLE: Record<string, Record<string, { min: number; max: number; target: number }>> =
+  DEFAULT_MODEL_CONFIG.repRangeTable;
 
 function humanizeRepTarget(value: number, min: number, max: number): number {
   const allowed = [3, 4, 5, 6, 8, 10, 12, 15, 20, 25].filter(v => v >= min && v <= max);
@@ -467,21 +651,20 @@ function getRepRangeByRole(
     };
   }
 
-  // Hard-cap compound barbell/machine exercises — 25+ reps at heavy load is nonsensical
   const isCompound = exerciseType === 'compound';
   if (isCompound && roleKey === 'primary') {
-    const MAX_COMPOUND_REPS = 15;
+    const maxReps = (cfg ?? DEFAULT_MODEL_CONFIG).maxCompoundRepsPrimary;
     result = {
       min: result.min,
-      max: Math.min(result.max, MAX_COMPOUND_REPS),
-      target: Math.min(result.target, MAX_COMPOUND_REPS),
+      max: Math.min(result.max, maxReps),
+      target: Math.min(result.target, maxReps),
     };
   } else if (isCompound && roleKey === 'secondary') {
-    const MAX_SECONDARY_COMPOUND_REPS = 18;
+    const maxReps = (cfg ?? DEFAULT_MODEL_CONFIG).maxCompoundRepsSecondary;
     result = {
       min: result.min,
-      max: Math.min(result.max, MAX_SECONDARY_COMPOUND_REPS),
-      target: Math.min(result.target, MAX_SECONDARY_COMPOUND_REPS),
+      max: Math.min(result.max, maxReps),
+      target: Math.min(result.target, maxReps),
     };
   }
 
@@ -504,14 +687,12 @@ function getTieredSets(
   isPriorityMuscle: boolean,
   isDeload: boolean,
   mesocycleVolumeMult?: number,
+  cfg: ModelConfig = DEFAULT_MODEL_CONFIG,
 ): number {
-  const roleBase: Record<string, number> = {
-    primary: 4, secondary: 3, isolation: 2, corrective: 2, cardio: 1,
-  };
-  let sets = roleBase[role] ?? 3;
+  let sets = cfg.roleBaseSets[role] ?? 3;
 
-  if (goal === 'bulk' && (role === 'primary' || role === 'secondary')) sets += 1;
-  if (goal === 'cut') sets = Math.max(sets - 1, 2);
+  if (goal === 'bulk' && (role === 'primary' || role === 'secondary')) sets += cfg.bulkSetsBonus;
+  if (goal === 'cut') sets = Math.max(sets - 1, cfg.cutSetsFloor);
 
   if (isPriorityMuscle && role !== 'corrective') sets += 1;
 
@@ -519,9 +700,9 @@ function getTieredSets(
     sets = Math.round(sets * mesocycleVolumeMult);
   }
 
-  if (isDeload) sets = Math.max(2, Math.round(sets * 0.8));
+  if (isDeload) sets = Math.max(cfg.setsAbsoluteMin, Math.round(sets * cfg.deloadSetMultiplier));
 
-  return Math.max(2, Math.min(8, sets));
+  return Math.max(cfg.setsAbsoluteMin, Math.min(cfg.setsAbsoluteMax, sets));
 }
 
 /**
@@ -540,38 +721,27 @@ function getRirTarget(
   experienceLevel?: string | null,
   mesocycleRirOffset?: number,
   isLastSet?: boolean,
+  cfg: ModelConfig = DEFAULT_MODEL_CONFIG,
 ): number {
-  if (isDeload) return 4;
+  if (isDeload) return cfg.deloadRir;
 
-  const exp = (experienceLevel ?? 'intermediate').toLowerCase();
+  const exp = getExperienceOrDefault(experienceLevel);
 
   let baseRir: number;
   if (exp === 'advanced' || exp === 'elite') {
-    const advancedRir: Record<string, number> = {
-      primary: 1, secondary: 1, isolation: 0, corrective: 2, cardio: 0,
-    };
-    baseRir = advancedRir[role] ?? 1;
+    baseRir = cfg.advancedRirMap[role] ?? 1;
     if (isLastSet && (role === 'primary' || role === 'secondary')) baseRir = 0;
   } else if (exp === 'beginner') {
-    const beginnerRir: Record<string, number> = {
-      primary: 3, secondary: 2, isolation: 2, corrective: 3, cardio: 0,
-    };
-    baseRir = beginnerRir[role] ?? 2;
+    baseRir = cfg.beginnerRirMap[role] ?? 2;
   } else {
-    const intermediateRir: Record<string, number> = {
-      primary: 2, secondary: 1, isolation: 1, corrective: 2, cardio: 0,
-    };
-    baseRir = intermediateRir[role] ?? 1;
+    baseRir = cfg.intermediateRirMap[role] ?? 1;
   }
 
-  const goalRirShift: Record<string, number> = {
-    bulk: 0, cut: 1, maintain: 0,
-  };
-  baseRir += goalRirShift[goal] ?? 0;
+  baseRir += cfg.goalRirShift[goal] ?? 0;
 
   if (mesocycleRirOffset) baseRir += mesocycleRirOffset;
 
-  return Math.max(0, Math.min(4, baseRir));
+  return Math.max(0, Math.min(cfg.deloadRir, baseRir));
 }
 
 /**
@@ -609,13 +779,20 @@ function getRirLabel(rir: number): string {
 
 /**
  * Infer exercise type when no explicit classification exists.
- * Uses muscle count and name heuristics instead of always defaulting to 'compound'.
+ *
+ * Prefers the structured ml_exercise_type from the library. Falls back to
+ * name heuristics + muscle count when classification is missing.
  */
 function inferExerciseType(exercise: EnrichedExercise): string {
-  const name = exercise.name.toLowerCase();
+  if (exercise.ml_exercise_type) return exercise.ml_exercise_type;
+
+  const identity = classifyExercise(exercise.name, exercise);
+  if (identity.cardioModality != null) return 'cardio';
+
   const primaryCount = Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles.length : 0;
   const secondaryCount = Array.isArray(exercise.secondary_muscles) ? exercise.secondary_muscles.length : 0;
 
+  const name = exercise.name.toLowerCase();
   const ISOLATION_KEYWORDS = [
     'curl', 'extension', 'fly', 'raise', 'kickback', 'pushdown',
     'pulldown cable', 'lateral', 'front raise', 'rear delt', 'calf',
@@ -629,32 +806,16 @@ function inferExerciseType(exercise: EnrichedExercise): string {
     'pull-up', 'pullup', 'chin-up', 'chinup', 'dip', 'lunge',
     'clean', 'snatch', 'press', 'thrust',
   ];
-  const CARDIO_KEYWORDS = [
-    'treadmill', 'bike', 'elliptical', 'rowing machine', 'stairmaster',
-    'run', 'jog', 'walk', 'cycling', 'swim', 'jump rope',
-  ];
 
-  if (CARDIO_KEYWORDS.some(k => name.includes(k))) return 'cardio';
   if (ISOLATION_KEYWORDS.some(k => name.includes(k))) return 'isolation';
   if (COMPOUND_KEYWORDS.some(k => name.includes(k))) return 'compound';
 
-  // Heuristic: multi-joint = compound, single-joint = isolation
   if (primaryCount + secondaryCount >= 3) return 'compound';
-
-  // Default to isolation for unknown exercises — safer rest/volume programming
-  // than incorrectly assuming compound (which gives less rest, higher CNS load)
   return 'isolation';
 }
 
 function inferCardioModality(exerciseName: string): 'walk' | 'run' | 'stair' | 'bike' | 'row' | 'elliptical' | 'other' {
-  const n = String(exerciseName || '').toLowerCase();
-  if (/stairmaster|stair master|stepmill/.test(n)) return 'stair';
-  if (/bike|cycle/.test(n)) return 'bike';
-  if (/row/.test(n)) return 'row';
-  if (/elliptical/.test(n)) return 'elliptical';
-  if (/run|jog|sprint/.test(n)) return 'run';
-  if (/walk|treadmill|incline|hike|ruck/.test(n)) return 'walk';
-  return 'other';
+  return classifyCardioModality(String(exerciseName || '').toLowerCase()) ?? 'other';
 }
 
 /**
@@ -692,26 +853,17 @@ function getRestByExercise(
   const secondaryCount = mapping?.secondary_muscles?.length ?? (Array.isArray(exercise.secondary_muscles) ? exercise.secondary_muscles.length : 0);
   const pattern = mapping?.movement_pattern ?? exercise.movement_pattern ?? '';
 
+  const c = cfg ?? DEFAULT_MODEL_CONFIG;
   let demandScore = 0;
-  demandScore += Math.min(primaryCount * 1.2, 5);
-  demandScore += Math.min(secondaryCount * 0.3, 1.5);
-  if (exType === 'compound') demandScore += 2;
+  demandScore += Math.min(primaryCount * c.restDemandPerPrimary, c.restDemandPrimaryCap);
+  demandScore += Math.min(secondaryCount * c.restDemandPerSecondary, c.restDemandSecondaryCap);
+  if (exType === 'compound') demandScore += c.restDemandCompoundBonus;
 
-  const PATTERN_CNS: Record<string, number> = {
-    squat: 2.0, deadlift: 2.0, hip_hinge: 1.8,
-    horizontal_press: 1.3, vertical_press: 1.3, lunge: 1.2,
-    horizontal_pull: 1.0, vertical_pull: 1.0,
-    extension: 0.3, curl: 0.3, fly: 0.3, raise: 0.3, rotation: 0.3,
-    horizontal_push: 1.3, vertical_push: 1.3,
-  };
-  demandScore += PATTERN_CNS[pattern] ?? 0.5;
+  demandScore += c.restPatternCns[pattern] ?? c.restPatternCnsDefault;
 
-  const baseRest = 40 + (demandScore / 10) * 160;
-  const goalMultiplier: Record<string, number> = {
-    bulk: 1.15, cut: 0.85, maintain: 1.0,
-  };
-  const scaled = baseRest * (goalMultiplier[goal] ?? 1.0);
-  return Math.max(30, Math.min(300, Math.round(scaled)));
+  const baseRest = c.restBaseFloor + (demandScore / 10) * c.restDemandScale;
+  const scaled = baseRest * (c.restGoalMultiplier[goal] ?? 1.0);
+  return Math.max(c.restAbsoluteMin, Math.min(c.restAbsoluteMax, Math.round(scaled)));
 }
 
 /**
@@ -759,14 +911,7 @@ function isInjuryConflict(exercise: EnrichedExercise, injuries: UserPreferences[
 // Primary compounds (barbell loading, rack adjustments, safety pins) need more.
 // Isolation machines (pin select, seat adjust) need less.
 // These scale with role as a proxy for equipment complexity.
-const TRANSITION_TIME_SEC: Record<string, number> = {
-  primary: 120,
-  secondary: 90,
-  isolation: 60,
-  corrective: 45,
-  cardio: 60,
-  strength: 90,
-};
+const TRANSITION_TIME_SEC: Record<string, number> = DEFAULT_MODEL_CONFIG.transitionTimeSec;
 
 /**
  * Time-per-exercise estimate including set execution, rest between sets,
@@ -939,17 +1084,13 @@ function computeImpactScore(
   primaryGoal: string,
   _secondaryGoal: string | null
 ): number {
+  const cfg = DEFAULT_MODEL_CONFIG;
   const primaryMuscleCount = Array.isArray(exercise.primary_muscles) ? exercise.primary_muscles.length : 0;
   const isCompound = exercise.ml_exercise_type === 'compound';
   const compoundBonus = isCompound ? 3 : 0;
   const massBonus = Math.min(primaryMuscleCount, 5);
 
-  const phaseWeights: Record<string, { compound: number; mass: number; metabolic: number }> = {
-    bulk:     { compound: 1.5, mass: 1.5, metabolic: 0.5 },
-    cut:      { compound: 1.2, mass: 1.0, metabolic: 1.5 },
-    maintain: { compound: 1.3, mass: 1.2, metabolic: 0.8 },
-  };
-  const w = phaseWeights[primaryGoal] ?? phaseWeights.maintain;
+  const w = cfg.impactPhaseWeights[primaryGoal] ?? cfg.impactPhaseWeights.maintain;
   let score = compoundBonus * w.compound + massBonus * w.mass;
   if (!isCompound) score += w.metabolic;
 
@@ -960,15 +1101,23 @@ function computeImpactScore(
   const primaries = Array.isArray(exercise.primary_muscles)
     ? exercise.primary_muscles.map((m: string) => normalizeMuscleName(m))
     : [];
-  if (primaries.some((m: string) => V_TAPER_HEAD_NAMES.has(m))) score += 2;
+  if (primaries.some((m: string) => V_TAPER_HEAD_NAMES.has(m))) score += cfg.impactVTaperBonus;
 
-  if (role === 'corrective') score *= 2.0;
-  if (role === 'primary') score *= 1.3;
+  if (role === 'corrective') score *= cfg.impactCorrectiveMultiplier;
+  if (role === 'primary') score *= cfg.impactPrimaryMultiplier;
 
   const isIsolation = exercise.ml_exercise_type === 'isolation';
-  if (isIsolation) score += 1.5;
+  if (isIsolation) score += cfg.impactIsolationBonus;
 
   return Math.round(score * 10) / 10;
+}
+
+const EXPERIENCE_DEFAULT = 'intermediate';
+
+function getExperienceOrDefault(raw: string | null | undefined): string {
+  if (raw != null && raw !== '') return raw.toLowerCase();
+  logWarn('experience_level missing — defaulting to intermediate. Prescription accuracy may be reduced.');
+  return EXPERIENCE_DEFAULT;
 }
 
 /** Apollo phase is the single source of truth for all goal-keyed logic */
@@ -1063,28 +1212,37 @@ function getNutritionAdherenceSignal(profile: TrainingProfile): number {
   if (nutritionCov != null && nutritionCov > 0) return clampNumber(nutritionCov, 0, 1);
 
   // Fall back to workout compliance as a rough proxy when no nutrition data exists
-  const fromCompliance = Number(profile.prescribedVsActual?.complianceRate ?? 0.7);
-  return clampNumber(fromCompliance * 0.8, 0, 1);
+  const rawCompliance = profile.prescribedVsActual?.complianceRate ?? null;
+  if (rawCompliance == null) return 0.5;
+  return clampNumber(Number(rawCompliance) * 0.8, 0, 1);
 }
 
 function computePolicyFusion(
   profile: TrainingProfile,
   fatLossController: FatLossControllerAdjustment
 ): PolicyFusionAdjustment {
-  const readiness = Number(profile.fitnessFatigueModel?.readiness ?? 0.75);
-  const adherence = Number(profile.prescribedVsActual?.complianceRate ?? 0.7);
+  const rawReadiness = profile.fitnessFatigueModel?.readiness ?? null;
+  const rawCompliance = profile.prescribedVsActual?.complianceRate ?? null;
+  const readiness = rawReadiness != null ? Number(rawReadiness) : 0.75;
+  const adherence = rawCompliance != null ? Number(rawCompliance) : 0.5;
   const nutritionAdherence = getNutritionAdherenceSignal(profile);
   const strengthSlope = Number(profile.rolling30DayTrends?.totalStrengthIndex?.slopePct ?? 0);
   const strengthDirection = profile.rolling30DayTrends?.totalStrengthIndex?.direction ?? 'flat';
 
-  const readinessMultiplier = clampNumber(0.9 + readiness * 0.2, 0.9, 1.08);
-  const nutritionMultiplier = clampNumber(0.92 + nutritionAdherence * 0.16, 0.92, 1.08);
+  // Skip readiness-based modification when no readiness data exists
+  const readinessMultiplier = rawReadiness != null
+    ? clampNumber(0.9 + readiness * 0.2, 0.9, 1.08)
+    : 1.0;
+  // Skip nutrition-based modification when no compliance data exists
+  const nutritionMultiplier = rawCompliance != null
+    ? clampNumber(0.92 + nutritionAdherence * 0.16, 0.92, 1.08)
+    : 1.0;
   const strengthMultiplier = strengthDirection === 'down'
     ? clampNumber(0.98 + (strengthSlope / 100), 0.90, 1.0)
     : clampNumber(1.0 + (strengthSlope / 100), 1.0, 1.08);
 
   // Confidence degrades when signals disagree strongly.
-  const agreement = 1 - Math.abs(readiness - nutritionAdherence);
+  const agreement = rawReadiness != null ? 1 - Math.abs(readiness - nutritionAdherence) : 0.5;
   const confidence = clampNumber((agreement * 0.4) + (adherence * 0.4) + (fatLossController.active ? 0.2 : 0.1), 0, 1);
 
   const progressionMultiplier = clampNumber(
@@ -1104,7 +1262,7 @@ function computePolicyFusion(
   };
 }
 
-function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreferences): HighCapacityPushAdjustment {
+function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreferences, cfg: ModelConfig = DEFAULT_MODEL_CONFIG): HighCapacityPushAdjustment {
   const exp = String(prefs.experience_level || '').toLowerCase();
   const advancedFlag = exp.includes('advanced') || exp.includes('elite') || exp.includes('expert');
   const athleteScore = Number(profile.athleteProfile?.overallScore ?? 0);
@@ -1115,10 +1273,11 @@ function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreference
   const adherence = profile.prescribedVsActual?.complianceRate
     ?? profile.canonicalModelContext?.adherenceScore
     ?? 0.5;
-  const readiness = profile.fitnessFatigueModel?.readiness ?? 0.75;
+  const rawReadiness = profile.fitnessFatigueModel?.readiness ?? null;
+  const readiness = rawReadiness != null ? Number(rawReadiness) : null;
   const goal = getEffectiveGoal(prefs);
 
-  const capabilitySignal = advancedFlag || athleteScore >= 75 || avgStrengthPct >= 70;
+  const capabilitySignal = advancedFlag || athleteScore >= cfg.highCapAthleteScoreGate || avgStrengthPct >= cfg.highCapStrengthPctGate;
   if (!capabilitySignal) {
     return {
       active: false,
@@ -1131,8 +1290,7 @@ function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreference
     };
   }
 
-  // If readiness/adherence are poor, do not force high-capacity progression.
-  if (readiness < 0.65 || adherence < 0.6) {
+  if (readiness == null || readiness < cfg.highCapReadinessGateOff || adherence < cfg.highCapAdherenceGateOff) {
     return {
       active: false,
       tier: 'none',
@@ -1140,32 +1298,33 @@ function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreference
       progressionMultiplier: 1.0,
       restSecondsMultiplier: 1.0,
       rirDelta: 0,
-      reason: `High-capacity mode gated off (readiness ${Math.round(readiness * 100)}%, adherence ${Math.round(adherence * 100)}%).`,
+      reason: `High-capacity mode gated off (readiness ${readiness != null ? Math.round(readiness * 100) : 'unknown'}%, adherence ${Math.round(adherence * 100)}%).`,
     };
   }
 
-  const aggressive = readiness >= 0.82 && adherence >= 0.75 && (athleteScore >= 80 || avgStrengthPct >= 75);
+  const aggressive = readiness >= cfg.highCapAggressiveReadiness
+    && adherence >= cfg.highCapAggressiveAdherence
+    && (athleteScore >= cfg.highCapAggressiveAthleteScore || avgStrengthPct >= cfg.highCapAggressiveStrengthPct);
   let out: HighCapacityPushAdjustment = aggressive
     ? {
         active: true,
         tier: 'aggressive',
-        volumeMultiplier: 1.15,
-        progressionMultiplier: 1.30,
-        restSecondsMultiplier: 0.85,
-        rirDelta: -2,
+        volumeMultiplier: cfg.highCapAggressiveVolumeMult,
+        progressionMultiplier: cfg.highCapAggressiveProgressionMult,
+        restSecondsMultiplier: cfg.highCapAggressiveRestMult,
+        rirDelta: cfg.highCapAggressiveRirDelta,
         reason: 'High-capacity mode (aggressive): increasing volume, progression pressure, and proximity to failure.',
       }
     : {
         active: true,
         tier: 'moderate',
-        volumeMultiplier: 1.08,
-        progressionMultiplier: 1.15,
-        restSecondsMultiplier: 0.92,
-        rirDelta: -1,
+        volumeMultiplier: cfg.highCapModerateVolumeMult,
+        progressionMultiplier: cfg.highCapModerateProgressionMult,
+        restSecondsMultiplier: cfg.highCapModerateRestMult,
+        rirDelta: cfg.highCapModerateRirDelta,
         reason: 'High-capacity mode (moderate): pushing volume and intensity beyond conservative defaults.',
       };
 
-  // Goal-specific shaping: keep fat-loss pushes more recovery-safe.
   if (goal === 'cut') {
     out = {
       ...out,
@@ -1179,7 +1338,7 @@ function computeHighCapacityPush(profile: TrainingProfile, prefs: UserPreference
   return out;
 }
 
-function computeFatLossController(profile: TrainingProfile, prefs: UserPreferences): FatLossControllerAdjustment {
+function computeFatLossController(profile: TrainingProfile, prefs: UserPreferences, cfg: ModelConfig = DEFAULT_MODEL_CONFIG): FatLossControllerAdjustment {
   const effectiveGoal = getEffectiveGoal(prefs);
   const fatLossActive = effectiveGoal === 'cut';
   const blankMeta = (): Pick<FatLossControllerAdjustment, 'weightTrendConfidence' | 'nutritionDampeningFactor' | 'userFacingLine'> => ({
@@ -1202,7 +1361,8 @@ function computeFatLossController(profile: TrainingProfile, prefs: UserPreferenc
     };
   }
 
-  const readiness = profile.fitnessFatigueModel?.readiness ?? 0.75;
+  const rawReadiness = profile.fitnessFatigueModel?.readiness ?? null;
+  const readiness = rawReadiness != null ? Number(rawReadiness) : null;
   const adherence = profile.prescribedVsActual?.complianceRate
     ?? profile.canonicalModelContext?.adherenceScore
     ?? 0.5;
@@ -1228,28 +1388,24 @@ function computeFatLossController(profile: TrainingProfile, prefs: UserPreferenc
   }
 
   // PID-style controller:
-  // target slope is moderate/sustainable fat loss by default (~0.6% BW per week)
-  const targetSlope = -(currentWeight * 0.006);
+  const targetSlope = -(currentWeight * cfg.fatLossTargetSlopeFraction);
   const longTermSlopePct = Number(profile.rolling30DayTrends?.bodyWeight?.slopePct ?? 0);
   const longTermSlopeLbs = Number.isFinite(longTermSlopePct) ? (currentWeight * (longTermSlopePct / 100)) : slope;
   const error = slope - targetSlope;        // >0 means not losing fast enough
   const integral = error + (longTermSlopeLbs - targetSlope) * 0.5;
   const derivative = slope - longTermSlopeLbs;
 
-  const Kp = 0.35;
-  const Ki = 0.08;
-  const Kd = 0.16;
-  const controlRaw = (Kp * error) + (Ki * integral) + (Kd * derivative);
-  let controlSignal = clampNumber(controlRaw, -0.45, 0.50);
+  const controlRaw = (cfg.fatLossPidKp * error) + (cfg.fatLossPidKi * integral) + (cfg.fatLossPidKd * derivative);
+  let controlSignal = clampNumber(controlRaw, cfg.fatLossControlClamp[0], cfg.fatLossControlClamp[1]);
 
   // Anti-windup and adherence-aware dampening.
-  if (adherence < 0.60) {
-    controlSignal = clampNumber(controlSignal, -0.20, 0.20);
+  if (adherence < cfg.fatLossAdherenceThreshold) {
+    controlSignal = clampNumber(controlSignal, cfg.fatLossLowAdherenceClamp[0], cfg.fatLossLowAdherenceClamp[1]);
   }
 
   // Sparse weight data → do not fully trust escalation (quality gate).
-  if (weightTrendConfidence < 0.42) {
-    const scale = 0.28 + 0.72 * (weightTrendConfidence / 0.42);
+  if (weightTrendConfidence < cfg.fatLossConfidenceThreshold) {
+    const scale = cfg.fatLossConfidenceFloor + (1 - cfg.fatLossConfidenceFloor) * (weightTrendConfidence / cfg.fatLossConfidenceThreshold);
     controlSignal *= scale;
   }
 
@@ -1257,31 +1413,31 @@ function computeFatLossController(profile: TrainingProfile, prefs: UserPreferenc
   const nutritionCov = profile.nutritionLoggingCoverage14d;
   const nutritionAdherence = getNutritionAdherenceSignal(profile);
   let nutritionDampeningFactor = 1;
-  if (nutritionCov != null && nutritionCov < 0.38 && nutritionAdherence < 0.55) {
-    nutritionDampeningFactor = 0.42 + 0.58 * (nutritionCov / 0.38);
+  if (nutritionCov != null && nutritionCov < cfg.fatLossNutritionCoverageThreshold && nutritionAdherence < cfg.fatLossNutritionAdherenceThreshold) {
+    nutritionDampeningFactor = cfg.fatLossNutritionCoverageFloor + (1 - cfg.fatLossNutritionCoverageFloor) * (nutritionCov / cfg.fatLossNutritionCoverageThreshold);
     controlSignal *= nutritionDampeningFactor;
-  } else if (nutritionAdherence < 0.48) {
-    nutritionDampeningFactor = 0.52 + 0.48 * nutritionAdherence;
+  } else if (nutritionAdherence < cfg.fatLossNutritionAdherenceLowThreshold) {
+    nutritionDampeningFactor = cfg.fatLossNutritionAdherenceLowFloor + (1 - cfg.fatLossNutritionAdherenceLowFloor) * nutritionAdherence;
     controlSignal *= nutritionDampeningFactor;
   }
-  controlSignal = clampNumber(controlSignal, -0.45, 0.50);
+  controlSignal = clampNumber(controlSignal, cfg.fatLossControlClamp[0], cfg.fatLossControlClamp[1]);
 
   // Split dose: bias toward cardio / NEAT-equivalent duration before lifting volume.
-  const cardioDurationMultiplier = clampNumber(1 + controlSignal * 0.72, 0.80, 1.50);
-  const cardioIntensityMultiplier = clampNumber(1 + controlSignal * 0.32, 0.90, 1.20);
-  const strengthVolumeMultiplier = clampNumber(1 + controlSignal * 0.18, 0.90, 1.10);
-  const restSecondsMultiplier = clampNumber(1 - controlSignal * 0.18, 0.88, 1.10);
+  const cardioDurationMultiplier = clampNumber(1 + controlSignal * cfg.fatLossCardioDurationSensitivity, cfg.fatLossCardioDurationClamp[0], cfg.fatLossCardioDurationClamp[1]);
+  const cardioIntensityMultiplier = clampNumber(1 + controlSignal * cfg.fatLossCardioIntensitySensitivity, cfg.fatLossCardioIntensityClamp[0], cfg.fatLossCardioIntensityClamp[1]);
+  const strengthVolumeMultiplier = clampNumber(1 + controlSignal * cfg.fatLossStrengthVolumeSensitivity, cfg.fatLossStrengthVolumeClamp[0], cfg.fatLossStrengthVolumeClamp[1]);
+  const restSecondsMultiplier = clampNumber(1 - controlSignal * cfg.fatLossRestSecondsSensitivity, cfg.fatLossRestSecondsClamp[0], cfg.fatLossRestSecondsClamp[1]);
 
   let tier: FatLossControllerAdjustment['tier'] = 'on_track';
-  if (controlSignal > 0.20) tier = 'stalled';
-  else if (controlSignal > 0.06) tier = 'slow_loss';
-  else if (controlSignal < -0.16) tier = 'too_fast';
+  if (controlSignal > cfg.fatLossTierThresholds.stalled) tier = 'stalled';
+  else if (controlSignal > cfg.fatLossTierThresholds.slowLoss) tier = 'slow_loss';
+  else if (controlSignal < cfg.fatLossTierThresholds.tooFast) tier = 'too_fast';
 
   const userFacingParts: string[] = [
     `Weight ~${Math.round(currentWeight)} lbs — trend ${slope >= 0 ? '+' : ''}${slope.toFixed(2)} lbs/wk (goal slope ~${targetSlope.toFixed(2)} lbs/wk).`,
     `Auto-dose: cardio time ×${cardioDurationMultiplier.toFixed(2)}, cardio intensity ×${cardioIntensityMultiplier.toFixed(2)}, strength volume ×${strengthVolumeMultiplier.toFixed(2)}.`,
   ];
-  if (weightTrendConfidence < 0.42) {
+  if (weightTrendConfidence < cfg.fatLossConfidenceThreshold) {
     userFacingParts.push('Weight samples still sparse — dose changes stay conservative until the trend firms up.');
   }
   if (nutritionDampeningFactor < 0.97) {
@@ -1309,7 +1465,8 @@ function computeFatLossController(profile: TrainingProfile, prefs: UserPreferenc
   };
 
   // Recovery guardrails: do not force hard escalation on low-readiness days.
-  if (readiness < 0.65) {
+  // Skip when readiness is unknown (conservative = don't modify).
+  if (readiness != null && readiness < 0.65) {
     out.cardioIntensityMultiplier = Math.min(out.cardioIntensityMultiplier, 1.0);
     out.strengthVolumeMultiplier = Math.min(out.strengthVolumeMultiplier, 1.0);
     out.restSecondsMultiplier = Math.max(out.restSecondsMultiplier, 1.0);
@@ -1496,9 +1653,10 @@ function computeHipAbductorLoadSignal(profile: TrainingProfile): {
 } {
   const WEEKS_WINDOW = 4;
   const cardio = profile.cardioHistory ?? [];
-  const ambulatory = cardio.filter(c =>
-    /walk|treadmill|incline|hike|stairmaster|stair master|stepmill|ruck/i.test(c.exerciseName)
-  );
+  const ambulatory = cardio.filter(c => {
+    const m = classifyCardioModality(String(c.exerciseName || '').toLowerCase());
+    return m === 'walk' || m === 'stair';
+  });
   const weeklyAmbulatoryHours = ambulatory.reduce((sum, c) => {
     const weeklyMinutes = ((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW);
     return sum + (weeklyMinutes / 60);
@@ -1510,7 +1668,7 @@ function computeHipAbductorLoadSignal(profile: TrainingProfile): {
     return sum + (baseHours * inclineFactor);
   }, 0);
   const stairHours = cardio
-    .filter(c => /stairmaster|stair master|stepmill/i.test(c.exerciseName))
+    .filter(c => classifyCardioModality(String(c.exerciseName || '').toLowerCase()) === 'stair')
     .reduce((sum, c) => sum + ((((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW)) / 60), 0);
 
   // External hip demand: gait/frontal-plane stabilization, especially incline/stairs.
@@ -1850,15 +2008,17 @@ function stepSelectMuscleGroups(
   const weeklyCardioHours = weeklyCardioMin / 60;
 
   if (weeklyCardioHours > 0) {
-    const highImpactCardio = profile.cardioHistory.filter(c =>
-      /run|stairmaster|stair master|sprint|jump rope/i.test(c.exerciseName)
-    );
-    const lowImpactCardio = profile.cardioHistory.filter(c =>
-      /bike|cycle|elliptical|row/i.test(c.exerciseName)
-    );
+    const highImpactCardio = profile.cardioHistory.filter(c => {
+      const m = classifyCardioModality(String(c.exerciseName || '').toLowerCase());
+      return m === 'run' || m === 'stair';
+    });
+    const lowImpactCardio = profile.cardioHistory.filter(c => {
+      const m = classifyCardioModality(String(c.exerciseName || '').toLowerCase());
+      return m === 'bike' || m === 'elliptical' || m === 'row';
+    });
     const briskWalkCardio = profile.cardioHistory.filter(c => {
-      const name = String(c.exerciseName || '').toLowerCase();
-      if (!/walk|treadmill|incline|hike|ruck/.test(name)) return false;
+      const m = classifyCardioModality(String(c.exerciseName || '').toLowerCase());
+      if (m !== 'walk') return false;
       const speed = Number(c.avgSpeed ?? 0);
       const incline = Number(c.avgIncline ?? 0);
       return speed >= 3.8 || incline >= 4;
@@ -1924,12 +2084,12 @@ function stepSelectMuscleGroups(
       const deficit = _activeBodyAssessment.proportional_deficits[vol.muscleGroup];
       if (deficit !== undefined && deficit !== 0) {
         // deficit < 0 means below ideal → increase target; > 0 means above → decrease
-        const deficitMult = clampNumber(1.0 - deficit * 3.0, 0.6, 2.0);
+        const deficitMult = clampNumber(1.0 - deficit * cfg.priorityDeficitSensitivity, cfg.priorityDeficitFloor, cfg.priorityDeficitCeiling);
         weeklyTarget *= deficitMult;
       } else {
         const score = _activeBodyAssessment.scores[vol.muscleGroup];
         if (score !== undefined) {
-          const visualMult = clampNumber(1.0 + (7 - score) / 10 * 2.0, 0.6, 1.8);
+          const visualMult = clampNumber(1.0 + (7 - score) / 10 * cfg.priorityVisualScoreSensitivity, cfg.priorityVisualFloor, cfg.priorityVisualCeiling);
           weeklyTarget *= visualMult;
         }
       }
@@ -1951,20 +2111,19 @@ function stepSelectMuscleGroups(
     }
 
     const individualMrv = profile.individualMrvEstimates[vol.muscleGroup];
-    const effectiveTarget = individualMrv ? Math.min(weeklyTarget, individualMrv * 0.95) : weeklyTarget;
+    const effectiveTarget = individualMrv ? Math.min(weeklyTarget, individualMrv * cfg.priorityMrvSafetyFraction) : weeklyTarget;
     const indirectCredit = guideline.indirectVolumeCredit ?? 0.5;
     const weeklyEffectiveSets = (vol.weeklyDirectSets ?? 0) + ((vol.weeklyIndirectSets ?? 0) * indirectCredit);
     const volumeDeficit = Math.max(0, effectiveTarget - weeklyEffectiveSets);
 
     // Base priority: freshness + volume deficit
-    let priority = freshnessScore * 0.4 + (volumeDeficit / Math.max(effectiveTarget, 1)) * 0.3;
+    let priority = freshnessScore * cfg.priorityFreshnessWeight + (volumeDeficit / Math.max(effectiveTarget, 1)) * cfg.priorityVolumeDeficitWeight;
 
     if (splitTargetGroups?.has(vol.muscleGroup)) {
       priority += cfg.splitMatchBoost;
     }
     if (preferredGroupSet.has(vol.muscleGroup)) {
-      // Stabilize week-to-week split transitions by biasing toward anchored groups.
-      priority += 0.42;
+      priority += cfg.priorityPreferredGroupBoost;
     }
 
     if (todayPatternGroups.includes(vol.muscleGroup)) {
@@ -2228,24 +2387,18 @@ function nowMs(): number {
 }
 
 function estimateEffectiveSetWeight(exercise: EnrichedExercise, targetMuscleGroup: string): number {
-  const name = String(exercise.name || '');
-  const sfr = getExerciseSFR(name);
-  const type = String(exercise.ml_exercise_type || '').toLowerCase();
-  const pattern = String(exercise.movement_pattern || '').toLowerCase();
+  const identity = classifyExercise(exercise.name, exercise);
+  const sfr = getExerciseSFR(exercise.name);
+  const type = identity.exerciseType;
   let weight = 1.0;
 
-  // SFR as a stimulus proxy: high-SFR movements contribute more per set.
   if (Number.isFinite(sfr) && sfr > 0) {
     weight *= clampNumber(0.82 + (sfr - 1) * 0.32, 0.72, 1.32);
   }
   if (type === 'compound') weight *= 1.08;
   if (type === 'isolation') weight *= 0.92;
 
-  // Hinge compounds are highly fatiguing/systemic; cap direct-equivalent stimulus.
-  if (
-    targetMuscleGroup === 'hamstrings'
-    && (pattern.includes('hinge') || /(^|\b)(rdl|romanian deadlift|deadlift|good morning)(\b|$)/i.test(name))
-  ) {
+  if (targetMuscleGroup === 'hamstrings' && identity.isHinge) {
     weight *= 1.1;
   }
   return clampNumber(weight, 0.55, 1.45);
@@ -2297,16 +2450,7 @@ function weightedShuffle<T extends { score: number }>(
  * Groups with less than their ideal share get a priority boost; overrepresented
  * groups get a slight dampening. V-taper muscles always get a baseline bump.
  */
-const APOLLO_IDEAL_PROPORTIONS: Record<string, number> = {
-  mid_chest: 0.09, upper_chest: 0.05, lower_chest: 0.03,
-  back_lats: 0.10, back_upper: 0.06,
-  upper_traps: 0.02, mid_traps: 0.005, lower_traps: 0.005,
-  lateral_deltoid: 0.06, anterior_deltoid: 0.04, posterior_deltoid: 0.04,
-  quadriceps: 0.10, hamstrings: 0.08, glutes: 0.06,
-  biceps: 0.04, triceps: 0.05,
-  calves: 0.03, core: 0.04, forearms: 0.02,
-  erector_spinae: 0.02, rotator_cuff: 0.01,
-};
+const APOLLO_IDEAL_PROPORTIONS: Record<string, number> = DEFAULT_MODEL_CONFIG.apolloIdealProportions;
 
 export interface BodyAssessment {
   scores: Record<string, number>;
@@ -2401,8 +2545,8 @@ function stepSelectExercises(
   };
   const isHotelModeCardioAllowed = (ex: EnrichedExercise): boolean => {
     if (!hotelModeEnabled) return true;
-    const n = String(ex.name || '').toLowerCase();
-    return /treadmill/.test(n);
+    const modality = classifyCardioModality(String(ex.name || '').toLowerCase());
+    return modality === 'walk';
   };
 
   // Build performance goal lookup — exercises with goals get priority
@@ -2432,11 +2576,7 @@ function stepSelectExercises(
   const usedExercises = new Set<string>();
 
   for (const group of muscleGroups) {
-    const selectedHasHinge = selections.some(s => {
-      const pat = String(s.exercise.movement_pattern ?? '').toLowerCase();
-      const name = String(s.exercise.name || '').toLowerCase();
-      return pat.includes('hinge') || /(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning|deadlift)(\b|$)/.test(name);
-    });
+    const selectedHasHinge = selections.some(s => classifyExercise(s.exercise.name, s.exercise).isHinge);
     const groupExercises = strengthExercises.filter(ex => {
       if (avoidSet.has(ex.name.toLowerCase())) return false;
       if (usedExercises.has(ex.name.toLowerCase())) return false;
@@ -2456,39 +2596,38 @@ function stepSelectExercises(
       const factors: string[] = [];
 
       if (ex.ml_exercise_type === 'compound') {
-        score += 8;
-        factors.push('Compound priority (+8)');
+        score += cfg.selectionCompoundScore;
+        factors.push(`Compound priority (+${cfg.selectionCompoundScore})`);
       }
 
       // Performance goal boost — if user has a specific target for this exercise
       const goal = goalMap.get(ex.name.toLowerCase());
       if (goal) {
-        score += 6;
-        factors.push(`Performance goal: ${goal.targetWeight} lbs × ${goal.targetReps} reps (+6)`);
+        score += cfg.selectionPerformanceGoalScore;
+        factors.push(`Performance goal: ${goal.targetWeight} lbs × ${goal.targetReps} reps (+${cfg.selectionPerformanceGoalScore})`);
       }
       if (preferredExerciseNames.has(ex.name.toLowerCase())) {
-        score += 5;
-        factors.push('Weekly staple priority (+5)');
+        score += cfg.selectionStapleScore;
+        factors.push(`Weekly staple priority (+${cfg.selectionStapleScore})`);
       }
 
       // User preference is the DOMINANT signal — exercises they actually do
       const pref = prefMap.get(ex.name.toLowerCase());
       if (pref) {
-        // No cap — higher recency = higher score, proportional to usage
-        const prefBonus = pref.recencyScore * 1.35;
+        const prefBonus = pref.recencyScore * cfg.selectionRecencyMultiplier;
         score += prefBonus;
         factors.push(`Your exercise (+${prefBonus.toFixed(1)}, ${pref.recentSessions} recent/${pref.totalSessions} total, recency: ${pref.recencyScore})`);
         if (pref.isStaple) {
-          score += 4;
-          factors.push('Staple — you do this consistently (+4)');
+          score += cfg.selectionStapleConsistencyBonus;
+          factors.push(`Staple — you do this consistently (+${cfg.selectionStapleConsistencyBonus})`);
         }
         if (pref.lastUsedDaysAgo <= 14) {
-          score += 2;
-          factors.push(`Used ${pref.lastUsedDaysAgo}d ago (+2)`);
+          score += cfg.selectionRecentUseScore;
+          factors.push(`Used ${pref.lastUsedDaysAgo}d ago (+${cfg.selectionRecentUseScore})`);
         }
         if (pref.lastUsedDaysAgo <= 1) {
-          score -= 12;
-          factors.push('Trained yesterday: recovery protection (-12)');
+          score += cfg.selectionYesterdayPenalty;
+          factors.push(`Trained yesterday: recovery protection (${cfg.selectionYesterdayPenalty})`);
         }
       } else {
         score += cfg.neverUsedPenalty;
@@ -2502,11 +2641,11 @@ function stepSelectExercises(
         );
         if (rot) {
           if (rot.consecutiveWeeksUsed >= 6) {
-            score -= 10;
-            factors.push(`Stale exercise: ${rot.consecutiveWeeksUsed} weeks (forced rotation, -10)`);
+            score += cfg.selectionStaleExercisePenalty;
+            factors.push(`Stale exercise: ${rot.consecutiveWeeksUsed} weeks (forced rotation, ${cfg.selectionStaleExercisePenalty})`);
           } else if (rot.consecutiveWeeksUsed >= 4) {
-            score -= 5;
-            factors.push(`Exercise rotation suggested: ${rot.consecutiveWeeksUsed} weeks (-5)`);
+            score += cfg.selectionRotationPenalty;
+            factors.push(`Exercise rotation suggested: ${rot.consecutiveWeeksUsed} weeks (${cfg.selectionRotationPenalty})`);
           } else if (cfg.enforceRotation && rot.shouldRotate) {
             score += cfg.rotationPenalty;
             factors.push(`Rotation suggested: ${rot.consecutiveWeeksUsed} consecutive weeks (${cfg.rotationPenalty})`);
@@ -2519,14 +2658,14 @@ function stepSelectExercises(
       );
       if (prog) {
         if (prog.status === 'progressing') {
-          score += 3;
-          factors.push(`Progressing (+3, ${prog.sessionsTracked} sessions, slope: ${(prog.progressionSlope * 100).toFixed(1)}%)`);
+          score += cfg.selectionProgressingScore;
+          factors.push(`Progressing (+${cfg.selectionProgressingScore}, ${prog.sessionsTracked} sessions, slope: ${(prog.progressionSlope * 100).toFixed(1)}%)`);
         } else if (prog.status === 'stalled') {
-          score += 1;
-          factors.push(`Stalled (+1, ${prog.sessionsTracked} sessions — try higher reps or variation)`);
+          score += cfg.selectionStalledScore;
+          factors.push(`Stalled (+${cfg.selectionStalledScore}, ${prog.sessionsTracked} sessions — try higher reps or variation)`);
         } else if (prog.status === 'regressing') {
-          score -= 1;
-          factors.push(`Regressing (-1, consider swapping or reducing volume)`);
+          score += cfg.selectionRegressingPenalty;
+          factors.push(`Regressing (${cfg.selectionRegressingPenalty}, consider swapping or reducing volume)`);
         }
       }
 
@@ -2537,32 +2676,36 @@ function stepSelectExercises(
           e => e.precedingExercise === lastSelected && e.affectedExercise === ex.name.toLowerCase()
         );
         if (interference && interference.interference < -0.05) {
-          score -= 2;
-          factors.push(`Ordering interference with ${lastSelected} (-2)`);
+          score += cfg.selectionOrderingInterferencePenalty;
+          factors.push(`Ordering interference with ${lastSelected} (${cfg.selectionOrderingInterferencePenalty})`);
         }
       }
 
-      const exName = String(ex.name || '').toLowerCase();
-      const exPattern = String(ex.movement_pattern || '').toLowerCase();
-      const isHinge = exPattern.includes('hinge') || /(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning|deadlift)(\b|$)/.test(exName);
-      const isKneeFlexion = exPattern.includes('knee_flex') || /(leg|hamstring)\s*curl|nordic/.test(exName);
-      if (selectedHasHinge && isHinge) {
-        score -= 6;
-        factors.push('Pattern diversity: hinge already selected (-6)');
+      const exIdentity = classifyExercise(ex.name, ex);
+      if (selectedHasHinge && exIdentity.isHinge) {
+        score += cfg.selectionDuplicateHingePenalty;
+        factors.push(`Pattern diversity: hinge already selected (${cfg.selectionDuplicateHingePenalty})`);
       }
-      if (selectedHasHinge && group.muscleGroup === 'hamstrings' && isKneeFlexion) {
-        score += 3;
-        factors.push('Pattern diversity: include knee-flexion hamstring work (+3)');
+      if (selectedHasHinge && group.muscleGroup === 'hamstrings' && exIdentity.isKneeFlexion) {
+        score += cfg.selectionKneeFlexionBonus;
+        factors.push(`Pattern diversity: include knee-flexion hamstring work (+${cfg.selectionKneeFlexionBonus})`);
       }
 
-      if (prefs.equipment_access === 'limited') {
+      if (prefs.equipment_access === 'limited' || prefs.equipment_access === 'bodyweight') {
         const exEq = (Array.isArray(ex.equipment) ? ex.equipment : []).map(normalizeEquipment);
         const needsHeavyEquip = exEq.some(e =>
           ['barbell', 'cable', 'smith_machine'].includes(e)
         );
         if (needsHeavyEquip) {
-          score -= 5;
-          factors.push('Requires unavailable equipment (-5)');
+          score += cfg.selectionHeavyEquipmentPenalty;
+          factors.push(`Requires unavailable equipment (${cfg.selectionHeavyEquipmentPenalty})`);
+        }
+        if (prefs.equipment_access === 'bodyweight') {
+          const needsAnyEquip = exEq.some(e => e !== 'bodyweight' && e !== 'none');
+          if (needsAnyEquip) {
+            score += cfg.selectionBodyweightOnlyPenalty;
+            factors.push(`Bodyweight-only mode: equipment needed (${cfg.selectionBodyweightOnlyPenalty})`);
+          }
         }
       }
 
@@ -2573,18 +2716,19 @@ function stepSelectExercises(
         );
         if (swapEntry) {
           const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
-          if (eff >= 4.5 || swapEntry.swapCount >= 5) {
-            score -= 30;
-            factors.push(`Frequently swapped out (weight ${eff.toFixed(1)}, -30)`);
-          } else if (eff >= 2.2 || swapEntry.swapCount >= 3) {
-            score -= 20;
-            factors.push(`Often swapped (weight ${eff.toFixed(1)}, -20)`);
-          } else if (eff >= 1 || swapEntry.swapCount >= 2) {
-            score -= 10;
-            factors.push(`Previously swapped (weight ${eff.toFixed(1)}, -10)`);
-          } else if (swapEntry.swapCount >= 1) {
-            score -= Math.min(10, 5 * swapEntry.swapCount);
-            factors.push(`Swap history (${swapEntry.swapCount}x, -${Math.min(10, 5 * swapEntry.swapCount)})`);
+          let swapApplied = false;
+          for (const tier of cfg.selectionSwapPenaltyTiers) {
+            if (eff >= tier.minWeight || swapEntry.swapCount >= tier.minCount) {
+              score += tier.penalty;
+              factors.push(`Swap penalty (weight ${eff.toFixed(1)}, ${tier.penalty})`);
+              swapApplied = true;
+              break;
+            }
+          }
+          if (!swapApplied && swapEntry.swapCount >= 1) {
+            const pen = -Math.min(10, 5 * swapEntry.swapCount);
+            score += pen;
+            factors.push(`Swap history (${swapEntry.swapCount}x, ${pen})`);
           }
         }
       }
@@ -2618,11 +2762,11 @@ function stepSelectExercises(
         });
 
         if (patternFatigue?.fatigueLevel === 'high') {
-          score -= 6;
-          factors.push(`Movement pattern fatigue: ${patternFatigue.pattern} high (-6)`);
+          score += cfg.selectionPatternFatiguePenalties.high;
+          factors.push(`Movement pattern fatigue: ${patternFatigue.pattern} high (${cfg.selectionPatternFatiguePenalties.high})`);
         } else if (patternFatigue?.fatigueLevel === 'moderate') {
-          score -= 2;
-          factors.push(`Movement pattern fatigue: ${patternFatigue.pattern} moderate (-2)`);
+          score += cfg.selectionPatternFatiguePenalties.moderate;
+          factors.push(`Movement pattern fatigue: ${patternFatigue.pattern} moderate (${cfg.selectionPatternFatiguePenalties.moderate})`);
         }
       }
 
@@ -2633,8 +2777,8 @@ function stepSelectExercises(
       if (plateau?.suggestedStrategy) {
         const strat = plateau.suggestedStrategy.toLowerCase();
         if (strat.includes('swap') || strat.includes('variation')) {
-          score -= 3;
-          factors.push(`Plateaued — swap/variation suggested (-3)`);
+          score += cfg.selectionPlateauSwapPenalty;
+          factors.push(`Plateaued — swap/variation suggested (${cfg.selectionPlateauSwapPenalty})`);
         }
       }
 
@@ -2676,7 +2820,7 @@ function stepSelectExercises(
         if (swapEntry) {
           const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
           if (eff >= 4.5 || swapEntry.swapCount >= 5) {
-            item.score = Math.min(item.score, -10);
+            item.score = Math.min(item.score, cfg.selectionSwapNearBanCeiling);
             item.factors.push('Swap override: near-banned');
           }
         }
@@ -2728,7 +2872,7 @@ function stepSelectExercises(
       : [...scored].sort((a, b) => b.score - a.score);
 
     // Scale max sets per exercise by duration
-    const maxSetsPerExercise = durationMin >= 120 ? 6 : durationMin >= 90 ? 5 : durationMin >= 60 ? 4 : 3;
+    const maxSetsPerExercise = durationMin >= 120 ? cfg.volumeMaxSetsPerExerciseTiers['120'] : durationMin >= 90 ? cfg.volumeMaxSetsPerExerciseTiers['90'] : durationMin >= 60 ? cfg.volumeMaxSetsPerExerciseTiers['60'] : cfg.volumeMaxSetsPerExerciseTiers['default'];
 
     let exerciseCount = 0;
     for (const item of ordered) {
@@ -2738,9 +2882,9 @@ function stepSelectExercises(
       if (isYesterdayExercise && yesterdayReuseCount >= maxYesterdayReuse) continue;
       const setWeight = estimateEffectiveSetWeight(item.exercise, group.muscleGroup);
       const desiredStimulus = exerciseCount === 0
-        ? remainingStimulus * 0.62
-        : Math.min(remainingStimulus, Math.max(1.6, remainingStimulus * 0.5));
-      const setsForThisRaw = Math.ceil(desiredStimulus / Math.max(setWeight, 0.55));
+        ? remainingStimulus * cfg.volumePrimaryShare
+        : Math.min(remainingStimulus, Math.max(cfg.volumeSubsequentFloor, remainingStimulus * cfg.volumeSubsequentShare));
+      const setsForThisRaw = Math.ceil(desiredStimulus / Math.max(setWeight, cfg.volumeEffectiveSetWeightFloor));
       const setsForThis = exerciseCount === 0
         ? Math.min(setsForThisRaw, maxSetsPerExercise)
         : Math.min(setsForThisRaw, maxSetsPerExercise - 1);
@@ -2765,7 +2909,7 @@ function stepSelectExercises(
 
   // ── Global exercise cap — prevent unreasonably large sessions ──
   const sessionDurMin = prefs.session_duration_minutes;
-  const maxTotalExercises = sessionDurMin >= 120 ? 14 : sessionDurMin >= 90 ? 12 : sessionDurMin >= 60 ? 10 : 8;
+  const maxTotalExercises = sessionDurMin >= 120 ? cfg.volumeMaxExerciseTiers['120'] : sessionDurMin >= 90 ? cfg.volumeMaxExerciseTiers['90'] : sessionDurMin >= 60 ? cfg.volumeMaxExerciseTiers['60'] : cfg.volumeMaxExerciseTiers['default'];
   if (selections.length > maxTotalExercises) {
     selections.length = maxTotalExercises;
   }
@@ -2816,24 +2960,18 @@ function stepSelectExercises(
   // On leg days, ensure at least one knee-flexion hamstring exercise (not just RDL/hinge).
   const hasHamstringGroup = muscleGroups.some(g => g.muscleGroup === 'hamstrings');
   if (hasHamstringGroup) {
-    const hasHingeHam = selections.some(s => {
-      const n = s.exercise.name.toLowerCase();
-      return s.muscleGroup === 'hamstrings' && (
-        /rdl|romanian|deadlift|good morning|stiff/i.test(n) ||
-        (s.exercise.movement_pattern || '').toLowerCase().includes('hinge')
-      );
-    });
-    const hasKneeFlexion = selections.some(s => {
-      const n = s.exercise.name.toLowerCase();
-      return s.muscleGroup === 'hamstrings' && /curl|nordic|glute.ham/i.test(n);
-    });
+    const hasHingeHam = selections.some(s =>
+      s.muscleGroup === 'hamstrings' && classifyExercise(s.exercise.name, s.exercise).isHinge
+    );
+    const hasKneeFlexion = selections.some(s =>
+      s.muscleGroup === 'hamstrings' && classifyExercise(s.exercise.name, s.exercise).isKneeFlexion
+    );
     if (hasHingeHam && !hasKneeFlexion) {
       const kneeFlexionExercises = strengthExercises.filter(ex => {
         if (usedExercises.has(ex.name.toLowerCase())) return false;
-        const n = ex.name.toLowerCase();
         const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
           .map(m => resolveToCanonicalGroup(m)).filter(Boolean);
-        return groups.includes('hamstrings') && /curl|nordic|glute.ham/i.test(n);
+        return groups.includes('hamstrings') && classifyExercise(ex.name, ex).isKneeFlexion;
       });
       const userPreferred = kneeFlexionExercises.find(ex => {
         const p = prefMap.get(ex.name.toLowerCase());
@@ -2857,15 +2995,9 @@ function stepSelectExercises(
   // If core is targeted, ensure at least 2 different movement patterns.
   const coreSelections = selections.filter(s => s.muscleGroup === 'core');
   if (coreSelections.length >= 1) {
-    const corePatterns = new Set(coreSelections.map(s => {
-      const n = s.exercise.name.toLowerCase();
-      if (/crunch|sit.?up|v.?up/i.test(n)) return 'flexion';
-      if (/plank|dead.?bug|bird.?dog|pallof|anti/i.test(n)) return 'anti_movement';
-      if (/rollout|ab.?wheel|wheel/i.test(n)) return 'anti_extension';
-      if (/woodchop|russian.?twist|cable.?rotation/i.test(n)) return 'rotation';
-      if (/leg.?raise|hanging|knee.?raise/i.test(n)) return 'hip_flexion';
-      return 'flexion';
-    }));
+    const corePatterns = new Set(coreSelections.map(s =>
+      classifyCorePattern(s.exercise.name.toLowerCase()) ?? 'flexion'
+    ));
     if (corePatterns.size === 1 && coreSelections.length >= 1) {
       const dominantPattern = [...corePatterns][0];
       const ANTI_MOVEMENT_NAMES = ['pallof press', 'dead bug', 'bird dog', 'plank', 'side plank', 'ab wheel rollout'];
@@ -2878,7 +3010,7 @@ function stepSelectExercises(
         if (dominantPattern === 'flexion') {
           return ANTI_MOVEMENT_NAMES.some(am => n.includes(am));
         }
-        return /crunch|sit.?up/i.test(n);
+        return classifyCorePattern(n) === 'flexion';
       });
       const pick = diverseCore.find(ex => {
         const p = prefMap.get(ex.name.toLowerCase());
@@ -2976,10 +3108,10 @@ function stepSelectExercises(
       .filter((ex) => !avoidSet.has(String(ex.name || '').toLowerCase()))
       .filter((ex) => isHotelModeCardioAllowed(ex))
       .sort((a, b) => {
-        const aName = String(a.name || '').toLowerCase();
-        const bName = String(b.name || '').toLowerCase();
-        const aPref = /treadmill|walk|incline|bike|elliptical|row/.test(aName) ? 1 : 0;
-        const bPref = /treadmill|walk|incline|bike|elliptical|row/.test(bName) ? 1 : 0;
+        const aModality = classifyCardioModality(String(a.name || '').toLowerCase());
+        const bModality = classifyCardioModality(String(b.name || '').toLowerCase());
+        const aPref = aModality != null ? 1 : 0;
+        const bPref = bModality != null ? 1 : 0;
         return bPref - aPref;
       });
     const fallbackCardio = cardioCandidates[0];
@@ -3003,12 +3135,6 @@ function stepSelectExercises(
 
   // Invariants: every generated workout should include
   // (1) at least one compound and (2) at least one staple when available.
-  const stapleFamilyKey = (exerciseName: string): string => {
-    const n = String(exerciseName || '').trim().toLowerCase();
-    if (/(^|\b)(rdl|romanian deadlift)(\b|$)/.test(n)) return 'romanian_deadlift';
-    if (/leg\s*press|sled\s*press|45[\s-]*degree\s*leg\s*press/.test(n)) return 'leg_press';
-    return n;
-  };
   const shouldExcludeStapleFamily = (familyKey: string): boolean =>
     familyKey === 'romanian_deadlift';
   const selectionHasCompound = () =>
@@ -3181,10 +3307,7 @@ function stepPrescribe(
       const cardio = profile.cardioHistory.find(c => c.exerciseName === sel.exercise.name.toLowerCase());
       const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
 
-      // #1: Goal-based cardio duration fallback instead of hardcoded 30 min
-      const goalCardioDefaults: Record<string, number> = {
-        bulk: 15 * 60, cut: 25 * 60, maintain: 20 * 60,
-      };
+      const goalCardioDefaults: Record<string, number> = cfg.cardioGoalDefaultDuration;
       const prefDuration = prefs.cardio_duration_minutes ? prefs.cardio_duration_minutes * 60 : null;
       const baseDuration = cardio?.avgDurationSeconds
         ?? prefDuration
@@ -3200,13 +3323,13 @@ function stepPrescribe(
       const modality = inferCardioModality(exName);
       const capability = (profile.cardioCapabilityProfiles ?? []).find(c => c.modality === modality);
       let speedLabel: string | null = null;
-      if (exName.includes('stairmaster') || exName.includes('stair master')) speedLabel = 'Level';
-      else if (exName.includes('bike') || exName.includes('cycle')) speedLabel = 'Resistance';
-      else if (exName.includes('row')) speedLabel = 'Watts';
-      else if (exName.includes('treadmill') || exName.includes('walk') || exName.includes('run')) speedLabel = 'Speed (mph)';
+      if (modality === 'stair') speedLabel = 'Level';
+      else if (modality === 'bike') speedLabel = 'Resistance';
+      else if (modality === 'row') speedLabel = 'Watts';
+      else if (modality === 'walk' || modality === 'run') speedLabel = 'Speed (mph)';
       else if (speed != null) speedLabel = 'Intensity';
-      const isRunLike = /run|jog|sprint/.test(exName);
-      const isWalkLike = !isRunLike && /walk|treadmill|incline/.test(exName);
+      const isRunLike = modality === 'run';
+      const isWalkLike = modality === 'walk';
       const modalitySpeedCap = (() => {
         const dbCap = capability?.maxSpeed != null && Number.isFinite(capability.maxSpeed)
           ? Number(capability.maxSpeed)
@@ -3222,8 +3345,8 @@ function stepPrescribe(
           return Math.min(inferred, dbCap != null ? Math.min(dbCap, cap) : cap);
         }
         if (dbCap != null) return dbCap;
-        if (/stairmaster|stair master|stepmill/.test(exName)) return 14;
-        if (/bike|cycle|elliptical/.test(exName)) return 16;
+        if (modality === 'stair') return 14;
+        if (modality === 'bike' || modality === 'elliptical') return 16;
         return null;
       })();
 
@@ -3247,18 +3370,18 @@ function stepPrescribe(
       } else if (goal === 'cut') {
         if (sessionIdx % 2 === 0) {
           targetHrZone = 2;
-          duration = Math.round(baseDuration * 1.15);
+          duration = Math.round(baseDuration * cfg.cardioCutExtendedDurationMult);
           adjustments.push(`Cut phase: extended Zone 2 (${Math.round(duration / 60)} min) — maximize fat oxidation`);
         } else {
           targetHrZone = 3;
-          duration = Math.round(baseDuration * 0.75);
-          if (speed != null) speed = Math.round(speed * 1.10 * 10) / 10;
+          duration = Math.round(baseDuration * cfg.cardioCutTempoDurationMult);
+          if (speed != null) speed = Math.round(speed * cfg.cardioCutTempoSpeedMult * 10) / 10;
           if (incline != null) incline = Math.round(Math.min(incline + 1, 15) * 10) / 10;
           adjustments.push(`Cut phase: Zone 3 tempo (${Math.round(duration / 60)} min) — higher calorie burn rate`);
         }
       } else if (goal === 'bulk') {
         targetHrZone = 2;
-        duration = Math.min(duration, 20 * 60);
+        duration = Math.min(duration, cfg.cardioBulkMaxDuration);
         adjustments.push(`Bulk phase: capped at ${Math.round(duration / 60)} min Zone 2 — minimize interference with growth`);
       } else {
         // Maintain: rotate through varied styles
@@ -3269,8 +3392,8 @@ function stepPrescribe(
             break;
           case 1: // Moderate tempo Zone 3
             targetHrZone = 3;
-            duration = Math.round(baseDuration * 0.80);
-            if (speed != null) speed = Math.round(speed * 1.08 * 10) / 10;
+            duration = Math.round(baseDuration * cfg.cardioMaintainTempoDurationMult);
+            if (speed != null) speed = Math.round(speed * cfg.cardioMaintainTempoSpeedMult * 10) / 10;
             if (incline != null) incline = Math.round(Math.min(incline + 1, 15) * 10) / 10;
             adjustments.push(`Tempo: Zone 3, ${Math.round(duration / 60)} min — push the pace`);
             break;
@@ -3288,7 +3411,7 @@ function stepPrescribe(
             break;
           case 3: // Progressive — slight duration increase
             targetHrZone = 2;
-            duration = Math.round(baseDuration * 1.10);
+            duration = Math.round(baseDuration * cfg.cardioMaintainProgressiveDurationMult);
             adjustments.push(`Progressive: Zone 2, ${Math.round(duration / 60)} min — extending duration`);
             break;
         }
@@ -3394,6 +3517,7 @@ function stepPrescribe(
         targetWeight: null,
         targetRir: null,
         rirLabel: null,
+        rirRange: null,
         isBodyweight: false,
         tempo: '0-0-0',
         restSeconds: 0,
@@ -3423,14 +3547,8 @@ function stepPrescribe(
 
     const equipment = (Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : []).map(normalizeEquipment);
     const exType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
-    const nameLC = sel.exercise.name.toLowerCase();
-    // Bodyweight detection: equipment tag OR name-based override for movements
-    // that use a machine/bench as support but are fundamentally bodyweight.
-    // Excludes "weighted" variants (pull-ups, dips, chin-ups) which show added load.
-    const UNLOADED_BW_PATTERNS = /\b(glute[- ]?ham|ghr|nordic|sissy squat|pistol squat|body\s*weight|bw |muscle[- ]?up|human flag|l[- ]?sit|planche|dragon flag|burpee|mountain climber|plank|dead hang|inverted row)\b/;
-    const isBodyweight = (equipment.length === 1 && equipment[0] === 'bodyweight')
-      || UNLOADED_BW_PATTERNS.test(nameLC)
-      || equipment.includes('bodyweight');
+    const selIdentity = classifyExercise(sel.exercise.name, sel.exercise);
+    const isBodyweight = selIdentity.isBodyweight;
     const isTimedHold = isTimedHoldExercise(sel.exercise.name);
 
     // ── Learned-first prescription ──
@@ -3527,11 +3645,23 @@ function stepPrescribe(
       if (restSeconds !== oldRest) restAdjustedByHighCapacity = { from: oldRest, to: restSeconds };
     }
 
-    const isLastSetInExercise = true;
+    const isLastSetInExercise = false;
     let rir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, mesocycleRirOffset, isLastSetInExercise);
     if (highCapacityPush?.active && !recoveryAdj.isDeload && highCapacityPush.rirDelta !== 0) {
       rir = Math.max(0, Math.min(4, rir + highCapacityPush.rirDelta));
     }
+
+    // RIR taper: set 1 starts at base+2, each set drops by 1, last set = base RIR.
+    // targetRir = average across sets; rirRange = [startRir, endRir] for UI display.
+    const lastSetRir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, mesocycleRirOffset, true);
+    let rirRangeStart = Math.min(4, rir + 2);
+    let rirRangeEnd = lastSetRir;
+    if (highCapacityPush?.active && !recoveryAdj.isDeload && highCapacityPush.rirDelta !== 0) {
+      rirRangeStart = Math.max(0, Math.min(4, rirRangeStart + highCapacityPush.rirDelta));
+      rirRangeEnd = Math.max(0, Math.min(4, rirRangeEnd + highCapacityPush.rirDelta));
+    }
+    if (rirRangeStart < rirRangeEnd) rirRangeStart = rirRangeEnd;
+    const rirRange: [number, number] = [rirRangeStart, rirRangeEnd];
     const tempo = getTempo(sel.exercise.default_tempo, goal, sel.exercise.ml_exercise_type, dayOccurrenceIndex);
 
     // Weight determination: progression data > learned weight > lift ratios > null
@@ -3566,22 +3696,31 @@ function stepPrescribe(
       adjustments.push(`Learned from your last ${pref.recentSessions} sessions: ${sources.join(', ')}`);
     }
 
+    // ── Weight Prescription Pipeline ──
+    // Three-phase decision: (1) compute baseWeight, (2) apply ONE modifier, (3) safety bounds.
+    let weightSource: 'e1rm' | 'learned' | 'ratio' | 'none' = 'none';
+
     if (prog) {
-      // Derive working weight from estimated 1RM scaled to the target rep range + RIR.
-      // This prevents prescribing near-max weights for multi-rep sets.
       const e1rm = prog.estimated1RM;
       targetWeight = weightForReps(e1rm, targetReps, rir, equipment, exType);
-
-      // Safety floor: never prescribe below 50% of last working weight (catches bad 1RM estimates)
       if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
-        targetWeight = snapToPlate(prog.lastWeight * 0.75, equipment, exType);
+        targetWeight = snapToPlate(prog.lastWeight * cfg.weightRescueFloorMult, equipment, exType);
       }
-      adjustments.push(`Based on est. 1RM ${Math.round(e1rm)} lbs → ${targetWeight} lbs for ${targetReps} reps @ RIR ${rir}`);
+      weightSource = 'e1rm';
+      adjustments.push(`Base weight from est. 1RM ${Math.round(e1rm)} lbs → ${targetWeight} lbs for ${targetReps} reps @ RIR ${rir}`);
 
+      // Phase 2: Apply ONE modifier (priority: deload > regression > plateau > progression > forecast)
+      let modifierApplied = false;
+
+      // Priority 1: Deload
       if (recoveryAdj.isDeload) {
         targetWeight = snapToPlate(targetWeight * cfg.deloadWeightMultiplier, equipment, exType);
         adjustments.push(`Deload: weight at ${Math.round(cfg.deloadWeightMultiplier * 100)}% (${targetWeight} lbs)`);
-      } else {
+        modifierApplied = true;
+      }
+
+      // Priority 2: Regression
+      if (!modifierApplied && prog.status === 'regressing') {
         const learnedInc = hasLearnedData ? pref.learnedIncrement : null;
         const fallbackIncrement = role === 'isolation' || role === 'corrective'
           ? cfg.isolationIncrement
@@ -3609,11 +3748,11 @@ function stepPrescribe(
         );
 
         // Honest effort gate: don't award progression if recent effort is too low
-        const effortScore = profile.honestEffort?.avgCompositeScore ?? 70;
-        const effortGateMultiplier = effortScore < 45 ? 0 : effortScore < 55 ? 0.5 : 1.0;
-        if (effortGateMultiplier < 1.0 && effortGateMultiplier > 0) {
+        const effortScore = profile.honestEffort?.avgCompositeScore ?? null;
+        const effortGateMultiplier = effortScore == null ? 1.0 : effortScore < cfg.effortGateBlockThreshold ? 0 : effortScore < cfg.effortGateHalfThreshold ? 0.5 : 1.0;
+        if (effortScore != null && effortGateMultiplier < 1.0 && effortGateMultiplier > 0) {
           adjustments.push(`Effort-gated progression: only ${Math.round(effortGateMultiplier * 100)}% increment (avg effort: ${effortScore}%)`);
-        } else if (effortGateMultiplier === 0) {
+        } else if (effortScore != null && effortGateMultiplier === 0) {
           adjustments.push(`Progression held: avg effort too low (${effortScore}%) — train harder to earn weight increases`);
         }
 
@@ -3646,7 +3785,7 @@ function stepPrescribe(
                 break;
               case 'recovery':
                 sets = Math.max(2, sets - 1);
-                targetWeight = snapToPlate(targetWeight * 0.90, equipment, exType);
+                targetWeight = snapToPlate(targetWeight * cfg.regressionWeightMultiplier, equipment, exType);
                 adjustments.push(`Recovery plateau: -1 set, weight to ${targetWeight} lbs — recovery is the bottleneck`);
                 break;
               case 'skill':
@@ -3665,16 +3804,14 @@ function stepPrescribe(
           const isSystemicRegression = regressingLifts.length >= 3;
 
           if (isSystemicRegression) {
-            // Multi-lift regression: signal overreaching. Reduce volume and intensity.
-            const reductionPct = 0.80;
+            const reductionPct = cfg.regressionSystemicMult;
             targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
             sets = Math.max(2, sets - 1);
-            adjustments.push(`Systemic regression (${regressingLifts.length} lifts declining): weight to ${targetWeight} lbs (80%), sets -1 — prioritize recovery`);
+            adjustments.push(`Systemic regression (${regressingLifts.length} lifts declining): weight to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%), sets -1 — prioritize recovery`);
           } else if (regressionSeverity > 0.05) {
-            // Severe single-lift regression (e.g., 60lb bench drop)
-            const reductionPct = 0.85;
+            const reductionPct = cfg.regressionSevereMult;
             targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
-            adjustments.push(`Severe regression: reduced to ${targetWeight} lbs (85%) — rebuild from here`);
+            adjustments.push(`Severe regression: reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%) — rebuild from here`);
           } else {
             const reductionPct = Math.max(0.85, cfg.regressionWeightMultiplier);
             targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
@@ -3685,12 +3822,17 @@ function stepPrescribe(
         }
       }
 
-      // Ego audit safety cap: if this exercise is flagged as an ego lift, moderate the weight
+      // ── Coordinated weight modifiers ──
+      // Track the post-progression base so we can cap cumulative modifications.
+      // Without this, ego + sleep + forecast could stack and cut weight 25%+.
+      const postProgressionWeight = targetWeight;
+
+      // Ego audit safety cap
       const egoFlag = profile.egoAuditFlags?.find(
         f => f.exerciseName.toLowerCase() === sel.exercise.name.toLowerCase()
       );
       if (egoFlag && egoFlag.suspectedIssue === 'ego_lift' && targetWeight != null) {
-        const cap = snapToPlate(targetWeight * 0.92, equipment, exType);
+        const cap = snapToPlate(targetWeight * cfg.egoAuditCapMult, equipment, exType);
         if (cap < targetWeight) {
           adjustments.push(`Ego audit: weight ${targetWeight} → ${cap} lbs (${egoFlag.exerciseName} ratio ${Math.round(egoFlag.actualRatio * 100)}% vs expected ${Math.round(egoFlag.expectedRange[0] * 100)}-${Math.round(egoFlag.expectedRange[1] * 100)}% of ${egoFlag.referenceExercise})`);
           targetWeight = cap;
@@ -3714,17 +3856,26 @@ function stepPrescribe(
         }
       }
 
-      // #5: Progression Forecasting — use ML-predicted target if confident
-      // Skip forecast overrides during break ramp-back to avoid prescribing pre-break loads
+      // Cumulative modifier floor: prevent ego + sleep from compounding beyond 15% reduction
+      if (postProgressionWeight != null && targetWeight != null && targetWeight < postProgressionWeight * cfg.weightModifierFloorMult) {
+        const floor = snapToPlate(postProgressionWeight * cfg.weightModifierFloorMult, equipment, exType);
+        adjustments.push(`Modifier floor: capped cumulative reductions at ${Math.round((1 - cfg.weightModifierFloorMult) * 100)}% (${targetWeight} → ${floor} lbs)`);
+        targetWeight = floor;
+      }
+
+      // Progression Forecasting — replaces stacked modifiers when confident enough
       if (profile.progressionForecasts && breakRampMultiplier >= 1.0) {
         const forecast = profile.progressionForecasts.find(
           f => f.exerciseName === sel.exercise.name.toLowerCase()
         );
-        if (forecast && forecast.confidence >= 0.5 && forecast.predictedTargetWeight > 0 && targetWeight != null) {
+        if (forecast && forecast.confidence >= 0.7 && forecast.predictedTargetWeight > 0 && targetWeight != null) {
+          targetWeight = forecast.predictedTargetWeight;
+          adjustments.push(`Forecast override: ${forecast.predictedTargetWeight}lbs (R²=${forecast.confidence.toFixed(2)}, high confidence replaces stacked modifiers)`);
+        } else if (forecast && forecast.confidence >= 0.5 && forecast.predictedTargetWeight > 0 && targetWeight != null) {
           const forecastWeight = forecast.predictedTargetWeight;
           if (forecastWeight <= targetWeight * 1.10 && forecastWeight >= targetWeight * 0.90) {
             targetWeight = forecastWeight;
-            adjustments.push(`Forecast: ${forecastWeight}lbs (R²=${forecast.confidence.toFixed(2)})`);
+            adjustments.push(`Forecast blend: ${forecastWeight}lbs (R²=${forecast.confidence.toFixed(2)})`);
           }
         }
       }
@@ -3739,8 +3890,8 @@ function stepPrescribe(
     } else if (!isBodyweight) {
       // No data at all — estimate from lift ratios + strength standards
       const knownLifts = {
-        bench: profile.exerciseProgressions.find(p => p.exerciseName.includes('bench press'))?.lastWeight ?? null,
-        squat: profile.exerciseProgressions.find(p => p.exerciseName.includes('squat') && !p.exerciseName.includes('front'))?.lastWeight ?? null,
+        bench: profile.exerciseProgressions.find(p => p.exerciseName.toLowerCase().includes('bench press'))?.lastWeight ?? null,
+        squat: profile.exerciseProgressions.find(p => p.exerciseName.toLowerCase().includes('squat') && !p.exerciseName.toLowerCase().includes('front'))?.lastWeight ?? null,
         deadlift: profile.exerciseProgressions.find(p => {
           const n = p.exerciseName.toLowerCase();
           return n.includes('deadlift') && !/(romanian|rdl|stiff.leg|single.leg)/i.test(n);
@@ -3818,26 +3969,23 @@ function stepPrescribe(
     // Weight sanity cap: prevent absurd prescriptions from bad estimates or inflated 1RMs.
     // Caps are tiered by equipment, exercise type, AND exercise role.
     if (targetWeight != null && !isBodyweight) {
-      const bw = prefs.body_weight_lbs ?? 200;
-      const exName = sel.exercise.name.toLowerCase();
-
-      const isBigThree = /^(bench press|barbell bench press|flat bench press|squat|back squat|barbell squat|barbell back squat|deadlift|conventional deadlift|barbell deadlift)$/i.test(exName);
+      const bw = prefs.body_weight_lbs ?? cfg.defaultBodyWeightLbs;
 
       let maxPlausible: number;
       if (exType === 'isolation') {
-        maxPlausible = bw * 0.75;
+        maxPlausible = bw * cfg.weightCapIsolationMult;
       } else if (role === 'corrective' || role === 'isolation') {
-        maxPlausible = bw * 0.50;
+        maxPlausible = bw * cfg.weightCapCorrectiveMult;
       } else if (equipment.includes('machine') || equipment.includes('cable')) {
-        maxPlausible = bw * 2.5;
+        maxPlausible = bw * cfg.weightCapMachineMult;
       } else if (equipment.includes('dumbbell')) {
-        maxPlausible = bw * 0.65;
-      } else if (isBigThree) {
-        maxPlausible = bw * 3.0;
+        maxPlausible = bw * cfg.weightCapDumbbellMult;
+      } else if (selIdentity.isPrimaryLift) {
+        maxPlausible = bw * cfg.weightCapPrimaryLiftMult;
       } else if (role === 'primary') {
-        maxPlausible = bw * 2.0;
+        maxPlausible = bw * cfg.weightCapPrimaryMult;
       } else {
-        maxPlausible = bw * 1.5;
+        maxPlausible = bw * cfg.weightCapDefaultMult;
       }
 
       if (targetWeight > maxPlausible) {
@@ -3862,6 +4010,7 @@ function stepPrescribe(
         : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, exType), equipment) : null),
       targetRir: rir,
       rirLabel: getRirLabel(rir),
+      rirRange: sets >= 2 ? rirRange : null,
       isBodyweight,
       tempo,
       restSeconds,
@@ -3887,53 +4036,16 @@ function stepPrescribe(
 
 // ─── Step 5: Apply Session Constraints (Ordering + Time Budget + Supersets) ──
 
-const CNS_DEMAND_KEYWORDS: [RegExp, number][] = [
-  [/\bdeadlift\b/i, 0],
-  [/\bsquat\b/i, 0],
-  [/\bfront squat\b/i, 0],
-  [/\bpower clean\b/i, 0],
-  [/\bclean and press\b/i, 0],
-  [/\bsnatch\b/i, 0],
-  [/\bbench press\b/i, 1],
-  [/\boverhead press\b/i, 1],
-  [/\bmilitary press\b/i, 1],
-  [/\bbarbell row\b/i, 1],
-  [/\bromanian deadlift\b/i, 1],
-  [/\bhip thrust\b/i, 1],
-  [/\bpendlay row\b/i, 1],
-  [/\bt-bar row\b/i, 1],
-  [/\bincline.*press\b/i, 2],
-  [/\bdumbbell.*press\b/i, 2],
-  [/\bdb.*press\b/i, 2],
-  [/\blunge\b/i, 2],
-  [/\bbulgarian\b/i, 2],
-  [/\bpull-?up\b/i, 2],
-  [/\bchin-?up\b/i, 2],
-  [/\bdip\b/i, 2],
-  [/\brow\b/i, 2],
-];
-
-const COMPOUND_MOVEMENT_PATTERNS = new Set([
-  'squat', 'hip_hinge', 'horizontal_push', 'vertical_push',
-  'horizontal_pull', 'vertical_pull', 'lunge', 'compound',
-]);
-
 function getCnsDemandTier(ex: GeneratedExercise): number {
-  const name = ex.exerciseName.toLowerCase();
-  for (const [pattern, tier] of CNS_DEMAND_KEYWORDS) {
-    if (pattern.test(name)) return tier;
-  }
-  const mp = (ex.movementPattern || '').toLowerCase();
-  if (COMPOUND_MOVEMENT_PATTERNS.has(mp)) return 2;
-  if (name.includes('leg press') || name.includes('hack squat') || name.includes('smith')) return 2;
-  if (name.includes('machine') || name.includes('cable')) return 3;
-  if (mp === 'isolation' || mp === 'corrective') return 4;
-  return 3;
+  return classifyCnsDemandFromName(
+    String(ex.exerciseName || '').toLowerCase(),
+    (ex.movementPattern || '').toLowerCase() || null,
+  );
 }
 
 function estimateGeneratedEffectiveSetWeight(ex: GeneratedExercise): number {
-  const name = String(ex.exerciseName || '');
-  const sfr = getExerciseSFR(name);
+  const identity = classifyGeneratedExercise(ex);
+  const sfr = getExerciseSFR(ex.exerciseName);
   const role = String(ex.exerciseRole || '').toLowerCase();
   const pattern = String(ex.movementPattern || '').toLowerCase();
   const group = String(ex.targetMuscleGroup || '').toLowerCase();
@@ -3943,10 +4055,7 @@ function estimateGeneratedEffectiveSetWeight(ex: GeneratedExercise): number {
   }
   if (role === 'primary' || role === 'secondary' || pattern === 'compound') weight *= 1.08;
   if (role === 'isolation' || role === 'corrective') weight *= 0.92;
-  if (
-    group === 'hamstrings'
-    && (pattern.includes('hinge') || /(^|\b)(rdl|romanian deadlift|deadlift|good morning)(\b|$)/i.test(name))
-  ) {
+  if (group === 'hamstrings' && identity.isHinge) {
     weight *= 1.1;
   }
   return clampNumber(weight, 0.55, 1.45);
@@ -3992,12 +4101,7 @@ function computeMarginalValue(
   actionCostMinutes: number = 1,
   sessionStimulusByGroup?: Record<string, number>,
 ): number {
-  const isHingeLike = (exerciseName: string, movementPattern: string | null | undefined): boolean => {
-    const pat = String(movementPattern ?? '').toLowerCase();
-    const name = String(exerciseName || '').toLowerCase();
-    return pat.includes('hinge') || /(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning|deadlift)(\b|$)/.test(name);
-  };
-  const hasHingeInSession = currentExercises.some(ex => isHingeLike(ex.exerciseName, ex.movementPattern));
+  const hasHingeInSession = currentExercises.some(ex => classifyGeneratedExercise(ex).isHinge);
   if (action.type === 'add_set') {
     const ex = currentExercises[action.exerciseIndex];
     const sfr = getExerciseSFR(ex.exerciseName);
@@ -4019,7 +4123,7 @@ function computeMarginalValue(
     const couplingMod = coupling
       ? clampNumber(1 + coupling.priorityDelta * 0.55, 0.72, 1.28)
       : 1.0;
-    const hingeSetPenalty = (hasHingeInSession && isHingeLike(ex.exerciseName, ex.movementPattern) && ex.sets >= 4) ? 0.72 : 1.0;
+    const hingeSetPenalty = (hasHingeInSession && classifyGeneratedExercise(ex).isHinge && ex.sets >= 4) ? 0.72 : 1.0;
     const recoveryMod = vol
       ? clampNumber(0.78 + Math.min(1.2, (vol.daysSinceLastTrained ?? 0) / 3) * 0.22, 0.78, 1.12)
       : 1.0;
@@ -4060,7 +4164,7 @@ function computeMarginalValue(
   const couplingMod = coupling
     ? clampNumber(1 + coupling.priorityDelta * 0.65, 0.68, 1.35)
     : 1.0;
-  const hingeAddPenalty = (hasHingeInSession && isHingeLike(sel.exercise.name, sel.exercise.movement_pattern)) ? 0.62 : 1.0;
+  const hingeAddPenalty = (hasHingeInSession && classifyExercise(sel.exercise.name, sel.exercise).isHinge) ? 0.62 : 1.0;
   const recoveryMod = vol
     ? clampNumber(0.8 + Math.min(1.3, (vol.daysSinceLastTrained ?? 0) / 3) * 0.2, 0.8, 1.15)
     : 1.0;
@@ -4319,12 +4423,6 @@ function stepApplyConstraints(
   totalCardioMin = keptCardio.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
   const strengthBudget = Math.max(effectiveBudget - totalCardioMin, cfg.minStrengthBudgetMinutes);
   totalStrengthMin = ordered.reduce((sum, ex) => sum + ex.estimatedMinutes, 0);
-  const stapleFamilyKey = (exerciseName: string): string => {
-    const n = String(exerciseName || '').trim().toLowerCase();
-    if (/(^|\b)(rdl|romanian deadlift)(\b|$)/.test(n)) return 'romanian_deadlift';
-    if (/leg\s*press|sled\s*press|45[\s-]*degree\s*leg\s*press/.test(n)) return 'leg_press';
-    return n;
-  };
   const isCompoundGenerated = (ex: GeneratedExercise): boolean => {
     const tier = getCnsDemandTier(ex);
     return ex.movementPattern === 'compound' || tier <= 2;
@@ -4348,7 +4446,7 @@ function stepApplyConstraints(
   if (totalStrengthMin > strengthBudget) {
     // Phase 1: Compress rest on isolation and secondary exercises proportional to overshoot
     const overshootRatio = totalStrengthMin / strengthBudget;
-    const restCompression = Math.min(0.30, (overshootRatio - 1) * 0.5);
+    const restCompression = Math.min(cfg.timeBudgetMaxRestCompression, (overshootRatio - 1) * cfg.timeBudgetRestCompressionSensitivity);
     for (const ex of ordered) {
       if (totalStrengthMin <= strengthBudget) break;
       if (ex.exerciseRole === 'isolation' || ex.exerciseRole === 'corrective') {
@@ -4594,7 +4692,7 @@ function stepApplyConstraints(
       if (prog) {
         targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, fillExType);
         if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
-          targetWeight = snapToPlate(prog.lastWeight * 0.75, equipment, fillExType);
+          targetWeight = snapToPlate(prog.lastWeight * cfg.weightRescueFloorMult, equipment, fillExType);
         }
       } else if (pref?.learnedWeight != null) {
         targetWeight = snapToPlate(pref.learnedWeight, equipment, fillExType);
@@ -4617,6 +4715,7 @@ function stepApplyConstraints(
           : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, fillExType), equipment) : null),
         targetRir: rir,
         rirLabel: getRirLabel(rir),
+        rirRange: null,
         isBodyweight,
         tempo,
         restSeconds: rest,
@@ -4747,7 +4846,7 @@ function stepApplyConstraints(
       if (prog) {
         targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, fillExType);
         if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
-          targetWeight = snapToPlate(prog.lastWeight * 0.75, equipment, fillExType);
+          targetWeight = snapToPlate(prog.lastWeight * cfg.weightRescueFloorMult, equipment, fillExType);
         }
       } else if (pref?.learnedWeight != null) {
         targetWeight = snapToPlate(pref.learnedWeight, equipment, fillExType);
@@ -4770,6 +4869,7 @@ function stepApplyConstraints(
           : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, fillExType), equipment) : null),
         targetRir: rir,
         rirLabel: getRirLabel(rir),
+        rirRange: null,
         isBodyweight,
         tempo,
         restSeconds: rest,
@@ -4842,7 +4942,7 @@ function stepApplyConstraints(
     if (prog) {
       targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, fillExType);
       if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
-        targetWeight = snapToPlate(prog.lastWeight * 0.75, equipment, fillExType);
+        targetWeight = snapToPlate(prog.lastWeight * cfg.weightRescueFloorMult, equipment, fillExType);
       }
     } else if (pref?.learnedWeight != null) {
       targetWeight = snapToPlate(pref.learnedWeight, equipment, fillExType);
@@ -4864,6 +4964,7 @@ function stepApplyConstraints(
         : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, fillExType), equipment) : null),
       targetRir: rir,
       rirLabel: getRirLabel(rir),
+      rirRange: null,
       isBodyweight,
       tempo,
       restSeconds: rest,
@@ -5734,7 +5835,7 @@ export async function generateWorkout(
   };
 
   // #7: Experience-level scaling — adjust volume and progression
-  const expLevel = prefs.experience_level?.toLowerCase() ?? 'intermediate';
+  const expLevel = getExperienceOrDefault(prefs.experience_level);
   const isElite = expLevel === 'elite' || expLevel === 'expert' || expLevel === 'professional';
   const expVolumeScale = expLevel === 'beginner' ? cfg.beginnerVolumeMultiplier
     : isElite ? cfg.eliteVolumeMultiplier
@@ -5818,6 +5919,9 @@ export async function generateWorkout(
   // Weight goal timeline modulation: when the user has a goal weight + date,
   // compute how aggressive the rate needs to be and adjust programming accordingly.
   const goalPhase = getEffectiveGoal(prefs);
+  if (goalPhase === 'maintain' && !prefs.primary_goal && !prefs.secondary_goal) {
+    recoveryAdj.adjustmentReasons.push('No goal set — defaulting to maintain');
+  }
   let goalTimelineVolumeScale = 1.0;
   let goalTimelineCardioMult = 1.0;
   let goalTimelineRirShift = 0;
@@ -5896,7 +6000,7 @@ export async function generateWorkout(
     recoveryAdj.adjustmentReasons.push(effectiveFatLossController.reason);
   }
 
-  const highCapacityPush = computeHighCapacityPush(profile, prefs);
+  const highCapacityPush = computeHighCapacityPush(profile, prefs, cfg);
   if (highCapacityPush.active) {
     recoveryAdj.volumeMultiplier *= highCapacityPush.volumeMultiplier;
     recoveryAdj.volumeMultiplier = Math.max(cfg.volumeMultiplierFloor, recoveryAdj.volumeMultiplier);
@@ -5998,7 +6102,7 @@ export async function generateWorkout(
   }
 
   // Compute mesocycle phase modifiers
-  const mesocycleWeek = prefs.mesocycle_week ?? 2;
+  const mesocycleWeek = prefs.mesocycle_week ?? 1;
   const PHASE_ORDER = ['accumulation', 'loading', 'overreach', 'deload'];
   const phaseIndex = Math.max(0, Math.min(mesocycleWeek - 1, PHASE_ORDER.length - 1));
   const currentMesocyclePhase = recoveryAdj.isDeload ? 'deload' : PHASE_ORDER[phaseIndex];
@@ -6459,12 +6563,6 @@ export async function generateWeeklyPlan(
   let coherenceRejectEvents = 0;
   const normalizeExerciseName = (name: string): string =>
     String(name || '').trim().toLowerCase();
-  const stapleFamilyKey = (exerciseName: string): string => {
-    const n = normalizeExerciseName(exerciseName);
-    if (/(^|\b)(rdl|romanian deadlift)(\b|$)/.test(n)) return 'romanian_deadlift';
-    if (/leg\s*press|sled\s*press|45[\s-]*degree\s*leg\s*press/.test(n)) return 'leg_press';
-    return n;
-  };
   const shouldExcludeStapleFamily = (familyKey: string): boolean =>
     familyKey === 'romanian_deadlift';
   const stapleFamilyAgg = new Map<string, {
@@ -6529,24 +6627,19 @@ export async function generateWeeklyPlan(
   );
   const weeklyStapleSet = new Set(weeklyStapleFamilies);
   const canonicalFamilyKey = (ex: GeneratedExercise): string | null => {
-    const name = normalizeExerciseName(ex.exerciseName);
-    const pat = String(ex.movementPattern ?? '').toLowerCase();
-    if (/(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning)(\b|$)/.test(name)) return 'hip_hinge';
-    if (pat.includes('hip_hinge') || pat.includes('hinge')) return 'hip_hinge';
+    const identity = classifyGeneratedExercise(ex);
+    if (identity.isHinge) return 'hip_hinge';
     return null;
   };
   const regionalSubgroupKey = (ex: GeneratedExercise): string | null => {
-    const name = normalizeExerciseName(ex.exerciseName);
+    const identity = classifyGeneratedExercise(ex);
     const group = String(ex.targetMuscleGroup || '').toLowerCase();
-    if (group === 'upper_chest' || group === 'mid_chest' || group === 'lower_chest') {
-      return group;
-    }
-    if (group === 'back_lats' || group === 'back_upper' || group === 'upper_traps' || group === 'mid_traps' || group === 'lower_traps') {
-      return group;
-    }
-    if (group === 'quadriceps' || /(squat|leg press|lunge|split squat|step[-\s]*up)/.test(name)) return 'legs_quad_knee';
-    if (group === 'hamstrings' || /(rdl|romanian deadlift|deadlift|good morning|hamstring curl|nordic)/.test(name)) return 'legs_ham_hinge';
-    if (group === 'glutes' || /(hip thrust|bridge|kickback|abduction)/.test(name)) return 'legs_glute';
+    if (group === 'upper_chest' || group === 'mid_chest' || group === 'lower_chest') return group;
+    if (group === 'back_lats' || group === 'back_upper' || group === 'upper_traps' || group === 'mid_traps' || group === 'lower_traps') return group;
+    const mp = identity.movementPattern ?? '';
+    if (group === 'quadriceps' || mp === 'squat' || mp === 'lunge') return 'legs_quad_knee';
+    if (group === 'hamstrings' || identity.isHinge || identity.isKneeFlexion) return 'legs_ham_hinge';
+    if (group === 'glutes') return 'legs_glute';
     return null;
   };
   const exerciseNameSet = (w: GeneratedWorkout | null): Set<string> =>

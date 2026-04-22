@@ -192,11 +192,315 @@ export interface ModelConfig {
   // ── Mesocycle Phases ──────────────────────────────────────────────────
   mesocyclePhases: Record<string, { volumeMult: number; rirOffset: number }>;
   mesocycleRecoverySignalThreshold: number;
+
+  // ── Weight Sanity Caps ─────────────────────────────────────────────────
+  /** BW multiplier cap for isolation exercises */
+  weightCapIsolationMult: number;
+  /** BW multiplier cap for corrective/isolation-role exercises */
+  weightCapCorrectiveMult: number;
+  /** BW multiplier cap for machine/cable exercises */
+  weightCapMachineMult: number;
+  /** BW multiplier cap for dumbbell exercises (per hand) */
+  weightCapDumbbellMult: number;
+  /** BW multiplier cap for primary barbell lifts (squat, bench, deadlift) */
+  weightCapPrimaryLiftMult: number;
+  /** BW multiplier cap for other primary role exercises */
+  weightCapPrimaryMult: number;
+  /** BW multiplier cap fallback for all other exercises */
+  weightCapDefaultMult: number;
+
+  // ── Rep Range Table ────────────────────────────────────────────────────
+  /** Full rep range table keyed by goal → role → {min, max, target} */
+  repRangeTable: Record<string, Record<string, { min: number; max: number; target: number }>>;
+  /** Hard cap on reps for primary compound exercises */
+  maxCompoundRepsPrimary: number;
+  /** Hard cap on reps for secondary compound exercises */
+  maxCompoundRepsSecondary: number;
+
+  // ── Sets Tiers ─────────────────────────────────────────────────────────
+  /** Base set counts by exercise role (before goal/priority adjustments) */
+  roleBaseSets: Record<string, number>;
+  /** Extra sets added to primary/secondary roles during bulk phase */
+  bulkSetsBonus: number;
+  /** Minimum sets floor during cut phase */
+  cutSetsFloor: number;
+  /** Set multiplier during deload weeks (fraction of normal) */
+  deloadSetMultiplier: number;
+  /** Absolute minimum sets for any exercise */
+  setsAbsoluteMin: number;
+  /** Absolute maximum sets for any exercise */
+  setsAbsoluteMax: number;
+
+  // ── RIR Maps ──────────────────────────────────────────────────────────
+  /** Deload RIR override (all roles) */
+  deloadRir: number;
+  /** RIR targets per role for advanced/elite lifters */
+  advancedRirMap: Record<string, number>;
+  /** RIR targets per role for beginner lifters */
+  beginnerRirMap: Record<string, number>;
+  /** RIR targets per role for intermediate lifters */
+  intermediateRirMap: Record<string, number>;
+  /** Goal-based RIR shift (e.g. cut adds +1 RIR for fatigue management) */
+  goalRirShift: Record<string, number>;
+
+  // ── Rest Calculation ──────────────────────────────────────────────────
+  /** Per-primary-muscle demand score contribution (capped at 5) */
+  restDemandPerPrimary: number;
+  /** Cap for primary muscle demand contribution */
+  restDemandPrimaryCap: number;
+  /** Per-secondary-muscle demand score contribution (capped at 1.5) */
+  restDemandPerSecondary: number;
+  /** Cap for secondary muscle demand contribution */
+  restDemandSecondaryCap: number;
+  /** Demand score bonus for compound exercises */
+  restDemandCompoundBonus: number;
+  /** CNS demand scores by movement pattern */
+  restPatternCns: Record<string, number>;
+  /** Default CNS score when pattern is unknown */
+  restPatternCnsDefault: number;
+  /** Base rest floor (seconds) before demand scaling */
+  restBaseFloor: number;
+  /** Scaling factor applied to demand score for rest calculation */
+  restDemandScale: number;
+  /** Goal-based rest multipliers */
+  restGoalMultiplier: Record<string, number>;
+  /** Absolute minimum rest (seconds) */
+  restAbsoluteMin: number;
+  /** Absolute maximum rest (seconds) */
+  restAbsoluteMax: number;
+
+  // ── Transition Times ──────────────────────────────────────────────────
+  /** Setup/transition time per exercise by role (seconds) */
+  transitionTimeSec: Record<string, number>;
+
+  // ── Impact Score Weights ──────────────────────────────────────────────
+  /** Phase-specific weights for impact scoring (compound, mass, metabolic) */
+  impactPhaseWeights: Record<string, { compound: number; mass: number; metabolic: number }>;
+  /** V-taper muscle bonus in impact scoring */
+  impactVTaperBonus: number;
+  /** Corrective role impact multiplier */
+  impactCorrectiveMultiplier: number;
+  /** Primary role impact multiplier */
+  impactPrimaryMultiplier: number;
+  /** Isolation exercise type impact bonus */
+  impactIsolationBonus: number;
+
+  // ── Exercise Selection Scoring ────────────────────────────────────────
+  /** Score for compound exercises */
+  selectionCompoundScore: number;
+  /** Score for exercises matching a performance goal */
+  selectionPerformanceGoalScore: number;
+  /** Score for weekly staple exercises */
+  selectionStapleScore: number;
+  /** Bonus for consistent staple exercises */
+  selectionStapleConsistencyBonus: number;
+  /** Score for recently used exercises (within 14 days) */
+  selectionRecentUseScore: number;
+  /** Penalty for exercises trained yesterday (recovery protection) */
+  selectionYesterdayPenalty: number;
+  /** Recency score multiplier for user preference bonus */
+  selectionRecencyMultiplier: number;
+  /** Penalty for stale exercises (6+ weeks consecutive use) */
+  selectionStaleExercisePenalty: number;
+  /** Penalty for exercises needing rotation (4+ weeks) */
+  selectionRotationPenalty: number;
+  /** Score for progressing exercises */
+  selectionProgressingScore: number;
+  /** Score for stalled exercises */
+  selectionStalledScore: number;
+  /** Penalty for regressing exercises */
+  selectionRegressingPenalty: number;
+  /** Penalty for ordering interference with previous exercise */
+  selectionOrderingInterferencePenalty: number;
+  /** Penalty for duplicate hinge pattern in session */
+  selectionDuplicateHingePenalty: number;
+  /** Bonus for knee-flexion hamstring work when hinge already selected */
+  selectionKneeFlexionBonus: number;
+  /** Penalty for exercises requiring unavailable heavy equipment */
+  selectionHeavyEquipmentPenalty: number;
+  /** Swap history penalty thresholds: { weight, count, penalty } tiers */
+  selectionSwapPenaltyTiers: Array<{ minWeight: number; minCount: number; penalty: number }>;
+  /** Near-ban swap score ceiling */
+  selectionSwapNearBanCeiling: number;
+  /** Movement pattern fatigue penalties by level */
+  selectionPatternFatiguePenalties: Record<string, number>;
+  /** Plateau swap/variation penalty */
+  selectionPlateauSwapPenalty: number;
+
+  // ── Fat-Loss PID Controller ───────────────────────────────────────────
+  /** Target body weight loss rate per week (fraction of BW, e.g. 0.006 = 0.6%) */
+  fatLossTargetSlopeFraction: number;
+  /** Proportional gain (Kp) */
+  fatLossPidKp: number;
+  /** Integral gain (Ki) */
+  fatLossPidKi: number;
+  /** Derivative gain (Kd) */
+  fatLossPidKd: number;
+  /** Control signal clamp range [min, max] */
+  fatLossControlClamp: [number, number];
+  /** Adherence threshold below which control signal is dampened */
+  fatLossAdherenceThreshold: number;
+  /** Dampened control signal range when adherence is low */
+  fatLossLowAdherenceClamp: [number, number];
+  /** Weight trend confidence threshold for quality gate */
+  fatLossConfidenceThreshold: number;
+  /** Confidence floor scaling factor */
+  fatLossConfidenceFloor: number;
+  /** Nutrition coverage threshold for dampening */
+  fatLossNutritionCoverageThreshold: number;
+  /** Nutrition adherence threshold for dampening */
+  fatLossNutritionAdherenceThreshold: number;
+  /** Nutrition coverage dampening floor */
+  fatLossNutritionCoverageFloor: number;
+  /** Nutrition adherence low threshold (second tier) */
+  fatLossNutritionAdherenceLowThreshold: number;
+  /** Nutrition adherence dampening floor (second tier) */
+  fatLossNutritionAdherenceLowFloor: number;
+  /** Cardio duration sensitivity to control signal */
+  fatLossCardioDurationSensitivity: number;
+  /** Cardio duration clamp range [min, max] */
+  fatLossCardioDurationClamp: [number, number];
+  /** Cardio intensity sensitivity to control signal */
+  fatLossCardioIntensitySensitivity: number;
+  /** Cardio intensity clamp range [min, max] */
+  fatLossCardioIntensityClamp: [number, number];
+  /** Strength volume sensitivity to control signal */
+  fatLossStrengthVolumeSensitivity: number;
+  /** Strength volume clamp range [min, max] */
+  fatLossStrengthVolumeClamp: [number, number];
+  /** Rest seconds sensitivity to control signal */
+  fatLossRestSecondsSensitivity: number;
+  /** Rest seconds clamp range [min, max] */
+  fatLossRestSecondsClamp: [number, number];
+  /** Tier thresholds: [stalled, slow_loss, too_fast] */
+  fatLossTierThresholds: { stalled: number; slowLoss: number; tooFast: number };
+
+  // ── Cardio Prescription ───────────────────────────────────────────────
+  /** Goal-based default cardio durations in seconds */
+  cardioGoalDefaultDuration: Record<string, number>;
+  /** Cut phase extended Zone 2 duration multiplier */
+  cardioCutExtendedDurationMult: number;
+  /** Cut phase Zone 3 duration multiplier */
+  cardioCutTempoDurationMult: number;
+  /** Cut phase Zone 3 speed multiplier */
+  cardioCutTempoSpeedMult: number;
+  /** Bulk phase max cardio duration (seconds) */
+  cardioBulkMaxDuration: number;
+  /** Maintain tempo Zone 3 duration multiplier */
+  cardioMaintainTempoDurationMult: number;
+  /** Maintain tempo speed multiplier */
+  cardioMaintainTempoSpeedMult: number;
+  /** Maintain intensity push speed multiplier */
+  cardioMaintainIntensitySpeedMult: number;
+  /** Maintain progressive duration multiplier */
+  cardioMaintainProgressiveDurationMult: number;
+
+  // ── Volume Split Constants ────────────────────────────────────────────
+  /** Primary exercise stimulus share (fraction of remaining stimulus) */
+  volumePrimaryShare: number;
+  /** Subsequent exercise stimulus share (fraction of remaining stimulus) */
+  volumeSubsequentShare: number;
+  /** Minimum stimulus per subsequent exercise */
+  volumeSubsequentFloor: number;
+  /** Minimum effective set weight denominator */
+  volumeEffectiveSetWeightFloor: number;
+  /** Max total exercises by session duration tiers: {120+, 90+, 60+, default} */
+  volumeMaxExerciseTiers: Record<string, number>;
+  /** Max sets per exercise by session duration tiers */
+  volumeMaxSetsPerExerciseTiers: Record<string, number>;
+
+  // ── Progression Effort Gates ──────────────────────────────────────────
+  /** Effort score below which progression is blocked (0x multiplier) */
+  effortGateBlockThreshold: number;
+  /** Effort score below which progression is halved (0.5x multiplier) */
+  effortGateHalfThreshold: number;
+
+  // ── Apollo Proportions ────────────────────────────────────────────────
+  /** Ideal volume distribution proportions for aesthetic balance */
+  apolloIdealProportions: Record<string, number>;
+
+  // ── Muscle Group Priority Composite ───────────────────────────────────
+  /** Freshness weight in priority composite score */
+  priorityFreshnessWeight: number;
+  /** Volume deficit weight in priority composite score */
+  priorityVolumeDeficitWeight: number;
+  /** Proportional deficit multiplier sensitivity */
+  priorityDeficitSensitivity: number;
+  /** Proportional deficit multiplier floor */
+  priorityDeficitFloor: number;
+  /** Proportional deficit multiplier ceiling */
+  priorityDeficitCeiling: number;
+  /** Visual score multiplier sensitivity (per point below 7) */
+  priorityVisualScoreSensitivity: number;
+  /** Visual score multiplier floor */
+  priorityVisualFloor: number;
+  /** Visual score multiplier ceiling */
+  priorityVisualCeiling: number;
+  /** Preferred group bias boost */
+  priorityPreferredGroupBoost: number;
+  /** Individual MRV safety margin (fraction, e.g. 0.95 = 95% of MRV) */
+  priorityMrvSafetyFraction: number;
+
+  // ── Time Budget Phase Thresholds ──────────────────────────────────────
+  /** Phase 1: max rest compression fraction for overshoot */
+  timeBudgetMaxRestCompression: number;
+  /** Phase 1: rest compression sensitivity to overshoot ratio */
+  timeBudgetRestCompressionSensitivity: number;
+
+  // ── Bodyweight-Only Mode ───────────────────────────────────────────
+  /** Penalty for exercises requiring any equipment in bodyweight-only mode */
+  selectionBodyweightOnlyPenalty: number;
+
+  // ── High-Capacity Push ─────────────────────────────────────────────
+  /** Readiness threshold for aggressive high-capacity push */
+  highCapAggressiveReadiness: number;
+  /** Adherence threshold for aggressive high-capacity push */
+  highCapAggressiveAdherence: number;
+  /** Athlete score threshold for aggressive push */
+  highCapAggressiveAthleteScore: number;
+  /** Strength percentile threshold for aggressive push */
+  highCapAggressiveStrengthPct: number;
+  /** Volume multiplier for aggressive high-capacity push */
+  highCapAggressiveVolumeMult: number;
+  /** Progression multiplier for aggressive push */
+  highCapAggressiveProgressionMult: number;
+  /** Rest seconds multiplier for aggressive push */
+  highCapAggressiveRestMult: number;
+  /** RIR delta for aggressive push */
+  highCapAggressiveRirDelta: number;
+  /** Volume multiplier for moderate high-capacity push */
+  highCapModerateVolumeMult: number;
+  /** Progression multiplier for moderate push */
+  highCapModerateProgressionMult: number;
+  /** Rest seconds multiplier for moderate push */
+  highCapModerateRestMult: number;
+  /** RIR delta for moderate push */
+  highCapModerateRirDelta: number;
+  /** Capability gate: minimum athlete score to enable push */
+  highCapAthleteScoreGate: number;
+  /** Capability gate: minimum avg strength percentile */
+  highCapStrengthPctGate: number;
+  /** Readiness gate-off threshold */
+  highCapReadinessGateOff: number;
+  /** Adherence gate-off threshold */
+  highCapAdherenceGateOff: number;
+
+  // ── Regression Percentages ─────────────────────────────────────────
+  /** Weight reduction for systemic regression (3+ lifts declining) */
+  regressionSystemicMult: number;
+  /** Weight reduction for severe single-lift regression */
+  regressionSevereMult: number;
+  /** Ego audit cap multiplier (reduces weight when form-ratio flags ego lifting) */
+  egoAuditCapMult: number;
+  /** Weight rescue floor when 1RM estimate produces value below 50% of last weight */
+  weightRescueFloorMult: number;
+  /** Maximum cumulative weight reduction from stacked modifiers (ego + sleep) */
+  weightModifierFloorMult: number;
 }
 
 // Version stamps persisted with generated workouts for reproducibility.
 export const MODEL_CONFIG_VERSION = '2026-03-24.1';
-export const WORKOUT_ENGINE_VERSION = '2026-04-21.1';
+export const WORKOUT_ENGINE_VERSION = '2026-04-21.2';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery
@@ -325,4 +629,201 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
     deload:       { volumeMult: 0.80, rirOffset: 2 },
   },
   mesocycleRecoverySignalThreshold: 3,
+
+  // Weight sanity caps
+  weightCapIsolationMult: 0.75,
+  weightCapCorrectiveMult: 0.50,
+  weightCapMachineMult: 2.5,
+  weightCapDumbbellMult: 0.65,
+  weightCapPrimaryLiftMult: 3.0,
+  weightCapPrimaryMult: 2.0,
+  weightCapDefaultMult: 1.5,
+
+  // Rep range table
+  repRangeTable: {
+    bulk:     { primary: { min: 5, max: 8, target: 6 },  secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
+    cut:      { primary: { min: 4, max: 6, target: 5 },  secondary: { min: 6, max: 10, target: 8 },  isolation: { min: 10, max: 12, target: 10 } },
+    maintain: { primary: { min: 5, max: 8, target: 6 },  secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
+  },
+  maxCompoundRepsPrimary: 15,
+  maxCompoundRepsSecondary: 18,
+
+  // Sets tiers
+  roleBaseSets: { primary: 4, secondary: 3, isolation: 2, corrective: 2, cardio: 1 },
+  bulkSetsBonus: 1,
+  cutSetsFloor: 2,
+  deloadSetMultiplier: 0.8,
+  setsAbsoluteMin: 2,
+  setsAbsoluteMax: 8,
+
+  // RIR maps
+  deloadRir: 4,
+  advancedRirMap: { primary: 1, secondary: 1, isolation: 0, corrective: 2, cardio: 0 },
+  beginnerRirMap: { primary: 3, secondary: 2, isolation: 2, corrective: 3, cardio: 0 },
+  intermediateRirMap: { primary: 2, secondary: 1, isolation: 1, corrective: 2, cardio: 0 },
+  goalRirShift: { bulk: 0, cut: 1, maintain: 0 },
+
+  // Rest calculation
+  restDemandPerPrimary: 1.2,
+  restDemandPrimaryCap: 5,
+  restDemandPerSecondary: 0.3,
+  restDemandSecondaryCap: 1.5,
+  restDemandCompoundBonus: 2,
+  restPatternCns: {
+    squat: 2.0, deadlift: 2.0, hip_hinge: 1.8,
+    horizontal_press: 1.3, vertical_press: 1.3, lunge: 1.2,
+    horizontal_pull: 1.0, vertical_pull: 1.0,
+    extension: 0.3, curl: 0.3, fly: 0.3, raise: 0.3, rotation: 0.3,
+    horizontal_push: 1.3, vertical_push: 1.3,
+  },
+  restPatternCnsDefault: 0.5,
+  restBaseFloor: 40,
+  restDemandScale: 160,
+  restGoalMultiplier: { bulk: 1.15, cut: 0.85, maintain: 1.0 },
+  restAbsoluteMin: 30,
+  restAbsoluteMax: 300,
+
+  // Transition times
+  transitionTimeSec: { primary: 120, secondary: 90, isolation: 60, corrective: 45, cardio: 60, strength: 90 },
+
+  // Impact score weights
+  impactPhaseWeights: {
+    bulk:     { compound: 1.5, mass: 1.5, metabolic: 0.5 },
+    cut:      { compound: 1.2, mass: 1.0, metabolic: 1.5 },
+    maintain: { compound: 1.3, mass: 1.2, metabolic: 0.8 },
+  },
+  impactVTaperBonus: 2,
+  impactCorrectiveMultiplier: 2.0,
+  impactPrimaryMultiplier: 1.3,
+  impactIsolationBonus: 1.5,
+
+  // Exercise selection scoring
+  selectionCompoundScore: 8,
+  selectionPerformanceGoalScore: 6,
+  selectionStapleScore: 5,
+  selectionStapleConsistencyBonus: 4,
+  selectionRecentUseScore: 2,
+  selectionYesterdayPenalty: -12,
+  selectionRecencyMultiplier: 1.35,
+  selectionStaleExercisePenalty: -10,
+  selectionRotationPenalty: -5,
+  selectionProgressingScore: 3,
+  selectionStalledScore: 1,
+  selectionRegressingPenalty: -1,
+  selectionOrderingInterferencePenalty: -2,
+  selectionDuplicateHingePenalty: -6,
+  selectionKneeFlexionBonus: 3,
+  selectionHeavyEquipmentPenalty: -5,
+  selectionSwapPenaltyTiers: [
+    { minWeight: 4.5, minCount: 5, penalty: -30 },
+    { minWeight: 2.2, minCount: 3, penalty: -20 },
+    { minWeight: 1.0, minCount: 2, penalty: -10 },
+  ],
+  selectionSwapNearBanCeiling: -10,
+  selectionPatternFatiguePenalties: { high: -6, moderate: -2 },
+  selectionPlateauSwapPenalty: -3,
+
+  // Fat-loss PID controller
+  fatLossTargetSlopeFraction: 0.006,
+  fatLossPidKp: 0.35,
+  fatLossPidKi: 0.08,
+  fatLossPidKd: 0.16,
+  fatLossControlClamp: [-0.45, 0.50],
+  fatLossAdherenceThreshold: 0.60,
+  fatLossLowAdherenceClamp: [-0.20, 0.20],
+  fatLossConfidenceThreshold: 0.42,
+  fatLossConfidenceFloor: 0.28,
+  fatLossNutritionCoverageThreshold: 0.38,
+  fatLossNutritionAdherenceThreshold: 0.55,
+  fatLossNutritionCoverageFloor: 0.42,
+  fatLossNutritionAdherenceLowThreshold: 0.48,
+  fatLossNutritionAdherenceLowFloor: 0.52,
+  fatLossCardioDurationSensitivity: 0.72,
+  fatLossCardioDurationClamp: [0.80, 1.50],
+  fatLossCardioIntensitySensitivity: 0.32,
+  fatLossCardioIntensityClamp: [0.90, 1.20],
+  fatLossStrengthVolumeSensitivity: 0.18,
+  fatLossStrengthVolumeClamp: [0.90, 1.10],
+  fatLossRestSecondsSensitivity: 0.18,
+  fatLossRestSecondsClamp: [0.88, 1.10],
+  fatLossTierThresholds: { stalled: 0.20, slowLoss: 0.06, tooFast: -0.16 },
+
+  // Cardio prescription
+  cardioGoalDefaultDuration: { bulk: 900, cut: 1500, maintain: 1200 },
+  cardioCutExtendedDurationMult: 1.15,
+  cardioCutTempoDurationMult: 0.75,
+  cardioCutTempoSpeedMult: 1.10,
+  cardioBulkMaxDuration: 1200,
+  cardioMaintainTempoDurationMult: 0.80,
+  cardioMaintainTempoSpeedMult: 1.08,
+  cardioMaintainIntensitySpeedMult: 1.12,
+  cardioMaintainProgressiveDurationMult: 1.10,
+
+  // Volume split constants
+  volumePrimaryShare: 0.62,
+  volumeSubsequentShare: 0.5,
+  volumeSubsequentFloor: 1.6,
+  volumeEffectiveSetWeightFloor: 0.55,
+  volumeMaxExerciseTiers: { '120': 14, '90': 12, '60': 10, default: 8 },
+  volumeMaxSetsPerExerciseTiers: { '120': 6, '90': 5, '60': 4, default: 3 },
+
+  // Progression effort gates
+  effortGateBlockThreshold: 45,
+  effortGateHalfThreshold: 55,
+
+  // Apollo proportions
+  apolloIdealProportions: {
+    mid_chest: 0.09, upper_chest: 0.05, lower_chest: 0.03,
+    back_lats: 0.10, back_upper: 0.06,
+    upper_traps: 0.02, mid_traps: 0.005, lower_traps: 0.005,
+    lateral_deltoid: 0.06, anterior_deltoid: 0.04, posterior_deltoid: 0.04,
+    quadriceps: 0.10, hamstrings: 0.08, glutes: 0.06,
+    biceps: 0.04, triceps: 0.05,
+    calves: 0.03, core: 0.04, forearms: 0.02,
+    erector_spinae: 0.02, rotator_cuff: 0.01,
+  },
+
+  // Muscle group priority composite
+  priorityFreshnessWeight: 0.4,
+  priorityVolumeDeficitWeight: 0.3,
+  priorityDeficitSensitivity: 3.0,
+  priorityDeficitFloor: 0.6,
+  priorityDeficitCeiling: 2.0,
+  priorityVisualScoreSensitivity: 2.0,
+  priorityVisualFloor: 0.6,
+  priorityVisualCeiling: 1.8,
+  priorityPreferredGroupBoost: 0.42,
+  priorityMrvSafetyFraction: 0.95,
+
+  // Time budget phase thresholds
+  timeBudgetMaxRestCompression: 0.30,
+  timeBudgetRestCompressionSensitivity: 0.5,
+
+  // Bodyweight-only mode
+  selectionBodyweightOnlyPenalty: -8,
+
+  // High-capacity push
+  highCapAggressiveReadiness: 0.82,
+  highCapAggressiveAdherence: 0.75,
+  highCapAggressiveAthleteScore: 80,
+  highCapAggressiveStrengthPct: 75,
+  highCapAggressiveVolumeMult: 1.15,
+  highCapAggressiveProgressionMult: 1.30,
+  highCapAggressiveRestMult: 0.85,
+  highCapAggressiveRirDelta: -2,
+  highCapModerateVolumeMult: 1.08,
+  highCapModerateProgressionMult: 1.15,
+  highCapModerateRestMult: 0.92,
+  highCapModerateRirDelta: -1,
+  highCapAthleteScoreGate: 75,
+  highCapStrengthPctGate: 70,
+  highCapReadinessGateOff: 0.65,
+  highCapAdherenceGateOff: 0.6,
+
+  // Regression percentages
+  regressionSystemicMult: 0.80,
+  regressionSevereMult: 0.85,
+  egoAuditCapMult: 0.92,
+  weightRescueFloorMult: 0.75,
+  weightModifierFloorMult: 0.85,
 };

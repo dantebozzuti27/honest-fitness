@@ -239,7 +239,7 @@ nutritionApiRouter.get('/targets', async (req, res) => {
     const userId = req.userId
     if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
-    const [prefsResult, recentWeightResult, fitbitResult] = await Promise.all([
+    const [prefsResult, recentWeightResult, fitbitResult, assessmentResult] = await Promise.all([
       query(
         `SELECT body_weight_lbs, gender, age, training_goal, job_activity_level,
                 available_days_per_week, session_duration_minutes,
@@ -264,6 +264,13 @@ nutritionApiRouter.get('/targets', async (req, res) => {
            AND calories_burned IS NOT NULL`,
         [userId]
       ),
+      query(
+        `SELECT estimated_body_fat_pct, scores, weak_points, shoulder_to_waist_ratio, date
+         FROM body_assessments
+         WHERE user_id = $1 AND date >= CURRENT_DATE - 30
+         ORDER BY date DESC LIMIT 1`,
+        [userId]
+      ),
     ])
     const prefs = prefsResult.rows[0]
 
@@ -285,10 +292,26 @@ nutritionApiRouter.get('/targets', async (req, res) => {
     const totalInches = heightFt > 0 ? heightFt * 12 + heightIn : (gender === 'female' ? 64 : 69)
     const heightCm = totalInches * 2.54
 
-    // Mifflin-St Jeor BMR
-    const bmr = gender === 'female'
-      ? 10 * bwKg + 6.25 * heightCm - 5 * age - 161
-      : 10 * bwKg + 6.25 * heightCm - 5 * age + 5
+    // Body composition from physique assessment
+    const assessment = assessmentResult.rows[0] || null
+    const bodyFatPct = assessment?.estimated_body_fat_pct != null
+      ? Number(assessment.estimated_body_fat_pct)
+      : null
+    const leanMassLbs = bodyFatPct != null ? bw * (1 - bodyFatPct / 100) : null
+    const leanMassKg = leanMassLbs != null ? leanMassLbs * 0.453592 : null
+
+    // BMR: use Katch-McArdle when body fat is known (more accurate), else Mifflin-St Jeor
+    let bmr
+    let bmrMethod
+    if (leanMassKg != null) {
+      bmr = 370 + 21.6 * leanMassKg
+      bmrMethod = 'katch_mcardle'
+    } else {
+      bmr = gender === 'female'
+        ? 10 * bwKg + 6.25 * heightCm - 5 * age - 161
+        : 10 * bwKg + 6.25 * heightCm - 5 * age + 5
+      bmrMethod = 'mifflin_st_jeor'
+    }
 
     const activityMultipliers = {
       sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9,
@@ -350,11 +373,14 @@ nutritionApiRouter.get('/targets', async (req, res) => {
 
     const targetCal = Math.round(tdee + calAdjust)
 
-    // Protein per lb — evidence-based
+    // Protein: base on lean body mass when available (more accurate), else total body weight
     const baseProteinPerLb = { bulk: 0.9, cut: 1.0, maintain: 0.8 }
     let proteinMultiplier = baseProteinPerLb[phase] || 0.9
     if (phase === 'cut' && calAdjust < -600) proteinMultiplier = 1.1
-    const proteinG = Math.round(bw * proteinMultiplier)
+    const proteinBase = leanMassLbs != null
+      ? leanMassLbs * (proteinMultiplier + 0.2)  // higher per-lb on lean mass since denominator is smaller
+      : bw * proteinMultiplier
+    const proteinG = Math.round(proteinBase)
 
     const fatPct = phase === 'cut' ? 0.30 : 0.25
     const fatG = Math.round((targetCal * fatPct) / 9)
@@ -376,6 +402,7 @@ nutritionApiRouter.get('/targets', async (req, res) => {
       phase,
       body_weight_lbs: bw,
       bmr: Math.round(bmr),
+      bmr_method: bmrMethod,
       tdee: Math.round(tdee),
       tdee_source: tdeeSource,
       tdee_estimated: Math.round(estimatedTdee),
@@ -387,6 +414,13 @@ nutritionApiRouter.get('/targets', async (req, res) => {
         avg_active_minutes: fitbitAvgActiveMins,
         avg_calories_burned: fitbitTdee,
       },
+      physique: assessment ? {
+        body_fat_pct: bodyFatPct,
+        lean_mass_lbs: leanMassLbs != null ? Math.round(leanMassLbs * 10) / 10 : null,
+        shoulder_to_waist_ratio: assessment.shoulder_to_waist_ratio != null ? Number(assessment.shoulder_to_waist_ratio) : null,
+        weak_points: assessment.weak_points || [],
+        assessment_date: assessment.date,
+      } : null,
       weight_goal: goalWeight ? {
         target_lbs: goalWeight,
         target_date: goalDateStr,
@@ -408,7 +442,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     const userId = req.userId
     if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
-    const [prefsResult, weightHistoryResult, workoutStatsResult, nutritionStatsResult, fitbitStatsResult] = await Promise.all([
+    const [prefsResult, weightHistoryResult, workoutStatsResult, nutritionStatsResult, fitbitStatsResult, assessmentResult] = await Promise.all([
       query(
         `SELECT body_weight_lbs, gender, age, training_goal, job_activity_level,
                 available_days_per_week, session_duration_minutes,
@@ -451,6 +485,14 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
            AND calories_burned IS NOT NULL`,
         [userId]
       ),
+      query(
+        `SELECT estimated_body_fat_pct, scores, weak_points, strong_points,
+                shoulder_to_waist_ratio, proportional_deficits, date
+         FROM body_assessments
+         WHERE user_id = $1 AND date >= CURRENT_DATE - 30
+         ORDER BY date DESC LIMIT 1`,
+        [userId]
+      ),
     ])
 
     const prefs = prefsResult.rows[0]
@@ -471,6 +513,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     const workoutStats = workoutStatsResult.rows[0] || {}
     const nutritionStats = nutritionStatsResult.rows[0] || {}
     const fitbitStats = fitbitStatsResult.rows[0] || {}
+    const assessment = assessmentResult.rows[0] || null
 
     const phaseStartDateStr = prefs.phase_start_date || null
     const phaseStartDate = phaseStartDateStr
@@ -592,9 +635,23 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     const totalInches = heightFt > 0 ? heightFt * 12 + heightIn : (gender === 'female' ? 64 : 69)
     const heightCm = totalInches * 2.54
     const bwKg = latestWeight * 0.453592
-    const bmr = gender === 'female'
-      ? 10 * bwKg + 6.25 * heightCm - 5 * age - 161
-      : 10 * bwKg + 6.25 * heightCm - 5 * age + 5
+
+    // Body composition from physique assessment
+    const bodyFatPct = assessment?.estimated_body_fat_pct != null
+      ? Number(assessment.estimated_body_fat_pct)
+      : null
+    const leanMassLbs = bodyFatPct != null ? latestWeight * (1 - bodyFatPct / 100) : null
+    const leanMassKg = leanMassLbs != null ? leanMassLbs * 0.453592 : null
+
+    // BMR: Katch-McArdle when body fat known (physique assessment), else Mifflin-St Jeor
+    let bmr
+    if (leanMassKg != null) {
+      bmr = 370 + 21.6 * leanMassKg
+    } else {
+      bmr = gender === 'female'
+        ? 10 * bwKg + 6.25 * heightCm - 5 * age - 161
+        : 10 * bwKg + 6.25 * heightCm - 5 * age + 5
+    }
     const activityMultipliers = {
       sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9,
     }
@@ -627,9 +684,12 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
     }
     const targetCalories = Math.round(tdee + calAdjust)
 
-    // Macros
+    // Macros: protein based on lean mass when available
     const proteinPerLb = phase === 'cut' ? 1.0 : phase === 'bulk' ? 0.9 : 0.8
-    const proteinG = Math.round(latestWeight * proteinPerLb)
+    const proteinBase = leanMassLbs != null
+      ? leanMassLbs * (proteinPerLb + 0.2)
+      : latestWeight * proteinPerLb
+    const proteinG = Math.round(proteinBase)
     const fatPct = phase === 'cut' ? 0.30 : 0.25
     const fatG = Math.round((targetCalories * fatPct) / 9)
     const carbG = Math.max(0, Math.round((targetCalories - proteinG * 4 - fatG * 9) / 4))
@@ -692,9 +752,11 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
       water_oz: waterOz,
     }
 
-    // ── Workout milestones ─────────────────────────────────────────────────
+    // ── Workout milestones (physique-aware) ──────────────────────────────
     const workoutMilestones = []
     const totalWorkouts = workoutStats.total_workouts || 0
+    const weakPoints = assessment?.weak_points || []
+
     if (phase === 'cut') {
       workoutMilestones.push({
         label: 'Maintain strength on all compound lifts',
@@ -708,7 +770,7 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
       })
       workoutMilestones.push({
         label: 'Hit cardio targets',
-        detail: `${phase === 'cut' ? '3-5' : '2-3'} sessions/week, ${phase === 'cut' ? '20-40' : '15-25'} min each`,
+        detail: '3-5 sessions/week, 20-40 min each',
         status: 'monitor',
       })
       workoutMilestones.push({
@@ -716,6 +778,13 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
         detail: 'Keep total weekly sets stable — reduce load before dropping sets',
         status: 'monitor',
       })
+      if (weakPoints.length > 0) {
+        workoutMilestones.push({
+          label: 'Preserve weak point development',
+          detail: `Maintain volume on: ${weakPoints.slice(0, 3).map(w => w.replace(/_/g, ' ')).join(', ')}`,
+          status: 'monitor',
+        })
+      }
     } else {
       workoutMilestones.push({
         label: 'Progressive overload on compounds',
@@ -732,11 +801,19 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
         detail: 'Add 1-2 sets per muscle group per mesocycle as capacity allows',
         status: 'monitor',
       })
-      workoutMilestones.push({
-        label: 'Bring up weak points',
-        detail: 'Extra volume on lagging muscle groups identified by aesthetic scoring',
-        status: 'monitor',
-      })
+      if (weakPoints.length > 0) {
+        workoutMilestones.push({
+          label: 'Bring up weak points',
+          detail: `Engine is boosting volume for: ${weakPoints.slice(0, 3).map(w => w.replace(/_/g, ' ')).join(', ')}`,
+          status: 'on_track',
+        })
+      } else {
+        workoutMilestones.push({
+          label: 'Bring up weak points',
+          detail: 'Upload physique photos to identify priority areas',
+          status: 'needs_attention',
+        })
+      }
     }
 
     return res.json({
@@ -767,6 +844,16 @@ nutritionApiRouter.get('/phase-plan', async (req, res) => {
           avg_calories: nutritionStats.avg_calories ? Math.round(Number(nutritionStats.avg_calories)) : null,
           avg_protein: nutritionStats.avg_protein ? Math.round(Number(nutritionStats.avg_protein)) : null,
         },
+        physique: assessment ? {
+          body_fat_pct: bodyFatPct,
+          lean_mass_lbs: leanMassLbs != null ? Math.round(leanMassLbs * 10) / 10 : null,
+          fat_mass_lbs: bodyFatPct != null ? Math.round(latestWeight * (bodyFatPct / 100) * 10) / 10 : null,
+          shoulder_to_waist_ratio: assessment.shoulder_to_waist_ratio != null ? Number(assessment.shoulder_to_waist_ratio) : null,
+          weak_points: weakPoints,
+          strong_points: assessment.strong_points || [],
+          assessment_date: assessment.date,
+          bmr_method: leanMassKg != null ? 'katch_mcardle' : 'mifflin_st_jeor',
+        } : null,
       },
     })
   } catch (err) {

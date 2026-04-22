@@ -72,17 +72,27 @@ interface FitbitData {
   avg_calories_burned: number | null
 }
 
+interface PhysiqueData {
+  body_fat_pct: number | null
+  lean_mass_lbs: number | null
+  shoulder_to_waist_ratio: number | null
+  weak_points: string[]
+  assessment_date: string
+}
+
 interface TargetsResponse {
   targets: Targets | null
   phase: string
   body_weight_lbs: number
   bmr: number
+  bmr_method?: 'katch_mcardle' | 'mifflin_st_jeor'
   tdee: number
   tdee_source?: 'fitbit' | 'estimated'
   tdee_estimated?: number
   tdee_fitbit?: number | null
   caloric_adjustment?: number
   fitbit?: FitbitData | null
+  physique?: PhysiqueData | null
   weight_goal?: WeightGoalInfo | null
 }
 
@@ -132,6 +142,8 @@ export default function Nutrition() {
   const [tdeeSource, setTdeeSource] = useState<string>('estimated')
   const [fitbitData, setFitbitData] = useState<FitbitData | null>(null)
   const [tdeeValue, setTdeeValue] = useState<number>(0)
+  const [bmrMethod, setBmrMethod] = useState<string>('mifflin_st_jeor')
+  const [physiqueData, setPhysiqueData] = useState<PhysiqueData | null>(null)
   const [loading, setLoading] = useState(true)
 
   // AI parse state
@@ -171,6 +183,8 @@ export default function Nutrition() {
       setTdeeSource(data.tdee_source ?? 'estimated')
       setFitbitData(data.fitbit ?? null)
       setTdeeValue(data.tdee ?? 0)
+      setBmrMethod(data.bmr_method ?? 'mifflin_st_jeor')
+      setPhysiqueData(data.physique ?? null)
     } catch (err) {
       console.error('Failed to load targets:', err)
     }
@@ -322,6 +336,28 @@ export default function Nutrition() {
             )}
             {fitbitData.avg_active_minutes != null && (
               <span>Active avg: {fitbitData.avg_active_minutes} min</span>
+            )}
+          </div>
+        )}
+
+        {/* Physique intelligence banner */}
+        {physiqueData && physiqueData.body_fat_pct != null && (
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(59,130,246,0.06))',
+            border: '1px solid rgba(139,92,246,0.2)',
+            borderRadius: 12, padding: '10px 14px', fontSize: 12, lineHeight: 1.5,
+            color: 'var(--text-secondary)',
+          }}>
+            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Physique-Tuned Targets
+            </div>
+            <span>BF: {physiqueData.body_fat_pct.toFixed(1)}%</span>
+            {physiqueData.lean_mass_lbs != null && <span> · Lean: {physiqueData.lean_mass_lbs.toFixed(0)} lbs</span>}
+            {bmrMethod === 'katch_mcardle' && <span> · BMR via lean mass</span>}
+            {physiqueData.weak_points.length > 0 && (
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-tertiary)' }}>
+                Focus areas: {physiqueData.weak_points.slice(0, 3).map(w => w.replace(/_/g, ' ')).join(', ')}
+              </div>
             )}
           </div>
         )}

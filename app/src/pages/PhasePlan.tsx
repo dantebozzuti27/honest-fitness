@@ -46,6 +46,17 @@ interface WorkoutMilestone {
   status: 'on_track' | 'needs_attention' | 'monitor'
 }
 
+interface PhysiqueInfo {
+  body_fat_pct: number | null
+  lean_mass_lbs: number | null
+  fat_mass_lbs: number | null
+  shoulder_to_waist_ratio: number | null
+  weak_points: string[]
+  strong_points: string[]
+  assessment_date: string
+  bmr_method: 'katch_mcardle' | 'mifflin_st_jeor'
+}
+
 interface PhasePlan {
   phase: 'cut' | 'bulk'
   start_weight: number
@@ -65,6 +76,7 @@ interface PhasePlan {
   weight_chart: { date: string; weight: number }[]
   workout_stats: { total: number; avg_duration: number | null }
   nutrition_stats: { days_logged_30d: number; avg_calories: number | null; avg_protein: number | null }
+  physique: PhysiqueInfo | null
 }
 
 async function apiFetch(path: string): Promise<any> {
@@ -203,6 +215,46 @@ export default function PhasePlan() {
               <span>{Math.abs(p.lbs_remaining).toFixed(1)} lbs {isCut ? 'to lose' : 'to gain'}</span>
             </div>
           </div>
+
+          {/* Body composition from physique assessment */}
+          {p.physique && p.physique.body_fat_pct != null && (
+            <div className={styles.section} style={{
+              background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(59,130,246,0.06))',
+              border: '1px solid rgba(139,92,246,0.2)',
+              borderRadius: 12, padding: 16,
+            }}>
+              <h3 className={styles.sectionTitle} style={{ marginTop: 0 }}>Body Composition</h3>
+              <div className={styles.targetsGrid}>
+                <TargetTile label="Body Fat" value={`${p.physique.body_fat_pct.toFixed(1)}%`} />
+                {p.physique.lean_mass_lbs != null && (
+                  <TargetTile label="Lean Mass" value={`${p.physique.lean_mass_lbs.toFixed(0)} lbs`} />
+                )}
+                {p.physique.fat_mass_lbs != null && (
+                  <TargetTile label="Fat Mass" value={`${p.physique.fat_mass_lbs.toFixed(0)} lbs`} />
+                )}
+                {p.physique.shoulder_to_waist_ratio != null && (
+                  <TargetTile
+                    label="Adonis Index"
+                    value={p.physique.shoulder_to_waist_ratio.toFixed(2)}
+                    actual={`Target: 1.618`}
+                  />
+                )}
+              </div>
+              {p.physique.bmr_method === 'katch_mcardle' && (
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>
+                  BMR &amp; macros computed from lean body mass (Katch-McArdle)
+                </div>
+              )}
+              {p.physique.weak_points.length > 0 && (
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+                  <strong>Priority areas:</strong> {p.physique.weak_points.slice(0, 4).map(w => w.replace(/_/g, ' ')).join(', ')}
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
+                From physique check-in on {formatDate(p.physique.assessment_date)}
+              </div>
+            </div>
+          )}
 
           {/* Pacing banner */}
           <div className={`${styles.pacingBanner} ${styles[p.pacing]}`}>

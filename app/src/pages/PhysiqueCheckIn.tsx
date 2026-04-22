@@ -6,10 +6,24 @@ import { apiUrl } from '../lib/urlConfig'
 import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
 import styles from './PhysiqueCheckIn.module.css'
 
+interface ScoreComponents {
+  muscle_development: number
+  adonis_index: number
+  symmetry: number
+  body_composition: number
+  proportional_balance: number
+}
+
 interface Assessment {
   id: string
   date: string
-  scores: Record<string, number>
+  scores: Record<string, number> & {
+    _apollo_score?: number
+    _score_components?: ScoreComponents
+    _muscle_maturity?: number | null
+    _v_taper_score?: number | null
+    _photos_used?: number
+  }
   shoulder_to_waist_ratio: number | null
   left_right_symmetry: number | null
   estimated_body_fat_pct: number | null
@@ -81,14 +95,25 @@ async function resizeImage(file: File, maxDim = 1024, quality = 0.85): Promise<s
   })
 }
 
+type PhotoSlot = 'front' | 'back' | 'side' | 'flex'
+
+const PHOTO_SLOTS: { key: PhotoSlot; label: string; required: boolean }[] = [
+  { key: 'front', label: 'Front Relaxed', required: true },
+  { key: 'back', label: 'Back Relaxed', required: true },
+  { key: 'side', label: 'Side Profile', required: false },
+  { key: 'flex', label: 'Flex / Posed', required: false },
+]
+
 export default function PhysiqueCheckIn() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const frontInputRef = useRef<HTMLInputElement>(null)
-  const backInputRef = useRef<HTMLInputElement>(null)
+  const inputRefs = useRef<Record<PhotoSlot, HTMLInputElement | null>>({
+    front: null, back: null, side: null, flex: null,
+  })
 
-  const [frontPhoto, setFrontPhoto] = useState<string | null>(null)
-  const [backPhoto, setBackPhoto] = useState<string | null>(null)
+  const [photos, setPhotos] = useState<Record<PhotoSlot, string | null>>({
+    front: null, back: null, side: null, flex: null,
+  })
   const [analyzing, setAnalyzing] = useState(false)
   const [latest, setLatest] = useState<Assessment | null>(null)
   const [history, setHistory] = useState<Assessment[]>([])
@@ -131,25 +156,34 @@ export default function PhysiqueCheckIn() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  const handlePhoto = async (file: File, slot: 'front' | 'back') => {
+  const handlePhoto = async (file: File, slot: PhotoSlot) => {
     try {
       const resized = await resizeImage(file)
-      if (slot === 'front') setFrontPhoto(resized)
-      else setBackPhoto(resized)
+      setPhotos(prev => ({ ...prev, [slot]: resized }))
     } catch {
       setError('Failed to process image')
     }
   }
 
+  const filledPhotos = PHOTO_SLOTS.filter(s => photos[s.key] != null)
+  const hasAnyPhoto = filledPhotos.length > 0
+
   const handleAnalyze = async () => {
-    if (!user || (!frontPhoto && !backPhoto)) return
+    if (!user || !hasAnyPhoto) return
     setAnalyzing(true)
     setError(null)
     try {
-      const images = [frontPhoto, backPhoto].filter(Boolean) as string[]
+      const images: string[] = []
+      const labels: string[] = []
+      for (const slot of PHOTO_SLOTS) {
+        if (photos[slot.key]) {
+          images.push(photos[slot.key]!)
+          labels.push(slot.label)
+        }
+      }
       const res = await apiFetch('/api/physique/analyze', {
         method: 'POST',
-        body: JSON.stringify({ images }),
+        body: JSON.stringify({ images, labels }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
@@ -157,8 +191,7 @@ export default function PhysiqueCheckIn() {
       }
       const d = await res.json()
       setLatest(d.assessment)
-      setFrontPhoto(null)
-      setBackPhoto(null)
+      setPhotos({ front: null, back: null, side: null, flex: null })
       await loadData()
     } catch (e: any) {
       setError(e.message || 'Analysis failed')
@@ -216,68 +249,58 @@ export default function PhysiqueCheckIn() {
             </span>
           </div>
 
-          {/* Photo Capture */}
+          {/* Photo Capture — 4 slots */}
           <div className={styles.captureSection}>
             <h3 className={styles.sectionTitle}>Photo Analysis</h3>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12, lineHeight: 1.5 }}>
+              Front + Back required. Side and flex are optional but improve accuracy.
+              {filledPhotos.length > 0 && (
+                <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  {' '}{filledPhotos.length}/4 photos selected
+                </span>
+              )}
+            </div>
             <div className={styles.photoGrid}>
-              <div
-                className={`${styles.photoSlot} ${frontPhoto ? styles.filled : ''}`}
-                onClick={() => frontInputRef.current?.click()}
-              >
-                {frontPhoto ? (
-                  <img src={frontPhoto} alt="Front" className={styles.photoPreview} />
-                ) : (
-                  <>
-                    <span className={styles.photoSlotIcon}>&#128247;</span>
-                    <span className={styles.photoSlotLabel}>Front Relaxed</span>
-                  </>
-                )}
-                <input
-                  ref={frontInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={e => {
-                    const f = e.target.files?.[0]
-                    if (f) handlePhoto(f, 'front')
-                    e.target.value = ''
-                  }}
-                />
-              </div>
-              <div
-                className={`${styles.photoSlot} ${backPhoto ? styles.filled : ''}`}
-                onClick={() => backInputRef.current?.click()}
-              >
-                {backPhoto ? (
-                  <img src={backPhoto} alt="Back" className={styles.photoPreview} />
-                ) : (
-                  <>
-                    <span className={styles.photoSlotIcon}>&#128247;</span>
-                    <span className={styles.photoSlotLabel}>Back Relaxed</span>
-                  </>
-                )}
-                <input
-                  ref={backInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={e => {
-                    const f = e.target.files?.[0]
-                    if (f) handlePhoto(f, 'back')
-                    e.target.value = ''
-                  }}
-                />
-              </div>
+              {PHOTO_SLOTS.map(slot => (
+                <div
+                  key={slot.key}
+                  className={`${styles.photoSlot} ${photos[slot.key] ? styles.filled : ''}`}
+                  onClick={() => inputRefs.current[slot.key]?.click()}
+                >
+                  {photos[slot.key] ? (
+                    <img src={photos[slot.key]!} alt={slot.label} className={styles.photoPreview} />
+                  ) : (
+                    <>
+                      <span className={styles.photoSlotIcon}>&#128247;</span>
+                      <span className={styles.photoSlotLabel}>
+                        {slot.label}
+                        {!slot.required && <span style={{ fontSize: 10, opacity: 0.6 }}> (opt)</span>}
+                      </span>
+                    </>
+                  )}
+                  <input
+                    ref={el => { inputRefs.current[slot.key] = el }}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={e => {
+                      const f = e.target.files?.[0]
+                      if (f) handlePhoto(f, slot.key)
+                      e.target.value = ''
+                    }}
+                  />
+                </div>
+              ))}
             </div>
             <button
               className={styles.analyzeBtn}
-              disabled={analyzing || (!frontPhoto && !backPhoto)}
+              disabled={analyzing || !hasAnyPhoto}
               onClick={handleAnalyze}
             >
               {analyzing ? (
-                <><span className={styles.spinner} /> Analyzing...</>
+                <><span className={styles.spinner} /> Analyzing {filledPhotos.length} photo{filledPhotos.length !== 1 ? 's' : ''}...</>
               ) : (
-                'Analyze Physique'
+                `Analyze Physique (${filledPhotos.length} photo${filledPhotos.length !== 1 ? 's' : ''})`
               )}
             </button>
           </div>
@@ -293,12 +316,167 @@ export default function PhysiqueCheckIn() {
           )}
 
           {/* Results */}
-          {latest && (
+          {latest && (() => {
+            const apolloScore = latest.scores?._apollo_score ?? null
+            const components = latest.scores?._score_components ?? null
+            const maturity = latest.scores?._muscle_maturity ?? null
+            const vTaper = latest.scores?._v_taper_score ?? null
+            const photosUsed = latest.scores?._photos_used ?? latest.photos_used ?? 0
+
+            const scoreHistory = history
+              .map(h => h.scores?._apollo_score)
+              .filter((v): v is number => v != null)
+              .reverse()
+
+            const prevScore = scoreHistory.length > 1 ? scoreHistory[scoreHistory.length - 2] : null
+            const scoreDelta = apolloScore != null && prevScore != null ? apolloScore - prevScore : null
+
+            const scoreGrade = apolloScore != null
+              ? apolloScore >= 80 ? 'Elite'
+                : apolloScore >= 65 ? 'Advanced'
+                : apolloScore >= 50 ? 'Intermediate'
+                : apolloScore >= 35 ? 'Developing'
+                : 'Foundation'
+              : null
+
+            const targetScore = 85
+            const distanceToTarget = apolloScore != null ? targetScore - apolloScore : null
+
+            let projectedWeeks: number | null = null
+            if (scoreHistory.length >= 2 && apolloScore != null && distanceToTarget != null && distanceToTarget > 0) {
+              const oldest = scoreHistory[0]
+              const weeksOfData = Math.max(1, scoreHistory.length * 2)
+              const ratePerWeek = (apolloScore - oldest) / weeksOfData
+              if (ratePerWeek > 0) {
+                projectedWeeks = Math.round(distanceToTarget / ratePerWeek)
+              }
+            }
+
+            return (
             <div className={styles.resultsSection}>
               <h3 className={styles.sectionTitle}>
                 Latest Assessment
                 <span className={styles.subLabel}> — {latest.date?.slice(0, 10)}</span>
               </h3>
+
+              {/* Apollo Score Hero */}
+              {apolloScore != null && (
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(139,92,246,0.12), rgba(59,130,246,0.08))',
+                  border: '1px solid rgba(139,92,246,0.25)',
+                  borderRadius: 14, padding: 20, textAlign: 'center', marginBottom: 16,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(139,92,246,0.8)', marginBottom: 6 }}>
+                    Apollo Score
+                  </div>
+                  <div style={{ fontSize: 48, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1 }}>
+                    {apolloScore.toFixed(1)}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
+                    {scoreGrade}
+                    {scoreDelta != null && (
+                      <span style={{ color: scoreDelta >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700, marginLeft: 8 }}>
+                        {scoreDelta >= 0 ? '+' : ''}{scoreDelta.toFixed(1)} from last
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
+                    {photosUsed} photo{photosUsed !== 1 ? 's' : ''} analyzed
+                    {photosUsed < 4 && ' — add more angles for higher accuracy'}
+                  </div>
+
+                  {/* Component breakdown */}
+                  {components && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 14, textAlign: 'left' }}>
+                      {[
+                        { label: 'Muscle', val: components.muscle_development, weight: 40 },
+                        { label: 'Adonis', val: components.adonis_index, weight: 20 },
+                        { label: 'Symmetry', val: components.symmetry, weight: 10 },
+                        { label: 'Body Comp', val: components.body_composition, weight: 15 },
+                        { label: 'Balance', val: components.proportional_balance, weight: 15 },
+                      ].map(c => (
+                        <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{c.label} ({c.weight}%)</div>
+                            <div style={{ height: 4, borderRadius: 2, background: 'var(--border)', marginTop: 2 }}>
+                              <div style={{
+                                height: '100%', borderRadius: 2, width: `${c.val * 100}%`,
+                                background: c.val >= 0.7 ? '#22c55e' : c.val >= 0.4 ? '#f59e0b' : '#ef4444',
+                              }} />
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', minWidth: 32, textAlign: 'right' }}>
+                            {(c.val * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Goal potential */}
+                  {distanceToTarget != null && distanceToTarget > 0 && (
+                    <div style={{
+                      marginTop: 14, padding: '10px 12px', borderRadius: 10,
+                      background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)',
+                      textAlign: 'left',
+                    }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 4 }}>
+                        Goal: {targetScore} (Elite)
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: 'var(--border)' }}>
+                        <div style={{
+                          height: '100%', borderRadius: 3, width: `${(apolloScore / targetScore) * 100}%`,
+                          background: 'linear-gradient(90deg, #8b5cf6, #3b82f6)',
+                        }} />
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
+                        {distanceToTarget.toFixed(1)} points to Elite
+                        {projectedWeeks != null && (
+                          <span style={{ color: 'var(--text-tertiary)' }}>
+                            {' '}· ~{projectedWeeks} weeks at current rate
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Score trend */}
+                  {scoreHistory.length > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 3, marginTop: 12 }}>
+                      {scoreHistory.slice(-10).map((v, i, arr) => {
+                        const min = Math.min(...arr)
+                        const max = Math.max(...arr)
+                        const range = max - min || 5
+                        const h = Math.max(6, Math.round(((v - min) / range) * 28))
+                        return (
+                          <div key={i} style={{
+                            width: 6, height: h, borderRadius: 3,
+                            background: i === arr.length - 1 ? '#8b5cf6' : 'rgba(139,92,246,0.3)',
+                          }} />
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Maturity & V-Taper */}
+              {(maturity != null || vTaper != null) && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  {maturity != null && (
+                    <div style={{ flex: 1, background: 'var(--bg-tertiary)', borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>{Number(maturity).toFixed(1)}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Muscle Maturity</div>
+                    </div>
+                  )}
+                  {vTaper != null && (
+                    <div style={{ flex: 1, background: 'var(--bg-tertiary)', borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>{Number(vTaper).toFixed(1)}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>V-Taper Score</div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Adonis Index */}
               {latest.shoulder_to_waist_ratio != null && (
@@ -381,7 +559,8 @@ export default function PhysiqueCheckIn() {
                 <div className={styles.notes}>{latest.analysis_notes}</div>
               )}
             </div>
-          )}
+            )
+          })()}
 
           {/* Manual Measurements */}
           <div className={styles.measurementSection}>
@@ -467,26 +646,37 @@ export default function PhysiqueCheckIn() {
           {history.length > 0 && (
             <div className={styles.historySection}>
               <h3 className={styles.sectionTitle}>History</h3>
-              {history.map(h => (
-                <div key={h.id} className={styles.historyItem}>
-                  <div>
-                    <div className={styles.historyDate}>{h.date?.slice(0, 10)}</div>
-                    <div className={styles.historySource}>{h.source?.replace('_', ' ')}</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    {h.shoulder_to_waist_ratio != null && (
-                      <div className={styles.historyRatio}>
-                        {Number(h.shoulder_to_waist_ratio).toFixed(2)}
+              {history.map(h => {
+                const hScore = h.scores?._apollo_score
+                return (
+                  <div key={h.id} className={styles.historyItem}>
+                    <div>
+                      <div className={styles.historyDate}>{h.date?.slice(0, 10)}</div>
+                      <div className={styles.historySource}>
+                        {h.source?.replace('_', ' ')}
+                        {h.photos_used > 0 && ` · ${h.photos_used} photo${h.photos_used !== 1 ? 's' : ''}`}
                       </div>
-                    )}
-                    {h.estimated_body_fat_pct != null && (
-                      <div className={styles.historyBf}>
-                        {Number(h.estimated_body_fat_pct).toFixed(1)}% BF
-                      </div>
-                    )}
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      {hScore != null && (
+                        <div style={{ fontSize: 16, fontWeight: 800, color: '#8b5cf6' }}>
+                          {Number(hScore).toFixed(1)}
+                        </div>
+                      )}
+                      {h.shoulder_to_waist_ratio != null && (
+                        <div className={styles.historyRatio}>
+                          {Number(h.shoulder_to_waist_ratio).toFixed(2)}
+                        </div>
+                      )}
+                      {h.estimated_body_fat_pct != null && (
+                        <div className={styles.historyBf}>
+                          {Number(h.estimated_body_fat_pct).toFixed(1)}% BF
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

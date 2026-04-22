@@ -77,14 +77,14 @@
 .photoGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 16px;
 }
 
 .photoSlot {
   aspect-ratio: 3 / 4;
   border: 2px dashed var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -9,7 +9,13 @@ import styles from './ProportionsDashboard.module.css'
 interface Assessment {
   id: string
   date: string
-  scores: Record<string, number>
+  scores: Record<string, number> & {
+    _apollo_score?: number
+    _score_components?: Record<string, number>
+    _muscle_maturity?: number | null
+    _v_taper_score?: number | null
+    _photos_used?: number
+  }
   shoulder_to_waist_ratio: number | null
   left_right_symmetry: number | null
   estimated_body_fat_pct: number | null
@@ -216,6 +222,66 @@ export default function ProportionsDashboard() {
         </div>
 
         <div className={styles.content}>
+          {/* Apollo Score Hero */}
+          {latest.scores?._apollo_score != null && (() => {
+            const apolloScore = latest.scores._apollo_score!
+            const apolloHistory = history
+              .map(h => h.scores?._apollo_score)
+              .filter((v): v is number => v != null)
+              .reverse()
+            const prevScore = apolloHistory.length > 1 ? apolloHistory[apolloHistory.length - 2] : null
+            const delta = prevScore != null ? apolloScore - prevScore : null
+            const grade = apolloScore >= 80 ? 'Elite' : apolloScore >= 65 ? 'Advanced' : apolloScore >= 50 ? 'Intermediate' : apolloScore >= 35 ? 'Developing' : 'Foundation'
+            const targetScore = 85
+            return (
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(139,92,246,0.14), rgba(59,130,246,0.08))',
+                border: '1px solid rgba(139,92,246,0.25)',
+                borderRadius: 16, padding: 20, textAlign: 'center', marginBottom: 4,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(139,92,246,0.8)' }}>
+                  Apollo Score
+                </div>
+                <div style={{ fontSize: 52, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1, marginTop: 4 }}>
+                  {apolloScore.toFixed(1)}
+                </div>
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 4 }}>
+                  {grade}
+                  {delta != null && (
+                    <span style={{ color: delta >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700, marginLeft: 8 }}>
+                      {delta >= 0 ? '+' : ''}{delta.toFixed(1)}
+                    </span>
+                  )}
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: 'var(--border)', marginTop: 12 }}>
+                  <div style={{
+                    height: '100%', borderRadius: 3, width: `${Math.min(100, (apolloScore / targetScore) * 100)}%`,
+                    background: 'linear-gradient(90deg, #8b5cf6, #3b82f6)',
+                  }} />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
+                  {apolloScore >= targetScore ? 'Elite level achieved' : `${(targetScore - apolloScore).toFixed(1)} points to Elite (${targetScore})`}
+                </div>
+                {apolloHistory.length > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 3, marginTop: 10 }}>
+                    {apolloHistory.slice(-12).map((v, i, arr) => {
+                      const min = Math.min(...arr)
+                      const max = Math.max(...arr)
+                      const range = max - min || 5
+                      const h = Math.max(6, Math.round(((v - min) / range) * 28))
+                      return (
+                        <div key={i} style={{
+                          width: 5, height: h, borderRadius: 3,
+                          background: i === arr.length - 1 ? '#8b5cf6' : 'rgba(139,92,246,0.3)',
+                        }} />
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           {/* Adonis Index Hero */}
           <div className={styles.adonisHero}>
             {adonisRatio != null ? (

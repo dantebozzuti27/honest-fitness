@@ -43,6 +43,12 @@ import {
   toCoachNarrative,
   type AdaptiveExercise,
 } from './adaptiveLearningPolicy';
+import {
+  runInvariantPipeline,
+  DEFAULT_WORKOUT_INVARIANTS,
+  violationsBySeverity,
+  type WorkoutInvariantContext,
+} from './workoutInvariants';
 
 /**
  * Normalize a raw muscle name from the exercise library to the snake_case
@@ -433,6 +439,8 @@ export interface GeneratedWorkout {
   };
   /** One-line explanation of fat-loss dose adjustments (Today page / export). */
   fatLossDoseExplanation?: string;
+  /** Phase 1: theme that drove this workout's selection — preserved for invariants and audit. */
+  dayTheme?: DayTheme | null;
 }
 
 // ─── Data Fetching ──────────────────────────────────────────────────────────
@@ -767,6 +775,95 @@ function weightForReps(estimated1RM: number, targetReps: number, rir: number, eq
   else if (exerciseType === 'isolation') step = cfg.isolationIncrement;
   else step = cfg.machineIncrement;
   return Math.round(raw / step) * step;
+}
+
+/**
+ * Best-effort estimate of the user's 1RM for a given exercise from whatever
+ * data is on hand. Used by the rep×load safety guard so that prescriptions
+ * generated from any branch (progression, learned-weight bypass, fill paths)
+ * still have a 1RM reference to clamp against.
+ *
+ * Priority:
+ *   1. `prog.estimated1RM` — derived from logged sets, most reliable.
+ *   2. Epley estimate from `pref.learnedWeight × pref.learnedReps`.
+ *   3. null — caller must skip the guard (bodyweight, no signal).
+ *
+ * Returns null when no signal is available rather than guessing — a missing
+ * 1RM is less dangerous than a fabricated one (the existing bodyweight cap
+ * still applies as a backstop).
+ */
+function deriveE1rmReference(
+  prog: { estimated1RM?: number | null } | null | undefined,
+  pref: { learnedWeight?: number | null; learnedReps?: number | null } | null | undefined
+): number | null {
+  if (prog && typeof prog.estimated1RM === 'number' && prog.estimated1RM > 0) {
+    return prog.estimated1RM;
+  }
+  if (
+    pref &&
+    typeof pref.learnedWeight === 'number' && pref.learnedWeight > 0 &&
+    typeof pref.learnedReps === 'number' && pref.learnedReps > 0
+  ) {
+    const reps = Math.max(1, Math.round(pref.learnedReps));
+    return pref.learnedWeight * (1 + reps / 30);
+  }
+  return null;
+}
+
+/**
+ * Deterministic safety clamp: enforces `weight ≤ margin × Epley_inverse(1RM, reps + RIR)`.
+ *
+ * This is the last-line defense against any code path — modifier stacking,
+ * forecast overshoots, learned-weight bypass, fill-pass shortcuts — that
+ * could prescribe a weight the user physically cannot move for the target
+ * reps. It runs after every other modifier, snaps to plates, and emits an
+ * audit-friendly note describing what was clamped and why.
+ *
+ * Returns the (possibly unchanged) weight and an optional human-readable note.
+ */
+function clampToRepLoadCeiling(
+  targetWeight: number,
+  targetReps: number,
+  rir: number,
+  e1rmReference: number | null,
+  equipment: string[] | undefined,
+  exerciseType: string | undefined,
+  cfg: ModelConfig = DEFAULT_MODEL_CONFIG
+): { weight: number; note: string | null } {
+  if (
+    targetWeight <= 0 ||
+    targetReps <= 0 ||
+    e1rmReference == null ||
+    e1rmReference <= 0
+  ) {
+    return { weight: targetWeight, note: null };
+  }
+  const margin = clampNumber(cfg.repLoadSafetyMargin, 0.5, 1.0);
+  const ceiling = weightForReps(e1rmReference, targetReps, rir, equipment, exerciseType);
+  if (ceiling <= 0) return { weight: targetWeight, note: null };
+  // Snap, then floor: `snapToPlate` uses Math.round, which can land 1
+  // increment ABOVE safeCeiling (e.g. ceiling 129.7 with 5 lb plates rounds
+  // to 130). For a SAFETY ceiling, that is the wrong direction — always
+  // floor the snapped value to a strictly safe plate weight.
+  const rawSafe = ceiling * margin;
+  let safeCeiling = snapToPlate(rawSafe, equipment, exerciseType);
+  if (safeCeiling > rawSafe) {
+    const stepGuess = (() => {
+      const eqNorm = (equipment ?? []).map(normalizeEquipment);
+      if (eqNorm.includes('barbell')) return cfg.barbellIncrement;
+      if (eqNorm.includes('dumbbell')) return cfg.dumbbellIncrement;
+      if (exerciseType === 'isolation') return cfg.isolationIncrement;
+      return cfg.machineIncrement;
+    })();
+    safeCeiling = Math.max(0, safeCeiling - stepGuess);
+  }
+  if (targetWeight <= safeCeiling) return { weight: targetWeight, note: null };
+  return {
+    weight: safeCeiling,
+    note: `Safety guard: ${targetWeight} → ${safeCeiling} lbs ` +
+          `(rep×load identity violated for ${targetReps} reps @ RIR ${rir}; ` +
+          `est. 1RM ${Math.round(e1rmReference)} lbs, margin ${Math.round(margin * 100)}%)`,
+  };
 }
 
 function getRirLabel(rir: number): string {
@@ -1640,6 +1737,91 @@ const BRO_SPLIT_MAPPING: Record<string, CanonicalMuscleGroup[]> = {
   arms: ['biceps', 'triceps', 'forearms'],
 };
 
+/**
+ * Synergist mapping — for each primary muscle, the secondary muscles it
+ * naturally pairs with in a session (e.g. triceps + chest, biceps + back).
+ *
+ * Used by:
+ *   - stepSelectMuscleGroups: expand the split target set so accessories
+ *     are allowed alongside the primary
+ *   - deriveDayTheme: build the `allowedAccessories` for a `DayTheme`
+ *
+ * NOT exhaustive: groups missing here (e.g. `core`, `cardio`, `calves`)
+ * are universally allowed — see `UNIVERSAL_ACCESSORIES` below.
+ */
+const SPLIT_SYNERGISTS: Record<string, string[]> = {
+  upper_chest: ['triceps', 'anterior_deltoid', 'mid_chest', 'lower_chest'],
+  mid_chest: ['triceps', 'anterior_deltoid', 'upper_chest', 'lower_chest'],
+  lower_chest: ['triceps', 'mid_chest', 'upper_chest'],
+  back_lats: ['biceps', 'posterior_deltoid', 'lower_traps', 'forearms'],
+  back_upper: ['biceps', 'mid_traps', 'forearms'],
+  upper_traps: ['mid_traps', 'lateral_deltoid'],
+  mid_traps: ['back_upper', 'lower_traps', 'posterior_deltoid'],
+  lower_traps: ['mid_traps', 'rotator_cuff'],
+  quadriceps: ['glutes', 'hamstrings', 'hip_flexors', 'abductors', 'adductors'],
+  hamstrings: ['glutes', 'quadriceps'],
+  glutes: ['quadriceps', 'hamstrings', 'abductors'],
+  anterior_deltoid: ['lateral_deltoid', 'triceps', 'upper_chest', 'mid_chest'],
+  lateral_deltoid: ['anterior_deltoid', 'posterior_deltoid', 'upper_traps'],
+  posterior_deltoid: ['mid_traps', 'rotator_cuff', 'back_upper'],
+  triceps: ['mid_chest', 'upper_chest', 'anterior_deltoid'],
+  biceps: ['back_lats', 'back_upper', 'forearms'],
+  rotator_cuff: ['posterior_deltoid', 'lower_traps'],
+  hip_flexors: ['quadriceps', 'core'],
+};
+
+/**
+ * Muscle groups that are always permissible regardless of split focus.
+ * `cardio` is handled by Phase 2 weekly-frequency logic but we keep it here
+ * so per-day theme filters never reject it. `core` and `calves` are similarly
+ * "free" — they don't conflict with any split.
+ */
+const UNIVERSAL_ACCESSORIES: readonly string[] = ['core', 'calves', 'cardio'];
+
+/**
+ * Expand a set of primary muscle groups to include their synergists and
+ * universally-accessible muscles. Pure function; no side effects.
+ */
+function expandWithSynergists(primaries: ReadonlySet<string> | string[]): Set<string> {
+  const out = new Set<string>(typeof (primaries as Set<string>).has === 'function'
+    ? Array.from(primaries as Set<string>)
+    : (primaries as string[]));
+  for (const g of out) {
+    for (const syn of (SPLIT_SYNERGISTS[g] ?? [])) out.add(syn);
+  }
+  for (const ua of UNIVERSAL_ACCESSORIES) out.add(ua);
+  return out;
+}
+
+/**
+ * Build a `DayTheme` from a focus label and the muscle groups assigned to
+ * the day. The theme codifies what the day is "about" so downstream selectors
+ * and validators have a stable contract.
+ *
+ * Primary muscle: the first group in `muscleGroups` (already ordered by the
+ * planner / split mapping). For a chest day the primary will be one of the
+ * chest sub-groups; for a leg day it will be quadriceps; etc.
+ *
+ * Allowed accessories: `muscleGroups ∪ synergists(muscleGroups) ∪ universals`.
+ * Anything outside this set will be rejected when `source === 'schedule'`.
+ */
+export function deriveDayTheme(
+  focus: string,
+  muscleGroups: string[],
+  source: DayTheme['source'],
+): DayTheme | null {
+  const groups = (muscleGroups ?? []).filter(g => typeof g === 'string' && g.length > 0);
+  if (groups.length === 0) return null;
+  const expanded = expandWithSynergists(new Set(groups));
+  const primary = groups[0];
+  const allowed = Array.from(expanded).filter(g => g !== primary);
+  return {
+    primary,
+    allowedAccessories: allowed,
+    source,
+  };
+}
+
 function computeHipAbductorLoadSignal(profile: TrainingProfile): {
   weeklyAmbulatoryHours: number;
   externalHipLoadScore: number;
@@ -1910,7 +2092,14 @@ function stepSelectMuscleGroups(
   cfg: ModelConfig,
   caloricPhaseScale: number = 1.0,
   dayOfWeekOverride?: number,
-  preferredGroups?: string[]
+  preferredGroups?: string[],
+  /**
+   * Phase 1: when set, this theme drives the hard selection filter and
+   * overrides the auto-derived `splitTargetGroups` priority chain. A
+   * `schedule`-sourced theme is enforced strictly (no fallback to all
+   * candidates if the filter is empty).
+   */
+  activeDayTheme?: DayTheme | null,
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
@@ -1928,8 +2117,21 @@ function stepSelectMuscleGroups(
   const priorityMuscleSet = new Set<string>(normalizeMuscleGroupList(prefs.priority_muscles ?? []));
   const isPriorityMuscle = (group: string) => priorityMuscleSet.has(group);
 
+  // Phase 1: an explicit `activeDayTheme` (typically from weekly_split_schedule)
+  // is the highest-priority source of truth and short-circuits the rotation /
+  // detected-pattern fallbacks below.
+  if (activeDayTheme && activeDayTheme.primary) {
+    const themeGroups = normalizeMuscleGroupList([
+      activeDayTheme.primary,
+      ...activeDayTheme.allowedAccessories,
+    ]);
+    if (themeGroups.length > 0) {
+      splitTargetGroups = new Set(themeGroups);
+    }
+  }
+
   // Weekly split schedule: user-defined per-day muscle groups (highest priority)
-  if (prefs.weekly_split_schedule) {
+  if (!splitTargetGroups && prefs.weekly_split_schedule) {
     const dayKey = String(todayDow);
     const daySchedule = prefs.weekly_split_schedule[dayKey];
     if (daySchedule && daySchedule.groups?.length > 0) {
@@ -2224,36 +2426,16 @@ function stepSelectMuscleGroups(
 
   candidates.sort((a, b) => b.priority - a.priority);
 
-  // Hard filter: when a split is active, ONLY allow muscles from the split target set.
-  // Include synergist groups that naturally pair with the split (e.g., biceps with back).
-  const SPLIT_SYNERGISTS: Record<string, string[]> = {
-    upper_chest: ['triceps', 'anterior_deltoid', 'mid_chest', 'lower_chest'],
-    mid_chest: ['triceps', 'anterior_deltoid', 'upper_chest', 'lower_chest'],
-    lower_chest: ['triceps', 'mid_chest', 'upper_chest'],
-    back_lats: ['biceps', 'posterior_deltoid', 'lower_traps', 'forearms'],
-    back_upper: ['biceps', 'mid_traps', 'forearms'],
-    upper_traps: ['mid_traps', 'lateral_deltoid'],
-    mid_traps: ['back_upper', 'lower_traps', 'posterior_deltoid'],
-    lower_traps: ['mid_traps', 'rotator_cuff'],
-    quadriceps: ['glutes', 'hamstrings', 'hip_flexors', 'abductors', 'adductors'],
-    hamstrings: ['glutes', 'quadriceps'],
-    glutes: ['quadriceps', 'hamstrings', 'abductors'],
-    anterior_deltoid: ['lateral_deltoid', 'triceps', 'upper_chest', 'mid_chest'],
-    lateral_deltoid: ['anterior_deltoid', 'posterior_deltoid', 'upper_traps'],
-    posterior_deltoid: ['mid_traps', 'rotator_cuff', 'back_upper'],
-    triceps: ['mid_chest', 'upper_chest', 'anterior_deltoid'],
-    biceps: ['back_lats', 'back_upper', 'forearms'],
-    rotator_cuff: ['posterior_deltoid', 'lower_traps'],
-    hip_flexors: ['quadriceps', 'core'],
-  };
   let filteredCandidates = candidates;
   if (splitTargetGroups && splitTargetGroups.size > 0) {
-    const expandedTargets = new Set(splitTargetGroups);
-    for (const g of splitTargetGroups) {
-      for (const syn of (SPLIT_SYNERGISTS[g] ?? [])) expandedTargets.add(syn);
-    }
+    const expandedTargets = expandWithSynergists(splitTargetGroups);
     const splitFiltered = candidates.filter(c => expandedTargets.has(c.muscleGroup));
-    if (splitFiltered.length >= 1) {
+    // Phase 1: when the active theme is "schedule"-sourced (user-defined), the
+    // filter is HARD — never fall back to all candidates. For softer sources
+    // (rotation/default), preserve previous behavior of allowing fallback so
+    // that an empty filter doesn't produce an empty workout.
+    const hardFilter = activeDayTheme?.source === 'schedule';
+    if (splitFiltered.length >= 1 || hardFilter) {
       filteredCandidates = splitFiltered;
     }
   }
@@ -3721,6 +3903,65 @@ function stepPrescribe(
 
       // Priority 2: Regression
       if (!modifierApplied && prog.status === 'regressing') {
+        const regressionSeverity = Math.abs(prog.progressionSlope);
+        const regressingLifts = profile.exerciseProgressions.filter(p => p.status === 'regressing');
+        const isSystemicRegression = regressingLifts.length >= 3;
+
+        if (isSystemicRegression) {
+          const reductionPct = cfg.regressionSystemicMult;
+          targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
+          sets = Math.max(2, sets - 1);
+          adjustments.push(`Systemic regression (${regressingLifts.length} lifts declining): weight to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%), sets -1 — prioritize recovery`);
+        } else if (regressionSeverity > 0.05) {
+          const reductionPct = cfg.regressionSevereMult;
+          targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
+          adjustments.push(`Severe regression: reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%) — rebuild from here`);
+        } else {
+          const reductionPct = Math.max(0.85, cfg.regressionWeightMultiplier);
+          targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
+          adjustments.push(`Mild regression: reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%)`);
+        }
+        modifierApplied = true;
+      }
+
+      // Priority 3: Plateau (stalled)
+      if (!modifierApplied && prog.status === 'stalled') {
+        const plateauClass = profile.plateauClassifications?.find(
+          c => c.exerciseName === sel.exercise.name.toLowerCase()
+        );
+        const plateauInfo = profile.plateauDetections.find(
+          p => p.exerciseName === sel.exercise.name.toLowerCase() && p.isPlateaued
+        );
+        if (plateauClass) {
+          switch (plateauClass.plateauType) {
+            case 'neural':
+              rir = Math.max(0, rir - 1);
+              adjustments.push(`Neural plateau: lower RIR to ${rir}, try heavier singles/pauses`);
+              break;
+            case 'structural':
+              sets = Math.min(8, sets + 1);
+              adjustments.push(`Structural plateau: +1 set (now ${sets}) for additional hypertrophy stimulus`);
+              break;
+            case 'recovery':
+              sets = Math.max(2, sets - 1);
+              targetWeight = snapToPlate(targetWeight * cfg.regressionWeightMultiplier, equipment, exType);
+              adjustments.push(`Recovery plateau: -1 set, weight to ${targetWeight} lbs — recovery is the bottleneck`);
+              break;
+            case 'skill':
+              rir = Math.max(1, rir + 1);
+              adjustments.push(`Skill plateau: higher RIR (${rir}), focus on technique quality over load`);
+              break;
+          }
+        } else if (plateauInfo && plateauInfo.sessionsSinceProgress >= 4) {
+          adjustments.push(`Plateau (${plateauInfo.sessionsSinceProgress} sessions): drop to ${sets - 1} sets × ${targetReps + 2} reps to break through`);
+        } else {
+          adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
+        }
+        modifierApplied = true;
+      }
+
+      // Priority 4: Progression
+      if (!modifierApplied) {
         const learnedInc = hasLearnedData ? pref.learnedIncrement : null;
         const fallbackIncrement = role === 'isolation' || role === 'corrective'
           ? cfg.isolationIncrement
@@ -3766,68 +4007,37 @@ function stepPrescribe(
             targetWeight = snapToPlate(targetWeight + gatedIncrement, equipment, exType);
             adjustments.push(`Progressive overload: +${snapToPlate(gatedIncrement, equipment, exType)} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
           }
-        } else if (prog.status === 'stalled') {
-          const plateauInfo = profile.plateauDetections.find(
-            p => p.exerciseName === sel.exercise.name.toLowerCase() && p.isPlateaued
-          );
-          const plateauClass = profile.plateauClassifications?.find(
-            c => c.exerciseName === sel.exercise.name.toLowerCase()
-          );
-          if (plateauClass) {
-            switch (plateauClass.plateauType) {
-              case 'neural':
-                rir = Math.max(0, rir - 1);
-                adjustments.push(`Neural plateau: lower RIR to ${rir}, try heavier singles/pauses`);
-                break;
-              case 'structural':
-                sets = Math.min(8, sets + 1);
-                adjustments.push(`Structural plateau: +1 set (now ${sets}) for additional hypertrophy stimulus`);
-                break;
-              case 'recovery':
-                sets = Math.max(2, sets - 1);
-                targetWeight = snapToPlate(targetWeight * cfg.regressionWeightMultiplier, equipment, exType);
-                adjustments.push(`Recovery plateau: -1 set, weight to ${targetWeight} lbs — recovery is the bottleneck`);
-                break;
-              case 'skill':
-                rir = Math.max(1, rir + 1);
-                adjustments.push(`Skill plateau: higher RIR (${rir}), focus on technique quality over load`);
-                break;
-            }
-          } else if (plateauInfo && plateauInfo.sessionsSinceProgress >= 4) {
-            adjustments.push(`Plateau (${plateauInfo.sessionsSinceProgress} sessions): drop to ${sets - 1} sets × ${targetReps + 2} reps to break through`);
-          } else {
-            adjustments.push(`Stalled at ${targetWeight} lbs — hold weight, focus on RIR ${rir}`);
-          }
-        } else if (prog.status === 'regressing') {
-          const regressionSeverity = Math.abs(prog.progressionSlope);
-          const regressingLifts = profile.exerciseProgressions.filter(p => p.status === 'regressing');
-          const isSystemicRegression = regressingLifts.length >= 3;
-
-          if (isSystemicRegression) {
-            const reductionPct = cfg.regressionSystemicMult;
-            targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
-            sets = Math.max(2, sets - 1);
-            adjustments.push(`Systemic regression (${regressingLifts.length} lifts declining): weight to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%), sets -1 — prioritize recovery`);
-          } else if (regressionSeverity > 0.05) {
-            const reductionPct = cfg.regressionSevereMult;
-            targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
-            adjustments.push(`Severe regression: reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%) — rebuild from here`);
-          } else {
-            const reductionPct = Math.max(0.85, cfg.regressionWeightMultiplier);
-            targetWeight = snapToPlate(targetWeight * reductionPct, equipment, exType);
-            adjustments.push(`Mild regression: reduced to ${targetWeight} lbs (${Math.round(reductionPct * 100)}%)`);
-          }
+          modifierApplied = true;
         } else if (prog.status === 'progressing') {
           adjustments.push(`Carry forward: ${targetWeight} lbs at RIR ${rir}`);
+          modifierApplied = true;
         }
       }
 
-      // ── Coordinated weight modifiers ──
-      // Track the post-progression base so we can cap cumulative modifications.
-      // Without this, ego + sleep + forecast could stack and cut weight 25%+.
-      const postProgressionWeight = targetWeight;
+      // Priority 5: Forecast — only when no other modifier applied
+      if (!modifierApplied && profile.progressionForecasts && breakRampMultiplier >= 1.0) {
+        const forecast = profile.progressionForecasts.find(
+          f => f.exerciseName === sel.exercise.name.toLowerCase()
+        );
+        if (forecast && forecast.confidence >= 0.5 && forecast.predictedTargetWeight > 0) {
+          const forecastWeight = forecast.predictedTargetWeight;
+          if (forecastWeight <= targetWeight * 1.10 && forecastWeight >= targetWeight * 0.90) {
+            targetWeight = forecastWeight;
+            adjustments.push(`Forecast: ${forecastWeight}lbs (R²=${forecast.confidence.toFixed(2)})`);
+            modifierApplied = true;
+          }
+        }
+      }
 
-      // Ego audit safety cap
+      if (!modifierApplied) {
+        adjustments.push(`Hold: ${targetWeight} lbs (no modifier triggered)`);
+      }
+
+      if (profile.bodyWeightTrend.phase === 'cutting' && prog.status !== 'regressing') {
+        adjustments.push('Cutting phase: maintaining weight is success');
+      }
+
+      // Ego audit: safety cap applied after the single modifier decision
       const egoFlag = profile.egoAuditFlags?.find(
         f => f.exerciseName.toLowerCase() === sel.exercise.name.toLowerCase()
       );
@@ -3839,53 +4049,43 @@ function stepPrescribe(
         }
       }
 
-      // Sleep-performance learned adjustment
+      // Phase 3: Safety bounds — sleep adjustment (environmental, not a modifier)
       if (profile.sleepCoefficients.confidence !== 'low' && profile.recoveryContext.sleepDurationLastNight != null && profile.recoveryContext.sleepBaseline30d != null) {
         const sleepDelta = (profile.recoveryContext.sleepDurationLastNight - profile.recoveryContext.sleepBaseline30d) / profile.recoveryContext.sleepBaseline30d;
         if (sleepDelta < cfg.sleepDeltaThreshold) {
           const isLower = ['quadriceps', 'hamstrings', 'glutes'].includes(sel.muscleGroup);
           const coeff = isLower ? profile.sleepCoefficients.lowerBody : profile.sleepCoefficients.upperBody;
           if (Math.abs(coeff) > cfg.sleepCoefficientMinimum) {
-            const rawAdj = coeff * sleepDelta * (targetWeight ?? 100);
+            const rawAdj = coeff * sleepDelta * targetWeight;
             const weightAdj = -snapToPlate(Math.abs(rawAdj), equipment, exType);
             if (weightAdj < -2) {
-              targetWeight = snapToPlate((targetWeight ?? 0) + weightAdj, equipment, exType);
+              targetWeight = snapToPlate(targetWeight + weightAdj, equipment, exType);
               adjustments.push(`Sleep-performance: ${weightAdj} lbs (learned from your data)`);
             }
           }
         }
       }
-
-      // Cumulative modifier floor: prevent ego + sleep from compounding beyond 15% reduction
-      if (postProgressionWeight != null && targetWeight != null && targetWeight < postProgressionWeight * cfg.weightModifierFloorMult) {
-        const floor = snapToPlate(postProgressionWeight * cfg.weightModifierFloorMult, equipment, exType);
-        adjustments.push(`Modifier floor: capped cumulative reductions at ${Math.round((1 - cfg.weightModifierFloorMult) * 100)}% (${targetWeight} → ${floor} lbs)`);
-        targetWeight = floor;
-      }
-
-      // Progression Forecasting — replaces stacked modifiers when confident enough
-      if (profile.progressionForecasts && breakRampMultiplier >= 1.0) {
-        const forecast = profile.progressionForecasts.find(
-          f => f.exerciseName === sel.exercise.name.toLowerCase()
-        );
-        if (forecast && forecast.confidence >= 0.7 && forecast.predictedTargetWeight > 0 && targetWeight != null) {
-          targetWeight = forecast.predictedTargetWeight;
-          adjustments.push(`Forecast override: ${forecast.predictedTargetWeight}lbs (R²=${forecast.confidence.toFixed(2)}, high confidence replaces stacked modifiers)`);
-        } else if (forecast && forecast.confidence >= 0.5 && forecast.predictedTargetWeight > 0 && targetWeight != null) {
-          const forecastWeight = forecast.predictedTargetWeight;
-          if (forecastWeight <= targetWeight * 1.10 && forecastWeight >= targetWeight * 0.90) {
-            targetWeight = forecastWeight;
-            adjustments.push(`Forecast blend: ${forecastWeight}lbs (R²=${forecast.confidence.toFixed(2)})`);
-          }
+    } else if (hasLearnedData && pref.learnedWeight != null) {
+      // No progression data (< 3 sessions) but learned weight exists.
+      // Reconcile against learned reps so we never prescribe a weight heavier
+      // than the user has actually moved for the target rep range. Without
+      // this gate, a single near-1RM session could anchor learnedWeight at
+      // capacity and produce e.g. "11 reps at 1RM" prescriptions.
+      let candidate = pref.learnedWeight;
+      if (pref.learnedReps != null && pref.learnedReps > 0) {
+        const learnedReps = Math.max(1, Math.round(pref.learnedReps));
+        const e1rmFromLearned = pref.learnedWeight * (1 + learnedReps / 30);
+        const reconciled = weightForReps(e1rmFromLearned, targetReps, rir, equipment, exType);
+        if (reconciled > 0 && reconciled < candidate) {
+          candidate = reconciled;
+          adjustments.push(
+            `Learned-weight reconciled: ${pref.learnedWeight} lbs @ ~${learnedReps} reps → ` +
+            `${reconciled} lbs for ${targetReps} reps @ RIR ${rir}`
+          );
         }
       }
-
-      if (profile.bodyWeightTrend.phase === 'cutting' && prog.status !== 'regressing') {
-        adjustments.push('Cutting phase: maintaining weight is success');
-      }
-    } else if (hasLearnedData && pref.learnedWeight != null) {
-      // No progression data (< 3 sessions) but learned weight exists
-      targetWeight = snapToPlate(pref.learnedWeight, equipment, exType);
+      targetWeight = snapToPlate(candidate, equipment, exType);
+      weightSource = 'learned';
       adjustments.push(`Weight from your recent sessions: ${targetWeight} lbs`);
     } else if (!isBodyweight) {
       // No data at all — estimate from lift ratios + strength standards
@@ -3992,6 +4192,19 @@ function stepPrescribe(
         adjustments.push(`Weight capped: ${targetWeight} → ${Math.round(maxPlausible)} lbs (sanity limit for ${exType ?? 'exercise'})`);
         targetWeight = Math.round(maxPlausible);
       }
+    }
+
+    // Phase 0 — Rep×Load identity guard (final safety layer).
+    // Catches any path that produced a weight the user cannot move for the
+    // prescribed reps × RIR: stacked modifiers, forecast overshoots, the
+    // learned-weight bypass, or stale 1RM estimates. The bodyweight cap
+    // above does not know about reps, so this is the only check that
+    // enforces the physical (Epley) relationship between weight and reps.
+    if (targetWeight != null && !isBodyweight && !isTimedHold && targetReps > 0) {
+      const e1rmRef = deriveE1rmReference(prog, pref);
+      const safe = clampToRepLoadCeiling(targetWeight, targetReps, rir, e1rmRef, equipment, exType, cfg);
+      if (safe.note) adjustments.push(safe.note);
+      targetWeight = safe.weight;
     }
 
     return {
@@ -4697,6 +4910,14 @@ function stepApplyConstraints(
       } else if (pref?.learnedWeight != null) {
         targetWeight = snapToPlate(pref.learnedWeight, equipment, fillExType);
       }
+      // Phase 0 — Rep×Load identity guard (fill path: silent clamp).
+      // Same physical invariant as the main prescriber; ensures expansion /
+      // time-bank fills cannot reintroduce unsafe pairings via learnedWeight.
+      if (targetWeight != null && !isBodyweight && reps > 0) {
+        const e1rmRef = deriveE1rmReference(prog ?? null, pref ?? null);
+        const safe = clampToRepLoadCeiling(targetWeight, reps, rir, e1rmRef, equipment, fillExType, cfg);
+        targetWeight = safe.weight;
+      }
       const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
 
       const newEx: GeneratedExercise = {
@@ -4851,6 +5072,14 @@ function stepApplyConstraints(
       } else if (pref?.learnedWeight != null) {
         targetWeight = snapToPlate(pref.learnedWeight, equipment, fillExType);
       }
+      // Phase 0 — Rep×Load identity guard (fill path: silent clamp).
+      // Same physical invariant as the main prescriber; ensures expansion /
+      // time-bank fills cannot reintroduce unsafe pairings via learnedWeight.
+      if (targetWeight != null && !isBodyweight && reps > 0) {
+        const e1rmRef = deriveE1rmReference(prog ?? null, pref ?? null);
+        const safe = clampToRepLoadCeiling(targetWeight, reps, rir, e1rmRef, equipment, fillExType, cfg);
+        targetWeight = safe.weight;
+      }
       const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
 
       const newEx: GeneratedExercise = {
@@ -4946,6 +5175,12 @@ function stepApplyConstraints(
       }
     } else if (pref?.learnedWeight != null) {
       targetWeight = snapToPlate(pref.learnedWeight, equipment, fillExType);
+    }
+    // Phase 0 — Rep×Load identity guard (fill path: silent clamp).
+    if (targetWeight != null && !isBodyweight && reps > 0) {
+      const e1rmRef = deriveE1rmReference(prog ?? null, pref ?? null);
+      const safe = clampToRepLoadCeiling(targetWeight, reps, rir, e1rmRef, equipment, fillExType, cfg);
+      targetWeight = safe.weight;
     }
     const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
     return {
@@ -5519,6 +5754,34 @@ function stepGenerateRationale(
 
 // ─── Main Entry Point ───────────────────────────────────────────────────────
 
+/**
+ * Day-level theme. The day's primary muscle focus and the accessories it is
+ * allowed to also touch. Set authoritatively by the weekly planner from
+ * `weekly_split_schedule` and consumed by both the per-day generator (as a
+ * hard selection filter) and the post-generation invariants (as a coherence
+ * check).
+ *
+ * Why this exists
+ *   Without a persisted theme, "Monday is chest day" was a soft suggestion
+ *   that got eroded by overlap-avoidance, synergist expansion, and time-bank
+ *   fills — producing the "chest + legs + back" days the user complained
+ *   about. With `dayTheme`, the engine commits to a primary focus per day
+ *   and treats anything outside the allowed set as a violation, not a choice.
+ */
+export interface DayTheme {
+  /** Primary muscle group for the day, e.g. "mid_chest", "back_lats", "quadriceps". */
+  primary: string;
+  /** Muscle groups allowed alongside the primary (synergists + abs + core + cardio). */
+  allowedAccessories: string[];
+  /**
+   * Origin of this theme. Determines how strict the engine should be:
+   *   - "schedule" — user-defined `weekly_split_schedule` (authoritative; never overridden)
+   *   - "rotation" — derived from `preferred_split` / detected rotation (overridable)
+   *   - "default"  — day-of-week pattern fallback (most permissive)
+   */
+  source: 'schedule' | 'rotation' | 'default';
+}
+
 export interface SessionOverrides {
   durationMinutes?: number;
   finishByTime?: string; // "HH:MM"
@@ -5529,6 +5792,8 @@ export interface SessionOverrides {
   anchorMuscleGroups?: string[];
   preferredExerciseNames?: string[];
   regenerationSeed?: number;
+  /** Phase 1: when set, becomes the hard selection filter for muscle groups. */
+  dayTheme?: DayTheme | null;
 }
 
 interface LlmHints {
@@ -5725,34 +5990,56 @@ function validateAndCorrect(
       totalMin = exercises.reduce((s, e) => s + e.estimatedMinutes, 0);
     };
 
-    // 1) Trim cardio first (Pareto: keep strength quality, reduce conditioning overflow).
-    const cardioEx = exercises.filter(e => e.isCardio).sort((a, b) => (b.estimatedMinutes - a.estimatedMinutes));
-    for (const ex of cardioEx) {
-      if (totalMin <= hardMaxMin) break;
-      const old = ex.cardioDurationSeconds ?? 0;
-      const cutBySec = Math.min(old - 8 * 60, Math.max(0, Math.round((totalMin - hardMaxMin) * 60)));
-      if (cutBySec > 0) {
-        ex.cardioDurationSeconds = Math.max(8 * 60, old - cutBySec);
-        ex.adjustments.push(`Hard budget trim: cardio ${Math.round(old / 60)} → ${Math.round((ex.cardioDurationSeconds ?? old) / 60)} min`);
-        recalcAll();
+    // Phase 2: cardio policy is phase-dependent.
+    //   - cutting  → cardio is required every training day; trim accessories
+    //     before touching cardio. Only fall back to cardio trims if strength
+    //     trims alone cannot make budget.
+    //   - bulking / maintaining → keep prior behaviour: cardio is conditioning
+    //     overhead and may be trimmed first to preserve strength quality.
+    const isCut = profile.bodyWeightTrend.phase === 'cutting';
+
+    const trimCardio = () => {
+      const cardioEx = exercises.filter(e => e.isCardio).sort((a, b) => (b.estimatedMinutes - a.estimatedMinutes));
+      for (const ex of cardioEx) {
+        if (totalMin <= hardMaxMin) break;
+        const old = ex.cardioDurationSeconds ?? 0;
+        // Floor: never trim cardio shorter than 8 min on bulk/maintain, 12 min on a cut.
+        const minFloorSec = isCut ? 12 * 60 : 8 * 60;
+        const cutBySec = Math.min(old - minFloorSec, Math.max(0, Math.round((totalMin - hardMaxMin) * 60)));
+        if (cutBySec > 0) {
+          ex.cardioDurationSeconds = Math.max(minFloorSec, old - cutBySec);
+          ex.adjustments.push(`Hard budget trim: cardio ${Math.round(old / 60)} → ${Math.round((ex.cardioDurationSeconds ?? old) / 60)} min`);
+          recalcAll();
+        }
       }
+    };
+
+    const trimAccessories = () => {
+      const nonPrimary = exercises
+        .filter(e => !e.isCardio && e.exerciseRole !== 'primary')
+        .sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
+      for (const ex of nonPrimary) {
+        if (totalMin <= hardMaxMin) break;
+        while (ex.sets > 2 && totalMin > hardMaxMin) {
+          const oldSets = ex.sets;
+          ex.sets -= 1;
+          recalcAll();
+          ex.adjustments.push(`Hard budget trim: ${oldSets} → ${ex.sets} sets`);
+        }
+      }
+    };
+
+    if (isCut) {
+      // Cut: protect cardio. Trim accessories first; only trim cardio if accessories alone insufficient.
+      trimAccessories();
+      if (totalMin > hardMaxMin) trimCardio();
+    } else {
+      // Bulk / maintain: keep prior order — cardio first, accessories second.
+      trimCardio();
+      trimAccessories();
     }
 
-    // 2) Trim non-primary strength sets.
-    const nonPrimary = exercises
-      .filter(e => !e.isCardio && e.exerciseRole !== 'primary')
-      .sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
-    for (const ex of nonPrimary) {
-      if (totalMin <= hardMaxMin) break;
-      while (ex.sets > 2 && totalMin > hardMaxMin) {
-        const oldSets = ex.sets;
-        ex.sets -= 1;
-        recalcAll();
-        ex.adjustments.push(`Hard budget trim: ${oldSets} → ${ex.sets} sets`);
-      }
-    }
-
-    // 3) Last resort: trim primary sets down to 2 if still over budget.
+    // 3) Last resort regardless of phase: trim primary sets down to 2 if still over budget.
     const primaries = exercises.filter(e => !e.isCardio && e.exerciseRole === 'primary');
     for (const ex of primaries) {
       if (totalMin <= hardMaxMin) break;
@@ -6031,7 +6318,8 @@ export async function generateWorkout(
     cfg,
     caloricPhaseScale,
     planningDow,
-    overrides?.anchorMuscleGroups
+    overrides?.anchorMuscleGroups,
+    overrides?.dayTheme ?? null,
   );
   stageEnd(tGroups);
 
@@ -6325,6 +6613,42 @@ export async function generateWorkout(
     stagesMs: stageMarks,
   };
 
+  // Phase 1: persist the day theme used during selection so downstream
+  // invariants (and the UI) can reason about coherence without re-deriving it.
+  if (overrides?.dayTheme) workout.dayTheme = overrides.dayTheme;
+
+  // Phase 5c: run the deterministic invariant pipeline as the final
+  // safety net. Invariants are pure, fast, and individually auditable;
+  // this is the layer that catches anything the upstream selectors,
+  // prescribers, and validators missed. Auto-fixes are conservative:
+  // theme violations drop offenders; rep×load violations clamp weight.
+  const invariantCtx: WorkoutInvariantContext = {
+    profile,
+    preferences: prefs,
+    cfg,
+    bodyAssessment: prefetched?.bodyAssessment ?? null,
+    dayTheme: overrides?.dayTheme ?? null,
+    weeklyCardio: null, // populated by weekly planner via runtimeFlags later if needed
+  };
+  const invariantResult = runInvariantPipeline(workout, invariantCtx, DEFAULT_WORKOUT_INVARIANTS);
+  if (invariantResult.notes.length > 0) {
+    workout.adjustmentsSummary = [
+      ...workout.adjustmentsSummary,
+      ...invariantResult.notes,
+    ];
+  }
+  // Adopt the (possibly auto-fixed) workout state.
+  workout.exercises = invariantResult.workout.exercises;
+  // Surface any unresolved violations as warnings in the log so they're
+  // visible in production telemetry without blocking the response.
+  const { warnings, errors } = violationsBySeverity(invariantResult);
+  if (errors.length > 0) {
+    logWarn(`[INVARIANT] ${errors.length} unresolved error-level violations: ${errors.map(e => `${e.invariantId}: ${e.message}`).join(' | ')}`);
+  }
+  if (warnings.length > 0) {
+    logWarn(`[INVARIANT] ${warnings.length} warnings: ${warnings.map(w => `${w.invariantId}: ${w.message}`).slice(0, 5).join(' | ')}`);
+  }
+
   // Clear the active body assessment to prevent leaking across calls
   setActiveBodyAssessment(null);
 
@@ -6343,6 +6667,8 @@ export interface DayPreview {
   estimatedExercises: number;
   estimatedMinutes: number;
   isToday: boolean;
+  /** Phase 1: theme persisted so weekly planner & UI can both rely on it. */
+  dayTheme?: DayTheme | null;
 }
 
 export interface WeeklyPlanDay {
@@ -6360,6 +6686,8 @@ export interface WeeklyPlanDay {
   estimatedMinutes: number;
   llmVerdict?: 'pass' | 'minor_issues' | 'major_issues' | 'pending';
   llmCorrections?: Array<{ exerciseName: string; issue: string; fix: string; newValue: number | null; reason: string }>;
+  /** Phase 1: persisted theme for UI, invariants, and missed-day redistribution. */
+  dayTheme?: DayTheme | null;
 }
 
 export interface WeeklyPlanDiff {
@@ -6390,6 +6718,19 @@ export interface WeeklyPlan {
     avgDiversifyAttempts: number;
     monotony: number;
     generatedAt: string;
+    /**
+     * Phase 2: weekly cardio coverage observability.
+     *   - `targetDays` — how many training days SHOULD have cardio
+     *     (cut: all training days; bulk/maintain: cardio_frequency_per_week)
+     *   - `coveredDays` — how many actually do
+     *   - `policy` — which rule was applied
+     */
+    cardioCoverage?: {
+      trainingDays: number;
+      coveredDays: number;
+      targetDays: number;
+      policy: 'cut_every_day' | 'frequency_target' | 'unconfigured';
+    };
   };
 }
 
@@ -6534,11 +6875,17 @@ export async function generateWeeklyPlan(
   profile: TrainingProfile,
   userRestDays: number[] = [],
   preferredSplit?: string | null,
-  splitSchedule?: Record<string, { focus: string; groups: string[] }> | null
+  splitSchedule?: Record<string, { focus: string; groups: string[] }> | null,
+  prefetched?: PreFetchedEngineData
 ): Promise<WeeklyPlan> {
   const weeklyPlanStartMs = nowMs();
   const weekDates = getWeekDatesMondaySunday(new Date());
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  // Phase 2: prefetch user prefs so weekly-level checks (cardio frequency
+  // policy, future invariants) can read fields like `cardio_frequency_per_week`
+  // without hitting the DB inside the per-day loop.
+  const planPrefs: UserPreferences | null = prefetched?.preferences
+    ?? await fetchUserPreferences(profile.userId).catch(() => null as UserPreferences | null);
   const preview = generateWeekPreview(profile, userRestDays, false, undefined, preferredSplit, splitSchedule);
   const previewByDow = new Map<number, DayPreview>(preview.map(p => [p.dayOfWeek, p]));
   const restSet = new Set(userRestDays);
@@ -6751,7 +7098,13 @@ export async function generateWeeklyPlan(
     if (dayAnchorGroups.length === 0) {
       dayAnchorGroups = rotationAnchorGroupsForDow(dow);
     }
-    if (groupOverlapRatio(dayAnchorGroups, prevGroups) >= 0.67) {
+    // Phase 1: a schedule-sourced theme is authoritative — never let
+    // overlap-rotation silently swap "Monday is chest" into a back day just
+    // because Sunday already trained chest. The accessory composition can
+    // still vary inside the day; only the *primary* anchor is locked.
+    const dayThemeForDay = p?.dayTheme ?? null;
+    const themeIsSchedule = dayThemeForDay?.source === 'schedule';
+    if (!themeIsSchedule && groupOverlapRatio(dayAnchorGroups, prevGroups) >= 0.67) {
       const rotated = rotationAnchorGroupsForDow(dow);
       if (rotated.length > 0) dayAnchorGroups = rotated;
     }
@@ -6784,13 +7137,16 @@ export async function generateWeeklyPlan(
             planningDate: planDate,
             avoidExerciseNames: proactiveAvoidFiltered,
             anchorMuscleGroups: dayAnchorGroups,
-            preferredExerciseNames: preferredStaplesForDay
+            preferredExerciseNames: preferredStaplesForDay,
+            dayTheme: dayThemeForDay,
           }
         : {
             planningDate: planDate,
             anchorMuscleGroups: dayAnchorGroups,
-            preferredExerciseNames: preferredStaplesForDay
-          }
+            preferredExerciseNames: preferredStaplesForDay,
+            dayTheme: dayThemeForDay,
+          },
+      prefetched
     );
     let signature = workoutSignature(plannedWorkout);
 
@@ -6902,12 +7258,17 @@ export async function generateWeeklyPlan(
         .slice(0, 20);
       if (avoidExerciseNames.length === 0) break;
 
-      const regenerated = await generateWorkout(profile, {
-        planningDate: planDate,
-        avoidExerciseNames,
-        anchorMuscleGroups: dayAnchorGroups,
-        preferredExerciseNames: preferredStaplesForDay,
-      });
+      const regenerated = await generateWorkout(
+        profile,
+        {
+          planningDate: planDate,
+          avoidExerciseNames,
+          anchorMuscleGroups: dayAnchorGroups,
+          preferredExerciseNames: preferredStaplesForDay,
+          dayTheme: dayThemeForDay,
+        },
+        prefetched
+      );
       const regeneratedSignature = workoutSignature(regenerated);
       const regeneratedNames = exerciseNameSet(regenerated);
       const regeneratedOverlap = overlapRatio(regeneratedNames, prevNameSet);
@@ -7039,6 +7400,8 @@ export async function generateWeeklyPlan(
       estimatedExercises: plannedWorkout.exercises.length,
       estimatedMinutes: plannedWorkout.estimatedDurationMinutes,
       llmVerdict: 'pending',
+      // Phase 1: persisted theme drives both UI label and missed-day redistribution.
+      dayTheme: dayThemeForDay,
     });
     dayPlannerMsSamples.push(Math.round((nowMs() - dayStartMs) * 100) / 100);
   }
@@ -7127,6 +7490,33 @@ export async function generateWeeklyPlan(
     }
   }
 
+  // Phase 2: cardio coverage check.
+  //   - Cutting → expect cardio every training day.
+  //   - Bulk / maintain → expect at least cardio_frequency_per_week training
+  //     days to carry cardio. Excess is permitted (engine doesn't strip).
+  //   - No prefs / unset frequency → policy is 'unconfigured', metric only.
+  const trainingDays = days.filter(d => !d.isRestDay && d.plannedWorkout).length;
+  const coveredDays = days.filter(d =>
+    !d.isRestDay && d.plannedWorkout?.exercises?.some(e => e.isCardio)
+  ).length;
+  const phase = profile.bodyWeightTrend?.phase;
+  let cardioPolicy: 'cut_every_day' | 'frequency_target' | 'unconfigured' = 'unconfigured';
+  let targetDays = 0;
+  if (phase === 'cutting') {
+    cardioPolicy = 'cut_every_day';
+    targetDays = trainingDays;
+  } else if (planPrefs?.cardio_frequency_per_week != null && planPrefs.cardio_frequency_per_week > 0) {
+    cardioPolicy = 'frequency_target';
+    targetDays = Math.min(trainingDays, Math.round(Number(planPrefs.cardio_frequency_per_week)));
+  }
+  if (targetDays > coveredDays) {
+    logWarn(
+      `[CARDIO] Weekly coverage shortfall: ${coveredDays}/${targetDays} training days have cardio ` +
+      `(policy: ${cardioPolicy}, trainingDays: ${trainingDays}). Likely root cause: ` +
+      `validateAndCorrect trimmed cardio under time budget — check Phase 2 trim ordering.`
+    );
+  }
+
   return {
     weekStartDate: weekDates[0],
     featureSnapshotId: profile.featureSnapshotId,
@@ -7143,6 +7533,12 @@ export async function generateWeeklyPlan(
       avgDiversifyAttempts: Math.round(avg(diversifyAttemptSamples) * 100) / 100,
       monotony: Math.round(monotony * 100) / 100,
       generatedAt: new Date().toISOString(),
+      cardioCoverage: {
+        trainingDays,
+        coveredDays,
+        targetDays,
+        policy: cardioPolicy,
+      },
     },
   };
 }
@@ -7152,9 +7548,10 @@ export async function recomputeWeeklyPlanWithDiff(
   profile: TrainingProfile,
   userRestDays: number[] = [],
   preferredSplit?: string | null,
-  splitSchedule?: Record<string, { focus: string; groups: string[] }> | null
+  splitSchedule?: Record<string, { focus: string; groups: string[] }> | null,
+  prefetched?: PreFetchedEngineData
 ): Promise<{ plan: WeeklyPlan; diffs: WeeklyPlanDiff[] }> {
-  const recomputed = await generateWeeklyPlan(profile, userRestDays, preferredSplit, splitSchedule);
+  const recomputed = await generateWeeklyPlan(profile, userRestDays, preferredSplit, splitSchedule, prefetched);
   const prevByDate = new Map(previousPlan.days.map(d => [d.planDate, d]));
   const diffs: WeeklyPlanDiff[] = [];
   for (const day of recomputed.days) {
@@ -7315,6 +7712,9 @@ export function generateWeekPreview(
 
     let focus = '';
     let muscleGroups: string[] = [];
+    // Phase 1: track the *origin* of the day's groups so the planner and the
+    // selection-time hard filter can reason about how strict to be.
+    let themeSource: DayTheme['source'] = 'default';
 
     // User-defined weekly split schedule takes absolute priority
     if (splitSchedule) {
@@ -7322,6 +7722,7 @@ export function generateWeekPreview(
       if (dayEntry && dayEntry.groups?.length > 0) {
         focus = dayEntry.focus;
         muscleGroups = dayEntry.groups;
+        themeSource = 'schedule';
         usedRotationSlots++;
       }
     }
@@ -7330,12 +7731,14 @@ export function generateWeekPreview(
       const slot = rotation[(rotationIdx + usedRotationSlots) % rotation.length];
       focus = splitLabels[slot] || slot;
       muscleGroups = BRO_SPLIT_MAPPING[slot] ?? SPLIT_MUSCLE_MAPPING[slot] ?? [];
+      themeSource = 'rotation';
       usedRotationSlots++;
     }
 
     if (muscleGroups.length === 0 && pattern && pattern.muscleGroupsTypical.length > 0) {
       muscleGroups = pattern.muscleGroupsTypical.slice(0, 4);
       if (!focus) focus = muscleGroups.slice(0, 3).map(g => g.replace(/_/g, ' ')).join(', ');
+      // themeSource stays 'default'
     }
 
     if (muscleGroups.length === 0 && !focus) {
@@ -7343,6 +7746,7 @@ export function generateWeekPreview(
         const slot = rotation[(rotationIdx + usedRotationSlots - 1) % rotation.length];
         focus = splitLabels[slot] || slot;
         muscleGroups = BRO_SPLIT_MAPPING[slot] ?? SPLIT_MUSCLE_MAPPING[slot] ?? [];
+        themeSource = 'rotation';
       } else {
         focus = 'Full Body';
         muscleGroups = [];
@@ -7358,6 +7762,7 @@ export function generateWeekPreview(
       estimatedExercises: Math.round(pattern.avgExerciseCount),
       estimatedMinutes: Math.round(pattern.avgExerciseCount * 7 + 10),
       isToday,
+      dayTheme: deriveDayTheme(focus, muscleGroups, themeSource),
     });
   }
 

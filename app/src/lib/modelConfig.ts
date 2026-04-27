@@ -496,11 +496,23 @@ export interface ModelConfig {
   weightRescueFloorMult: number;
   /** Maximum cumulative weight reduction from stacked modifiers (ego + sleep) */
   weightModifierFloorMult: number;
+
+  // ── Rep×Load Safety Guard ───────────────────────────────────────────
+  /**
+   * Hard ceiling on prescribed weight as a fraction of the Epley-derived
+   * maximum supportable load for `targetReps + RIR`. A prescribed weight
+   * `w` for `n` reps at `RIR` is only safe if `w ≤ margin × 1RM / (1 + (n+RIR)/30)`.
+   * Set conservatively because (a) e1RM has ±5–10% empirical error,
+   * (b) users grind through bad sessions when prescriptions are too close
+   * to absolute capacity, and (c) any pad here is preferable to a single
+   * "11 reps of my 1RM" prescription slipping through.
+   */
+  repLoadSafetyMargin: number;
 }
 
 // Version stamps persisted with generated workouts for reproducibility.
-export const MODEL_CONFIG_VERSION = '2026-03-24.1';
-export const WORKOUT_ENGINE_VERSION = '2026-04-21.2';
+export const MODEL_CONFIG_VERSION = '2026-04-27.1';
+export const WORKOUT_ENGINE_VERSION = '2026-04-27.1';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery
@@ -826,4 +838,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   egoAuditCapMult: 0.92,
   weightRescueFloorMult: 0.75,
   weightModifierFloorMult: 0.85,
+
+  // Rep×Load safety guard
+  repLoadSafetyMargin: 0.93,
 };

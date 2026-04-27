@@ -13,6 +13,7 @@ import {
   type GeneratedWorkout,
   type ExerciseRole,
   type SessionOverrides,
+  type BodyAssessment,
 } from '../lib/workoutEngine'
 import { db } from '../lib/dbClient'
 import { apiUrl } from '../lib/urlConfig'
@@ -32,6 +33,11 @@ import {
   getSelectedPlanDay,
   getDayStatus,
 } from '../lib/todayWorkoutFlow'
+import {
+  proposeRedistributions,
+  applyRedistribution,
+  type RedistributionProposal,
+} from '../lib/missedDayRedistribution'
 import { logExerciseSwapToSupabase } from '../lib/swapLogging'
 import { getPausedWorkoutFromSupabase, deletePausedWorkoutFromSupabase } from '../lib/db/pausedWorkoutsDb'
 import { getActiveWorkoutSession, deleteActiveWorkoutSession } from '../lib/db/workoutsSessionDb'
@@ -75,6 +81,9 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const [durationOverride, setDurationOverride] = useState<number | null>(null)
   const [finishByTime, setFinishByTime] = useState('')
   const [cachedProfile, setCachedProfile] = useState<TrainingProfile | null>(null)
+  // Cached so post-load regenerate flows (applyRecomputedPlan) can also pass
+  // physique data into the engine, not just the initial week generation.
+  const [cachedBodyAssessment, setCachedBodyAssessment] = useState<BodyAssessment | null>(null)
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null)
   const [weeklyDiffsByDate, setWeeklyDiffsByDate] = useState<Record<string, any>>({})
   const [selectedPlanDate, setSelectedPlanDate] = useState<string>('')
@@ -84,6 +93,11 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const [splitSchedule, setSplitSchedule] = useState<Record<string, { focus: string; groups: string[] }> | null>(null)
   const [mesocycleWeek, setMesocycleWeek] = useState<number | null>(null)
   const [excludedExercises, setExcludedExercises] = useState<Set<string>>(new Set())
+  // Phase 3b — missed-day redistribution proposals. Computed from `weeklyPlan`.
+  // `dismissedRedistributionKeys` lets the user permanently hide a proposal
+  // for the rest of the session (keyed by missedDate|targetDate).
+  const [dismissedRedistributionKeys, setDismissedRedistributionKeys] = useState<Set<string>>(new Set())
+  const [redistributionApplying, setRedistributionApplying] = useState(false)
   const [showExclusionPicker, setShowExclusionPicker] = useState(false)
   const [completedWorkout, setCompletedWorkout] = useState<any | null>(null)
   const [workoutReview, setWorkoutReview] = useState<WorkoutReview | null>(null)
@@ -398,8 +412,18 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     return plannedDays.length > 0 && missingPolicyState >= Math.ceil(plannedDays.length / 2)
   }
 
-  const hydrateWeeklyPlan = async (tp: TrainingProfile, userRestDays: number[], prefSplit?: string | null, schedule?: Record<string, { focus: string; groups: string[] }> | null): Promise<WeeklyPlan | null> => {
+  const hydrateWeeklyPlan = async (
+    tp: TrainingProfile,
+    userRestDays: number[],
+    prefSplit?: string | null,
+    schedule?: Record<string, { focus: string; groups: string[] }> | null,
+    bodyAssessment?: BodyAssessment | null,
+  ): Promise<WeeklyPlan | null> => {
     if (!user) return null
+    // Phase 4: physique data must reach every per-day generation in the week,
+    // not just today's. We forward `bodyAssessment` to the engine which uses it
+    // to weight muscle-group selection by proportional deficits and visual scores.
+    const enginePrefetch = bodyAssessment ? { bodyAssessment } : undefined
     const weekStartDate = getWeekStartDate(new Date())
     const existing = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
     if (existing?.days?.length && !isWeeklyPlanStale(existing as WeeklyPlan, tp)) {
@@ -409,7 +433,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         let repaired = mergedExisting
         let repairedDiffs: any[] = []
         for (let i = 0; i < 2; i++) {
-          const next = await recomputeWeeklyPlanWithDiff(repaired, tp, userRestDays, prefSplit ?? null, schedule ?? null)
+          const next = await recomputeWeeklyPlanWithDiff(repaired, tp, userRestDays, prefSplit ?? null, schedule ?? null, enginePrefetch)
           repaired = await attachActualWeekWorkouts(await annotateWeeklyPlanVerdicts(tp, next.plan))
           repairedDiffs = next.diffs
           if (!hasConsecutiveDuplicateTrainingDays(repaired)) break
@@ -422,7 +446,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         return mergedExisting
       }
     }
-    const generatedPlan = await generateWeeklyPlan(tp, userRestDays, prefSplit ?? null, schedule ?? null)
+    const generatedPlan = await generateWeeklyPlan(tp, userRestDays, prefSplit ?? null, schedule ?? null, enginePrefetch)
     const validatedGenerated = await annotateWeeklyPlanVerdicts(tp, generatedPlan)
     const mergedGenerated = await attachActualWeekWorkouts(validatedGenerated)
     const planId = await saveWeeklyPlanToSupabase(user.id, mergedGenerated).catch(() => null)
@@ -489,7 +513,8 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     tp: TrainingProfile,
     userRestDays: number[]
   ): Promise<WeeklyPlan> => {
-    const recomputed = await recomputeWeeklyPlanWithDiff(basePlan, tp, userRestDays, preferredSplit, splitSchedule)
+    const enginePrefetch = cachedBodyAssessment ? { bodyAssessment: cachedBodyAssessment } : undefined
+    const recomputed = await recomputeWeeklyPlanWithDiff(basePlan, tp, userRestDays, preferredSplit, splitSchedule, enginePrefetch)
     const withVerdicts = await annotateWeeklyPlanVerdicts(tp, recomputed.plan)
     const withActuals = await attachActualWeekWorkouts(withVerdicts)
     setWeeklyPlan(withActuals)
@@ -498,6 +523,59 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       await saveWeeklyPlanToSupabase(user.id, withActuals, recomputed.diffs).catch(() => null)
     }
     return withActuals
+  }
+
+  // Phase 3b — pure derivation of redistribution proposals from the current
+  // weekly plan. Recomputed on every render of the week page; cheap enough
+  // (O(days × exercises)) that memoisation is unnecessary, but if this list
+  // ever balloons, wrap in `useMemo` keyed on `weeklyPlan` + `getLocalDate()`.
+  const redistributionProposals: RedistributionProposal[] = (() => {
+    if (!weeklyPlan || weeklyPlan.days.length === 0) return []
+    const todayLocal = getLocalDate()
+    const all = proposeRedistributions({ plan: weeklyPlan, todayLocal })
+    return all.filter(p => {
+      // Hide proposals the user dismissed this session.
+      const key = `${p.missedDay.planDate}|${p.suggestedAction.kind === 'augment' ? p.suggestedAction.targetDate : 'none'}`
+      return !dismissedRedistributionKeys.has(key)
+    })
+  })()
+
+  const dismissRedistribution = (proposal: RedistributionProposal) => {
+    const key = `${proposal.missedDay.planDate}|${proposal.suggestedAction.kind === 'augment' ? proposal.suggestedAction.targetDate : 'none'}`
+    setDismissedRedistributionKeys(prev => {
+      const next = new Set(prev)
+      next.add(key)
+      return next
+    })
+  }
+
+  const handleApplyRedistribution = async (proposal: RedistributionProposal) => {
+    if (proposal.suggestedAction.kind !== 'augment' || !weeklyPlan || !user) return
+    setRedistributionApplying(true)
+    try {
+      const result = applyRedistribution(weeklyPlan, proposal.suggestedAction)
+      if (!result.applied) {
+        showToast('No matching exercise on the target day to absorb the missed volume.', 'error')
+        return
+      }
+      // Persist the in-place augmentation. We do NOT trigger a regeneration —
+      // the whole point of redistribution is plan stability. The deterministic
+      // invariant pipeline runs on the next workout open and will catch any
+      // policy violations the bump might have introduced (e.g. single-exercise
+      // volume cap).
+      setWeeklyPlan(result.plan)
+      await saveWeeklyPlanToSupabase(user.id, result.plan, []).catch(() => null)
+      const summary = result.modified
+        .map(m => `${m.exerciseName}: ${m.oldSets}→${m.newSets}`)
+        .join(', ')
+      showToast(`Redistributed: ${summary}`, 'success')
+      dismissRedistribution(proposal)
+    } catch (e) {
+      logError('Failed to apply redistribution', e)
+      showToast('Could not apply redistribution.', 'error')
+    } finally {
+      setRedistributionApplying(false)
+    }
   }
 
   useEffect(() => {
@@ -633,11 +711,25 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       console.log(`[PERF] today=${today}, found=${!!existingWorkout}`)
 
       const todayDone = !!(existingWorkout && existingWorkout.workout_exercises?.length > 0 && !forceGenerateRef.current)
-      const hydratePromise = hydrateWeeklyPlan(tp, loadedRestDays, prefsData?.preferred_split ?? null, prefsData?.weekly_split_schedule ?? null)
+      const bodyAssessmentForEngine: BodyAssessment | null = serverData.bodyAssessment || null
+      setCachedBodyAssessment(bodyAssessmentForEngine)
+      const hydratePromise = hydrateWeeklyPlan(
+        tp,
+        loadedRestDays,
+        prefsData?.preferred_split ?? null,
+        prefsData?.weekly_split_schedule ?? null,
+        bodyAssessmentForEngine,
+      )
       const quickFallbackTimer = setTimeout(async () => {
         if (weeklyPlanRef.current?.days?.length) return
         try {
-          const quickPlan = await generateWeeklyPlan(tp, loadedRestDays, prefsData?.preferred_split ?? null, prefsData?.weekly_split_schedule ?? null)
+          const quickPlan = await generateWeeklyPlan(
+            tp,
+            loadedRestDays,
+            prefsData?.preferred_split ?? null,
+            prefsData?.weekly_split_schedule ?? null,
+            bodyAssessmentForEngine ? { bodyAssessment: bodyAssessmentForEngine } : undefined,
+          )
           const quickMerged = await attachActualWeekWorkouts(quickPlan)
           if (!weeklyPlanRef.current?.days?.length) {
             setWeeklyPlan(quickMerged)
@@ -1262,6 +1354,86 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
               {weeklyPlan.planQuality.plannerTotalMs?.toFixed?.(0) ?? 0}ms total · {weeklyPlan.planQuality.avgDayPlannerMs?.toFixed?.(0) ?? 0}ms/day · {weeklyPlan.planQuality.avgDiversifyAttempts?.toFixed?.(2) ?? 0} retries/day
             </div>
           </details>
+        )}
+        {redistributionProposals.length > 0 && (
+          <div
+            role="region"
+            aria-label="Missed-day redistribution suggestions"
+            style={{
+              border: '1px solid var(--border)',
+              borderLeft: '4px solid var(--accent, #e6a800)',
+              borderRadius: 8,
+              padding: '12px 14px',
+              marginBottom: 12,
+              background: 'var(--surface-elevated, rgba(255,255,255,0.04))',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 14 }}>
+              {redistributionProposals.length === 1
+                ? 'You missed a day this week'
+                : `You missed ${redistributionProposals.length} days this week`}
+            </div>
+            {redistributionProposals.map(proposal => {
+              const action = proposal.suggestedAction
+              const top = proposal.candidates[0]
+              const key = `${proposal.missedDay.planDate}|${action.kind === 'augment' ? action.targetDate : 'none'}`
+              return (
+                <div
+                  key={key}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    paddingTop: 6,
+                    borderTop: '1px dashed var(--border-subtle, rgba(255,255,255,0.08))',
+                  }}
+                >
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                    {proposal.missedDay.summary}
+                  </div>
+                  {action.kind === 'augment' && top ? (
+                    <>
+                      <div style={{ fontSize: 13 }}>
+                        Suggested: add <strong>{action.addSets} sets</strong> on <strong>{top.dayName}</strong> ({top.planDate.slice(5)}). {top.rationale}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                        <Button
+                          variant="primary"
+                          onClick={() => handleApplyRedistribution(proposal)}
+                          disabled={redistributionApplying}
+                          style={{ fontSize: 13, padding: '6px 12px' }}
+                        >
+                          {redistributionApplying ? 'Applying…' : `Apply to ${top.dayName}`}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={() => dismissRedistribution(proposal)}
+                          disabled={redistributionApplying}
+                          style={{ fontSize: 13, padding: '6px 12px' }}
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+                      No compatible upcoming day to absorb this volume.{' '}
+                      <button
+                        type="button"
+                        onClick={() => dismissRedistribution(proposal)}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', textDecoration: 'underline', cursor: 'pointer', padding: 0, fontSize: 13 }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
         <div className={styles.weekGlanceGrid}>
           {weekCards.map((card) => {

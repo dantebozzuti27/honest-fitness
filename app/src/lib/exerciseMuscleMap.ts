@@ -2250,24 +2250,11 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     functional_description: 'Generic lunge. Unilateral lower-body compound combining quad and glute stimulus with balance demands.',
     stimulus_to_fatigue_ratio: 3,
   },
-  'Pull-ups': {
-    primary_muscles: ['latissimus_dorsi', 'teres_major', 'biceps_brachii_short_head', 'biceps_brachii_long_head'],
-    secondary_muscles: ['brachialis', 'rhomboids', 'trapezius_lower', 'posterior_deltoid'],
-    stabilizer_muscles: ['rectus_abdominis', 'rotator_cuff'],
-    movement_pattern: 'vertical_pull', exercise_type: 'compound', force_type: 'pull', difficulty: 'intermediate',
-    default_tempo: '2-1-1',
-    functional_description: 'Generic pull-up. Pronated grip vertical pull emphasizing lats with significant bicep involvement.',
-    stimulus_to_fatigue_ratio: 2.5,
-  },
-  'Push-ups': {
-    primary_muscles: ['pectoralis_major_sternal', 'pectoralis_major_clavicular', 'triceps_lateral_head'],
-    secondary_muscles: ['anterior_deltoid', 'triceps_medial_head'],
-    stabilizer_muscles: ['rectus_abdominis', 'serratus_anterior'],
-    movement_pattern: 'horizontal_push', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
-    default_tempo: '2-1-1',
-    functional_description: 'Generic push-up. Bodyweight horizontal press with serratus engagement via scapular protraction.',
-    stimulus_to_fatigue_ratio: 4.5,
-  },
+  // 'Pull-ups' and 'Push-ups' (plural forms) used to live here as separate
+  // entries with slightly different SFRs, which silently divided user history
+  // and progressions in two whenever logging used the plural. Removed —
+  // canonical entries are 'Pull-Up' (line ~826) and 'Push-Up' (line ~647).
+  // Plural / hyphen / case variants are now resolved by getExerciseMapping().
   'Rowing': {
     primary_muscles: ['latissimus_dorsi', 'rhomboids', 'rectus_femoris', 'vastus_lateralis', 'gluteus_maximus', 'biceps_brachii_short_head'],
     secondary_muscles: ['trapezius_middle', 'erector_spinae', 'biceps_femoris', 'posterior_deltoid', 'brachialis', 'gastrocnemius_medial'],
@@ -2349,15 +2336,116 @@ const NAME_ALIASES: Record<string, string> = {
 };
 
 /**
+ * Canonicalize an exercise name for *family-level* identity.
+ *
+ * The exercise library and user logs are inconsistent: "pull up", "Pull-Up",
+ * "pull-ups", "pullups" all refer to the same movement, but unless we
+ * collapse them to a single key, downstream code (preferences, progressions,
+ * staple-family aggregation, candidate selection) treats them as distinct
+ * exercises. The user's history then fragments and prescription quality
+ * suffers.
+ *
+ * Algorithm
+ *   1. Trim + lowercase
+ *   2. Collapse whitespace and unify hyphens with spaces
+ *   3. Strip a single trailing "s" from the *last* token IFF it isn't part
+ *      of a meaningful root (e.g. "press", "fly", "deadlift") — we
+ *      explicitly keep the "s" on words that end in "ss", "us", "is",
+ *      because those are not plural markers.
+ *   4. Re-collapse whitespace
+ *
+ * This is deliberately conservative — it normalises only what is provably
+ * the same movement (pull-up == pull ups). Variant grips (close-grip vs
+ * wide-grip pull-ups) are NOT collapsed because they're different exercises.
+ *
+ * Examples (all canonicalise to "pull up"):
+ *   "Pull-Up", "pull-ups", "Pull Ups", "pullup", "PULLUPS"
+ */
+export function canonicalizeExerciseName(name: string): string {
+  if (!name) return '';
+  let n = String(name).trim().toLowerCase();
+  // Hyphen ↔ space; collapse internal whitespace.
+  n = n.replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!n) return '';
+
+  // Split common no-separator compounds: "pullup" → "pull up", "pushdown" →
+  // "push down", "situps" → "sit ups". Without this step, the de-pluraliser
+  // below cannot operate (the trailing "s" is glued to the suffix). The list
+  // of suffixes is intentionally small: "up", "down", "over", "out" cover
+  // every compound bodyweight/cable name in the library.
+  const COMPOUND_SUFFIXES = ['ups', 'downs', 'overs', 'outs', 'up', 'down', 'over', 'out'];
+  const COMPOUND_PREFIXES = ['pull', 'push', 'sit', 'chin', 'press', 'pulld', 'rollover', 'roll'];
+  const tokens = n.split(' ');
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    // Skip tokens that are already a clean prefix (e.g. "pull") or short.
+    if (t.length < 5) continue;
+    for (const sfx of COMPOUND_SUFFIXES) {
+      if (!t.endsWith(sfx)) continue;
+      const prefix = t.slice(0, -sfx.length);
+      if (COMPOUND_PREFIXES.includes(prefix)) {
+        tokens[i] = `${prefix} ${sfx}`;
+        break;
+      }
+    }
+  }
+  // Re-collapse and re-tokenise after splitting.
+  const flat = tokens.join(' ').replace(/\s+/g, ' ');
+  const tok = flat.split(' ');
+
+  // De-pluralise the LAST token only, conservatively.
+  const last = tok[tok.length - 1];
+  // Keep "s" if it isn't a plural marker:
+  //   - "ss" endings (press, glass, cross)
+  //   - "us" / "is" endings (latissimus — unlikely as a name but cheap to guard)
+  //   - 1-char tokens (no plural possible)
+  const looksPlural =
+    last.length > 1 &&
+    last.endsWith('s') &&
+    !last.endsWith('ss') &&
+    !last.endsWith('us') &&
+    !last.endsWith('is') &&
+    last !== 'lats';
+  if (looksPlural) {
+    tok[tok.length - 1] = last.slice(0, -1);
+  }
+  return tok.join(' ');
+}
+
+// Pre-computed canonical → mapping index, built lazily on first lookup so
+// adding entries to EXERCISE_MUSCLE_MAP doesn't require explicit re-indexing.
+let _canonicalIndex: Map<string, ExerciseMapping> | null = null;
+function getCanonicalIndex(): Map<string, ExerciseMapping> {
+  if (_canonicalIndex) return _canonicalIndex;
+  const idx = new Map<string, ExerciseMapping>();
+  for (const [key, value] of Object.entries(EXERCISE_MUSCLE_MAP)) {
+    const canon = canonicalizeExerciseName(key);
+    // First write wins so the canonical entry (Pull-Up) takes precedence
+    // over any later quasi-duplicates that may slip through review.
+    if (!idx.has(canon)) idx.set(canon, value);
+  }
+  _canonicalIndex = idx;
+  return idx;
+}
+
+/**
  * Returns the mapping for a given exercise name.
- * Tries exact match first, then known aliases, then case-insensitive search.
+ *
+ * Lookup order — most specific to least specific:
+ *   1. Exact key match (preserves casing-sensitive overrides if any exist)
+ *   2. NAME_ALIASES indirection (manual overrides like "Deadlift" → "Conventional Deadlift")
+ *   3. Canonical-form match (handles plurals, hyphens, casing in one shot)
+ *
+ * The canonical match is the layer that previously failed: "pull-up",
+ * "Pull-Ups", and "pullup" all canonicalise to "pull up", so they now all
+ * return the same ExerciseMapping rather than fragmenting into duplicates
+ * (or, in the worst case, hitting a near-duplicate entry with a divergent SFR).
  */
 export function getExerciseMapping(name: string): ExerciseMapping | undefined {
   if (EXERCISE_MUSCLE_MAP[name]) return EXERCISE_MUSCLE_MAP[name];
   const aliased = NAME_ALIASES[name];
   if (aliased && EXERCISE_MUSCLE_MAP[aliased]) return EXERCISE_MUSCLE_MAP[aliased];
-  return Object.entries(EXERCISE_MUSCLE_MAP)
-    .find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
+  return getCanonicalIndex().get(canonicalizeExerciseName(name));
 }
 
 /**

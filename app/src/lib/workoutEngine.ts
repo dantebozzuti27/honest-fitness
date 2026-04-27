@@ -29,7 +29,7 @@ import {
 } from './volumeGuidelines';
 import type { TrainingProfile, ExerciseProgression, EnrichedExercise, ExercisePreference, CardioHistory, ExerciseOrderProfile, MuscleVolumeStatus } from './trainingAnalysis';
 import { uuidv4 } from '../utils/uuid';
-import { getExerciseMapping, getExerciseSFR } from './exerciseMuscleMap';
+import { getExerciseMapping, getExerciseSFR, canonicalizeExerciseName } from './exerciseMuscleMap';
 import { estimateWeight as estimateWeightFromRatios } from './liftRatios';
 import { suggestSupersets, type SupersetSuggestion } from './supersetPairer';
 import { DEFAULT_MODEL_CONFIG, MODEL_CONFIG_VERSION, WORKOUT_ENGINE_VERSION, type ModelConfig } from './modelConfig';
@@ -6908,8 +6908,15 @@ export async function generateWeeklyPlan(
   const diversifyAttemptSamples: number[] = [];
   let recurrenceBlockEvents = 0;
   let coherenceRejectEvents = 0;
+  // Use the shared canonicaliser so "pull up", "Pull-Up", "Pull-Ups", and
+  // "pullups" all collapse to the SAME family key. Previously this was just
+  // trim+lowercase, which left "pull up" and "pull-ups" as distinct keys —
+  // fragmenting the user's exercisePreferences/progressions in two and
+  // halving prescription quality on either branch. Routing through
+  // canonicalizeExerciseName fixes the user-visible "pull up vs pull ups
+  // are treated as different exercises" complaint at the planner layer.
   const normalizeExerciseName = (name: string): string =>
-    String(name || '').trim().toLowerCase();
+    canonicalizeExerciseName(name);
   const shouldExcludeStapleFamily = (familyKey: string): boolean =>
     familyKey === 'romanian_deadlift';
   const stapleFamilyAgg = new Map<string, {

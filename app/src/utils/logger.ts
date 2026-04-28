@@ -3,7 +3,14 @@
  * Centralized logging with environment-aware levels
  */
 
-const env = import.meta.env
+// Read import.meta.env defensively. Vite injects it at build time; under
+// node --test (used by tests/unit/) the property is undefined and naive
+// access throws. Falling back to NODE_ENV keeps tests runnable without a
+// Vite/JSDOM shim.
+const env: { DEV?: boolean; MODE?: string } =
+  (typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean; MODE?: string } }).env)
+    ? (import.meta as { env: { DEV?: boolean; MODE?: string } }).env
+    : { MODE: process.env?.NODE_ENV };
 const isDevelopment = Boolean(env.DEV || env.MODE === 'development')
 
 /**

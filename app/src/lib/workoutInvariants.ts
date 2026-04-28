@@ -580,6 +580,46 @@ export const compoundBeforeIsolationInvariant: WorkoutInvariant = {
 };
 
 /**
+ * Daily-abs-on-cut invariant.
+ *
+ * On a cut, every training day should carry at least one direct ab/core
+ * exercise. The selection layer in `stepSelectExercises` enforces this
+ * upstream; this invariant exists as a defence-in-depth check that catches
+ * cases where validateAndCorrect or a downstream modifier dropped the only
+ * core exercise to fit the time budget. Surfaces as a warning (not an
+ * auto-fixable error) because re-injecting an exercise post-hoc requires
+ * library access that the pipeline doesn't have.
+ *
+ * Why warning, not error: a missing daily ab on a single workout is a
+ * minor stimulus deficit, not a safety issue. The user can either swap in
+ * an ab exercise themselves or rely on the cut-period accumulation. We
+ * reserve `error` severity for invariants that, if violated, would produce
+ * a workout that's actively unsafe or structurally wrong.
+ */
+export const dailyAbsOnCutInvariant: WorkoutInvariant = {
+  id: 'daily_abs_on_cut',
+  description: 'On a cut, every training day should include at least one direct core/ab exercise.',
+  check(workout, ctx) {
+    const phase = ctx.profile.bodyWeightTrend?.phase;
+    const goal = String(ctx.preferences?.training_goal ?? '').toLowerCase();
+    const isCut = phase === 'cutting' || goal === 'cut';
+    if (!isCut) return [];
+    const hasCore = workout.exercises.some(ex => {
+      if (ex.isCardio) return false;
+      const g = String(ex.targetMuscleGroup ?? '').toLowerCase();
+      return g === 'core' || g === 'abs';
+    });
+    if (hasCore) return [];
+    return [{
+      invariantId: 'daily_abs_on_cut',
+      severity: 'warning' as const,
+      message: 'Cut phase: this training day has no direct ab/core exercise. Daily low-dose ab work is part of the cut policy.',
+      details: { phase, goal },
+    }];
+  },
+};
+
+/**
  * Default invariant set, ordered. Order matters when fixers cascade:
  *   1. theme_coherence — drops out-of-theme exercises first so later checks
  *      run against the canonical day shape
@@ -589,6 +629,7 @@ export const compoundBeforeIsolationInvariant: WorkoutInvariant = {
  *   4. rep_load_vs_1rm — clamps any unsafe pairings on the surviving exercises
  *   5. weekly_cardio_coverage — informational; runs after structural fixes
  *   6. physique_deficit_priority — informational; advisory layer
+ *   7. daily_abs_on_cut — informational; cut-only ab presence check
  */
 export const DEFAULT_WORKOUT_INVARIANTS: readonly WorkoutInvariant[] = [
   themeCoherenceInvariant,
@@ -597,6 +638,7 @@ export const DEFAULT_WORKOUT_INVARIANTS: readonly WorkoutInvariant[] = [
   repLoadVs1RMInvariant,
   weeklyCardioInvariant,
   physiqueDeficitPriorityInvariant,
+  dailyAbsOnCutInvariant,
 ];
 
 // Local helper — duplicated from workoutEngine to keep this module dependency-free

@@ -26,12 +26,18 @@ import {
   repLoadVs1RMInvariant,
   weeklyCardioInvariant,
   physiqueDeficitPriorityInvariant,
+  dailyAbsOnCutInvariant,
   runInvariantPipeline,
   DEFAULT_WORKOUT_INVARIANTS,
   type WorkoutInvariantContext,
 } from '../../src/lib/workoutInvariants';
 import { DEFAULT_MODEL_CONFIG } from '../../src/lib/modelConfig';
-import type { GeneratedExercise, GeneratedWorkout, DayTheme } from '../../src/lib/workoutEngine';
+import {
+  deriveDayTheme,
+  type GeneratedExercise,
+  type GeneratedWorkout,
+  type DayTheme,
+} from '../../src/lib/workoutEngine';
 import type { TrainingProfile } from '../../src/lib/trainingAnalysis';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -450,14 +456,98 @@ test('pipeline: terminates within maxPasses even with cascading fixes', () => {
   assert.ok(Array.isArray(result.violations));
 });
 
-test('DEFAULT_WORKOUT_INVARIANTS exposes all six concrete invariants by id', () => {
+test('DEFAULT_WORKOUT_INVARIANTS exposes all seven concrete invariants by id', () => {
   const ids = DEFAULT_WORKOUT_INVARIANTS.map(i => i.id).sort();
   assert.deepEqual(ids, [
     'compound_before_isolation_order',
+    'daily_abs_on_cut',
     'physique_deficit_priority',
     'rep_load_vs_1rm',
     'single_exercise_volume_cap',
     'theme_coherence',
     'weekly_cardio_coverage',
   ]);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// dailyAbsOnCut — user complaint: "include 1 ab exercise per day on cut"
+// ─────────────────────────────────────────────────────────────────────────
+
+test('dailyAbsOnCut: warns on cut day with no core exercise', () => {
+  const benchOnly = makeWorkout([makeExercise({ targetMuscleGroup: 'mid_chest' })]);
+  const ctx = makeCtx({
+    profile: makeProfile({ bodyWeightTrend: { phase: 'cutting' } as any }),
+    preferences: { training_goal: 'cut' } as any,
+  });
+  const v = dailyAbsOnCutInvariant.check(benchOnly, ctx);
+  assert.equal(v.length, 1);
+  assert.equal(v[0].severity, 'warning');
+});
+
+test('dailyAbsOnCut: silent when a core exercise is present', () => {
+  const withAbs = makeWorkout([
+    makeExercise({ targetMuscleGroup: 'mid_chest' }),
+    makeExercise({ exerciseName: 'Plank', targetMuscleGroup: 'core' as any }),
+  ]);
+  const ctx = makeCtx({
+    profile: makeProfile({ bodyWeightTrend: { phase: 'cutting' } as any }),
+    preferences: { training_goal: 'cut' } as any,
+  });
+  assert.equal(dailyAbsOnCutInvariant.check(withAbs, ctx).length, 0);
+});
+
+test('dailyAbsOnCut: silent when not on a cut (bulk/maintain)', () => {
+  const benchOnly = makeWorkout([makeExercise({ targetMuscleGroup: 'mid_chest' })]);
+  const bulkCtx = makeCtx({
+    profile: makeProfile({ bodyWeightTrend: { phase: 'bulking' } as any }),
+    preferences: { training_goal: 'bulk' } as any,
+  });
+  assert.equal(dailyAbsOnCutInvariant.check(benchOnly, bulkCtx).length, 0);
+  const maintainCtx = makeCtx({
+    profile: makeProfile({ bodyWeightTrend: { phase: 'maintain' } as any }),
+    preferences: { training_goal: 'maintain' } as any,
+  });
+  assert.equal(dailyAbsOnCutInvariant.check(benchOnly, maintainCtx).length, 0);
+});
+
+test('dailyAbsOnCut: cardio does not satisfy the requirement (must be direct ab work)', () => {
+  const withCardio = makeWorkout([makeExercise(), makeCardio()]);
+  const ctx = makeCtx({
+    profile: makeProfile({ bodyWeightTrend: { phase: 'cutting' } as any }),
+    preferences: { training_goal: 'cut' } as any,
+  });
+  assert.equal(dailyAbsOnCutInvariant.check(withCardio, ctx).length, 1,
+    'cardio should not be counted as ab work');
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// deriveDayTheme — user complaint: "the week ahead has one day that's all abs"
+// ─────────────────────────────────────────────────────────────────────────
+
+test('deriveDayTheme: refuses to make core/abs the primary focus', () => {
+  // A schedule entry that lists ONLY core → must return null so the planner
+  // falls through to its rotation/detected-pattern fallback and picks a
+  // real strength primary instead of an "abs day".
+  const t = deriveDayTheme('Abs', ['core'], 'schedule');
+  assert.equal(t, null, 'core-only schedule should produce no theme — was producing "abs day"');
+});
+
+test('deriveDayTheme: demotes core to accessory when other muscles are present', () => {
+  // If the schedule lists ['core', 'mid_chest'] (core first), we still
+  // want the chest as the day's identity, not the abs.
+  const t = deriveDayTheme('Mixed', ['core', 'mid_chest'], 'schedule');
+  assert.ok(t);
+  assert.equal(t!.primary, 'mid_chest', 'primary should be promoted past core');
+  assert.ok(t!.allowedAccessories.includes('core'), 'core should remain as an accessory');
+});
+
+test('deriveDayTheme: refuses calves-only and cardio-only days too', () => {
+  assert.equal(deriveDayTheme('Calves', ['calves'], 'schedule'), null);
+  assert.equal(deriveDayTheme('Cardio', ['cardio'], 'schedule'), null);
+});
+
+test('deriveDayTheme: a normal chest day still works', () => {
+  const t = deriveDayTheme('Chest', ['mid_chest', 'upper_chest'], 'schedule');
+  assert.ok(t);
+  assert.equal(t!.primary, 'mid_chest');
 });

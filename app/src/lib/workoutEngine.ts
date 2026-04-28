@@ -1805,6 +1805,29 @@ function expandWithSynergists(primaries: ReadonlySet<string> | string[]): Set<st
  * Allowed accessories: `muscleGroups ∪ synergists(muscleGroups) ∪ universals`.
  * Anything outside this set will be rejected when `source === 'schedule'`.
  */
+/**
+ * Muscle groups that must NEVER be the primary focus of a training day.
+ *
+ * Rationale: these are conditioning / accessory muscles whose stimulus is
+ * cheap, fast, and best distributed across the whole week rather than
+ * concentrated into a "dedicated day". Specifically:
+ *
+ *   - core/abs: max useful direct volume is ~6–8 working sets per session
+ *     (Schoenfeld dose-response work + recovery considerations); past that
+ *     point you're wasting session time that should go to a primary movement.
+ *     A dedicated "abs day" therefore over-allocates time to a muscle that
+ *     responds best to daily low-dose stimulus.
+ *   - calves: same logic — high-frequency low-dose beats a once-a-week
+ *     blowout.
+ *   - cardio: a "cardio day" is conditioning, not a strength theme; the
+ *     planner already handles it via the cardio policy block.
+ *
+ * If the schedule lists *only* one of these groups for a day, the engine
+ * treats that as "no strength theme set" and falls through to the rotation
+ * / detected-pattern fallback, which gives a real primary focus.
+ */
+const NON_PRIMARY_THEME_GROUPS: ReadonlySet<string> = new Set(['core', 'abs', 'abdominals', 'calves', 'cardio']);
+
 export function deriveDayTheme(
   focus: string,
   muscleGroups: string[],
@@ -1812,8 +1835,20 @@ export function deriveDayTheme(
 ): DayTheme | null {
   const groups = (muscleGroups ?? []).filter(g => typeof g === 'string' && g.length > 0);
   if (groups.length === 0) return null;
+
+  // Demote core/abs/calves/cardio out of the primary slot. The user's
+  // explicit complaint: "the week ahead has one day that's all abs". That
+  // happens when the schedule pins primary=core. We never want abs to
+  // anchor a day's identity — they're a daily accessory, not a focus.
+  const primaryEligible = groups.filter(g => !NON_PRIMARY_THEME_GROUPS.has(String(g).toLowerCase()));
+  if (primaryEligible.length === 0) {
+    // Schedule is core/calves/cardio only with no strength primary. Refuse
+    // to set this as a themed day — the caller will fall through to the
+    // rotation or detected-pattern fallback and pick a real primary.
+    return null;
+  }
+  const primary = primaryEligible[0];
   const expanded = expandWithSynergists(new Set(groups));
-  const primary = groups[0];
   const allowed = Array.from(expanded).filter(g => g !== primary);
   return {
     primary,
@@ -3311,6 +3346,81 @@ function stepSelectExercises(
         muscleGroup: 'cardio',
         score: 8,
         factors: [`Mandatory cardio baseline, cardio preference=${prefs.cardio_duration_minutes ?? 'n/a'} min`],
+      });
+    }
+  }
+
+  // Phase 6: ab/core mandatory on cuts.
+  //
+  // The user's complaint: "we should try to include 1 ab exercise per day
+  // minimum during a cut". Rationale: in a calorie deficit, midsection
+  // visibility is the visible payoff of the cut, and ab stimulus is cheap
+  // (low CNS cost, ~5 min, no equipment). High-frequency low-dose ab work
+  // also produces better hypertrophy than weekly blowouts (Schoenfeld).
+  //
+  // We only enforce this on a cut. On bulk/maintain we still benefit from
+  // ab work but volume is better spent on primary lifts; the user can
+  // schedule abs explicitly if they want them every day.
+  //
+  // Strategy:
+  //   1. Detect cut phase from training goal / weight trend.
+  //   2. If no core exercise is already selected, pick the lowest-fatigue
+  //      core exercise from the library that the user hasn't done in the
+  //      last ~3 days (recovery + variety).
+  //   3. Append as a single 2-set, 12-rep accessory at the end of the
+  //      strength block. Cardio block is unaffected.
+  const isCutPhase =
+    effectiveGoal === 'cut' || profile.bodyWeightTrend?.phase === 'cutting';
+  const hasSelectedCore = selections.some((s) => {
+    if (s.isCardio) return false;
+    const g = String(s.muscleGroup ?? '').toLowerCase();
+    return g === 'core' || g === 'abs';
+  });
+  if (isCutPhase && !hasSelectedCore) {
+    // Pull recent ab usage so we don't repeat the same exercise day-to-day.
+    const recentAbNames = new Set(
+      (profile.exercisePreferences ?? [])
+        .filter(p => Number(p.lastUsedDaysAgo ?? 999) <= 3)
+        .map(p => String(p.exerciseName ?? '').toLowerCase())
+    );
+    const coreCandidates = allExercises
+      .filter((ex) => {
+        // Accept either a `body_part === 'core'` tag or a primary muscle
+        // that maps to the core canonical group via the muscle-head index.
+        if (avoidSet.has(String(ex.name ?? '').toLowerCase())) return false;
+        if (!isHotelModeStrengthAllowed(ex)) return false;
+        const bp = String(ex.body_part ?? '').toLowerCase();
+        if (bp === 'core' || bp === 'abs' || bp === 'abdominals') return true;
+        const pm = (ex.primary_muscles ?? []).map((m) => resolveToCanonicalGroup(String(m)));
+        return pm.some((g) => g === 'core');
+      })
+      // De-prioritise anything used in the last 3 days; otherwise keep
+      // library order (the library is roughly ordered by SFR).
+      .sort((a, b) => {
+        const aRecent = recentAbNames.has(String(a.name ?? '').toLowerCase()) ? 1 : 0;
+        const bRecent = recentAbNames.has(String(b.name ?? '').toLowerCase()) ? 1 : 0;
+        return aRecent - bRecent;
+      });
+    const abPick = coreCandidates[0];
+    if (abPick) {
+      selections.push({
+        exercise: abPick,
+        muscleGroup: 'core',
+        sets: 2,
+        effectiveSets: 2,
+        reason: 'Daily ab work enforced (cut phase)',
+        isCardio: false,
+      });
+      decisions.push({
+        exerciseName: abPick.name,
+        muscleGroup: 'core',
+        score: 5,
+        factors: [
+          'Cut phase: 1 ab exercise per training day enforced',
+          recentAbNames.has(String(abPick.name ?? '').toLowerCase())
+            ? 'Note: chosen despite recent use — no novel core option in library'
+            : 'Selected: not used in last 3 days',
+        ],
       });
     }
   }

@@ -26,7 +26,7 @@ import {
   repLoadVs1RMInvariant,
   weeklyCardioInvariant,
   physiqueDeficitPriorityInvariant,
-  dailyAbsOnCutInvariant,
+  dailyAbsInvariant,
   runInvariantPipeline,
   DEFAULT_WORKOUT_INVARIANTS,
   type WorkoutInvariantContext,
@@ -460,7 +460,7 @@ test('DEFAULT_WORKOUT_INVARIANTS exposes all seven concrete invariants by id', (
   const ids = DEFAULT_WORKOUT_INVARIANTS.map(i => i.id).sort();
   assert.deepEqual(ids, [
     'compound_before_isolation_order',
-    'daily_abs_on_cut',
+    'daily_abs',
     'physique_deficit_priority',
     'rep_load_vs_1rm',
     'single_exercise_volume_cap',
@@ -470,53 +470,62 @@ test('DEFAULT_WORKOUT_INVARIANTS exposes all seven concrete invariants by id', (
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// dailyAbsOnCut — user complaint: "include 1 ab exercise per day on cut"
+// dailyAbs — user policy: "always do one ab exercise minimum to keep
+// myself honest". Enforced across all phases (cut/bulk/maintain).
 // ─────────────────────────────────────────────────────────────────────────
 
-test('dailyAbsOnCut: warns on cut day with no core exercise', () => {
+test('dailyAbs: warns on any day with no core exercise (cut)', () => {
   const benchOnly = makeWorkout([makeExercise({ targetMuscleGroup: 'mid_chest' })]);
   const ctx = makeCtx({
     profile: makeProfile({ bodyWeightTrend: { phase: 'cutting' } as any }),
     preferences: { training_goal: 'cut' } as any,
   });
-  const v = dailyAbsOnCutInvariant.check(benchOnly, ctx);
+  const v = dailyAbsInvariant.check(benchOnly, ctx);
   assert.equal(v.length, 1);
   assert.equal(v[0].severity, 'warning');
 });
 
-test('dailyAbsOnCut: silent when a core exercise is present', () => {
+test('dailyAbs: warns on bulk too (policy is phase-agnostic)', () => {
+  const benchOnly = makeWorkout([makeExercise({ targetMuscleGroup: 'mid_chest' })]);
+  const ctx = makeCtx({
+    profile: makeProfile({ bodyWeightTrend: { phase: 'bulking' } as any }),
+    preferences: { training_goal: 'bulk' } as any,
+  });
+  assert.equal(dailyAbsInvariant.check(benchOnly, ctx).length, 1,
+    'bulk day with no abs should still warn — policy is "always one ab exercise"');
+});
+
+test('dailyAbs: warns on maintain too', () => {
+  const benchOnly = makeWorkout([makeExercise({ targetMuscleGroup: 'mid_chest' })]);
+  const ctx = makeCtx({
+    profile: makeProfile({ bodyWeightTrend: { phase: 'maintain' } as any }),
+    preferences: { training_goal: 'maintain' } as any,
+  });
+  assert.equal(dailyAbsInvariant.check(benchOnly, ctx).length, 1);
+});
+
+test('dailyAbs: silent when a core exercise is present (any phase)', () => {
   const withAbs = makeWorkout([
     makeExercise({ targetMuscleGroup: 'mid_chest' }),
     makeExercise({ exerciseName: 'Plank', targetMuscleGroup: 'core' as any }),
   ]);
-  const ctx = makeCtx({
-    profile: makeProfile({ bodyWeightTrend: { phase: 'cutting' } as any }),
-    preferences: { training_goal: 'cut' } as any,
-  });
-  assert.equal(dailyAbsOnCutInvariant.check(withAbs, ctx).length, 0);
+  for (const phase of ['cutting', 'bulking', 'maintain'] as const) {
+    const ctx = makeCtx({
+      profile: makeProfile({ bodyWeightTrend: { phase } as any }),
+      preferences: { training_goal: phase === 'cutting' ? 'cut' : phase === 'bulking' ? 'bulk' : 'maintain' } as any,
+    });
+    assert.equal(dailyAbsInvariant.check(withAbs, ctx).length, 0,
+      `phase=${phase}: ab present should silence the invariant`);
+  }
 });
 
-test('dailyAbsOnCut: silent when not on a cut (bulk/maintain)', () => {
-  const benchOnly = makeWorkout([makeExercise({ targetMuscleGroup: 'mid_chest' })]);
-  const bulkCtx = makeCtx({
-    profile: makeProfile({ bodyWeightTrend: { phase: 'bulking' } as any }),
-    preferences: { training_goal: 'bulk' } as any,
-  });
-  assert.equal(dailyAbsOnCutInvariant.check(benchOnly, bulkCtx).length, 0);
-  const maintainCtx = makeCtx({
-    profile: makeProfile({ bodyWeightTrend: { phase: 'maintain' } as any }),
-    preferences: { training_goal: 'maintain' } as any,
-  });
-  assert.equal(dailyAbsOnCutInvariant.check(benchOnly, maintainCtx).length, 0);
-});
-
-test('dailyAbsOnCut: cardio does not satisfy the requirement (must be direct ab work)', () => {
+test('dailyAbs: cardio does not satisfy the requirement (must be direct ab work)', () => {
   const withCardio = makeWorkout([makeExercise(), makeCardio()]);
   const ctx = makeCtx({
     profile: makeProfile({ bodyWeightTrend: { phase: 'cutting' } as any }),
     preferences: { training_goal: 'cut' } as any,
   });
-  assert.equal(dailyAbsOnCutInvariant.check(withCardio, ctx).length, 1,
+  assert.equal(dailyAbsInvariant.check(withCardio, ctx).length, 1,
     'cardio should not be counted as ab work');
 });
 

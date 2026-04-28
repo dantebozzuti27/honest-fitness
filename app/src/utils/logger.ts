@@ -5,12 +5,15 @@
 
 // Read import.meta.env defensively. Vite injects it at build time; under
 // node --test (used by tests/unit/) the property is undefined and naive
-// access throws. Falling back to NODE_ENV keeps tests runnable without a
-// Vite/JSDOM shim.
+// access throws. Falling back to NODE_ENV via globalThis keeps tests
+// runnable without a Vite/JSDOM shim and without pulling in @types/node.
+const nodeEnv: string | undefined =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } })
+    .process?.env?.NODE_ENV;
 const env: { DEV?: boolean; MODE?: string } =
   (typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean; MODE?: string } }).env)
     ? (import.meta as { env: { DEV?: boolean; MODE?: string } }).env
-    : { MODE: process.env?.NODE_ENV };
+    : { MODE: nodeEnv };
 const isDevelopment = Boolean(env.DEV || env.MODE === 'development')
 
 /**

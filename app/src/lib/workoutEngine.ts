@@ -3350,33 +3350,31 @@ function stepSelectExercises(
     }
   }
 
-  // Phase 6: ab/core mandatory on cuts.
+  // Phase 6: ab/core mandatory every training day, all phases.
   //
-  // The user's complaint: "we should try to include 1 ab exercise per day
-  // minimum during a cut". Rationale: in a calorie deficit, midsection
-  // visibility is the visible payoff of the cut, and ab stimulus is cheap
-  // (low CNS cost, ~5 min, no equipment). High-frequency low-dose ab work
-  // also produces better hypertrophy than weekly blowouts (Schoenfeld).
-  //
-  // We only enforce this on a cut. On bulk/maintain we still benefit from
-  // ab work but volume is better spent on primary lifts; the user can
-  // schedule abs explicitly if they want them every day.
+  // User policy: "always do one ab exercise minimum to keep myself honest".
+  // Rationale: ab stimulus is cheap (~5 min, low CNS cost, no equipment),
+  // and high-frequency low-dose work produces better hypertrophy than
+  // weekly blowouts (Schoenfeld dose-response). The marginal opportunity
+  // cost vs primary lifts is negligible at 2 sets, so there's no phase in
+  // which "skip abs" is the optimal call.
   //
   // Strategy:
-  //   1. Detect cut phase from training goal / weight trend.
-  //   2. If no core exercise is already selected, pick the lowest-fatigue
+  //   1. If no core exercise was already selected, pick the lowest-fatigue
   //      core exercise from the library that the user hasn't done in the
   //      last ~3 days (recovery + variety).
-  //   3. Append as a single 2-set, 12-rep accessory at the end of the
+  //   2. Append as a single 2-set, 12-rep accessory at the end of the
   //      strength block. Cardio block is unaffected.
-  const isCutPhase =
-    effectiveGoal === 'cut' || profile.bodyWeightTrend?.phase === 'cutting';
+  //
+  // Note: `effectiveGoal` is referenced for logging only — selection is
+  // unconditional.
+  void effectiveGoal;
   const hasSelectedCore = selections.some((s) => {
     if (s.isCardio) return false;
     const g = String(s.muscleGroup ?? '').toLowerCase();
     return g === 'core' || g === 'abs';
   });
-  if (isCutPhase && !hasSelectedCore) {
+  if (!hasSelectedCore) {
     // Pull recent ab usage so we don't repeat the same exercise day-to-day.
     const recentAbNames = new Set(
       (profile.exercisePreferences ?? [])
@@ -3408,7 +3406,7 @@ function stepSelectExercises(
         muscleGroup: 'core',
         sets: 2,
         effectiveSets: 2,
-        reason: 'Daily ab work enforced (cut phase)',
+        reason: 'Daily ab work enforced (all phases)',
         isCardio: false,
       });
       decisions.push({
@@ -3416,7 +3414,7 @@ function stepSelectExercises(
         muscleGroup: 'core',
         score: 5,
         factors: [
-          'Cut phase: 1 ab exercise per training day enforced',
+          'Daily ab policy: 1 ab exercise per training day enforced',
           recentAbNames.has(String(abPick.name ?? '').toLowerCase())
             ? 'Note: chosen despite recent use — no novel core option in library'
             : 'Selected: not used in last 3 days',

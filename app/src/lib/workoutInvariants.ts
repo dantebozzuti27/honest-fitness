@@ -219,12 +219,10 @@ const STRENGTH_GROUPS = new Set<string>([
 
 /**
  * Theme coherence — when a `dayTheme` is set, every non-cardio exercise must
- * target either the theme's primary or one of its allowed accessories. With
- * `source === 'schedule'` (user-defined `weekly_split_schedule`) violations
- * are errors and the auto-fix drops the offending exercise. For softer
- * sources (`rotation`, `default`) violations are warnings and we leave the
- * workout intact — selection is ambiguous in those cases and dropping silently
- * could create empty workouts.
+ * target either the theme's primary or one of its allowed accessories.
+ * `schedule` and `rotation` themes use error severity and auto-drop off-theme
+ * lifts. `default` stays warning-only so ambiguous history-based days are not
+ * stripped to empty sessions.
  *
  * Cardio is unconditionally allowed. So are universally-permissible muscles
  * like `core`, `calves`, and `cardio` itself (handled inside the engine via
@@ -241,7 +239,8 @@ export const themeCoherenceInvariant: WorkoutInvariant = {
       String(theme.primary).toLowerCase(),
       ...theme.allowedAccessories.map(g => String(g).toLowerCase()),
     ]);
-    const severity: InvariantSeverity = theme.source === 'schedule' ? 'error' : 'warning';
+    const severity: InvariantSeverity =
+      theme.source === 'schedule' || theme.source === 'rotation' ? 'error' : 'warning';
     const violations: WorkoutInvariantViolation[] = [];
     workout.exercises.forEach((ex, idx) => {
       if (ex.isCardio) return;
@@ -260,7 +259,7 @@ export const themeCoherenceInvariant: WorkoutInvariant = {
     return violations;
   },
   autoFix(workout, violations, _ctx) {
-    // Only auto-drop for schedule-sourced theme errors. For warnings, do nothing.
+    // Auto-drop for schedule- or rotation-sourced theme errors. For warnings, do nothing.
     const dropIndices = new Set(
       violations.filter(v => v.severity === 'error').map(v => v.exerciseIndex!).filter(i => Number.isInteger(i)),
     );

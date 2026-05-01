@@ -274,7 +274,7 @@ test('themeCoherence: drops out-of-theme exercises when source=schedule (error)'
   assert.deepEqual(remaining, ['Bench Press']);
 });
 
-test('themeCoherence: warns but does NOT drop when source=rotation', () => {
+test('themeCoherence: drops out-of-theme exercises when source=rotation (error)', () => {
   const chest = makeExercise({ exerciseName: 'Bench Press', targetMuscleGroup: 'mid_chest' });
   const legs = makeExercise({ exerciseName: 'Squat', targetMuscleGroup: 'quadriceps' });
   const workout = makeWorkout([chest, legs]);
@@ -287,10 +287,13 @@ test('themeCoherence: warns but does NOT drop when source=rotation', () => {
 
   const violations = themeCoherenceInvariant.check(workout, ctx);
   assert.equal(violations.length, 1);
-  assert.equal(violations[0].severity, 'warning');
-  // Auto-fix only acts on errors → no modification expected
+  assert.equal(violations[0].severity, 'error');
   const fix = themeCoherenceInvariant.autoFix!(workout, violations, ctx);
-  assert.equal(fix.modifiedWorkout, null, 'rotation-sourced themes must not auto-drop');
+  assert.ok(fix.modifiedWorkout);
+  assert.deepEqual(
+    fix.modifiedWorkout!.exercises.map(e => e.exerciseName),
+    ['Bench Press'],
+  );
 });
 
 test('themeCoherence: no theme provided → invariant is a no-op', () => {

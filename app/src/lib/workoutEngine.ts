@@ -1857,6 +1857,47 @@ export function deriveDayTheme(
   };
 }
 
+/**
+ * When the caller does not pass `SessionOverrides.dayTheme`, derive the same
+ * theme the weekly planner would use so standalone `generateWorkout` calls get
+ * hard split constraints (schedule → rotation from `preferred_split`).
+ */
+function resolveEffectiveDayTheme(
+  prefs: UserPreferences,
+  planningDow: number,
+  overrideTheme: DayTheme | null | undefined,
+): DayTheme | null {
+  if (overrideTheme?.primary) return overrideTheme;
+
+  const weekly = prefs.weekly_split_schedule?.[String(planningDow)];
+  if (weekly?.groups?.length) {
+    const groups = normalizeMuscleGroupList(weekly.groups);
+    const focus = weekly.focus || '';
+    return deriveDayTheme(focus, groups, 'schedule');
+  }
+
+  const splitKey = prefs.preferred_split;
+  if (splitKey && SPLIT_TYPE_ROTATIONS[splitKey]) {
+    const rotation = SPLIT_TYPE_ROTATIONS[splitKey];
+    const restDays = new Set(prefs.rest_days ?? []);
+    let trainingSlot = 0;
+    for (let d = 0; d < 7; d++) {
+      const dow = (d + 1) % 7;
+      if (restDays.has(dow)) continue;
+      if (dow === planningDow) break;
+      trainingSlot++;
+    }
+    const splitName = rotation[trainingSlot % rotation.length];
+    const groups = BRO_SPLIT_MAPPING[splitName] ?? SPLIT_MUSCLE_MAPPING[splitName];
+    if (groups?.length) {
+      const focus = splitName.replace(/_/g, ' ');
+      return deriveDayTheme(focus, [...groups], 'rotation');
+    }
+  }
+
+  return null;
+}
+
 function computeHipAbductorLoadSignal(profile: TrainingProfile): {
   weeklyAmbulatoryHours: number;
   externalHipLoadScore: number;
@@ -2131,8 +2172,8 @@ function stepSelectMuscleGroups(
   /**
    * Phase 1: when set, this theme drives the hard selection filter and
    * overrides the auto-derived `splitTargetGroups` priority chain. A
-   * `schedule`-sourced theme is enforced strictly (no fallback to all
-   * candidates if the filter is empty).
+   * `schedule`- or `rotation`-sourced theme is enforced strictly (no fallback
+   * to all candidates if the filter is empty).
    */
   activeDayTheme?: DayTheme | null,
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
@@ -2465,11 +2506,9 @@ function stepSelectMuscleGroups(
   if (splitTargetGroups && splitTargetGroups.size > 0) {
     const expandedTargets = expandWithSynergists(splitTargetGroups);
     const splitFiltered = candidates.filter(c => expandedTargets.has(c.muscleGroup));
-    // Phase 1: when the active theme is "schedule"-sourced (user-defined), the
-    // filter is HARD — never fall back to all candidates. For softer sources
-    // (rotation/default), preserve previous behavior of allowing fallback so
-    // that an empty filter doesn't produce an empty workout.
-    const hardFilter = activeDayTheme?.source === 'schedule';
+    // When the active theme is schedule or explicit rotation (PPL / upper-lower
+    // / etc.), the filter is HARD — never fall back to unrelated muscles.
+    const hardFilter = activeDayTheme?.source === 'schedule' || activeDayTheme?.source === 'rotation';
     if (splitFiltered.length >= 1 || hardFilter) {
       filteredCandidates = splitFiltered;
     }
@@ -2548,8 +2587,11 @@ function stepSelectMuscleGroups(
     ]);
     const hasMajorSelected = selected.some((s) => primaryMajorGroups.has(s.muscleGroup));
     if (!hasMajorSelected) {
+      const splitExpanded =
+        splitTargetGroups && splitTargetGroups.size > 0 ? expandWithSynergists(splitTargetGroups) : null;
       const majorFallback = profile.muscleVolumeStatuses
         .filter((v) => primaryMajorGroups.has(v.muscleGroup))
+        .filter((v) => !splitExpanded || splitExpanded.has(v.muscleGroup))
         .map((v) => {
           const rec = profile.muscleRecovery.find((r) => r.muscleGroup === v.muscleGroup);
           return {
@@ -4882,16 +4924,18 @@ function stepApplyConstraints(
       && !isInjuryConflict(ex, prefs.injuries)
       && isHotelModeStrengthAllowed(ex)
     )
-    .map(ex => {
+    .flatMap((ex) => {
       const primaryGroups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
-        .map(m => resolveToCanonicalGroup(m)).filter(Boolean);
-      return {
+        .map(m => resolveToCanonicalGroup(m)).filter(Boolean) as CanonicalMuscleGroup[];
+      const g = primaryGroups[0];
+      if (!g) return [];
+      return [{
         exercise: ex,
-        muscleGroup: primaryGroups[0] || 'other',
+        muscleGroup: g,
         sets: 0,
         effectiveSets: 0,
         reason: 'time_expansion',
-      };
+      }];
     });
   const selectedStrengthGroupSet = new Set(
     (existingSelections ?? [])
@@ -5883,9 +5927,9 @@ export interface DayTheme {
   allowedAccessories: string[];
   /**
    * Origin of this theme. Determines how strict the engine should be:
-   *   - "schedule" — user-defined `weekly_split_schedule` (authoritative; never overridden)
-   *   - "rotation" — derived from `preferred_split` / detected rotation (overridable)
-   *   - "default"  — day-of-week pattern fallback (most permissive)
+   *   - "schedule" — user-defined `weekly_split_schedule` (hard filter + invariant drop)
+   *   - "rotation" — `preferred_split` slot rotation (same strictness as schedule)
+   *   - "default"  — day-of-week pattern fallback (soft; invariant warnings only)
    */
   source: 'schedule' | 'rotation' | 'default';
 }
@@ -6417,6 +6461,8 @@ export async function generateWorkout(
     * (highCapacityPush.active ? highCapacityPush.progressionMultiplier : 1.0)
     * (runtimeFlags.nutrition_feedback ? policyFusion.progressionMultiplier : 1.0);
 
+  const effectiveDayTheme = resolveEffectiveDayTheme(prefs, planningDow, overrides?.dayTheme);
+
   // Step 2: Select muscle groups
   const tGroups = stageStart('select_muscle_groups');
   const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(
@@ -6427,7 +6473,7 @@ export async function generateWorkout(
     caloricPhaseScale,
     planningDow,
     overrides?.anchorMuscleGroups,
-    overrides?.dayTheme ?? null,
+    effectiveDayTheme,
   );
   stageEnd(tGroups);
 
@@ -6721,9 +6767,9 @@ export async function generateWorkout(
     stagesMs: stageMarks,
   };
 
-  // Phase 1: persist the day theme used during selection so downstream
-  // invariants (and the UI) can reason about coherence without re-deriving it.
-  if (overrides?.dayTheme) workout.dayTheme = overrides.dayTheme;
+  // Persist the day theme used during selection so downstream invariants (and
+  // the UI) can reason about coherence without re-deriving it.
+  if (effectiveDayTheme) workout.dayTheme = effectiveDayTheme;
 
   // Phase 5c: run the deterministic invariant pipeline as the final
   // safety net. Invariants are pure, fast, and individually auditable;
@@ -6735,7 +6781,7 @@ export async function generateWorkout(
     preferences: prefs,
     cfg,
     bodyAssessment: prefetched?.bodyAssessment ?? null,
-    dayTheme: overrides?.dayTheme ?? null,
+    dayTheme: effectiveDayTheme,
     weeklyCardio: null, // populated by weekly planner via runtimeFlags later if needed
   };
   const invariantResult = runInvariantPipeline(workout, invariantCtx, DEFAULT_WORKOUT_INVARIANTS);
@@ -7213,13 +7259,12 @@ export async function generateWeeklyPlan(
     if (dayAnchorGroups.length === 0) {
       dayAnchorGroups = rotationAnchorGroupsForDow(dow);
     }
-    // Phase 1: a schedule-sourced theme is authoritative — never let
-    // overlap-rotation silently swap "Monday is chest" into a back day just
-    // because Sunday already trained chest. The accessory composition can
-    // still vary inside the day; only the *primary* anchor is locked.
+    // Schedule- or rotation-sourced themes lock anchors — never let overlap
+    // diversification silently swap "Monday is chest" into a back day.
     const dayThemeForDay = p?.dayTheme ?? null;
-    const themeIsSchedule = dayThemeForDay?.source === 'schedule';
-    if (!themeIsSchedule && groupOverlapRatio(dayAnchorGroups, prevGroups) >= 0.67) {
+    const themeAnchorsLocked =
+      dayThemeForDay?.source === 'schedule' || dayThemeForDay?.source === 'rotation';
+    if (!themeAnchorsLocked && groupOverlapRatio(dayAnchorGroups, prevGroups) >= 0.67) {
       const rotated = rotationAnchorGroupsForDow(dow);
       if (rotated.length > 0) dayAnchorGroups = rotated;
     }

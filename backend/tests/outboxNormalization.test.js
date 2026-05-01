@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { isUuidV4 } from '../../app/src/utils/uuid.js'
-import { enqueueOutboxItem } from '../../app/src/lib/syncOutbox.js'
+import { enqueueOutboxItem } from '../../app/src/lib/syncOutbox.ts'
 
 function installBrowserStubs() {
   const store = new Map()

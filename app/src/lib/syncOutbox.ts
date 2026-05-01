@@ -58,6 +58,18 @@ export function enqueueOutboxItem({ userId, kind, payload }: { userId: string; k
         const id = isUuidV4(w.id) ? w.id : uuidv4()
         return { ...payload, workout: { ...w, id } }
       }
+      if (kind === 'feed_item') {
+        const f = payload?.feedItem && typeof payload.feedItem === 'object' ? payload.feedItem : null
+        if (!f) return payload
+        const id = isUuidV4(f.id) ? f.id : uuidv4()
+        return { ...payload, feedItem: { ...f, id } }
+      }
+      if (kind === 'meal') {
+        const m = payload?.meal && typeof payload.meal === 'object' ? payload.meal : null
+        if (!m) return payload
+        const id = m.id != null && String(m.id).trim().length > 0 ? String(m.id) : uuidv4()
+        return { ...payload, meal: { ...m, id } }
+      }
       return payload
     } catch {
       return payload

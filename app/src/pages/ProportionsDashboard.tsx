@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Component, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getIdToken } from '../lib/cognitoAuth'
 import { apiUrl } from '../lib/urlConfig'
+import { logError } from '../utils/logger'
 import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
 import styles from './ProportionsDashboard.module.css'
 
@@ -47,16 +48,121 @@ function safeJsonParse<T>(s: string, fallback: T): T {
   }
 }
 
+/**
+ * Returns a finite number if `v` can be coerced to one, otherwise null.
+ * Handles the production reality that:
+ *   - Postgres NUMERIC columns deserialise as strings via the `pg` driver.
+ *   - JSONB values may be stored as either numbers or numeric strings depending
+ *     on how the producer encoded them.
+ *   - Old/migrated rows may contain `null`, `"NaN"`, empty strings, or floats
+ *     dressed up as currencies.
+ *
+ * Anything that isn't a finite number ends up as `null` so callers can
+ * branch on `value != null` without invoking `.toFixed` on a string.
+ */
+function numOrNull(v: unknown): number | null {
+  if (v == null) return null
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  if (typeof v === 'string') {
+    const trimmed = v.trim()
+    if (trimmed === '' || trimmed.toLowerCase() === 'nan') return null
+    const n = Number(trimmed)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function fmt(v: unknown, digits: number, fallback = '—'): string {
+  const n = numOrNull(v)
+  return n == null ? fallback : n.toFixed(digits)
+}
+
+/**
+ * Bulletproofs an assessment row coming back from the API. Every field that
+ * the renderer treats as a number is coerced to either a finite number or
+ * null, and every JSONB collection is normalised to its expected shape with
+ * non-numeric / malformed entries dropped.
+ *
+ * This is the single chokepoint that prevents:
+ *   - `.toFixed` is not a function (numeric strings sneaking past)
+ *   - `.map` is not a function (weak_points stored as objects)
+ *   - `.length` of undefined (history rows missing JSONB defaults)
+ *
+ * NOTE: We intentionally never throw out of here. Returning a partially
+ * populated object is always safer than letting a malformed row propagate
+ * into render and trip the global ErrorBoundary.
+ */
 function normalizeAssessment(raw: any): Assessment | null {
-  if (!raw) return null
-  return {
-    ...raw,
-    scores: typeof raw.scores === 'string' ? safeJsonParse(raw.scores, {}) : (raw.scores || {}),
-    measurements: typeof raw.measurements === 'string' ? safeJsonParse(raw.measurements, {}) : (raw.measurements || {}),
-    reeves_ideals: typeof raw.reeves_ideals === 'string' ? safeJsonParse(raw.reeves_ideals, {}) : (raw.reeves_ideals || {}),
-    proportional_deficits: typeof raw.proportional_deficits === 'string' ? safeJsonParse(raw.proportional_deficits, {}) : (raw.proportional_deficits || {}),
-    weak_points: typeof raw.weak_points === 'string' ? safeJsonParse(raw.weak_points, []) : (raw.weak_points || []),
-    strong_points: typeof raw.strong_points === 'string' ? safeJsonParse(raw.strong_points, []) : (raw.strong_points || []),
+  if (!raw || typeof raw !== 'object') return null
+  try {
+    const parseObject = (v: unknown): Record<string, any> => {
+      if (typeof v === 'string') return safeJsonParse<Record<string, any>>(v, {})
+      if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, any>
+      return {}
+    }
+    const parseArray = (v: unknown): any[] => {
+      if (typeof v === 'string') {
+        const parsed = safeJsonParse<unknown>(v, [])
+        return Array.isArray(parsed) ? parsed : []
+      }
+      return Array.isArray(v) ? v : []
+    }
+
+    const rawScores = parseObject(raw.scores)
+    const scores: Record<string, number> & {
+      _apollo_score?: number
+      _score_components?: Record<string, number>
+      _muscle_maturity?: number | null
+      _v_taper_score?: number | null
+      _photos_used?: number
+    } = {}
+    for (const [k, v] of Object.entries(rawScores)) {
+      if (k === '_score_components') {
+        const sub = parseObject(v)
+        const subOut: Record<string, number> = {}
+        for (const [sk, sv] of Object.entries(sub)) {
+          const n = numOrNull(sv)
+          if (n != null) subOut[sk] = n
+        }
+        ;(scores as any)._score_components = subOut
+        continue
+      }
+      const n = numOrNull(v)
+      if (n != null) (scores as any)[k] = n
+    }
+
+    const numericRecord = (v: unknown): Record<string, number> => {
+      const obj = parseObject(v)
+      const out: Record<string, number> = {}
+      for (const [k, val] of Object.entries(obj)) {
+        const n = numOrNull(val)
+        if (n != null) out[k] = n
+      }
+      return out
+    }
+
+    const stringArray = (v: unknown): string[] =>
+      parseArray(v).filter((x): x is string => typeof x === 'string' && x.length > 0)
+
+    return {
+      id: typeof raw.id === 'string' ? raw.id : String(raw.id ?? ''),
+      date: typeof raw.date === 'string' ? raw.date : String(raw.date ?? ''),
+      scores,
+      shoulder_to_waist_ratio: numOrNull(raw.shoulder_to_waist_ratio),
+      left_right_symmetry: numOrNull(raw.left_right_symmetry),
+      estimated_body_fat_pct: numOrNull(raw.estimated_body_fat_pct),
+      measurements: numericRecord(raw.measurements),
+      reeves_ideals: numericRecord(raw.reeves_ideals),
+      weak_points: stringArray(raw.weak_points),
+      strong_points: stringArray(raw.strong_points),
+      proportional_deficits: numericRecord(raw.proportional_deficits),
+      analysis_notes: typeof raw.analysis_notes === 'string' ? raw.analysis_notes : null,
+      photos_used: numOrNull(raw.photos_used) ?? 0,
+      source: typeof raw.source === 'string' ? raw.source : 'photo_ai',
+    }
+  } catch (err) {
+    logError('ProportionsDashboard.normalizeAssessment failed', err)
+    return null
   }
 }
 
@@ -71,9 +177,11 @@ function scoreClass(score: number): string {
 }
 
 function daysAgo(dateStr: string): number {
+  if (!dateStr || typeof dateStr !== 'string') return 0
   const d = new Date(dateStr + 'T12:00:00')
-  const now = new Date()
-  return Math.round((now.getTime() - d.getTime()) / 86400000)
+  const t = d.getTime()
+  if (!Number.isFinite(t)) return 0
+  return Math.max(0, Math.round((Date.now() - t) / 86400000))
 }
 
 const PHI = 1.618
@@ -88,13 +196,15 @@ const SCORE_DISPLAY = [
   'core', 'forearms', 'upper_traps', 'erector_spinae',
 ]
 
-function computeEngineBoosts(deficits: Record<string, number>, scores: Record<string, number>): Array<{
-  muscle: string; multiplier: number; reason: string; direction: 'boost' | 'dampen'
-}> {
+function computeEngineBoosts(
+  deficits: Record<string, number>,
+  scores: Record<string, number>
+): Array<{ muscle: string; multiplier: number; reason: string; direction: 'boost' | 'dampen' }> {
   const boosts: Array<{ muscle: string; multiplier: number; reason: string; direction: 'boost' | 'dampen' }> = []
 
-  for (const [muscle, deficit] of Object.entries(deficits)) {
-    if (deficit === 0) continue
+  for (const [muscle, rawDeficit] of Object.entries(deficits)) {
+    const deficit = numOrNull(rawDeficit)
+    if (deficit == null || deficit === 0) continue
     const mult = Math.max(0.6, Math.min(2.0, 1.0 - deficit * 3.0))
     if (Math.abs(mult - 1.0) < 0.05) continue
     const pct = Math.abs(deficit * 100).toFixed(0)
@@ -105,8 +215,11 @@ function computeEngineBoosts(deficits: Record<string, number>, scores: Record<st
     boosts.push({ muscle, multiplier: mult, reason, direction })
   }
 
-  for (const [muscle, score] of Object.entries(scores)) {
+  for (const [muscle, rawScore] of Object.entries(scores)) {
+    if (muscle.startsWith('_')) continue
     if (deficits[muscle] !== undefined) continue
+    const score = numOrNull(rawScore)
+    if (score == null) continue
     const visualDeficit = (7 - score) / 10
     if (Math.abs(visualDeficit) <= 0.05) continue
     const mult = Math.max(0.6, Math.min(2.0, 1.0 + visualDeficit * 2.5))
@@ -125,38 +238,72 @@ function computeEngineBoosts(deficits: Record<string, number>, scores: Record<st
   return boosts
 }
 
-export default function ProportionsDashboard() {
+function ProportionsDashboardInner() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [latest, setLatest] = useState<Assessment | null>(null)
   const [history, setHistory] = useState<Assessment[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     if (!user) return
     setLoading(true)
+    setLoadError(null)
     try {
       const [latestRes, historyRes] = await Promise.all([
         apiFetch('/api/physique/latest'),
         apiFetch('/api/physique/history?limit=30'),
       ])
+      // 4xx/5xx no longer dropped silently — surface them so the empty-state
+      // path can distinguish "no assessments yet" from "API broken".
+      if (!latestRes.ok && latestRes.status !== 404) {
+        throw new Error(`physique/latest ${latestRes.status}`)
+      }
+      if (!historyRes.ok && historyRes.status !== 404) {
+        throw new Error(`physique/history ${historyRes.status}`)
+      }
       if (latestRes.ok) {
-        const d = await latestRes.json()
-        setLatest(normalizeAssessment(d.assessment))
+        const d = await latestRes.json().catch(() => ({}))
+        setLatest(normalizeAssessment(d?.assessment))
       }
       if (historyRes.ok) {
-        const d = await historyRes.json()
-        const list = Array.isArray(d.assessments) ? d.assessments.map(normalizeAssessment).filter(Boolean) as Assessment[] : []
+        const d = await historyRes.json().catch(() => ({}))
+        const list = Array.isArray(d?.assessments)
+          ? (d.assessments.map(normalizeAssessment).filter(Boolean) as Assessment[])
+          : []
         setHistory(list)
       }
-    } catch {
-      // silent
+    } catch (err) {
+      logError('ProportionsDashboard.loadData failed', err)
+      setLoadError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
       setLoading(false)
     }
   }, [user])
 
   useEffect(() => { loadData() }, [loadData])
+
+  if (loadError) {
+    return (
+      <SafeAreaScaffold>
+        <div className={styles.container}>
+          <div className={styles.header}>
+            <button className={styles.backBtn} onClick={() => navigate(-1)}>Back</button>
+            <h1>Proportions</h1>
+            <div style={{ width: 40 }} />
+          </div>
+          <div className={styles.content}>
+            <div className={styles.emptyState}>
+              <h3>Couldn't load proportions</h3>
+              <p>{loadError}</p>
+              <button className={styles.actionBtnPrimary} onClick={loadData}>Try again</button>
+            </div>
+          </div>
+        </div>
+      </SafeAreaScaffold>
+    )
+  }
 
   if (loading) {
     return (
@@ -199,7 +346,10 @@ export default function ProportionsDashboard() {
     )
   }
 
-  const adonisRatio = latest.shoulder_to_waist_ratio != null ? Number(latest.shoulder_to_waist_ratio) : null
+  // After normalizeAssessment, every numeric field is already either a finite
+  // number or null. We re-coerce here only as belt-and-suspenders for the
+  // `loading=false, latest=non-null, but malformed` path.
+  const adonisRatio = numOrNull(latest.shoulder_to_waist_ratio)
   const adonisDelta = adonisRatio != null ? adonisRatio - PHI : null
   const assessmentDays = daysAgo(latest.date)
   const deficits = latest.proportional_deficits || {}
@@ -207,29 +357,31 @@ export default function ProportionsDashboard() {
   const measurements = latest.measurements || {}
   const ideals = latest.reeves_ideals || {}
   const engineBoosts = computeEngineBoosts(deficits, scores)
-  const hasMeasurements = Object.keys(measurements).some(k => REEVES_PARTS.includes(k as any) && measurements[k])
+  const hasMeasurements = Object.keys(measurements).some(k =>
+    REEVES_PARTS.includes(k as any) && numOrNull(measurements[k]) != null
+  )
 
-  // Build Adonis trend from history
   const adonisHistory = history
-    .filter(h => h.shoulder_to_waist_ratio != null)
-    .map(h => Number(h.shoulder_to_waist_ratio))
+    .map(h => numOrNull(h.shoulder_to_waist_ratio))
+    .filter((v): v is number => v != null)
     .reverse()
 
-  // Build score trends per muscle group (oldest → newest)
   const scoreTrends: Record<string, number[]> = {}
   const reversed = [...history].reverse()
   for (const h of reversed) {
     if (!h.scores) continue
     for (const [k, v] of Object.entries(h.scores)) {
+      if (k.startsWith('_')) continue
+      const n = numOrNull(v)
+      if (n == null) continue
       if (!scoreTrends[k]) scoreTrends[k] = []
-      scoreTrends[k].push(Number(v))
+      scoreTrends[k].push(n)
     }
   }
 
-  // Body fat trend
   const bfHistory = history
-    .filter(h => h.estimated_body_fat_pct != null)
-    .map(h => ({ date: h.date, bf: Number(h.estimated_body_fat_pct) }))
+    .map(h => ({ date: h.date, bf: numOrNull(h.estimated_body_fat_pct) }))
+    .filter((h): h is { date: string; bf: number } => h.bf != null)
   const latestBf = bfHistory.length > 0 ? bfHistory[0].bf : null
   const prevBf = bfHistory.length > 1 ? bfHistory[1].bf : null
   const bfDelta = latestBf != null && prevBf != null ? latestBf - prevBf : null
@@ -245,10 +397,10 @@ export default function ProportionsDashboard() {
 
         <div className={styles.content}>
           {/* Apollo Score Hero */}
-          {latest.scores?._apollo_score != null && (() => {
-            const apolloScore = latest.scores._apollo_score!
+          {numOrNull(latest.scores?._apollo_score) != null && (() => {
+            const apolloScore = numOrNull(latest.scores?._apollo_score)!
             const apolloHistory = history
-              .map(h => h.scores?._apollo_score)
+              .map(h => numOrNull(h.scores?._apollo_score))
               .filter((v): v is number => v != null)
               .reverse()
             const prevScore = apolloHistory.length > 1 ? apolloHistory[apolloHistory.length - 2] : null
@@ -349,11 +501,11 @@ export default function ProportionsDashboard() {
               </>
             )}
 
-            {latest.left_right_symmetry != null && (
+            {numOrNull(latest.left_right_symmetry) != null && (
               <div className={styles.symmetryCard}>
                 <span className={styles.symmetryLabel}>Symmetry</span>
                 <span className={styles.symmetryValue}>
-                  {(Number(latest.left_right_symmetry) * 100).toFixed(0)}%
+                  {fmt(numOrNull(latest.left_right_symmetry)! * 100, 0)}%
                 </span>
               </div>
             )}
@@ -413,10 +565,10 @@ export default function ProportionsDashboard() {
               </h3>
               <div className={styles.progressionList}>
                 {SCORE_DISPLAY
-                  .filter(k => scores[k] !== undefined)
-                  .sort((a, b) => (scores[a] ?? 10) - (scores[b] ?? 10))
-                  .map(k => {
-                    const score = scores[k]
+                  .map(k => ({ k, score: numOrNull(scores[k]) }))
+                  .filter((x): x is { k: string; score: number } => x.score != null)
+                  .sort((a, b) => a.score - b.score)
+                  .map(({ k, score }) => {
                     const cls = scoreClass(score)
                     const trend = scoreTrends[k] || []
                     return (
@@ -425,7 +577,7 @@ export default function ProportionsDashboard() {
                         <div className={styles.progressionBarTrack}>
                           <div
                             className={`${styles.progressionBarFill} ${styles[cls]}`}
-                            style={{ width: `${score * 10}%` }}
+                            style={{ width: `${Math.max(0, Math.min(100, score * 10))}%` }}
                           />
                         </div>
                         {trend.length > 1 && (
@@ -434,7 +586,7 @@ export default function ProportionsDashboard() {
                               <div
                                 key={i}
                                 className={`${styles.scoreTrendBar} ${i === arr.length - 1 ? styles.latest : ''}`}
-                                style={{ height: Math.max(4, v * 2.4) }}
+                                style={{ height: Math.max(4, Math.min(24, v * 2.4)) }}
                               />
                             ))}
                           </div>
@@ -464,19 +616,24 @@ export default function ProportionsDashboard() {
                   <span style={{ textAlign: 'right', paddingRight: 4 }}>Delta</span>
                 </div>
                 {REEVES_PARTS
-                  .filter(p => ideals[p] != null)
-                  .map(part => {
-                    const actual = measurements[part]
-                    const ideal = ideals[part]
-                    const delta = actual && ideal ? ((actual - ideal) / ideal * 100) : null
+                  .map(part => ({
+                    part,
+                    actual: numOrNull(measurements[part]),
+                    ideal: numOrNull(ideals[part]),
+                  }))
+                  .filter(x => x.ideal != null)
+                  .map(({ part, actual, ideal }) => {
+                    const delta = actual != null && ideal != null && ideal !== 0
+                      ? ((actual - ideal) / ideal) * 100
+                      : null
                     return (
                       <div key={part} className={styles.reevesRow}>
                         <span className={styles.reevesBodyPart}>{part}</span>
                         <span className={styles.reevesActual}>
-                          {actual ? Number(actual).toFixed(1) : '—'}
+                          {fmt(actual, 1)}
                         </span>
                         <span className={styles.reevesIdeal}>
-                          {Number(ideal).toFixed(1)}
+                          {fmt(ideal, 1)}
                         </span>
                         <span className={`${styles.reevesDeficit} ${
                           delta == null ? styles.onTarget
@@ -552,5 +709,68 @@ export default function ProportionsDashboard() {
         </div>
       </div>
     </SafeAreaScaffold>
+  )
+}
+
+/**
+ * Page-scoped error boundary so a render-time crash inside the dashboard
+ * doesn't bubble up to the global ErrorBoundary (which shows a generic
+ * "Something went wrong"). Instead the user gets a Proportions-specific
+ * error state with a working Back button and a Retry that remounts the
+ * inner component — useful when the underlying issue was transient (e.g.
+ * a malformed JSONB row that's since been repaired).
+ *
+ * We also forward the captured error to the central logger so we have a
+ * trace if a malformed row sneaks past `normalizeAssessment`.
+ */
+class ProportionsErrorBoundary extends Component<
+  { fallback: (err: Error, retry: () => void) => ReactNode; children: ReactNode },
+  { error: Error | null; key: number }
+> {
+  state = { error: null as Error | null, key: 0 }
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+  componentDidCatch(error: Error, info: any) {
+    logError('ProportionsDashboard render error', { message: error.message, stack: error.stack, info })
+  }
+  retry = () => this.setState((s) => ({ error: null, key: s.key + 1 }))
+  render() {
+    if (this.state.error) return this.props.fallback(this.state.error, this.retry)
+    return <div key={this.state.key}>{this.props.children}</div>
+  }
+}
+
+export default function ProportionsDashboard() {
+  return (
+    <ProportionsErrorBoundary
+      fallback={(err, retry) => (
+        <SafeAreaScaffold>
+          <div className={styles.container}>
+            <div className={styles.header}>
+              <button
+                className={styles.backBtn}
+                onClick={() => { try { window.history.back() } catch { /* noop */ } }}
+              >
+                Back
+              </button>
+              <h1>Proportions</h1>
+              <div style={{ width: 40 }} />
+            </div>
+            <div className={styles.content}>
+              <div className={styles.emptyState}>
+                <h3>Something broke loading your proportions</h3>
+                <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-tertiary)' }}>
+                  {err.message || 'Unknown error'}
+                </p>
+                <button className={styles.actionBtnPrimary} onClick={retry}>Try again</button>
+              </div>
+            </div>
+          </div>
+        </SafeAreaScaffold>
+      )}
+    >
+      <ProportionsDashboardInner />
+    </ProportionsErrorBoundary>
   )
 }

@@ -2103,6 +2103,7 @@ function computeStrengthPercentiles(
   bodyWeight: number | null | undefined,
   gender: string | null | undefined,
   age: number | null = null,
+  rawWorkouts: WorkoutRecord[] = [],
 ): StrengthPercentile[] {
   if (!bodyWeight || bodyWeight <= 0) return [];
 
@@ -2131,7 +2132,11 @@ function computeStrengthPercentiles(
 
   const results: StrengthPercentile[] = [];
 
-  const findBest1RM = (patterns: string[], exclude?: string[]): number => {
+  /**
+   * Best e1RM from the (≥3-session) progression table. This is the high-
+   * confidence path — slope-stable, equipment-mismatch-filtered.
+   */
+  const findBest1RMFromProgressions = (patterns: string[], exclude?: string[]): number => {
     let best = 0;
     for (const prog of exerciseProgressions) {
       const name = prog.exerciseName.toLowerCase();
@@ -2144,6 +2149,48 @@ function computeStrengthPercentiles(
       }
     }
     return best;
+  };
+
+  /**
+   * Fallback: best e1RM from raw workout sets — works after a SINGLE logged
+   * set. Without this, percentiles for a lift only appear once the user
+   * has 3 sessions of that exercise. That gating is correct for slope /
+   * progression tracking (a single session has no trend), but it's the
+   * wrong threshold for percentile placement: Epley applied to weight×reps
+   * from one heavy set is already within ~2% of the user's true 1RM, more
+   * than enough resolution for a population percentile bucket.
+   *
+   * We honour the same equipment-mismatch guard the progression path uses
+   * by filtering working sets and using RIR-corrected Epley where logged.
+   */
+  const findBest1RMFromRawSets = (patterns: string[], exclude?: string[]): number => {
+    let best = 0;
+    for (const w of rawWorkouts) {
+      for (const ex of w.workout_exercises ?? []) {
+        const name = String(ex.exercise_name || '').toLowerCase();
+        if (!name) continue;
+        if (!patterns.some(p => name.includes(p))) continue;
+        if (exclude && exclude.some(e => name.includes(e))) continue;
+        const workingSets = filterWorkingSets(ex.workout_sets ?? []);
+        for (const s of workingSets) {
+          const reps = Number(s.reps);
+          const weight = Number(s.weight);
+          if (!Number.isFinite(reps) || !Number.isFinite(weight) || reps <= 0 || weight <= 0) continue;
+          const loggedRir = s.actual_rir != null
+            ? Number(s.actual_rir)
+            : (s.set_rpe != null ? Math.max(0, 10 - Number(s.set_rpe)) : null);
+          const e1rm = epley1RMWithRir(weight, reps, loggedRir);
+          if (e1rm > best) best = e1rm;
+        }
+      }
+    }
+    return best;
+  };
+
+  const findBest1RM = (patterns: string[], exclude?: string[]): number => {
+    const fromProgressions = findBest1RMFromProgressions(patterns, exclude);
+    if (fromProgressions > 0) return fromProgressions;
+    return findBest1RMFromRawSets(patterns, exclude);
   };
 
   const interpolateFromTable = (
@@ -2187,12 +2234,32 @@ function computeStrengthPercentiles(
   const ratioStandards: {
     lift: string;
     patterns: string[];
+    exclude?: string[];
     ratios: { M: { p25: number; p50: number; p75: number; p90: number; p95: number };
               F: { p25: number; p50: number; p75: number; p90: number; p95: number } };
   }[] = [
     {
       lift: 'overhead press',
-      patterns: ['overhead press', 'ohp', 'military press', 'barbell shoulder press', 'standing press'],
+      // Patterns are matched via .includes() so 'overhead press' alone is
+      // sufficient to catch 'Barbell Overhead Press', 'Standing Overhead
+      // Press', etc. Explicit listings retained for self-documentation and
+      // to make this resilient to a future caller that does exact match.
+      // NOTE: 'press' alone would over-match (bench press, leg press) so
+      // we never use that as a pattern here.
+      patterns: [
+        'barbell overhead press',
+        'standing overhead press',
+        'overhead press',
+        'ohp',
+        'military press',
+        'barbell shoulder press',
+        'standing press',
+        'push press',
+      ],
+      // Exclude shoulder-press variants done with non-barbell/free-weight
+      // implements that have very different strength curves and shouldn't
+      // share the OHP percentile bucket.
+      exclude: ['dumbbell', 'machine', 'smith', 'landmine', 'arnold', 'seated'],
       ratios: {
         M: { p25: 0.40, p50: 0.55, p75: 0.72, p90: 0.88, p95: 1.0 },
         F: { p25: 0.22, p50: 0.33, p75: 0.45, p90: 0.58, p95: 0.65 },
@@ -2273,7 +2340,7 @@ function computeStrengthPercentiles(
   ];
 
   for (const std of ratioStandards) {
-    const best1RM = findBest1RM(std.patterns);
+    const best1RM = findBest1RM(std.patterns, std.exclude);
     if (best1RM <= 0) continue;
 
     const genderRatios = std.ratios[sex as 'M' | 'F'];
@@ -4875,7 +4942,7 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
 
   // Pre-compute values needed by athlete profile
   const imbalanceAlerts = computeImbalanceAlerts(muscleVolumeStatuses);
-  const spResults = computeStrengthPercentiles(exerciseProgressions, userBodyWeight, userGender, userAge);
+  const spResults = computeStrengthPercentiles(exerciseProgressions, userBodyWeight, userGender, userAge, workouts);
   const hpResults = computeHealthPercentiles(health, userAge, userGender);
   const cumulativeSleepDebt = computeCumulativeSleepDebt(health);
   const rolling30DayTrends = computeRolling30DayTrends(workouts, health, exercises, exerciseProgressions);

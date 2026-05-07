@@ -692,38 +692,48 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
   const nutritionCov = p.nutritionLoggingCoverage14d
   const totalCandidates = prefs.length
   const staples = prefs.filter(ep => ep.isStaple).length
-  const swappedFrequently = swaps.filter(s => s.swapCount >= 3).length
+  // Use effective swap mass (decay-weighted) — matches the tier the engine
+  // actually applies. Raw swapCount overstates impact on old/cold swaps.
+  const swappedFrequently = swaps.filter(s => (s.effectiveSwapWeight ?? s.swapCount) >= 3.5).length
+  const totalAcceptances = (p.exerciseAcceptances ?? []).length
 
+  // Mirrors `selectionSwapPenaltyTiers`, `selectionAcceptancePerEvent` and
+  // `selectionAcceptanceCap` in `app/src/lib/modelConfig.ts`. Edit both.
   const scoringFactors = [
-    { factor: 'Compound priority',             weight: '+8',  cond: 'Multi-joint compound movement', positive: true },
-    { factor: 'Performance goal match',        weight: '+6',  cond: 'User has a specific target for this exercise', positive: true },
-    { factor: 'Preferred exercise',            weight: '+5',  cond: 'In user\'s preferred_exercises list', positive: true },
-    { factor: 'Staple exercise',               weight: '+4',  cond: 'Consistently used across training history', positive: true },
-    { factor: 'User preference (recency)',     weight: '+0–8', cond: 'recencyScore × 1.35 — proportional to recent usage', positive: true },
-    { factor: 'Progressing',                   weight: '+3',  cond: 'Positive slope on estimated 1RM trend', positive: true },
-    { factor: 'Knee-flexion diversity',        weight: '+3',  cond: 'Hamstring curl/nordic when hinge already selected', positive: true },
-    { factor: 'Recently used (<14d)',          weight: '+2',  cond: 'Last performed within 14 days', positive: true },
-    { factor: 'Stalled progression',           weight: '+1',  cond: 'No progress but not regressing', positive: true },
-    { factor: 'Regressing',                    weight: '−1',  cond: 'Negative slope on 1RM trend', positive: false },
-    { factor: 'Ordering interference',         weight: '−2',  cond: 'Negative interaction with preceding exercise', positive: false },
-    { factor: 'Pattern fatigue (moderate)',     weight: '−2',  cond: 'Movement pattern used recently with moderate fatigue', positive: false },
-    { factor: 'Never used',                    weight: '−3',  cond: 'Exercise not in user training history', positive: false },
-    { factor: 'Plateaued (swap suggested)',     weight: '−3',  cond: 'Plateau detected, variation recommended', positive: false },
-    { factor: 'Equipment unavailable',         weight: '−5',  cond: 'Requires unavailable equipment', positive: false },
-    { factor: 'Rotation suggested (4+ wks)',   weight: '−5',  cond: 'Same isolation used 4+ consecutive weeks', positive: false },
-    { factor: 'Pattern diversity (hinge)',      weight: '−6',  cond: 'Hinge movement already selected this session', positive: false },
-    { factor: 'Swap learning (1–2×)',          weight: '−10', cond: 'User previously swapped this exercise out', positive: false },
-    { factor: 'Stale exercise (6+ wks)',       weight: '−10', cond: 'Forced rotation — exercise used 6+ weeks', positive: false },
-    { factor: 'Trained yesterday',             weight: '−12', cond: 'Exercise performed in yesterday\'s session', positive: false },
-    { factor: 'Often swapped (3×)',            weight: '−20', cond: 'User repeatedly swapped this exercise out', positive: false },
-    { factor: 'Frequently swapped (5+×)',      weight: '−30', cond: 'User consistently rejects — near-banned', positive: false },
+    { factor: 'Compound priority',             weight: '+8',     cond: 'Multi-joint compound movement', positive: true },
+    { factor: 'Acceptance bonus (capped)',     weight: '+0–8',   cond: '+1.5 per "kept" session, decay-weighted; capped at +8', positive: true },
+    { factor: 'Performance goal match',        weight: '+6',     cond: 'User has a specific target for this exercise', positive: true },
+    { factor: 'Preferred exercise',            weight: '+5',     cond: 'In user\'s preferred_exercises list', positive: true },
+    { factor: 'Staple exercise',               weight: '+4',     cond: 'Consistently used across training history', positive: true },
+    { factor: 'User preference (recency)',     weight: '+0–8',   cond: 'recencyScore × 1.35 — proportional to recent usage', positive: true },
+    { factor: 'Progressing',                   weight: '+3',     cond: 'Positive slope on estimated 1RM trend', positive: true },
+    { factor: 'Knee-flexion diversity',        weight: '+3',     cond: 'Hamstring curl/nordic when hinge already selected', positive: true },
+    { factor: 'Recently used (<14d)',          weight: '+2',     cond: 'Last performed within 14 days', positive: true },
+    { factor: 'Stalled progression',           weight: '+1',     cond: 'No progress but not regressing', positive: true },
+    { factor: 'Regressing',                    weight: '−1',     cond: 'Negative slope on 1RM trend', positive: false },
+    { factor: 'Ordering interference',         weight: '−2',     cond: 'Negative interaction with preceding exercise', positive: false },
+    { factor: 'Pattern fatigue (moderate)',    weight: '−2',     cond: 'Movement pattern used recently with moderate fatigue', positive: false },
+    { factor: 'Never used',                    weight: '−3',     cond: 'Exercise not in user training history', positive: false },
+    { factor: 'Plateaued (swap suggested)',    weight: '−3',     cond: 'Plateau detected, variation recommended', positive: false },
+    { factor: 'Slight swap penalty',           weight: '−4',     cond: 'Effective swap mass ≥ 1.4 (~2 recent swaps)', positive: false },
+    { factor: 'Equipment unavailable',         weight: '−5',     cond: 'Requires unavailable equipment', positive: false },
+    { factor: 'Rotation suggested (4+ wks)',   weight: '−5',     cond: 'Same isolation used 4+ consecutive weeks', positive: false },
+    { factor: 'Pattern diversity (hinge)',     weight: '−6',     cond: 'Hinge movement already selected this session', positive: false },
+    { factor: 'Deprioritized swap',            weight: '−10',    cond: 'Effective swap mass ≥ 3.5 (~5 recent swaps)', positive: false },
+    { factor: 'Stale exercise (6+ wks)',       weight: '−10',    cond: 'Forced rotation — exercise used 6+ weeks', positive: false },
+    { factor: 'Trained yesterday',             weight: '−12',    cond: 'Exercise performed in yesterday\'s session', positive: false },
+    { factor: 'Strongly deprioritized swap',   weight: '−20',    cond: 'Effective swap mass ≥ 7.5 (~10 recent swaps)', positive: false },
+    { factor: 'Near-banned (swap excluded)',   weight: '−30 (capped at −4)', cond: 'Effective swap mass ≥ 11 (~15 recent swaps); ceiling lets a sustained acceptance signal still rescue the exercise', positive: false },
   ]
 
   return (
     <>
       <div className={S.summary}>
         Scored {totalCandidates} candidate exercises. {staples} are staples (auto +4).
-        {swappedFrequently > 0 ? ` ${swappedFrequently} exercise${swappedFrequently > 1 ? 's' : ''} penalized from frequent swaps (−20/−30).` : ''}
+        {swappedFrequently > 0 ? ` ${swappedFrequently} exercise${swappedFrequently > 1 ? 's' : ''} carrying a meaningful swap penalty (≥ −10).` : ''}
+        {totalAcceptances > 0
+          ? ` ${totalAcceptances} exercise${totalAcceptances > 1 ? 's' : ''} earning a positive acceptance bonus (≤ +8).`
+          : ''}
         {nutritionCov != null
           ? ` Nutrition logging coverage (14d): ${Math.round(nutritionCov * 100)}% — feeds cut phase controller dampening.`
           : ''}
@@ -831,17 +841,30 @@ function ExerciseSelectionPanel({ profile: p }: { profile: TrainingProfile }) {
 
       {swappedFrequently > 0 && (
         <>
-          <div className={S.sectionLabel}>Frequently Swapped (−20/−30 penalty)</div>
-          {swaps.filter(s => s.swapCount >= 3).map(s => (
-            <div key={s.exerciseName} className={`${S.decisionBranch} ${S.decisionBranchActive}`} style={{ borderColor: '#ff6b6b', background: '#1a1111' }}>
-              <div className={S.branchIndicator} style={{ background: '#ff6b6b' }} />
-              <div>
-                <span style={{ fontWeight: 600 }}>{s.exerciseName}</span>
-                {' '}
-                — swapped {s.swapCount}×, effective weight {s.effectiveSwapWeight ?? s.swapCount} (last: {s.lastSwapDate})
-              </div>
-            </div>
-          ))}
+          <div className={S.sectionLabel}>Penalised exercises (decay-weighted swap mass)</div>
+          {swaps
+            .filter(s => (s.effectiveSwapWeight ?? s.swapCount) >= 3.5)
+            .map(s => {
+              const w = s.effectiveSwapWeight ?? s.swapCount
+              const acceptance = (p.exerciseAcceptances ?? []).find(a => a.exerciseName === s.exerciseName)
+              const acceptW = acceptance?.effectiveWeight ?? 0
+              const tier = w >= 11 ? 'Near-ban (−30, capped at −4)'
+                : w >= 7.5 ? 'Strongly deprioritized (−20)'
+                : 'Deprioritized (−10)'
+              return (
+                <div key={s.exerciseName} className={`${S.decisionBranch} ${S.decisionBranchActive}`} style={{ borderColor: '#ff6b6b', background: '#1a1111' }}>
+                  <div className={S.branchIndicator} style={{ background: '#ff6b6b' }} />
+                  <div>
+                    <span style={{ fontWeight: 600 }}>{s.exerciseName}</span>
+                    {' — '}{tier}
+                    <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+                      Swap mass {w.toFixed(2)} ({s.swapCount} raw swaps, last {s.lastSwapDate})
+                      {acceptW > 0 ? ` · acceptance mass ${acceptW.toFixed(2)} (${acceptance?.count ?? 0} kept)` : ''}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
         </>
       )}
 

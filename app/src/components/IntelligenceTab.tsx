@@ -45,6 +45,73 @@ function TrendRow({ label, mt, unit, goodDir }: { label: string; mt: { current: 
   )
 }
 
+/**
+ * Map a (swap, acceptance) pair to the label that the workout engine will
+ * actually apply. Mirrors `selectionSwapPenaltyTiers` and
+ * `selectionAcceptancePerEvent` in `modelConfig.ts`. If you change the
+ * thresholds there, update them here.
+ *
+ * Tiers (effective swap mass — decay-weighted, not raw count):
+ *   ≥ 11.0  → Excluded            (≈ 15+ swaps in a recent window)
+ *   ≥ 7.5   → Strongly deprioritized
+ *   ≥ 3.5   → Deprioritized
+ *   ≥ 1.4   → Slight penalty
+ *   else    → Active
+ *
+ * Acceptance mass ≥ swap mass implies the user has been completing this
+ * exercise more often than rejecting it; we surface that as "Recovering"
+ * so the user knows the engine is no longer net-penalising it.
+ */
+function swapStatus(effectiveSwapWeight: number, swapCount: number, acceptanceWeight: number): {
+  label: string;
+  className: string;
+  hint: string;
+} {
+  const w = effectiveSwapWeight;
+  const recovering = acceptanceWeight > 0 && acceptanceWeight >= w * 0.6;
+
+  if (w >= 11.0) {
+    return {
+      label: recovering ? 'Excluded · Recovering' : 'Excluded',
+      className: recovering ? s.badgeWarning : s.badgeDanger,
+      hint: `Effective swap mass ${w.toFixed(1)} (≈${swapCount} swaps). Hard-capped near the swap-ban floor; substitution affinity or "kept" rewards can still rescue it over time.`,
+    };
+  }
+  if (w >= 7.5) {
+    return {
+      label: recovering ? 'Strongly deprioritized · Recovering' : 'Strongly deprioritized',
+      className: s.badgeDanger,
+      hint: `Effective swap mass ${w.toFixed(1)}. Selection score reduced by ~20.`,
+    };
+  }
+  if (w >= 3.5) {
+    return {
+      label: recovering ? 'Deprioritized · Recovering' : 'Deprioritized',
+      className: s.badgeWarning,
+      hint: `Effective swap mass ${w.toFixed(1)}. Selection score reduced by ~10.`,
+    };
+  }
+  if (w >= 1.4) {
+    return {
+      label: 'Slight penalty',
+      className: s.badgeNeutral,
+      hint: `Effective swap mass ${w.toFixed(1)}. Selection score reduced by ~4.`,
+    };
+  }
+  if (acceptanceWeight > 0) {
+    return {
+      label: 'Active · Boosted',
+      className: s.badgeSuccess,
+      hint: `Acceptance mass ${acceptanceWeight.toFixed(1)} → small selection bonus.`,
+    };
+  }
+  return {
+    label: 'Active',
+    className: s.badgeNeutral,
+    hint: 'No active swap penalty.',
+  };
+}
+
 type SectionId = 'goal' | 'ai' | 'trends' | 'percentiles' | 'profile' | 'training' | 'recovery' | 'flags' | 'ml' | 'forecasts' | 'fatigue'
 
 export default function IntelligenceTab({ trainingProfile, profileLoading, onAnalyze }: Props) {
@@ -920,21 +987,31 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
           {tp.exerciseSwapHistory && tp.exerciseSwapHistory.length > 0 && (
             <div className={s.cardCompact}>
               <div className={s.sectionLabel}>Exercise Swap History</div>
-              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>Exercises you've swapped out. ≥3 swaps = effectively excluded from prescriptions.</p>
+              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
+                Exercises you've swapped out. The model uses a tiered penalty
+                that grows with decay-weighted swap mass; an exercise is only
+                effectively banned at ~15+ swaps, and a steady stream of
+                "kept" sessions can rescue it.
+              </p>
               <table className={s.dataTable}>
-                <thead><tr><th>Exercise</th><th>Swaps</th><th>Status</th></tr></thead>
+                <thead><tr><th>Exercise</th><th>Swaps</th><th>Kept</th><th>Status</th></tr></thead>
                 <tbody>
-                  {tp.exerciseSwapHistory.map(sw => (
-                    <tr key={sw.exerciseName}>
-                      <td>{sw.exerciseName}</td>
-                      <td>{sw.swapCount}</td>
-                      <td>
-                        <span className={sw.swapCount >= 3 ? s.badgeDanger : sw.swapCount >= 1 ? s.badgeWarning : s.badgeNeutral}>
-                          {sw.swapCount >= 3 ? 'Excluded' : sw.swapCount >= 1 ? 'Deprioritized' : 'Active'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {tp.exerciseSwapHistory.map(sw => {
+                    const acceptance = (tp.exerciseAcceptances ?? []).find(a => a.exerciseName === sw.exerciseName);
+                    const acceptCount = acceptance?.count ?? 0;
+                    const acceptWeight = acceptance?.effectiveWeight ?? 0;
+                    const status = swapStatus(sw.effectiveSwapWeight, sw.swapCount, acceptWeight);
+                    return (
+                      <tr key={sw.exerciseName}>
+                        <td>{sw.exerciseName}</td>
+                        <td title={`Effective swap mass: ${sw.effectiveSwapWeight.toFixed(2)}`}>{sw.swapCount}</td>
+                        <td title={`Effective acceptance mass: ${acceptWeight.toFixed(2)}`}>{acceptCount}</td>
+                        <td>
+                          <span className={status.className} title={status.hint}>{status.label}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

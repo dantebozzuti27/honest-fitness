@@ -986,34 +986,13 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       setWeeklyDiffsByDate(prev => ({ ...prev, [selected.planDate]: diff }))
 
       if (user.id && prevWorkout?.exercises?.length && nextWorkout?.exercises?.length) {
-        const afterLc = new Set(
-          nextWorkout.exercises.map(e => String(e.exerciseName || '').toLowerCase())
-        )
-        const logTasks: Promise<{ ok: boolean }>[] = []
-        for (const ex of prevWorkout.exercises) {
-          const name = String(ex.exerciseName || '').trim()
-          const lc = name.toLowerCase()
-          if (!name || afterLc.has(lc)) continue
-          const mg = ex.targetMuscleGroup
-          const replacement = mg
-            ? nextWorkout.exercises.find(
-                e =>
-                  e.targetMuscleGroup === mg &&
-                  String(e.exerciseName || '').toLowerCase() !== lc
-              )
-            : nextWorkout.exercises.find(e => String(e.exerciseName || '').toLowerCase() !== lc)
-          logTasks.push(
-            logExerciseSwapToSupabase({
-              userId: user.id,
-              exerciseName: name,
-              replacementExerciseName: replacement?.exerciseName ?? null,
-              context: 'week_regen',
-            })
-          )
-        }
-        if (logTasks.length > 0) {
-          await Promise.all(logTasks).catch(err => logError('Week regen swap logging', err))
-        }
+        // NOTE: Week regeneration is an *engine-initiated* reshuffling, not
+        // a user-explicit rejection. Logging every replaced exercise as a
+        // user "swap" was inflating swap counts artificially — three
+        // regenerations could permanently kill 15+ exercises in the rotation
+        // even when the user never explicitly rejected any of them. The
+        // swap learning loop is designed to track *revealed preferences*,
+        // not algorithmic shuffling. We no longer log here.
       }
 
       await saveWeeklyPlanToSupabase(user.id, updatedPlan, [diff]).catch(() => null)

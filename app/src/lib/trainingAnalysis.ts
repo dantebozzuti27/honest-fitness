@@ -513,6 +513,18 @@ export interface TrainingProfile {
     affinity: number;
     eventCount: number;
   }>;
+  /**
+   * Positive learning signal: exercises the user prescribed AND completed
+   * without swapping. Same decay half-life as swap penalties so the two
+   * channels balance over time. Without this, the system can only ever
+   * remove exercises from rotation — a permanent rotation collapse.
+   */
+  exerciseAcceptances: Array<{
+    exerciseName: string;
+    count: number;
+    lastDate: string;
+    effectiveWeight: number;
+  }>;
   /** Fraction of last-14 days with non-null calories_consumed in health_metrics (0–1). */
   nutritionLoggingCoverage14d: number | null;
 
@@ -989,6 +1001,26 @@ function epley1RM(weight: number, reps: number): number {
   if (reps <= 0 || weight <= 0) return 0;
   if (reps === 1) return weight;
   return weight * (1 + reps / 30);
+}
+
+/**
+ * RIR-corrected Epley: when the set was logged with reps in reserve, the
+ * user's true capacity is `reps + RIR`, not `reps`. Plain Epley assumes the
+ * input set was to failure. Without this correction, a user who consistently
+ * trains at RIR 2 will have e1RM systematically underestimated by ~7%, which
+ * propagates into reverse-Epley prescriptions and produces ever-lighter
+ * working weights over time.
+ *
+ * If `rir` is null/undefined we conservatively assume RIR 1 — most
+ * recreational lifters leave at least 1 rep in the tank rather than truly
+ * grinding to failure. Callers that have explicit RIR data should pass it.
+ */
+function epley1RMWithRir(weight: number, reps: number, rir: number | null | undefined): number {
+  if (reps <= 0 || weight <= 0) return 0;
+  const adjustedRir = rir == null ? 1 : Math.max(0, Math.min(4, rir));
+  const effectiveReps = reps + adjustedRir;
+  if (effectiveReps === 1) return weight;
+  return weight * (1 + effectiveReps / 30);
 }
 
 /**
@@ -1524,7 +1556,10 @@ function computePlateauDetections(
           effectiveWeight = Math.round(bwForDate * getBWFraction(ex.exercise_name));
         }
         if (effectiveWeight != null && s.reps != null && effectiveWeight > 0) {
-          best = Math.max(best, epley1RM(effectiveWeight, s.reps));
+          const loggedRir = s.actual_rir != null
+            ? Number(s.actual_rir)
+            : (s.set_rpe != null ? Math.max(0, 10 - Number(s.set_rpe)) : null);
+          best = Math.max(best, epley1RMWithRir(effectiveWeight, s.reps, loggedRir));
         }
       }
       if (best > 0) {
@@ -1984,7 +2019,12 @@ function computeExerciseProgressions(
         }
 
         if (effectiveWeight != null && s.reps != null && effectiveWeight > 0) {
-          const e1rm = epley1RM(effectiveWeight, s.reps);
+          // Prefer logged RIR; fall back to RPE-derived RIR (RIR ≈ 10 - RPE);
+          // else assume RIR 1 (conservative recreational default).
+          const loggedRir = s.actual_rir != null
+            ? Number(s.actual_rir)
+            : (s.set_rpe != null ? Math.max(0, 10 - Number(s.set_rpe)) : null);
+          const e1rm = epley1RMWithRir(effectiveWeight, s.reps, loggedRir);
           if (e1rm > best1RM) {
             best1RM = e1rm;
             bestWeight = effectiveWeight;
@@ -3899,7 +3939,12 @@ function computeHonestEffortScores(
       const e1rm = e1rmMap.get(ex.exercise_name?.toLowerCase() ?? '');
       if (!e1rm || !ex.workout_sets?.length) continue;
 
-      for (const s of ex.workout_sets) {
+      // Filter warmups before scoring effort. Warmup ramps at 40-60% of e1RM
+      // would otherwise drag avgIntensity below the "genuinely_hard" threshold
+      // and incorrectly block progression. Every other consumer of effort-like
+      // data filters warmups; this path was previously the only exception.
+      const filteredSets = filterWorkingSets(ex.workout_sets);
+      for (const s of filteredSets) {
         totalSets++;
         const weight = Number(s.weight) || 0;
         const reps = Number(s.reps) || 0;
@@ -4994,6 +5039,7 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
     // ML v2 features
     exerciseSwapHistory: swapLearning.exerciseSwapHistory,
     substitutionAffinities: swapLearning.substitutionAffinities,
+    exerciseAcceptances: computeExerciseAcceptancesFromData(workouts, swapLearning.exerciseSwapHistory),
     nutritionLoggingCoverage14d,
     hrvIntensityModifier: computeHrvIntensityModifier(health),
     progressionForecasts: computeProgressionForecasts(exerciseProgressions, workouts),
@@ -5717,6 +5763,64 @@ function computeSwapLearningFeaturesFromData(data: any[]): {
   };
 }
 
+/**
+ * Positive learning signal: every time the user logged an exercise (with at
+ * least one working set) that was NOT subsequently swapped out, count it as
+ * an "acceptance." Decay-weighted on the same half-life as swap penalties so
+ * the two channels balance over time and stable preferences accumulate
+ * evidence in both directions.
+ *
+ * Without this, the model has only negative feedback (swaps) — kill an
+ * exercise but never resurrect or strengthen one. That's a one-way ratchet
+ * that guarantees rotation collapse.
+ */
+function computeExerciseAcceptancesFromData(
+  workouts: WorkoutRecord[],
+  swapHistory: TrainingProfile['exerciseSwapHistory']
+): TrainingProfile['exerciseAcceptances'] {
+  if (!Array.isArray(workouts) || workouts.length === 0) return [];
+  const halfLife = DEFAULT_MODEL_CONFIG.swapDecayHalfLifeDays;
+  const recentSwapByExercise = new Map<string, string>();
+  for (const s of swapHistory) {
+    recentSwapByExercise.set(s.exerciseName, s.lastSwapDate);
+  }
+  const byExercise = new Map<string, { weight: number; count: number; lastDate: string }>();
+  const now = Date.now();
+  for (const w of workouts) {
+    if (!w.workout_exercises?.length) continue;
+    const wDate = w.date;
+    const wTs = new Date(`${wDate}T12:00:00`).getTime();
+    if (Number.isNaN(wTs)) continue;
+    const days = Math.max(0, (now - wTs) / 86_400_000);
+    const decay = Math.exp(-Math.LN2 * days / halfLife);
+    for (const ex of w.workout_exercises) {
+      const name = String(ex.exercise_name || '').toLowerCase().trim();
+      if (!name) continue;
+      // Require at least one logged working set to count as "kept".
+      const filtered = filterWorkingSets(ex.workout_sets);
+      const hasWorkingSet = filtered.some(s => (s.weight != null && s.weight > 0) || (s.reps != null && s.reps > 0));
+      if (!hasWorkingSet) continue;
+      // Skip the acceptance if it was swapped out shortly after this session.
+      const lastSwap = recentSwapByExercise.get(name);
+      if (lastSwap && lastSwap >= wDate) continue;
+      const entry = byExercise.get(name) ?? { weight: 0, count: 0, lastDate: wDate };
+      entry.weight += decay;
+      entry.count += 1;
+      if (wDate > entry.lastDate) entry.lastDate = wDate;
+      byExercise.set(name, entry);
+    }
+  }
+  return Array.from(byExercise.entries())
+    .map(([exerciseName, v]) => ({
+      exerciseName,
+      count: v.count,
+      lastDate: v.lastDate,
+      effectiveWeight: Math.round(v.weight * 100) / 100,
+    }))
+    .sort((a, b) => b.effectiveWeight - a.effectiveWeight)
+    .slice(0, 80);
+}
+
 function computePrescribedVsActualFromData(
   generated: any[], outcomes: any[], executionEvents: any[],
   workouts: WorkoutRecord[], exercises: EnrichedExercise[],
@@ -5762,21 +5866,53 @@ function computePrescribedVsActualFromData(
     const actual = linkedWorkouts.find((w: any) => w.generated_workout_id === gen.id);
     if (!actual) continue;
     const prescribedExercises: any[] = Array.isArray(gen.exercises) ? gen.exercises : [];
-    const actualExNames = new Set(actual.workout_exercises.map(e => e.exercise_name.toLowerCase()));
+    const actualExercises = Array.isArray(actual.workout_exercises) ? actual.workout_exercises : [];
+    const actualExNames = new Set(actualExercises.map((e: any) => String(e.exercise_name || '').toLowerCase()));
+    // Index actual exercises by dominant muscle group so a substitution
+    // (e.g. user did dumbbell bench instead of barbell bench) still counts
+    // as completing the muscle-group's prescribed slot. Without this the
+    // compliance metric punished users for any substitution, deflating
+    // the headline number from ~50% to ~30% even when sessions were
+    // genuinely completed. Substitution-as-skip was a major source of the
+    // bias in `prescribedVsActual.complianceRate`.
+    const actualByGroup = new Map<string, any[]>();
+    const usedActualKeys = new Set<string>();
+    for (const ae of actualExercises) {
+      const g = getDominantGroup(ae.exercise_name);
+      if (!g) continue;
+      if (!actualByGroup.has(g)) actualByGroup.set(g, []);
+      actualByGroup.get(g)!.push(ae);
+    }
+
     for (const pe of prescribedExercises) {
       if (!pe.exerciseName) continue;
       totalPrescribed++;
       const group = getDominantGroup(pe.exerciseName);
       if (group) ensureGroup(group).prescribed += 1;
-      if (actualExNames.has(pe.exerciseName.toLowerCase())) {
+
+      let matched: any = null;
+      const peKey = String(pe.exerciseName).toLowerCase();
+      // Direct match: exact exercise name.
+      if (actualExNames.has(peKey)) {
+        matched = actualExercises.find((e: any) => String(e.exercise_name || '').toLowerCase() === peKey);
+      } else if (group) {
+        // Substitution match: any actual exercise that targets the same
+        // dominant muscle group and has not yet been claimed by another
+        // prescribed slot.
+        const candidates = actualByGroup.get(group) ?? [];
+        matched = candidates.find((c) => !usedActualKeys.has(String(c.id || c.exercise_name)));
+      }
+
+      if (matched) {
         totalCompleted++;
+        usedActualKeys.add(String(matched.id || matched.exercise_name));
         if (group) ensureGroup(group).completed += 1;
-        const actualEx = actual.workout_exercises.find(e => e.exercise_name.toLowerCase() === pe.exerciseName.toLowerCase());
-        if (actualEx && pe.targetWeight && pe.targetWeight > 0) {
-          const actualSets = Array.isArray(actualEx.workout_sets) ? actualEx.workout_sets : [];
-          const actualWeight = actualSets.find((s: any) => s.weight)?.weight;
+        if (pe.targetWeight && pe.targetWeight > 0) {
+          const actualSets = Array.isArray(matched.workout_sets) ? matched.workout_sets : [];
+          const workingSets = filterWorkingSets(actualSets);
+          const actualWeight = workingSets.find((s: any) => s.weight)?.weight;
           if (actualWeight) { const wDev = (actualWeight - pe.targetWeight) / pe.targetWeight; weightDeviations.push(wDev); if (group) ensureGroup(group).weightDev.push(wDev); }
-          const actualReps = actualSets.find((s: any) => s.reps)?.reps;
+          const actualReps = workingSets.find((s: any) => s.reps)?.reps;
           if (actualReps && pe.targetReps) { const rDev = actualReps - pe.targetReps; repsDeviations.push(rDev); if (group) ensureGroup(group).repsDev.push(rDev); }
         }
       } else { totalSkipped++; }

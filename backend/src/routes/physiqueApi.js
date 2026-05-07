@@ -363,9 +363,19 @@ physiqueApiRouter.post('/measurements', async (req, res) => {
     const allowed = ['wrist', 'ankle', 'neck', 'knee', 'chest', 'waist', 'shoulder', 'arm', 'forearm', 'thigh', 'calf']
     const clean = {}
     for (const k of allowed) {
-      if (measurements[k] !== undefined && measurements[k] !== null) {
-        clean[k] = Number(measurements[k])
+      const v = measurements[k]
+      if (v !== undefined && v !== null && v !== '') {
+        const n = Number(v)
+        // Reject NaN and absurd values; tape measurement of 0 or 100+ inches
+        // is almost certainly a typo. Fail loudly so the front-end shows an
+        // error rather than silently dropping the value.
+        if (Number.isFinite(n) && n > 0 && n < 100) {
+          clean[k] = Math.round(n * 100) / 100
+        }
       }
+    }
+    if (Object.keys(clean).length === 0) {
+      return res.status(400).json({ error: 'At least one valid measurement is required' })
     }
 
     const reevesIdeals = computeReevesIdeals(clean)

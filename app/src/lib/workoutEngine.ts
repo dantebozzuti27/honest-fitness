@@ -321,6 +321,14 @@ export interface GeneratedExercise {
   exerciseRole: ExerciseRole;
   sets: number;
   targetReps: number;
+  /**
+   * Rep range [min, max] from the goal/role table. Use this for double-
+   * progression: the user works in this band and only graduates weight
+   * once they hit `max` reps for all working sets. Without an explicit
+   * range exposed in the UI, double progression can't function — users
+   * see a single number and stop there.
+   */
+  targetRepRange?: { min: number; max: number } | null;
   targetWeight: number | null;
   targetRir: number | null;
   rirLabel: string | null;
@@ -811,13 +819,23 @@ function deriveE1rmReference(
 }
 
 /**
- * Deterministic safety clamp: enforces `weight ≤ margin × Epley_inverse(1RM, reps + RIR)`.
+ * Deterministic safety clamp: enforces `weight ≤ Epley_inverse(1RM, reps + RIR)`
+ * (i.e. the true rep×load capacity ceiling). The `repLoadSafetyMargin` is
+ * applied only as a *hard ceiling* against absurd overshoots — it does NOT
+ * shave every steady-state prescription.
  *
- * This is the last-line defense against any code path — modifier stacking,
- * forecast overshoots, learned-weight bypass, fill-pass shortcuts — that
- * could prescribe a weight the user physically cannot move for the target
- * reps. It runs after every other modifier, snaps to plates, and emits an
- * audit-friendly note describing what was clamped and why.
+ * Two-tier logic:
+ *   1. If `targetWeight ≤ ceiling` (the rep×load identity itself), pass
+ *      through unchanged. This is the steady-state path — Epley is already
+ *      calibrated and we trust the engine's own math.
+ *   2. If `targetWeight > ceiling`, we have a real overshoot from stacked
+ *      modifiers / forecast / learned bypass. Clamp to `ceiling × margin`
+ *      so we still leave a small pad below the true ceiling.
+ *
+ * This was previously over-binding: `safeCeiling = ceiling × 0.93` was
+ * compared against `targetWeight` which itself equaled `ceiling`, so every
+ * steady-state prescription was shaved ~7% per session — guaranteeing
+ * downward drift of working weights over time.
  *
  * Returns the (possibly unchanged) weight and an optional human-readable note.
  */
@@ -838,13 +856,16 @@ function clampToRepLoadCeiling(
   ) {
     return { weight: targetWeight, note: null };
   }
-  const margin = clampNumber(cfg.repLoadSafetyMargin, 0.5, 1.0);
   const ceiling = weightForReps(e1rmReference, targetReps, rir, equipment, exerciseType);
   if (ceiling <= 0) return { weight: targetWeight, note: null };
-  // Snap, then floor: `snapToPlate` uses Math.round, which can land 1
-  // increment ABOVE safeCeiling (e.g. ceiling 129.7 with 5 lb plates rounds
-  // to 130). For a SAFETY ceiling, that is the wrong direction — always
-  // floor the snapped value to a strictly safe plate weight.
+
+  // Steady-state path: prescription respects the rep×load identity. No clamp.
+  if (targetWeight <= ceiling) return { weight: targetWeight, note: null };
+
+  // Overshoot path: stacked modifiers pushed weight above true capacity.
+  // Apply the safety margin only here, and floor to a plate so we never
+  // round UP into unsafe territory.
+  const margin = clampNumber(cfg.repLoadSafetyMargin, 0.5, 1.0);
   const rawSafe = ceiling * margin;
   let safeCeiling = snapToPlate(rawSafe, equipment, exerciseType);
   if (safeCeiling > rawSafe) {
@@ -861,7 +882,7 @@ function clampToRepLoadCeiling(
   return {
     weight: safeCeiling,
     note: `Safety guard: ${targetWeight} → ${safeCeiling} lbs ` +
-          `(rep×load identity violated for ${targetReps} reps @ RIR ${rir}; ` +
+          `(modifier stack exceeded rep×load capacity for ${targetReps} reps @ RIR ${rir}; ` +
           `est. 1RM ${Math.round(e1rmReference)} lbs, margin ${Math.round(margin * 100)}%)`,
   };
 }
@@ -1848,8 +1869,16 @@ export function deriveDayTheme(
     return null;
   }
   const primary = primaryEligible[0];
-  const expanded = expandWithSynergists(new Set(groups));
-  const allowed = Array.from(expanded).filter(g => g !== primary);
+  // For a strict split, allowedAccessories = the OTHER muscles in the same
+  // split mapping. We do NOT expand with synergists here because the
+  // canonical split mappings (e.g. PPL push = [chest, front delt, side
+  // delt, triceps]) already represent the intended scope. Expanding by
+  // synergists pulled in muscles like posterior_deltoid (a pull-day
+  // muscle) and upper_traps, breaking split adherence. Synergists are
+  // still allowed implicitly because pressing recruits them as
+  // secondaries — what we control here is what the *engine* will pick
+  // as a session theme, not what muscles get incidental work.
+  const allowed = groups.filter(g => g !== primary);
   return {
     primary,
     allowedAccessories: allowed,
@@ -2460,8 +2489,13 @@ function stepSelectMuscleGroups(
     // Scale sets by duration: longer sessions can accommodate more volume per group
     const sessionDur = prefs.session_duration_minutes;
     const durationSetScale = sessionDur >= 120 ? 1.30 : sessionDur >= 90 ? 1.15 : sessionDur <= 45 ? 0.75 : 1.0;
+    // Tighter cap (was 12). No single muscle group should consume more than
+    // ~8 working sets in a single session — past that point it crowds out
+    // other muscles, increases time overrun, and per Schoenfeld dose-response
+    // delivers diminishing returns relative to splitting the volume across
+    // sessions. Floor stays at 3 (minimum effective dose).
     let setsNeeded = Math.ceil(
-      Math.min(Math.max(volumeDeficit, 3), 12) * recoveryAdj.volumeMultiplier * durationSetScale
+      Math.min(Math.max(volumeDeficit, 3), 8) * recoveryAdj.volumeMultiplier * durationSetScale
     );
     if (vol.muscleGroup === 'abductors' || vol.muscleGroup === 'adductors') {
       if (hipAbductorSignal.suppressDirectIsolation) {
@@ -2504,21 +2538,46 @@ function stepSelectMuscleGroups(
 
   let filteredCandidates = candidates;
   if (splitTargetGroups && splitTargetGroups.size > 0) {
-    const expandedTargets = expandWithSynergists(splitTargetGroups);
-    const splitFiltered = candidates.filter(c => expandedTargets.has(c.muscleGroup));
-    // When the active theme is schedule or explicit rotation (PPL / upper-lower
-    // / etc.), the filter is HARD — never fall back to unrelated muscles.
     const hardFilter = activeDayTheme?.source === 'schedule' || activeDayTheme?.source === 'rotation';
+    // Tighter filter for explicit splits/schedules. Previously we always
+    // applied a second `expandWithSynergists` pass on top of the theme's
+    // already-expanded `allowedAccessories`, which let push days end up
+    // with posterior_deltoid, upper_traps, etc — direct violations of
+    // common splits (PPL/upper-lower). For schedule/rotation sources, use
+    // the theme's allowed list verbatim and add only universal accessories
+    // (core/calves/cardio).
+    let expandedTargets: Set<string>;
+    if (hardFilter && activeDayTheme) {
+      expandedTargets = new Set([
+        activeDayTheme.primary,
+        ...activeDayTheme.allowedAccessories,
+      ]);
+      for (const ua of UNIVERSAL_ACCESSORIES) expandedTargets.add(ua);
+    } else {
+      expandedTargets = expandWithSynergists(splitTargetGroups);
+    }
+    const splitFiltered = candidates.filter(c => expandedTargets.has(c.muscleGroup));
     if (splitFiltered.length >= 1 || hardFilter) {
       filteredCandidates = splitFiltered;
     }
   }
 
+  // Tighter group caps. Previously a 60-min user could land 4 muscle groups,
+  // which after working sets + warmups + transitions consistently overflowed
+  // the time budget (measured median: ~73 min for nominal 60-min sessions).
+  // That overrun is one of the largest compliance killers — users skip the
+  // last 1-2 exercises. Empirical fit:
+  //   30 min  → 2 groups (tight)
+  //   45 min  → 2 groups
+  //   60 min  → 3 groups (was 4)
+  //   75 min  → 4 groups
+  //   90 min+ → 5 groups
   const dur = prefs.session_duration_minutes;
   const maxGroups = dur <= 35 ? 2
-    : dur <= 50 ? 3
-    : dur <= 75 ? 4
-    : dur <= 100 ? 5
+    : dur <= 55 ? 2
+    : dur <= 70 ? 3
+    : dur <= 85 ? 4
+    : dur <= 105 ? 5
     : 6;
   let selected = filteredCandidates.slice(0, maxGroups);
   const primaryMajorGroups = new Set([
@@ -2969,6 +3028,10 @@ function stepSelectExercises(
       }
 
       // #1: Exercise Swap Learning — decay-weighted penalties + substitution affinities
+      // Penalties are tiered (see modelConfig.selectionSwapPenaltyTiers) and
+      // partially offset by positive signals: substitution affinities (this
+      // exercise was chosen as a replacement) and acceptance events (this
+      // exercise was prescribed and completed without being swapped).
       if (profile.exerciseSwapHistory) {
         const swapEntry = profile.exerciseSwapHistory.find(
           s => s.exerciseName === ex.name.toLowerCase()
@@ -2984,10 +3047,12 @@ function stepSelectExercises(
               break;
             }
           }
+          // Gentler fallback: a single swap is a noisy signal (mood, equipment
+          // availability, time pressure). Cap at -3 instead of -5 per swap.
           if (!swapApplied && swapEntry.swapCount >= 1) {
-            const pen = -Math.min(10, 5 * swapEntry.swapCount);
+            const pen = -Math.min(3, 1.5 * swapEntry.swapCount);
             score += pen;
-            factors.push(`Swap history (${swapEntry.swapCount}x, ${pen})`);
+            factors.push(`Swap history (${swapEntry.swapCount}x, ${pen.toFixed(1)})`);
           }
         }
       }
@@ -2996,13 +3061,32 @@ function stepSelectExercises(
         let aff = 0;
         for (const a of profile.substitutionAffinities) {
           if (a.toExercise === exKey) {
-            aff += Math.min(5.5, a.affinity * 1.15);
+            aff += Math.min(8, a.affinity * 1.5);
           }
         }
         if (aff > 0) {
           const add = Math.round(aff * 10) / 10;
           score += add;
           factors.push(`Substitution affinity (+${add})`);
+        }
+      }
+      // Positive reward: exercises the user prescribed AND completed without
+      // swapping. Decay-weighted on the same half-life as swap penalties so
+      // the two channels are balanced. Without this, the system can only
+      // ever kill exercises (asymmetric learning → permanent rotation collapse).
+      if (profile.exerciseAcceptances?.length) {
+        const accEntry = profile.exerciseAcceptances.find(
+          a => a.exerciseName === ex.name.toLowerCase()
+        );
+        if (accEntry) {
+          const reward = Math.min(
+            cfg.selectionAcceptanceCap,
+            cfg.selectionAcceptancePerEvent * Number(accEntry.effectiveWeight ?? accEntry.count)
+          );
+          if (reward > 0) {
+            score += reward;
+            factors.push(`Acceptance reward (+${reward.toFixed(1)}, ${accEntry.count}× kept)`);
+          }
         }
       }
 
@@ -3070,17 +3154,31 @@ function stepSelectExercises(
       }
     }
 
-    // Post-score swap override: heavily swapped exercises get crushed regardless of bonuses
+    // Post-score swap override: only the most heavily-rejected exercises get
+    // the hard cap. Threshold lifted from 5 → 15 swaps so the user has to
+    // actually reject the exercise repeatedly (and decay-corrected) before
+    // it's pulled out of rotation. A single bad week can no longer kill an
+    // exercise. Acceptance events further offset the override entirely
+    // (positive signal beats negative if the user has kept it 3+ times).
     if (profile.exerciseSwapHistory) {
       for (const item of scored) {
         const swapEntry = profile.exerciseSwapHistory.find(
           s => s.exerciseName === item.exercise.name.toLowerCase()
         );
-        if (swapEntry) {
-          const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
-          if (eff >= 4.5 || swapEntry.swapCount >= 5) {
+        if (!swapEntry) continue;
+        const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
+        if (eff >= 11 || swapEntry.swapCount >= 15) {
+          // Acceptance reward escape hatch: if user kept this exercise
+          // recently, do NOT hard-cap. Negative-only learning was the bug.
+          const accEntry = profile.exerciseAcceptances?.find(
+            a => a.exerciseName === item.exercise.name.toLowerCase()
+          );
+          const acceptanceWeight = Number(accEntry?.effectiveWeight ?? 0);
+          if (acceptanceWeight < 3) {
             item.score = Math.min(item.score, cfg.selectionSwapNearBanCeiling);
-            item.factors.push('Swap override: near-banned');
+            item.factors.push(`Swap override: heavily rejected (${swapEntry.swapCount}× swapped, weight ${eff.toFixed(1)})`);
+          } else {
+            item.factors.push(`Override skipped: acceptance signal ${acceptanceWeight.toFixed(1)} offsets ${swapEntry.swapCount} swaps`);
           }
         }
       }
@@ -3883,24 +3981,49 @@ function stepPrescribe(
     const isBodyweight = selIdentity.isBodyweight;
     const isTimedHold = isTimedHoldExercise(sel.exercise.name);
 
-    // ── Learned-first prescription ──
-    // Your actual training data is the primary source.
-    // Textbook tables are ONLY used when you have no history for this exercise.
+    // ── Learned-anchored prescription with double-progression awareness ──
+    //
+    // Previously: targetReps = round(median(last 6 sessions)) when learned
+    // data existed. This was a self-feeding loop — the engine prescribed
+    // exactly what the user already did, the user did exactly what was
+    // prescribed, the median didn't move, and progression never triggered
+    // (the gate requires lastReps ≥ targetReps + 1, mathematically
+    // impossible when target == median actual).
+    //
+    // The fix: anchor target to the FLOOR of the table range, then nudge
+    // upward when the user has been hitting it. Weight progression then
+    // kicks in once they reach the top of the range — classic double
+    // progression. The learned value becomes a *floor* (don't prescribe
+    // fewer reps than the user is comfortable with), not a *target*.
     const pref = profile.exercisePreferences.find(
       p => p.exerciseName === sel.exercise.name.toLowerCase()
     );
-    const hasLearnedData = pref && pref.recentSessions >= 2;
+    // Raised from 2 → 4 sessions: with only 2 sessions, a single fluky
+    // workout (illness, equipment swap, sleep deprivation) dominates the
+    // median and propagates as the engine's "best estimate" of user
+    // capacity. 4 sessions of evidence is the minimum for a credible
+    // signal that survives one outlier.
+    const hasLearnedData = pref && pref.recentSessions >= 4;
 
-    // Reps: use what you actually do, fall back to table
     const tableRange = getRepRangeByRole(role, goal, secondaryGoal, dayOccurrenceIndex, cfg, sel.exercise.ml_exercise_type);
-    let targetReps = hasLearnedData && pref.learnedReps != null
+    const learnedRepsRounded = hasLearnedData && pref.learnedReps != null
       ? Math.round(pref.learnedReps)
+      : null;
+    // Target = max(table.target, learnedReps). Use learned value as a floor:
+    // if the user has been hitting 10 reps consistently and the table says
+    // 8, prescribe 10. Never prescribe BELOW user's demonstrated capacity.
+    let targetReps = learnedRepsRounded != null
+      ? Math.max(tableRange.target, Math.min(tableRange.max, learnedRepsRounded))
       : tableRange.target;
 
-    // Sets: use what you actually do, fall back to table
+    // Sets: same fix. Use learned as a floor (don't drop sets below user's
+    // demonstrated tolerance), but never below the table's role-based base.
     const tableSets = getTieredSets(role, goal, isPriority, recoveryAdj.isDeload, mesocycleVolumeMult);
-    let sets = hasLearnedData && pref.learnedSets != null
+    const learnedSetsRounded = hasLearnedData && pref.learnedSets != null
       ? Math.round(pref.learnedSets)
+      : null;
+    let sets = learnedSetsRounded != null
+      ? Math.max(tableSets, learnedSetsRounded)
       : tableSets;
     let setsAdjustedByHighCapacity: { from: number; to: number } | null = null;
     if (highCapacityPush?.active && !recoveryAdj.isDeload) {
@@ -3943,11 +4066,24 @@ function stepPrescribe(
       setsAdjustedByFatLossStall = { from: prev, to: sets };
     }
 
-    // #4: Compliance Feedback — adjust reps if user consistently exceeds prescription
+    // #4: Compliance Feedback — adjust reps when user consistently exceeds
+    // (we're underprescribing) or undershoots (we're overprescribing) the
+    // prescription. Bidirectional correction was missing — only positive
+    // deviation was acted on, so chronic over-prescription compounded.
     if (profile.prescribedVsActual) {
       const compliance = profile.prescribedVsActual;
-      if (compliance.avgRepsDeviation > 2 && compliance.complianceRate > 0.7) {
-        targetReps = Math.min(targetReps + 1, tableRange.max);
+      const repsDev = Number(compliance.avgRepsDeviation ?? 0);
+      // User is doing more reps than prescribed at decent compliance →
+      // weight is too light. Bump reps; the next progression cycle will
+      // graduate the weight once the user is at the top of the range.
+      if (repsDev > 1.5 && compliance.complianceRate > 0.6) {
+        targetReps = Math.min(targetReps + Math.round(Math.min(2, repsDev / 2)), tableRange.max);
+      }
+      // User is consistently undershooting reps → over-prescribed. Pull
+      // reps back into the bottom of the range so the user can complete
+      // the workout (compliance fix).
+      if (repsDev < -1.5 && compliance.complianceRate < 0.7) {
+        targetReps = Math.max(tableRange.min, targetReps - 1);
       }
     }
     targetReps = humanizeRepTarget(targetReps, tableRange.min, tableRange.max);
@@ -4138,18 +4274,30 @@ function stepPrescribe(
           b => b.exerciseName === sel.exercise.name.toLowerCase()
         );
 
-        // Honest effort gate: don't award progression if recent effort is too low
+        // Honest effort gate: don't fully award progression if recent effort
+        // is low, but never zero out completely. Hard-zero blocks meant a
+        // single soft session (deload, illness, scheduling churn) could
+        // freeze progression for 2–3 cycles even after the user resumed
+        // hard training. Floor at 0.25× ensures the system keeps moving
+        // forward when warranted by the actual progression status.
         const effortScore = profile.honestEffort?.avgCompositeScore ?? null;
-        const effortGateMultiplier = effortScore == null ? 1.0 : effortScore < cfg.effortGateBlockThreshold ? 0 : effortScore < cfg.effortGateHalfThreshold ? 0.5 : 1.0;
-        if (effortScore != null && effortGateMultiplier < 1.0 && effortGateMultiplier > 0) {
-          adjustments.push(`Effort-gated progression: only ${Math.round(effortGateMultiplier * 100)}% increment (avg effort: ${effortScore}%)`);
-        } else if (effortScore != null && effortGateMultiplier === 0) {
-          adjustments.push(`Progression held: avg effort too low (${effortScore}%) — train harder to earn weight increases`);
+        const effortGateMultiplier = effortScore == null
+          ? 1.0
+          : effortScore < cfg.effortGateBlockThreshold ? 0.25
+          : effortScore < cfg.effortGateHalfThreshold ? 0.5
+          : 1.0;
+        if (effortScore != null && effortGateMultiplier < 1.0) {
+          adjustments.push(`Effort-gated progression: ${Math.round(effortGateMultiplier * 100)}% increment (avg effort: ${effortScore}%)`);
         }
 
         const lastReps = prog.bestSet.reps;
-        const canProgress = (prog.status === 'progressing' || (prog.status === 'maintaining' && lastReps >= targetReps + 1)) && effortGateMultiplier > 0;
-        if (lastReps >= targetReps + cfg.repsAboveTargetForProgression && canProgress) {
+        // Double-progression gate: progress weight when user is hitting the
+        // TOP of the rep range, not just when they exceed a single target.
+        // Previously used `targetReps + 1` against a target derived from the
+        // user's median performance, which mathematically can never trigger.
+        const progressionRepThreshold = Math.max(tableRange.max, targetReps);
+        const canProgress = (prog.status === 'progressing' || prog.status === 'maintaining') && effortGateMultiplier > 0;
+        if (lastReps >= progressionRepThreshold && canProgress) {
           if (bestPatternType === 'double_progression' && breakthrough && !breakthrough.readyForWeightJump) {
             adjustments.push(`Double progression: add reps before weight (${breakthrough.accumulatedRepsAtWeight} reps accumulated, need ${breakthrough.typicalRepsBeforeJump})`);
           } else {
@@ -4368,6 +4516,7 @@ function stepPrescribe(
       exerciseRole: role,
       sets,
       targetReps: isTimedHold ? 0 : targetReps,
+      targetRepRange: isTimedHold ? null : { min: tableRange.min, max: tableRange.max },
       targetWeight: isBodyweight
         ? null
         : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, exType), equipment) : null),

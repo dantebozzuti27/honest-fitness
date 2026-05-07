@@ -1469,6 +1469,7 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     'sport_focus', 'sport_season',
     'available_days_per_week', 'job_activity_level', 'injuries',
     'exercises_to_avoid', 'performance_goals', 'preferred_split',
+    'weekly_split_schedule',
     'date_of_birth', 'gender', 'height_feet', 'height_inches',
     'body_weight_lbs', 'experience_level',
     'cardio_preference', 'cardio_frequency_per_week', 'cardio_duration_minutes',

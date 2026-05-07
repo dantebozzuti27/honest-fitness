@@ -49,6 +49,14 @@ async function apiFetch(path: string, opts: RequestInit = {}): Promise<Response>
   })
 }
 
+function safeJsonParse<T>(s: string, fallback: T): T {
+  try {
+    return JSON.parse(s) as T
+  } catch {
+    return fallback
+  }
+}
+
 const BONE_FIELDS = ['wrist', 'ankle', 'neck', 'knee'] as const
 const MUSCLE_FIELDS = ['chest', 'waist', 'shoulder', 'arm', 'forearm', 'thigh', 'calf'] as const
 
@@ -134,21 +142,35 @@ export default function PhysiqueCheckIn() {
       ])
       if (latestRes.ok) {
         const d = await latestRes.json()
-        setLatest(d.assessment)
-        if (d.assessment?.measurements) {
+        const raw = d.assessment
+        // Some DB drivers return JSONB columns as strings; defensively parse.
+        const normalized = raw ? {
+          ...raw,
+          scores: typeof raw.scores === 'string' ? safeJsonParse(raw.scores, {}) : (raw.scores || {}),
+          measurements: typeof raw.measurements === 'string' ? safeJsonParse(raw.measurements, {}) : (raw.measurements || {}),
+          reeves_ideals: typeof raw.reeves_ideals === 'string' ? safeJsonParse(raw.reeves_ideals, {}) : (raw.reeves_ideals || {}),
+          proportional_deficits: typeof raw.proportional_deficits === 'string' ? safeJsonParse(raw.proportional_deficits, {}) : (raw.proportional_deficits || {}),
+          weak_points: typeof raw.weak_points === 'string' ? safeJsonParse(raw.weak_points, []) : (raw.weak_points || []),
+          strong_points: typeof raw.strong_points === 'string' ? safeJsonParse(raw.strong_points, []) : (raw.strong_points || []),
+        } : null
+        setLatest(normalized)
+        const meas = normalized?.measurements
+        if (meas && typeof meas === 'object') {
           const m: Record<string, string> = {}
-          for (const [k, v] of Object.entries(d.assessment.measurements)) {
-            if (v != null) m[k] = String(v)
+          for (const [k, v] of Object.entries(meas)) {
+            if (v != null && !isNaN(Number(v))) m[k] = String(v)
           }
           setMeasurements(m)
         }
+      } else {
+        setError(`Couldn't load assessment (${latestRes.status})`)
       }
       if (historyRes.ok) {
         const d = await historyRes.json()
-        setHistory(d.assessments || [])
+        setHistory(Array.isArray(d.assessments) ? d.assessments : [])
       }
-    } catch {
-      // silent
+    } catch (e: any) {
+      setError(`Network error: ${e?.message || 'unknown'}`)
     } finally {
       setLoading(false)
     }

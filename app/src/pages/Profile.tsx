@@ -31,6 +31,11 @@ interface GymProfile {
   equipment: string[];
 }
 
+interface DaySchedule {
+  focus: string;
+  groups: string[];
+}
+
 interface TrainingProfileData {
   training_goal: string;
   session_duration_minutes: string;
@@ -41,6 +46,7 @@ interface TrainingProfileData {
   exercises_to_avoid: string[];
   performance_goals: PerformanceGoal[];
   preferred_split: string;
+  weekly_split_schedule: Record<string, DaySchedule>;
   date_of_birth: string;
   gender: string;
   height_feet: string;
@@ -267,6 +273,276 @@ const GYM_EQUIPMENT_OPTIONS = [
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+const FULL_DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+// Quick-fill presets so users don't have to tap every muscle on every day.
+// Each preset is a partial mapping; user can still tap individual muscles.
+const SPLIT_PRESETS: Record<string, { label: string; days: Record<string, { focus: string; groups: string[] }> }> = {
+  ppl_6day: {
+    label: 'Push / Pull / Legs (6-day, Mon–Sat)',
+    days: {
+      '1': { focus: 'Push', groups: ['upper_chest', 'mid_chest', 'lower_chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'] },
+      '2': { focus: 'Pull', groups: ['back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps', 'biceps', 'posterior_deltoid'] },
+      '3': { focus: 'Legs', groups: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors'] },
+      '4': { focus: 'Push', groups: ['upper_chest', 'mid_chest', 'lower_chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'] },
+      '5': { focus: 'Pull', groups: ['back_lats', 'back_upper', 'mid_traps', 'biceps', 'posterior_deltoid'] },
+      '6': { focus: 'Legs', groups: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors'] },
+    },
+  },
+  upper_lower_4day: {
+    label: 'Upper / Lower (4-day, Mon Tue Thu Fri)',
+    days: {
+      '1': { focus: 'Upper', groups: ['upper_chest', 'mid_chest', 'back_lats', 'anterior_deltoid', 'lateral_deltoid', 'biceps', 'triceps'] },
+      '2': { focus: 'Lower', groups: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors'] },
+      '4': { focus: 'Upper', groups: ['upper_chest', 'mid_chest', 'back_lats', 'anterior_deltoid', 'lateral_deltoid', 'biceps', 'triceps'] },
+      '5': { focus: 'Lower', groups: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors'] },
+    },
+  },
+  bro_5day: {
+    label: 'Bro Split (5-day, Mon–Fri)',
+    days: {
+      '1': { focus: 'Chest', groups: ['upper_chest', 'mid_chest', 'lower_chest'] },
+      '2': { focus: 'Back', groups: ['back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps'] },
+      '3': { focus: 'Shoulders', groups: ['anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid'] },
+      '4': { focus: 'Arms', groups: ['biceps', 'triceps', 'forearms'] },
+      '5': { focus: 'Legs', groups: ['quadriceps', 'hamstrings', 'glutes', 'abductors', 'adductors'] },
+    },
+  },
+  full_body_3day: {
+    label: 'Full Body (3-day, Mon Wed Fri)',
+    days: {
+      '1': { focus: 'Full', groups: ['mid_chest', 'back_lats', 'quadriceps', 'hamstrings', 'glutes', 'lateral_deltoid'] },
+      '3': { focus: 'Full', groups: ['upper_chest', 'back_upper', 'quadriceps', 'glutes', 'biceps', 'triceps'] },
+      '5': { focus: 'Full', groups: ['mid_chest', 'back_lats', 'hamstrings', 'glutes', 'lateral_deltoid', 'core'] },
+    },
+  },
+}
+
+interface WeeklySplitScheduleEditorProps {
+  schedule: Record<string, DaySchedule>
+  restDays: number[]
+  onChange: (next: Record<string, DaySchedule>) => void
+}
+
+/**
+ * Per-day target muscle picker. Overrides `preferred_split` and is the
+ * highest-priority split signal in the engine. Days with empty `groups`
+ * are treated as no-schedule (engine falls back to rotation).
+ *
+ * UX:
+ *   - Day-of-week pill row (active day highlighted)
+ *   - Active day shows multi-select muscle chips
+ *   - Quick-fill presets to bulk-populate common splits
+ *   - "Clear day" wipes the selection for the active day
+ */
+function WeeklySplitScheduleEditor({ schedule, restDays, onChange }: WeeklySplitScheduleEditorProps) {
+  const [activeDay, setActiveDay] = useState<number>(() => {
+    const today = new Date().getDay()
+    if (restDays.includes(today)) {
+      for (let d = 0; d < 7; d++) if (!restDays.includes(d)) return d
+    }
+    return today
+  })
+
+  const restDaySet = new Set(restDays)
+  const activeKey = String(activeDay)
+  const activeSched: DaySchedule = schedule[activeKey] ?? { focus: '', groups: [] }
+
+  const toggleMuscle = (muscle: string) => {
+    const has = activeSched.groups.includes(muscle)
+    const nextGroups = has
+      ? activeSched.groups.filter(g => g !== muscle)
+      : [...activeSched.groups, muscle]
+    const next = { ...schedule }
+    if (nextGroups.length === 0) {
+      delete next[activeKey]
+    } else {
+      next[activeKey] = {
+        focus: activeSched.focus,
+        groups: nextGroups,
+      }
+    }
+    onChange(next)
+  }
+
+  const clearDay = () => {
+    const next = { ...schedule }
+    delete next[activeKey]
+    onChange(next)
+  }
+
+  const applyPreset = (presetKey: string) => {
+    const preset = SPLIT_PRESETS[presetKey]
+    if (!preset) return
+    // Replace whole schedule with preset, but skip days the user has
+    // marked as rest. Then user can tweak individual days afterwards.
+    const next: Record<string, DaySchedule> = {}
+    for (const [dow, sched] of Object.entries(preset.days)) {
+      if (restDaySet.has(Number(dow))) continue
+      next[dow] = { focus: sched.focus, groups: [...sched.groups] }
+    }
+    onChange(next)
+  }
+
+  const clearAll = () => onChange({})
+
+  const dayHasSchedule = (dow: number) => (schedule[String(dow)]?.groups?.length ?? 0) > 0
+
+  return (
+    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '4px' }}>
+      <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '6px' }}>
+        Per-Day Target Muscles
+      </label>
+      <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '0 0 10px' }}>
+        Pick the muscles you want to train each day. Overrides Preferred Split. Empty days fall back to your split rotation.
+      </p>
+
+      {/* Quick-fill presets */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+        {Object.entries(SPLIT_PRESETS).map(([key, preset]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => applyPreset(key)}
+            style={{
+              padding: '5px 10px',
+              borderRadius: '12px',
+              border: '1px solid var(--border)',
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-secondary)',
+              fontSize: '11px',
+              cursor: 'pointer',
+            }}
+          >
+            {preset.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={clearAll}
+          style={{
+            padding: '5px 10px',
+            borderRadius: '12px',
+            border: '1px solid var(--border)',
+            background: 'transparent',
+            color: 'var(--text-tertiary)',
+            fontSize: '11px',
+            cursor: 'pointer',
+          }}
+        >
+          Clear all
+        </button>
+      </div>
+
+      {/* Day-of-week tabs */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+        {DAY_LABELS.map((label, dow) => {
+          const isActive = activeDay === dow
+          const isRest = restDaySet.has(dow)
+          const hasGroups = dayHasSchedule(dow)
+          return (
+            <button
+              key={dow}
+              type="button"
+              onClick={() => setActiveDay(dow)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '16px',
+                border: isActive ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
+                background: isActive ? 'var(--accent, #3b82f6)' : isRest ? 'transparent' : 'var(--bg-tertiary)',
+                color: isActive ? '#fff' : isRest ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                fontSize: '13px',
+                cursor: 'pointer',
+                fontWeight: isActive ? 600 : 400,
+                opacity: isRest ? 0.55 : 1,
+                position: 'relative',
+              }}
+              title={isRest ? 'Rest day — set above to enable scheduling' : undefined}
+            >
+              {label}
+              {hasGroups && (
+                <span style={{
+                  display: 'inline-block',
+                  marginLeft: 4,
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: isActive ? '#fff' : 'var(--accent, #3b82f6)',
+                  verticalAlign: 'middle',
+                }} />
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Active day editor */}
+      <div style={{
+        background: 'var(--bg-tertiary)',
+        borderRadius: '10px',
+        padding: '10px 12px',
+        border: '1px solid var(--border)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            {FULL_DAY_LABELS[activeDay]}
+            {restDaySet.has(activeDay) && (
+              <span style={{ color: 'var(--text-tertiary)', fontWeight: 400, marginLeft: 6, fontSize: '11px' }}>
+                (currently a rest day)
+              </span>
+            )}
+          </span>
+          {activeSched.groups.length > 0 && (
+            <button
+              type="button"
+              onClick={clearDay}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-tertiary)',
+                fontSize: '11px',
+                cursor: 'pointer',
+                padding: '2px 6px',
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+          {MUSCLE_GROUPS.map(mg => {
+            const selected = activeSched.groups.includes(mg.value)
+            return (
+              <button
+                key={mg.value}
+                type="button"
+                onClick={() => toggleMuscle(mg.value)}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: '14px',
+                  border: selected ? '1px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
+                  background: selected ? 'var(--accent, #3b82f6)' : 'var(--bg-secondary, #1a1a1a)',
+                  color: selected ? '#fff' : 'var(--text-primary)',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  fontWeight: selected ? 600 : 400,
+                }}
+              >
+                {mg.label}
+              </button>
+            )
+          })}
+        </div>
+        {activeSched.groups.length === 0 && (
+          <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '8px', marginBottom: 0 }}>
+            No muscles selected — engine will use your split rotation for {FULL_DAY_LABELS[activeDay]}.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Profile() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
@@ -293,6 +569,7 @@ export default function Profile() {
     exercises_to_avoid: [],
     performance_goals: [],
     preferred_split: '',
+    weekly_split_schedule: {},
     date_of_birth: '',
     gender: '',
     height_feet: '',
@@ -407,6 +684,25 @@ export default function Profile() {
           exercises_to_avoid: avoidArr,
           performance_goals: Array.isArray(rawGoals) ? rawGoals : [],
           preferred_split: prefs.preferred_split || '',
+          weekly_split_schedule: (() => {
+            const raw = prefs.weekly_split_schedule
+            if (!raw || typeof raw !== 'object') return {}
+            // Defensive normalization: filter to expected day-key shape and
+            // ensure groups is always a string[]. JSONB columns can come back
+            // as either parsed objects or strings depending on the driver.
+            const parsed = typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return {} } })() : raw
+            const out: Record<string, DaySchedule> = {}
+            for (let dow = 0; dow < 7; dow++) {
+              const v = parsed?.[String(dow)]
+              if (v && typeof v === 'object' && Array.isArray(v.groups)) {
+                out[String(dow)] = {
+                  focus: typeof v.focus === 'string' ? v.focus : '',
+                  groups: v.groups.filter((g: any) => typeof g === 'string'),
+                }
+              }
+            }
+            return out
+          })(),
           date_of_birth: prefs.date_of_birth || '',
           gender: prefs.gender || '',
           height_feet: prefs.height_feet != null ? String(prefs.height_feet) : '',
@@ -457,6 +753,20 @@ export default function Profile() {
         exercises_to_avoid: trainingProfile.exercises_to_avoid,
         performance_goals: trainingProfile.performance_goals,
         preferred_split: trainingProfile.preferred_split || null,
+        weekly_split_schedule: (() => {
+          // Drop empty days; persist null when nothing selected so the
+          // engine cleanly falls back to preferred_split rotation.
+          const cleaned: Record<string, DaySchedule> = {}
+          for (const [dow, sched] of Object.entries(trainingProfile.weekly_split_schedule)) {
+            if (sched.groups.length > 0) {
+              cleaned[dow] = {
+                focus: sched.focus || sched.groups.slice(0, 2).map(g => g.replace(/_/g, ' ')).join(' / '),
+                groups: sched.groups,
+              }
+            }
+          }
+          return Object.keys(cleaned).length > 0 ? cleaned : null
+        })(),
         date_of_birth: trainingProfile.date_of_birth || null,
         gender: trainingProfile.gender || null,
         height_feet: trainingProfile.height_feet ? Number(trainingProfile.height_feet) : null,
@@ -802,6 +1112,14 @@ export default function Profile() {
                   onChange={e => setTrainingProfile(p => ({ ...p, preferred_split: e.target.value }))}
                   options={SPLIT_OPTIONS}
                 />
+
+                {/* Per-day target muscle picker — overrides Preferred Split */}
+                <WeeklySplitScheduleEditor
+                  schedule={trainingProfile.weekly_split_schedule}
+                  restDays={trainingProfile.rest_days}
+                  onChange={(next) => setTrainingProfile(p => ({ ...p, weekly_split_schedule: next }))}
+                />
+
                 <SelectField
                   label="Recovery Speed"
                   value={trainingProfile.recovery_speed}

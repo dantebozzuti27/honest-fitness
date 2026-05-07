@@ -326,6 +326,10 @@ export interface ModelConfig {
   selectionPatternFatiguePenalties: Record<string, number>;
   /** Plateau swap/variation penalty */
   selectionPlateauSwapPenalty: number;
+  /** Per-event positive reward when user completes a prescribed exercise without swapping it */
+  selectionAcceptancePerEvent: number;
+  /** Cap on cumulative acceptance bonus per exercise */
+  selectionAcceptanceCap: number;
 
   // ── Fat-Loss PID Controller ───────────────────────────────────────────
   /** Target body weight loss rate per week (fraction of BW, e.g. 0.006 = 0.6%) */
@@ -574,10 +578,18 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   minStrengthBudgetMinutes: 30,
 
   // Muscle group selection
-  splitMatchBoost: 5.0,
+  // splitMatchBoost was 5.0 — high enough to dominate priority composite but
+  // not high enough to guarantee split adherence when a non-split muscle had
+  // major freshness + volume deficit signals. Bumped to 8.0 so split target
+  // groups always rank above off-split candidates, even those carrying
+  // heavy volume deficits (which can otherwise pull the engine off-script).
+  splitMatchBoost: 8.0,
   dayPatternBoost: 0.20,
   priorityMuscleBoost: 0.30,
-  splitConfidenceThreshold: 0.60,
+  // Lowered from 0.60 → 0.45: even a moderately-confident detected split
+  // is better than no split. The previous threshold meant ~25% of users with
+  // inconsistent histories never got split-aware programming.
+  splitConfidenceThreshold: 0.45,
 
   // 30-day trend sensitivities
   sleepTrendDownThreshold: -3,       // sleep declining > 3% per week
@@ -726,14 +738,31 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   selectionDuplicateHingePenalty: -6,
   selectionKneeFlexionBonus: 3,
   selectionHeavyEquipmentPenalty: -5,
+  // Swap penalty tiers: gentler curve so a few rejections don't lock an
+  // exercise out of the rotation. Near-ban only triggers at 15+ swaps OR
+  // 11+ effective weight (decay-adjusted). Previously: 5 swaps → permanent
+  // ban for ~9 weeks regardless of any positive signal. The new schedule:
+  //   2 swaps → -4   (mild signal: we noticed)
+  //   5 swaps → -10  (clear signal: deprioritize)
+  //   10 swaps → -20 (strong signal: only if compound bonuses can't beat it)
+  //   15 swaps → -30 + near-ban cap activates
   selectionSwapPenaltyTiers: [
-    { minWeight: 4.5, minCount: 5, penalty: -30 },
-    { minWeight: 2.2, minCount: 3, penalty: -20 },
-    { minWeight: 1.0, minCount: 2, penalty: -10 },
+    { minWeight: 11.0, minCount: 15, penalty: -30 },
+    { minWeight: 7.5, minCount: 10, penalty: -20 },
+    { minWeight: 3.5, minCount: 5, penalty: -10 },
+    { minWeight: 1.4, minCount: 2, penalty: -4 },
   ],
-  selectionSwapNearBanCeiling: -10,
+  // Near-ban floor: an exercise hard-capped at this score regardless of
+  // bonuses. Looser floor (-4 vs -10) so the next legitimate positive
+  // signal (substitution affinity, "kept" reward) can still rescue it.
+  selectionSwapNearBanCeiling: -4,
   selectionPatternFatiguePenalties: { high: -6, moderate: -2 },
   selectionPlateauSwapPenalty: -3,
+  // Positive signal: exercise was prescribed AND completed without being
+  // swapped out. Per-acceptance reward, decay-weighted on the same
+  // half-life as swap penalties so the two signals balance over time.
+  selectionAcceptancePerEvent: 1.5,
+  selectionAcceptanceCap: 8,
 
   // Fat-loss PID controller
   fatLossTargetSlopeFraction: 0.006,
@@ -780,8 +809,14 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   volumeMaxSetsPerExerciseTiers: { '120': 6, '90': 5, '60': 4, default: 3 },
 
   // Progression effort gates
-  effortGateBlockThreshold: 45,
-  effortGateHalfThreshold: 55,
+  // Effort gate thresholds (lowered after warmups were filtered out of
+  // composite score). Previously 45/55 produced false positives — the
+  // warmup ramps dragged avgIntensity below the floor on legitimately
+  // intense sessions. With warmups now excluded, the typical session
+  // composite is ~10 points higher; thresholds adjusted accordingly.
+  // Block only on genuinely lazy training, half-credit between 50–65.
+  effortGateBlockThreshold: 35,
+  effortGateHalfThreshold: 50,
 
   // Apollo proportions
   apolloIdealProportions: {
@@ -833,8 +868,14 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   highCapAdherenceGateOff: 0.6,
 
   // Regression percentages
-  regressionSystemicMult: 0.80,
-  regressionSevereMult: 0.85,
+  // Less aggressive regression cuts. Previously a single bad week (3 lifts
+  // declining slope) could shave 20% off all working weights, which is
+  // harder to come back from than the regression itself. The new values
+  // (0.90 / 0.92) trim 8–10% in genuinely systemic regressions and 8% on
+  // single-lift severe cases — enough to deload the lift without nuking
+  // the user's sense of progress (a major compliance killer).
+  regressionSystemicMult: 0.90,
+  regressionSevereMult: 0.92,
   egoAuditCapMult: 0.92,
   weightRescueFloorMult: 0.75,
   weightModifierFloorMult: 0.85,

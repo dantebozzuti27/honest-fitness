@@ -272,7 +272,9 @@ values
 ('Dumbbell Pullover', 'strength', 'chest', array['pecs','lats'], array['dumbbell','bench'], false, 'Pullover emphasizing lats/pecs depending on form.'),
 ('Cable Pullover', 'strength', 'back', array['lats'], array['cable'], false, 'Straight-arm cable pullover.'),
 
-('Barbell Hip Hinge (RDL)', 'strength', 'legs', array['hamstrings','glutes'], array['barbell'], false, 'Romanian deadlift style hinge.'),
+-- ('Barbell Hip Hinge (RDL)') removed — duplicate of 'Romanian Deadlift'
+-- (same movement, same primary muscles). Migration v1 collapses any
+-- existing row + repoints user history to the canonical name.
 ('Deficit Deadlift', 'strength', 'legs', array['glutes','hamstrings','lower_back'], array['barbell','plate'], false, 'Deadlift standing on a deficit.'),
 ('Block Pull', 'strength', 'legs', array['glutes','hamstrings','lower_back'], array['barbell','blocks'], false, 'Deadlift from blocks/rack pull height.'),
 ('Rack Pull', 'strength', 'legs', array['glutes','hamstrings','upper_back'], array['barbell','rack'], false, 'Deadlift from pins/rack.'),
@@ -289,7 +291,9 @@ values
 ('Bicycle Crunch', 'strength', 'core', array['abs','obliques'], array['bodyweight'], false, 'Alternating bicycle crunch.'),
 ('Sit-Up', 'strength', 'core', array['abs'], array['bodyweight'], false, 'Full range sit-up.'),
 ('Weighted Sit-Up', 'strength', 'core', array['abs'], array['bodyweight','weight_plate'], false, 'Sit-up holding plate.'),
-('Cable Pallof Press', 'strength', 'core', array['obliques','core'], array['cable'], false, 'Anti-rotation press on cable.'),
+-- ('Cable Pallof Press') removed — duplicate of 'Pallof Press' (same
+-- movement; the canonical entry already lists `cable,band` equipment).
+-- Migration v1 collapses any existing row.
 
 -- =========================
 -- CARDIO — EXTRA COVERAGE (INTERVALS / SPORTS / MACHINES)

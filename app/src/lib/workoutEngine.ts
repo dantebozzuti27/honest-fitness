@@ -775,14 +775,7 @@ function weightForReps(estimated1RM: number, targetReps: number, rir: number, eq
   if (estimated1RM <= 0 || targetReps <= 0) return 0;
   const effectiveReps = targetReps + rir;
   const raw = estimated1RM / (1 + effectiveReps / 30);
-  const cfg = DEFAULT_MODEL_CONFIG;
-  const eqNorm = (equipment ?? []).map(normalizeEquipment);
-  let step: number;
-  if (eqNorm.includes('barbell')) step = cfg.barbellIncrement;
-  else if (eqNorm.includes('dumbbell')) step = cfg.dumbbellIncrement;
-  else if (exerciseType === 'isolation') step = cfg.isolationIncrement;
-  else step = cfg.machineIncrement;
-  return Math.round(raw / step) * step;
+  return snapToPlate(raw, equipment, exerciseType);
 }
 
 /**
@@ -859,8 +852,21 @@ function clampToRepLoadCeiling(
   const ceiling = weightForReps(e1rmReference, targetReps, rir, equipment, exerciseType);
   if (ceiling <= 0) return { weight: targetWeight, note: null };
 
-  // Steady-state path: prescription respects the rep×load identity. No clamp.
-  if (targetWeight <= ceiling) return { weight: targetWeight, note: null };
+  // Steady-state path: prescription respects the rep×load identity. No
+  // capacity clamp needed, but we still snap to a loadable plate so any
+  // upstream path that bypassed `snapToPlate` (forecast residuals, learned-
+  // weight medians, manually-edited preferences) cannot leak through as the
+  // user-facing prescription. This is the *final* snapping checkpoint.
+  if (targetWeight <= ceiling) {
+    const snapped = snapToPlate(targetWeight, equipment, exerciseType);
+    if (snapped !== targetWeight) {
+      return {
+        weight: snapped,
+        note: `Snapped to loadable: ${targetWeight} → ${snapped} lbs`,
+      };
+    }
+    return { weight: targetWeight, note: null };
+  }
 
   // Overshoot path: stacked modifiers pushed weight above true capacity.
   // Apply the safety margin only here, and floor to a plate so we never
@@ -1178,16 +1184,67 @@ function generateWarmupRamp(
  * Isolation cable/machine: 2.5 lb (pin-select stacks)
  * Other/unknown: 5 lb
  */
-function snapToPlate(weight: number, equipment?: string[], exerciseType?: string): number {
-  if (weight <= 0) return 0;
-  const cfg = DEFAULT_MODEL_CONFIG;
+/**
+ * Resolve the {step, minWeight} pair that defines what weights are physically
+ * loadable for a given equipment context. This is the single source of truth
+ * for "what's a legal prescription value."
+ *
+ * Priority order matters:
+ *   barbell > smith_machine > dumbbell > kettlebell > isolation-by-type > machine
+ *
+ * Why barbell wins over the others when an exercise lists multiple equipment
+ * options: barbell loading has the strictest physical constraint (45 lb empty
+ * bar minimum), so we must respect it any time a barbell is even an option.
+ * Otherwise the engine could prescribe e.g. 30 lb for a "barbell or dumbbell"
+ * row, and the user would have no way to load 30 lb on a real barbell.
+ */
+function getEquipmentLoadProfile(
+  equipment: string[] | undefined,
+  exerciseType: string | undefined,
+  cfg: ModelConfig = DEFAULT_MODEL_CONFIG
+): { step: number; minWeight: number } {
   const eqNorm = (equipment ?? []).map(normalizeEquipment);
-  let step: number;
-  if (eqNorm.includes('barbell')) step = cfg.barbellIncrement;
-  else if (eqNorm.includes('dumbbell')) step = cfg.dumbbellIncrement;
-  else if (exerciseType === 'isolation') step = cfg.isolationIncrement;
-  else step = cfg.machineIncrement;
-  return Math.round(weight / step) * step;
+  if (eqNorm.includes('barbell')) {
+    return { step: cfg.barbellIncrement, minWeight: cfg.barbellMinWeight };
+  }
+  if (eqNorm.includes('smith_machine')) {
+    return { step: cfg.smithIncrement, minWeight: cfg.smithMinWeight };
+  }
+  if (eqNorm.includes('dumbbell')) {
+    return { step: cfg.dumbbellIncrement, minWeight: cfg.dumbbellMinWeight };
+  }
+  if (eqNorm.includes('kettlebell')) {
+    return { step: cfg.kettlebellIncrement, minWeight: cfg.kettlebellMinWeight };
+  }
+  if (exerciseType === 'isolation') {
+    return { step: cfg.isolationIncrement, minWeight: cfg.machineMinWeight };
+  }
+  return { step: cfg.machineIncrement, minWeight: cfg.machineMinWeight };
+}
+
+/**
+ * Snap a target weight to a physically-loadable value for the equipment in
+ * use. Enforces BOTH the granularity (so a barbell never gets 47.3 lb) AND
+ * the equipment-specific minimum (so a barbell can never come back at 30 lb
+ * and a dumbbell can never come back at 1 lb).
+ *
+ * Steady-state behaviour:
+ *   - 0 / negative input → 0 (means "no weight prescription")
+ *   - Positive input below minimum → minimum (you cannot load less than this)
+ *   - Positive input above minimum → snapped to nearest step
+ *
+ * The previous implementation only enforced step granularity, which is why
+ * 40-lb barbells and 69-lb dumbbells were sneaking through: a 42 lb input
+ * snapped to 40 lb (step of 5), and a 68.7 lb input snapped to 70 lb only
+ * if `Math.round` worked out — but path bypasses (forecast assignment, plain
+ * `Math.round` in the bodyweight cap) skipped snapping entirely.
+ */
+export function snapToPlate(weight: number, equipment?: string[], exerciseType?: string): number {
+  if (!Number.isFinite(weight) || weight <= 0) return 0;
+  const cfg = DEFAULT_MODEL_CONFIG;
+  const { step, minWeight } = getEquipmentLoadProfile(equipment, exerciseType, cfg);
+  const snapped = Math.round(weight / step) * step;
+  return snapped < minWeight ? minWeight : snapped;
 }
 
 /**
@@ -4320,8 +4377,11 @@ function stepPrescribe(
         if (forecast && forecast.confidence >= 0.5 && forecast.predictedTargetWeight > 0) {
           const forecastWeight = forecast.predictedTargetWeight;
           if (forecastWeight <= targetWeight * 1.10 && forecastWeight >= targetWeight * 0.90) {
-            targetWeight = forecastWeight;
-            adjustments.push(`Forecast: ${forecastWeight}lbs (R²=${forecast.confidence.toFixed(2)})`);
+            // Forecast comes back as a continuous regression output (e.g.
+            // 187.4 lbs). Snap to a loadable value before assigning so we
+            // never bypass the equipment-specific min/step constraints.
+            targetWeight = snapToPlate(forecastWeight, equipment, exType);
+            adjustments.push(`Forecast: ${targetWeight}lbs (R²=${forecast.confidence.toFixed(2)})`);
             modifierApplied = true;
           }
         }
@@ -4487,8 +4547,12 @@ function stepPrescribe(
       }
 
       if (targetWeight > maxPlausible) {
-        adjustments.push(`Weight capped: ${targetWeight} → ${Math.round(maxPlausible)} lbs (sanity limit for ${exType ?? 'exercise'})`);
-        targetWeight = Math.round(maxPlausible);
+        // Snap the cap value too — Math.round produced odd weights like
+        // 81 lb dumbbells where 80 is the legal value. Plate snapping must
+        // be the LAST transformation before assignment, never plain rounding.
+        const cappedSnapped = snapToPlate(maxPlausible, equipment, exType);
+        adjustments.push(`Weight capped: ${targetWeight} → ${cappedSnapped} lbs (sanity limit for ${exType ?? 'exercise'})`);
+        targetWeight = cappedSnapped;
       }
     }
 

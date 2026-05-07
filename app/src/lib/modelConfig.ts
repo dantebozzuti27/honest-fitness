@@ -55,6 +55,35 @@ export interface ModelConfig {
   machineIncrement: number;
   /** Isolation exercise increment (lbs) — smaller to avoid big % jumps on light weights */
   isolationIncrement: number;
+  /** Smith-machine plate increment (lbs); usually mirrors barbell */
+  smithIncrement: number;
+  /** Kettlebell increment (lbs); KB racks typically jump 5–9 lbs but we round to 5 for prescription stability */
+  kettlebellIncrement: number;
+  /**
+   * Minimum legal weight for a standard Olympic barbell (empty bar = 45 lbs).
+   * The engine MUST NOT prescribe a barbell weight below this — there is no
+   * physical way to load less. Anything below this snaps up to the floor.
+   */
+  barbellMinWeight: number;
+  /**
+   * Minimum legal weight for a Smith machine (empty bar usually 25–45 lbs;
+   * we use 25 as a conservative floor). Same physical rationale as barbell.
+   */
+  smithMinWeight: number;
+  /**
+   * Smallest dumbbell typically available in a commercial rack (5 lbs).
+   * Some adjustable systems go lower but assuming a 5-lb floor matches the
+   * majority of gym contexts the engine targets.
+   */
+  dumbbellMinWeight: number;
+  /** Smallest kettlebell typically available (8 kg = ~17 lbs), floored to 10 lbs. */
+  kettlebellMinWeight: number;
+  /**
+   * Smallest non-zero pin selection on a pin-loaded weight stack. Below this
+   * the engine should treat the exercise as unloadable rather than prescribe
+   * a sub-stack value.
+   */
+  machineMinWeight: number;
   /** Maximum % jump allowed per session (caps absolute increment) */
   maxProgressionPct: number;
 
@@ -545,6 +574,13 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   dumbbellIncrement: 5,
   machineIncrement: 5,
   isolationIncrement: 2.5,
+  smithIncrement: 5,
+  kettlebellIncrement: 5,
+  barbellMinWeight: 45,
+  smithMinWeight: 25,
+  dumbbellMinWeight: 5,
+  kettlebellMinWeight: 10,
+  machineMinWeight: 5,
   maxProgressionPct: 0.10,
 
   // Exercise selection

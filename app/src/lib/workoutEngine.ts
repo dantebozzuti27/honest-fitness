@@ -4896,10 +4896,22 @@ function stepApplyConstraints(
   recoveryAdj?: RecoveryAdjustment,
   progressionScale: number = 1.0,
   breakRampMultiplier: number = 1.0,
-  planningDate?: Date
+  planningDate?: Date,
+  monthlyFocusMuscle: string | null = null,
 ): GeneratedExercise[] {
   const cardio = exercises.filter(e => e.isCardio);
   const strength = exercises.filter(e => !e.isCardio);
+  // The monthly fitness focus is a hard user contract ("layer this muscle
+  // into every workout"). Phase 3 trimming below sorts by impactScore and
+  // drops the lowest first — which always kills the focus isolation
+  // exercise (low impactScore by definition) before anything else. Keep
+  // exactly one focus-muscle exercise undroppable so the contract holds
+  // even when the session is over-budget. We allow dropping additional
+  // focus-muscle exercises beyond the first because the contract is
+  // "presence", not "high volume".
+  const focusGroupNorm = monthlyFocusMuscle
+    ? (normalizeMuscleGroupName(monthlyFocusMuscle) ?? String(monthlyFocusMuscle).toLowerCase())
+    : null;
 
   const orderProfiles = profile.exerciseOrderProfiles ?? [];
   const positionMap = new Map<string, ExerciseOrderProfile>();
@@ -5172,6 +5184,10 @@ function stepApplyConstraints(
     const compoundCount = () => keepExercises().filter(isCompoundGenerated).length;
     const stapleFamilyCount = (familyKey: string) =>
       keepExercises().filter(e => stapleFamilyKey(e.exerciseName) === familyKey).length;
+    const focusExercisesKept = () =>
+      focusGroupNorm
+        ? keepExercises().filter(e => String(e.targetMuscleGroup ?? '').toLowerCase() === focusGroupNorm).length
+        : 0;
 
     for (const ex of sortedByImpact) {
       if (totalStrengthMin <= strengthBudget) break;
@@ -5180,6 +5196,15 @@ function stepApplyConstraints(
       if (isCompoundGenerated(ex) && compoundCount() <= 1) continue;
       const familyKey = stapleFamilyKey(ex.exerciseName);
       if (requiredStapleFamilies.has(familyKey) && stapleFamilyCount(familyKey) <= 1) continue;
+      // Protect the monthly fitness focus: keep at least one exercise
+      // targeting the focus muscle even if it has the lowest impactScore
+      // in the session. Without this, the focus isolation lift is always
+      // the first to die under time pressure.
+      if (
+        focusGroupNorm
+        && String(ex.targetMuscleGroup ?? '').toLowerCase() === focusGroupNorm
+        && focusExercisesKept() <= 1
+      ) continue;
       keepSet.delete(ex.exerciseName);
       totalStrengthMin -= ex.estimatedMinutes;
     }
@@ -6324,9 +6349,19 @@ function validateAndCorrect(
   exercises: GeneratedExercise[],
   profile: TrainingProfile,
   sessionBudgetMin: number,
+  monthlyFocusMuscle: string | null = null,
 ): GeneratedExercise[] {
   const corrections: string[] = [];
   const finiteBudget = Number.isFinite(sessionBudgetMin) ? Math.max(20, Math.round(sessionBudgetMin)) : 60;
+  // Normalise the focus muscle once so all guards below match what
+  // `targetMuscleGroup` actually carries (lowercase canonical group).
+  const focusGroupNorm = monthlyFocusMuscle
+    ? (normalizeMuscleGroupName(monthlyFocusMuscle) ?? String(monthlyFocusMuscle).toLowerCase())
+    : null;
+  const isFocusEx = (ex: GeneratedExercise): boolean =>
+    !!focusGroupNorm
+    && !ex.isCardio
+    && String(ex.targetMuscleGroup ?? '').toLowerCase() === focusGroupNorm;
 
   // Pareto guardrail: cap total exercises so plans stay focused and executable.
   const maxExerciseCount = (() => {
@@ -6340,6 +6375,21 @@ function validateAndCorrect(
     return 12;
   })();
   if (exercises.length > maxExerciseCount) {
+    // The monthly fitness focus is a hard contract — pin one focus-muscle
+    // exercise into the keep set BEFORE the cap is enforced. Without
+    // this, an isolation focus lift (low role-base + low impactScore) is
+    // always the first to be cut, and the user sees zero biceps work on
+    // a chest day even though the engine selected one.
+    const focusKeptIdx: number | null = focusGroupNorm
+      ? (() => {
+          const focusCandidates = exercises
+            .map((ex, idx) => ({ ex, idx }))
+            .filter(({ ex }) => isFocusEx(ex));
+          if (focusCandidates.length === 0) return null;
+          focusCandidates.sort((a, b) => (b.ex.impactScore ?? 0) - (a.ex.impactScore ?? 0));
+          return focusCandidates[0].idx;
+        })()
+      : null;
     const ranked = exercises
       .map((ex, idx) => {
         const roleBase =
@@ -6354,6 +6404,7 @@ function validateAndCorrect(
       })
       .sort((a, b) => b.score - a.score);
     const keepIdx = new Set(ranked.slice(0, maxExerciseCount).map(r => r.idx));
+    if (focusKeptIdx !== null) keepIdx.add(focusKeptIdx);
     const removed = exercises.filter((_, idx) => !keepIdx.has(idx));
     if (removed.length > 0) {
       exercises.splice(0, exercises.length, ...exercises.filter((_, idx) => keepIdx.has(idx)));
@@ -6501,6 +6552,10 @@ function validateAndCorrect(
         .sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
       for (const ex of nonPrimary) {
         if (totalMin <= hardMaxMin) break;
+        // Floor the focus exercise at 2 sets (already its starting point);
+        // this loop would otherwise still iterate it once the budget is
+        // tight. Skip explicitly so the trim logs stay accurate.
+        if (isFocusEx(ex)) continue;
         while (ex.sets > 2 && totalMin > hardMaxMin) {
           const oldSets = ex.sets;
           ex.sets -= 1;
@@ -6936,13 +6991,14 @@ export async function generateWorkout(
     recoveryAdj,
     progressionScale,
     breakRampMultiplier,
-    planningDate
+    planningDate,
+    monthlyFocusMuscle,
   );
   stageEnd(tConstraints);
 
   // Step 5b: Post-generation validation — catch absurd prescriptions
   const tValidate = stageStart('validate_adapt');
-  const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes);
+  const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes, monthlyFocusMuscle);
   const adaptiveContext = buildAdaptivePolicyContext(profile, {
     training_goal: (prefs.training_goal as GoalKind) ?? 'maintain',
     experience_level: prefs.experience_level ?? null,
@@ -6971,7 +7027,7 @@ export async function generateWorkout(
     };
   });
   const adaptedRecomputed = recalcEstimatedMinutes(adaptedRaw);
-  const adaptedValidated = validateAndCorrect(adaptedRecomputed, profile, prefs.session_duration_minutes);
+  const adaptedValidated = validateAndCorrect(adaptedRecomputed, profile, prefs.session_duration_minutes, monthlyFocusMuscle);
   const adapted = recalcEstimatedMinutes(adaptedValidated);
   stageEnd(tValidate);
 

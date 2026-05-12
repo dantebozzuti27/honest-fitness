@@ -627,3 +627,62 @@ test('deriveDayTheme: a normal chest day still works', () => {
   assert.ok(t);
   assert.equal(t!.primary, 'mid_chest');
 });
+
+// Label-driven primary picking (#6). Without this, the primary was just
+// `groups[0]`, which depends on the order the user happened to add muscles
+// in the Profile editor. Now the user's label is the source of truth.
+test('deriveDayTheme: focus label "Chest / Triceps" overrides groups[0] = traps', () => {
+  const t = deriveDayTheme(
+    'Chest / Triceps',
+    ['upper_traps', 'mid_chest', 'triceps', 'core'],
+    'schedule',
+  );
+  assert.ok(t);
+  // Without label parsing this would be `upper_traps`. With it, the
+  // user's stated intent ("Chest") wins.
+  assert.equal(t!.primary, 'mid_chest');
+});
+
+test('deriveDayTheme: family synonyms — "Legs" picks quads', () => {
+  const t = deriveDayTheme(
+    'Legs',
+    ['glutes', 'quadriceps', 'hamstrings', 'core'],
+    'schedule',
+  );
+  assert.ok(t);
+  assert.equal(t!.primary, 'quadriceps');
+});
+
+test('deriveDayTheme: "Push" maps to push family from rotation source', () => {
+  const t = deriveDayTheme(
+    'Push',
+    ['triceps', 'mid_chest', 'anterior_deltoid'],
+    'rotation',
+  );
+  assert.ok(t);
+  assert.equal(t!.primary, 'mid_chest');
+});
+
+test('deriveDayTheme: unmatched label falls back to first eligible group', () => {
+  // No tokens in label resolve to anything in eligible — prove the
+  // fallback didn't change.
+  const t = deriveDayTheme(
+    'Custom Workout',
+    ['back_lats', 'biceps'],
+    'schedule',
+  );
+  assert.ok(t);
+  assert.equal(t!.primary, 'back_lats');
+});
+
+test('deriveDayTheme: direct canonical token in label takes priority', () => {
+  // "posterior_deltoid emphasis" should pin posterior_deltoid even though
+  // "delts" family would otherwise prefer lateral first.
+  const t = deriveDayTheme(
+    'posterior_deltoid emphasis',
+    ['lateral_deltoid', 'posterior_deltoid', 'mid_chest'],
+    'schedule',
+  );
+  assert.ok(t);
+  assert.equal(t!.primary, 'posterior_deltoid');
+});

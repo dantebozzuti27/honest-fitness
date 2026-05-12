@@ -1956,6 +1956,96 @@ function expandWithSynergists(primaries: ReadonlySet<string> | string[]): Set<st
  */
 const NON_PRIMARY_THEME_GROUPS: ReadonlySet<string> = new Set(['core', 'abs', 'abdominals', 'calves', 'cardio']);
 
+/**
+ * Family synonyms for label-driven theme primary selection.
+ *
+ * Users label split days with informal terms ("Chest", "Shoulders",
+ * "Back", "Legs"). Those terms aren't canonical muscle groups but DO
+ * unambiguously identify which canonical groups the user meant. This
+ * map lets `deriveDayTheme` honor the user's stated intent ("Chest /
+ * Triceps day") rather than just picking the first muscle in the
+ * groups array (which can be e.g. `upper_traps` due to ordering
+ * accidents in the Profile editor).
+ *
+ * Order within each value array matters: it's the preference order
+ * when multiple canonical groups in the eligible set match the same
+ * family (e.g. "chest" prefers mid_chest over upper_chest because
+ * mid_chest is the default home for horizontal push work).
+ */
+const THEME_LABEL_FAMILY_SYNONYMS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['chest', ['mid_chest', 'upper_chest', 'lower_chest']],
+  ['shoulders', ['anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid']],
+  ['delts', ['lateral_deltoid', 'anterior_deltoid', 'posterior_deltoid']],
+  ['rear delts', ['posterior_deltoid']],
+  ['back', ['back_lats', 'back_upper']],
+  ['lats', ['back_lats']],
+  ['traps', ['upper_traps', 'mid_traps', 'lower_traps']],
+  ['legs', ['quadriceps', 'hamstrings', 'glutes']],
+  ['quads', ['quadriceps']],
+  ['hams', ['hamstrings']],
+  ['arms', ['biceps', 'triceps']],
+  ['push', ['mid_chest', 'anterior_deltoid', 'triceps']],
+  ['pull', ['back_lats', 'biceps', 'posterior_deltoid']],
+  ['upper', ['mid_chest', 'back_lats']],
+  ['lower', ['quadriceps', 'glutes']],
+]);
+
+/**
+ * Tokenise a focus label into normalised lowercase fragments.
+ * Splits on / , & + and the word "and"; trims whitespace; drops
+ * empties. "Chest / Triceps & Shoulders" → ["chest","triceps","shoulders"].
+ */
+function parseFocusLabelTokens(focus: string): string[] {
+  if (!focus) return [];
+  return String(focus)
+    .toLowerCase()
+    .split(/[/,&+]|\sand\s/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Resolve a single focus-label token to a preferred canonical group
+ * from the eligible set. Strategy, in priority order:
+ *   1. Token (with spaces → underscores) is itself a canonical group.
+ *   2. Token matches a multi-word family synonym key ("rear delts" →
+ *      `posterior_deltoid`).
+ *   3. Any individual whitespace-separated word inside the token is a
+ *      canonical group or a single-word family synonym key. This catches
+ *      labels like "posterior_deltoid emphasis" or "biceps focus" where
+ *      the user added a qualifier after the muscle name.
+ * Returns null when nothing matches — caller falls back to its own
+ * default ordering.
+ */
+function resolveLabelTokenToCanonical(token: string, eligible: readonly string[]): string | null {
+  const eligibleSet = new Set(eligible);
+  const tryCanonical = (s: string): string | null => (eligibleSet.has(s) ? s : null);
+  const tryFamily = (s: string): string | null => {
+    const family = THEME_LABEL_FAMILY_SYNONYMS.get(s);
+    if (!family) return null;
+    for (const candidate of family) {
+      if (eligibleSet.has(candidate)) return candidate;
+    }
+    return null;
+  };
+
+  const cleaned = token.replace(/\s+/g, '_');
+  return (
+    tryCanonical(cleaned)
+    ?? tryFamily(token)
+    ?? tryFamily(cleaned)
+    ?? (() => {
+      const words = token.split(/\s+/).filter(Boolean);
+      if (words.length <= 1) return null;
+      for (const word of words) {
+        const hit = tryCanonical(word) ?? tryFamily(word);
+        if (hit) return hit;
+      }
+      return null;
+    })()
+  );
+}
+
 export function deriveDayTheme(
   focus: string,
   muscleGroups: string[],
@@ -1975,7 +2065,20 @@ export function deriveDayTheme(
     // rotation or detected-pattern fallback and pick a real primary.
     return null;
   }
-  const primary = primaryEligible[0];
+  // Prefer a primary that matches the user's stated focus label over the
+  // first-element-of-groups default. Otherwise a day where the user typed
+  // "Chest / Triceps" but the groups array was sorted alphabetically would
+  // get primary=anterior_deltoid (or whatever happened to come first),
+  // and the rationale text would describe a day the user didn't intend.
+  // The label is the user's declared intent; honor it when consistent.
+  let primary = primaryEligible[0];
+  for (const token of parseFocusLabelTokens(focus)) {
+    const resolved = resolveLabelTokenToCanonical(token, primaryEligible);
+    if (resolved) {
+      primary = resolved;
+      break;
+    }
+  }
   // For a strict split, allowedAccessories = the OTHER muscles in the same
   // split mapping. We do NOT expand with synergists here because the
   // canonical split mappings (e.g. PPL push = [chest, front delt, side

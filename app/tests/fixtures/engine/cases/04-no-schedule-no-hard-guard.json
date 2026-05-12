@@ -9,7 +9,7 @@
     "dayTheme": {
       "primary": "back_lats",
       "allowedAccessories": ["biceps"],
-      "source": "inferred"
+      "source": "default"
     }
   },
   "expectations": {

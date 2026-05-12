@@ -95,7 +95,7 @@ interface FixtureContext {
   dayTheme?: {
     primary: string;
     allowedAccessories: string[];
-    source: 'schedule' | 'rotation' | 'inferred';
+    source: 'schedule' | 'rotation' | 'default';
   };
   userAuthoredScheduleGroups?: string[];
   monthlyFocusMuscle?: string;

@@ -2088,24 +2088,34 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
 }
 
 /**
- * Mark every active weekly_plan_versions row for this user as superseded.
+ * Force the next TodayWorkout / WeekAhead visit to regenerate by removing
+ * every active weekly_plan_versions row for this user.
  *
- * Why this exists:
- *   The TodayWorkout / WeekAhead screens prefer the saved active plan over
- *   regenerating, gated by a narrow `isWeeklyPlanStale` heuristic. That
- *   heuristic doesn't (and shouldn't) know about every preference field
- *   that affects generation — for example `monthly_focus_state.fitness_muscle`
- *   or a freshly-edited `weekly_split_schedule`. When such a field changes,
- *   call this to invalidate the cached plan so the next visit regenerates.
+ * Why DELETE rather than UPDATE status='superseded':
+ *   `weekly_plan_versions` has a unique index on
+ *   `(user_id, week_start_date, status)`. Once a week has both an active
+ *   row AND a superseded row (the normal state after one regeneration),
+ *   flipping the active to superseded collides on the index. DELETE side-
+ *   steps that entirely.
  *
- * Returns the count of rows superseded so callers can decide whether to
- * surface a "weekly plan will refresh" toast.
+ * Safety:
+ *   - `weekly_plan_days.weekly_plan_id` and `weekly_plan_diffs.weekly_plan_id`
+ *     have ON DELETE CASCADE, so day/diff rows tied to the deleted version
+ *     follow. That's the right semantics — the diffs describe how *that*
+ *     plan evolved; the regenerated plan starts a new diff history.
+ *   - `decision_provenance_events.weekly_plan_id` is ON DELETE SET NULL,
+ *     so provenance events survive (with the back-reference cleared).
+ *   - The previous superseded row for the same week is NOT touched,
+ *     preserving the historical record of what was generated.
+ *
+ * Returns the count of active rows removed so callers can decide whether
+ * to surface a "weekly plan will refresh" toast.
  */
 export async function supersedeActiveWeeklyPlanForUser(userId: string): Promise<number> {
   if (!userId) return 0
   const { data, error } = await supabase
     .from('weekly_plan_versions')
-    .update({ status: 'superseded' })
+    .delete()
     .eq('user_id', userId)
     .eq('status', 'active')
     .select('id')

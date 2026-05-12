@@ -1,0 +1,26 @@
+-- One-shot maintenance (round 2): force regen by DELETING the active
+-- weekly_plan_versions row(s).
+--
+-- Why DELETE instead of "UPDATE status='superseded'":
+--   The unique index `(user_id, week_start_date, status)` prevents two
+--   superseded rows for the same user-week, and the earlier maintenance
+--   pass already left a superseded row for the current week. Flipping
+--   the new active row to superseded would collide. Deleting the active
+--   row sidesteps the index entirely.
+--
+-- Safety:
+--   FKs `weekly_plan_days.weekly_plan_id` and `weekly_plan_diffs.weekly_plan_id`
+--   are ON DELETE CASCADE, so day-level data and diff history follow.
+--   `decision_provenance_events.weekly_plan_id` is ON DELETE SET NULL, so
+--   provenance rows survive but lose the back-reference (acceptable;
+--   provenance still has its own primary key and all event payload).
+--
+--   The previous superseded row for the same week is preserved so we
+--   keep the historical record of what was generated.
+--
+-- Effect:
+--   `getActiveWeeklyPlanFromSupabase` returns null on next visit; the
+--   TodayWorkout / WeekAhead loader regenerates via `generateWeeklyPlan`
+--   with the new monthly-focus-aware engine.
+DELETE FROM public.weekly_plan_versions
+WHERE status = 'active';

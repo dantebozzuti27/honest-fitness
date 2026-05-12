@@ -24,6 +24,7 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import BackButton from '../components/BackButton'
 import Button from '../components/Button'
+import MonthlyFocusCard from '../components/MonthlyFocusCard'
 import { getLocalDate } from '../utils/dateUtils'
 import { logError } from '../utils/logger'
 // Schema probing removed — server-side schema is controlled by migrations
@@ -1661,6 +1662,10 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
             </button>
           </div>
         )}
+        {/* Monthly focus banner — explains why the engine layered the focus
+            muscle into today's workout and links back to Profile to edit. */}
+        <MonthlyFocusCard variant="compact" />
+
         {/* Preferences prompt */}
         {!prefsSet ? (
           <div className={styles.prefsBanner}>

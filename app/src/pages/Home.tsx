@@ -11,6 +11,7 @@ import { logError } from '../utils/logger'
 import { ROUTES, openTodayWorkout } from '../utils/appRoutes'
 import Skeleton from '../components/Skeleton'
 import Button from '../components/Button'
+import MonthlyFocusCard from '../components/MonthlyFocusCard'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import SafeAreaScaffold from '../components/ui/SafeAreaScaffold'
@@ -428,6 +429,11 @@ export default function Home() {
               </Button>
             )}
           </div>
+
+          {/* Monthly focuses — surfaced from Profile so the user sees both
+              the fitness layer the engine is using and can check off the
+              daily life habit without leaving Home. */}
+          <MonthlyFocusCard />
 
           {/* #37: Streak Calendar — last 28 days */}
           {!loading && recentWorkouts.length > 0 && (() => {

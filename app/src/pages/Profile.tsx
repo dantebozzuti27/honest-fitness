@@ -7,8 +7,9 @@ import { connectFitbit } from '../lib/fitbitAuth'
 import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferencesDb'
 import { ageRecoveryFactor } from '../lib/recoveryModel'
 import { deleteUserAccount } from '../lib/accountDeletion'
-import { getTodayEST } from '../utils/dateUtils'
+import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 import { getMetricsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metricsDb'
+import { currentMonthKey, displayMonthlyFocusState, type MonthlyFocusStateV1 } from '../lib/monthlyFocus'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -318,6 +319,14 @@ const SPLIT_PRESETS: Record<string, { label: string; days: Record<string, { focu
   },
 }
 
+function daysInCalendarMonth(ym: string): number {
+  const [ys, ms] = ym.split('-')
+  const y = Number(ys)
+  const m = Number(ms)
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return 31
+  return new Date(y, m, 0).getDate()
+}
+
 interface WeeklySplitScheduleEditorProps {
   schedule: Record<string, DaySchedule>
   restDays: number[]
@@ -595,6 +604,13 @@ export default function Profile() {
     sport_season: '',
     hotel_mode: false,
   })
+  const [monthlyFocus, setMonthlyFocus] = useState<MonthlyFocusStateV1>(() => ({
+    month: currentMonthKey(),
+    fitness_muscle: null,
+    life_label: '',
+    life_completions: {},
+  }))
+  const [lifeLogSaving, setLifeLogSaving] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [newInjury, setNewInjury] = useState({ body_part: '', description: '', severity: 'moderate' })
@@ -728,6 +744,7 @@ export default function Profile() {
           sport_season: prefs.sport_season || '',
           hotel_mode: Boolean(prefs.hotel_mode),
         })
+        setMonthlyFocus(displayMonthlyFocusState(prefs.monthly_focus_state, currentMonthKey()))
       }
       setProfileLoaded(true)
     } catch (err) {
@@ -791,6 +808,22 @@ export default function Profile() {
         sport_focus: trainingProfile.sport_focus || null,
         sport_season: trainingProfile.sport_season || null,
         hotel_mode: Boolean(trainingProfile.hotel_mode),
+        monthly_focus_state: (() => {
+          const ym = currentMonthKey()
+          const completionsEntries = Object.entries(monthlyFocus.life_completions).filter(([k]) => k.startsWith(`${ym}-`))
+          const completions = Object.fromEntries(completionsEntries)
+          const has =
+            Boolean(monthlyFocus.fitness_muscle)
+            || Boolean(monthlyFocus.life_label.trim())
+            || Object.keys(completions).length > 0
+          if (!has) return null
+          return {
+            month: ym,
+            fitness_muscle: monthlyFocus.fitness_muscle || null,
+            life_label: monthlyFocus.life_label.trim(),
+            life_completions: completions,
+          }
+        })(),
       }
       await saveUserPreferences(user.id, payload)
 
@@ -811,6 +844,41 @@ export default function Profile() {
       showToast(`Failed to save training profile${detail ? `: ${detail}` : ''}`, 'error')
     }
     setSavingProfile(false)
+  }
+
+  const toggleLifeFocusDay = async (day: number) => {
+    if (!user || !monthlyFocus.life_label.trim()) {
+      showToast('Add a life habit description first', 'error')
+      return
+    }
+    const ym = currentMonthKey()
+    const dateStr = `${ym}-${String(day).padStart(2, '0')}`
+    if (dateStr > getLocalDate()) {
+      showToast('Future days cannot be logged yet', 'error')
+      return
+    }
+    setLifeLogSaving(true)
+    const prev = monthlyFocus
+    const next: MonthlyFocusStateV1 = {
+      ...monthlyFocus,
+      month: ym,
+      life_completions: { ...monthlyFocus.life_completions },
+    }
+    if (next.life_completions[dateStr]) delete next.life_completions[dateStr]
+    else next.life_completions[dateStr] = true
+    for (const k of Object.keys(next.life_completions)) {
+      if (!k.startsWith(`${ym}-`)) delete next.life_completions[k]
+    }
+    setMonthlyFocus(next)
+    try {
+      await saveUserPreferences(user.id, { monthly_focus_state: next })
+    } catch (err: unknown) {
+      logError('Life focus check-in save error', err)
+      setMonthlyFocus(prev)
+      showToast('Failed to save check-in', 'error')
+    } finally {
+      setLifeLogSaving(false)
+    }
   }
 
   const addInjury = () => {
@@ -1119,6 +1187,80 @@ export default function Profile() {
                   restDays={trainingProfile.rest_days}
                   onChange={(next) => setTrainingProfile(p => ({ ...p, weekly_split_schedule: next }))}
                 />
+
+                <div style={{ padding: '12px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+                  <h3 style={{ margin: '0 0 8px', fontSize: '15px', color: 'var(--text-primary)' }}>This month&apos;s focuses</h3>
+                  <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    Pick one muscle to emphasize across the program. It is layered into sessions without replacing your split: on the day before a scheduled day that already trains that muscle, added volume stays light so the hardest work lands on the right workout.
+                  </p>
+                  <SelectField
+                    label="Fitness focus (one body part)"
+                    value={monthlyFocus.fitness_muscle ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setMonthlyFocus((f) => ({
+                        ...f,
+                        month: currentMonthKey(),
+                        fitness_muscle: v ? v : null,
+                      }))
+                    }}
+                    options={[{ value: '', label: 'None' }, ...MUSCLE_GROUPS]}
+                  />
+                  <InputField
+                    label="Life habit"
+                    value={monthlyFocus.life_label}
+                    onChange={(e) =>
+                      setMonthlyFocus((f) => ({ ...f, month: currentMonthKey(), life_label: e.target.value }))
+                    }
+                    placeholder="e.g. Brush teeth 2× daily"
+                  />
+                  {monthlyFocus.life_label.trim() ? (
+                    <div style={{ marginTop: '12px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                        Daily check-off ({currentMonthKey()})
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        {(() => {
+                          const ym = currentMonthKey()
+                          const done = Object.keys(monthlyFocus.life_completions).filter(
+                            (k) => k.startsWith(`${ym}-`) && monthlyFocus.life_completions[k],
+                          ).length
+                          const total = daysInCalendarMonth(ym)
+                          return `${done} / ${total} days marked`
+                        })()}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {Array.from({ length: daysInCalendarMonth(currentMonthKey()) }, (_, i) => i + 1).map((day) => {
+                          const ym = currentMonthKey()
+                          const dateStr = `${ym}-${String(day).padStart(2, '0')}`
+                          const done = Boolean(monthlyFocus.life_completions[dateStr])
+                          const future = dateStr > getLocalDate()
+                          return (
+                            <button
+                              key={dateStr}
+                              type="button"
+                              disabled={future || lifeLogSaving}
+                              onClick={() => { void toggleLifeFocusDay(day) }}
+                              style={{
+                                minWidth: '36px',
+                                padding: '6px 8px',
+                                borderRadius: '8px',
+                                border: done ? '1px solid var(--success, #22c55e)' : '1px solid var(--border)',
+                                background: done ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)',
+                                color: future ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                                fontSize: '12px',
+                                cursor: future ? 'not-allowed' : 'pointer',
+                                opacity: future ? 0.45 : 1,
+                              }}
+                            >
+                              {day}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
 
                 <SelectField
                   label="Recovery Speed"

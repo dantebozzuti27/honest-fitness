@@ -57,6 +57,7 @@ apiRouter.post('/preferences', async (req, res) => {
       'priority_muscles', 'weekday_deadlines', 'gym_profiles',
       'active_gym_profile', 'age', 'rest_days', 'sport_focus',
       'sport_season', 'hotel_mode',
+      'monthly_focus_state',
     ]
     for (const col of allowedCols) {
       if (prefs[col] !== undefined) {

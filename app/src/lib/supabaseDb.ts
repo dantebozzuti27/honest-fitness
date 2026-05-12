@@ -1478,6 +1478,7 @@ export async function saveUserPreferences(userId: string, prefs: any) {
     'primary_goal', 'secondary_goal', 'priority_muscles',
     'weekday_deadlines', 'gym_profiles', 'active_gym_profile', 'age',
     'rest_days', 'hotel_mode',
+    'monthly_focus_state',
   ]
   for (const key of directFields) {
     if (prefs[key] !== undefined) {

@@ -35,6 +35,12 @@ import { suggestSupersets, type SupersetSuggestion } from './supersetPairer';
 import { DEFAULT_MODEL_CONFIG, MODEL_CONFIG_VERSION, WORKOUT_ENGINE_VERSION, type ModelConfig } from './modelConfig';
 import { getSportProfile, type SportProfile, type SportSeason } from './sportProfiles';
 import { getLocalDate } from '../utils/dateUtils';
+import {
+  activeMonthlyFitnessMuscleForDate,
+  computeMonthlyFocusSplitGuard,
+  parseMonthlyFocusState,
+  type MonthlyFocusStateV1,
+} from './monthlyFocus';
 import { normalizeEquipment } from '../utils/formatUtils';
 import { logWarn } from '../utils/logger';
 import {
@@ -301,6 +307,8 @@ export interface UserPreferences {
   weekly_split_schedule: Record<string, { focus: string; groups: CanonicalMuscleGroup[] }> | null;
   mesocycle_week: number | null;
   mesocycle_start_date: string | null;
+  /** Monthly fitness + life focuses (profile); consumed by generator + Profile UI */
+  monthly_focus_state: MonthlyFocusStateV1 | null;
 }
 
 export type { ExerciseRole } from './volumeGuidelines';
@@ -532,6 +540,7 @@ export function parseRawPreferences(data: any): UserPreferences {
     weekly_split_schedule: (typeof data?.weekly_split_schedule === 'object' && data?.weekly_split_schedule !== null && !Array.isArray(data.weekly_split_schedule)) ? data.weekly_split_schedule : null,
     mesocycle_week: data?.mesocycle_week != null ? Number(data.mesocycle_week) : null,
     mesocycle_start_date: data?.mesocycle_start_date ?? null,
+    monthly_focus_state: parseMonthlyFocusState(data?.monthly_focus_state),
   };
 }
 
@@ -2262,9 +2271,15 @@ function stepSelectMuscleGroups(
    * to all candidates if the filter is empty).
    */
   activeDayTheme?: DayTheme | null,
+  monthlyFocusMuscle: string | null = null,
+  monthlyFocusSplitGuard: boolean = false,
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
+  const monthlyNorm = monthlyFocusMuscle
+    ? (normalizeMuscleGroupName(monthlyFocusMuscle) ?? monthlyFocusMuscle.toLowerCase())
+    : null;
+  const isMonthlyFocusGroup = (group: string) => Boolean(monthlyNorm && group === monthlyNorm);
 
   // Determine today's target groups from detected split or user preference
   const { detectedSplit, dayOfWeekPatterns } = profile;
@@ -2496,6 +2511,10 @@ function stepSelectMuscleGroups(
 
     if (isPriorityMuscle(vol.muscleGroup)) {
       priority += cfg.priorityMuscleBoost;
+    } else if (isMonthlyFocusGroup(vol.muscleGroup)) {
+      priority += monthlyFocusSplitGuard
+        ? cfg.priorityMuscleBoost * 0.38
+        : cfg.priorityMuscleBoost * 0.72;
     }
 
     // #8: Weak-point prioritization from strength percentiles
@@ -2613,6 +2632,7 @@ function stepSelectMuscleGroups(
     } else {
       expandedTargets = expandWithSynergists(splitTargetGroups);
     }
+    if (monthlyNorm) expandedTargets.add(monthlyNorm);
     const splitFiltered = candidates.filter(c => expandedTargets.has(c.muscleGroup));
     if (splitFiltered.length >= 1 || hardFilter) {
       filteredCandidates = splitFiltered;
@@ -3772,6 +3792,8 @@ function stepPrescribe(
   dayOccurrenceIndex?: number,
   mesocycleVolumeMult?: number,
   mesocycleRirOffset?: number,
+  monthlyFocusMuscle: string | null = null,
+  monthlyFocusSplitGuard: boolean = false,
 ): GeneratedExercise[] {
   const goal = getEffectiveGoal(prefs);
   const hotelModeEnabled = Boolean(prefs.hotel_mode);
@@ -3783,6 +3805,9 @@ function stepPrescribe(
   };
   const secondaryGoal = prefs.secondary_goal;
   const prioritySet = new Set(prefs.priority_muscles.map(m => m.toLowerCase()));
+  const monthlyNorm = monthlyFocusMuscle
+    ? (normalizeMuscleGroupName(monthlyFocusMuscle) ?? monthlyFocusMuscle.toLowerCase())
+    : null;
   const lowerBodyGroups = new Set(['quadriceps', 'hamstrings', 'glutes', 'adductors', 'abductors', 'hip_flexors']);
   let primaryLowerBarbellPrimed = false;
 
@@ -4030,7 +4055,9 @@ function stepPrescribe(
     const idxInGroup = groupIndex[sel.muscleGroup] ?? 0;
     groupIndex[sel.muscleGroup] = idxInGroup + 1;
     const role = classifyExerciseRole(sel.exercise, idxInGroup);
-    const isPriority = prioritySet.has(sel.muscleGroup);
+    const isMonthlyFocusMuscle = Boolean(monthlyNorm && sel.muscleGroup === monthlyNorm);
+    const isPriority = prioritySet.has(sel.muscleGroup)
+      || Boolean(isMonthlyFocusMuscle && !monthlyFocusSplitGuard);
 
     const equipment = (Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : []).map(normalizeEquipment);
     const exType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
@@ -4567,6 +4594,16 @@ function stepPrescribe(
       const safe = clampToRepLoadCeiling(targetWeight, targetReps, rir, e1rmRef, equipment, exType, cfg);
       if (safe.note) adjustments.push(safe.note);
       targetWeight = safe.weight;
+    }
+
+    if (isMonthlyFocusMuscle && monthlyFocusSplitGuard) {
+      const capped = Math.min(sets, 2);
+      if (capped !== sets) {
+        adjustments.push(
+          `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets — heavier work reserved for tomorrow's split day`,
+        );
+        sets = capped;
+      }
     }
 
     return {
@@ -5711,7 +5748,9 @@ function stepGenerateRationale(
   fatLossController?: FatLossControllerAdjustment,
   highCapacityPush?: HighCapacityPushAdjustment,
   policyFusion?: PolicyFusionAdjustment,
-  runtimeFlags?: Record<string, boolean>
+  runtimeFlags?: Record<string, boolean>,
+  monthlyFocusMuscle: string | null = null,
+  monthlyFocusSplitGuard: boolean = false,
 ): GeneratedWorkout {
   const muscleGroupsFocused = muscleGroups.map(g => g.muscleGroup);
   const muscleReasons = muscleGroups.map(g => `${g.muscleGroup}: ${g.reason}`);
@@ -5783,6 +5822,9 @@ function stepGenerateRationale(
     `Recovery status: ${recoveryStatus}`,
     prefs.priority_muscles.length > 0
       ? `Priority muscles: ${prefs.priority_muscles.join(', ')} (extra volume)`
+      : null,
+    monthlyFocusMuscle
+      ? `Monthly fitness focus: ${monthlyFocusMuscle}${monthlyFocusSplitGuard ? ' (light stimulus today — split day tomorrow)' : ' (layered across the week when compatible with your split)'}`
       : null,
     profile.bodyWeightTrend.phase !== 'maintaining'
       ? `Weight trend: ${profile.bodyWeightTrend.phase} (${profile.bodyWeightTrend.slope > 0 ? '+' : ''}${profile.bodyWeightTrend.slope} lbs/week)`
@@ -6159,6 +6201,11 @@ export interface SessionOverrides {
   regenerationSeed?: number;
   /** Phase 1: when set, becomes the hard selection filter for muscle groups. */
   dayTheme?: DayTheme | null;
+  /**
+   * When the weekly planner knows tomorrow's split already includes the user's
+   * monthly fitness-focus muscle, set true to cap layered stimulus today.
+   */
+  monthlyFocusSplitGuard?: boolean;
 }
 
 interface LlmHints {
@@ -6676,6 +6723,19 @@ export async function generateWorkout(
 
   const effectiveDayTheme = resolveEffectiveDayTheme(prefs, planningDow, overrides?.dayTheme);
 
+  const planDateStrForFocus = overrides?.planningDate
+    ? String(overrides.planningDate).slice(0, 10)
+    : getLocalDate(planningDate);
+  const monthlyFocusMuscle = activeMonthlyFitnessMuscleForDate(prefs.monthly_focus_state, planDateStrForFocus);
+  const monthlyFocusSplitGuard = overrides?.monthlyFocusSplitGuard !== undefined
+    ? Boolean(overrides.monthlyFocusSplitGuard)
+    : computeMonthlyFocusSplitGuard(
+        prefs.weekly_split_schedule,
+        prefs.rest_days,
+        planDateStrForFocus,
+        monthlyFocusMuscle,
+      );
+
   // Step 2: Select muscle groups
   const tGroups = stageStart('select_muscle_groups');
   const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(
@@ -6687,6 +6747,8 @@ export async function generateWorkout(
     planningDow,
     overrides?.anchorMuscleGroups,
     effectiveDayTheme,
+    monthlyFocusMuscle,
+    monthlyFocusSplitGuard,
   );
   stageEnd(tGroups);
 
@@ -6788,6 +6850,8 @@ export async function generateWorkout(
     dayOccurrenceIndex,
     mesocycleConfig.volumeMult,
     (mesocycleConfig.rirOffset ?? 0) + goalTimelineRirShift,
+    monthlyFocusMuscle,
+    monthlyFocusSplitGuard,
   );
   stageEnd(tPrescribe);
 
@@ -6856,7 +6920,9 @@ export async function generateWorkout(
     effectiveFatLossController,
     highCapacityPush,
     policyFusion,
-    runtimeFlags
+    runtimeFlags,
+    monthlyFocusMuscle,
+    monthlyFocusSplitGuard,
   );
   workout.sessionRationale = `${workout.sessionRationale} ${toCoachNarrative(adapted as unknown as AdaptiveExercise[], adaptiveContext)}`.trim();
   workout.adjustmentsSummary = [
@@ -7503,6 +7569,20 @@ export async function generateWeeklyPlan(
       .slice(0, 6);
     const protectedStapleSet = new Set(preferredStaplesForDay);
     const proactiveAvoidFiltered = proactiveAvoid.filter((name) => !protectedStapleSet.has(normalizeExerciseName(name)));
+
+    const planMonth = planDate.slice(0, 7);
+    const mfState = planPrefs?.monthly_focus_state;
+    const monthlyMuscleForWeek =
+      mfState && mfState.month === planMonth && mfState.fitness_muscle
+        ? (normalizeMuscleGroupName(mfState.fitness_muscle) ?? String(mfState.fitness_muscle).toLowerCase())
+        : null;
+    const schedForGuard = splitSchedule ?? planPrefs?.weekly_split_schedule ?? null;
+    const monthlyFocusSplitGuardForDay = monthlyMuscleForWeek
+      ? computeMonthlyFocusSplitGuard(schedForGuard, userRestDays, planDate, monthlyMuscleForWeek)
+      : false;
+    const monthlyPlannerOverrides =
+      monthlyMuscleForWeek != null ? { monthlyFocusSplitGuard: monthlyFocusSplitGuardForDay } : {};
+
     let plannedWorkout = await generateWorkout(
       profile,
       proactiveAvoidFiltered.length > 0
@@ -7512,12 +7592,14 @@ export async function generateWeeklyPlan(
             anchorMuscleGroups: dayAnchorGroups,
             preferredExerciseNames: preferredStaplesForDay,
             dayTheme: dayThemeForDay,
+            ...monthlyPlannerOverrides,
           }
         : {
             planningDate: planDate,
             anchorMuscleGroups: dayAnchorGroups,
             preferredExerciseNames: preferredStaplesForDay,
             dayTheme: dayThemeForDay,
+            ...monthlyPlannerOverrides,
           },
       prefetched
     );
@@ -7639,6 +7721,7 @@ export async function generateWeeklyPlan(
           anchorMuscleGroups: dayAnchorGroups,
           preferredExerciseNames: preferredStaplesForDay,
           dayTheme: dayThemeForDay,
+          ...monthlyPlannerOverrides,
         },
         prefetched
       );

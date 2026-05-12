@@ -275,19 +275,21 @@ test('themeCoherence: drops out-of-theme exercises when source=schedule (error)'
 });
 
 // Regression: the monthly fitness focus is a hard user contract
-// ("layer this muscle into every workout, no matter what"). Without the
-// exemption, the engine appends a focus slot in `stepSelectMuscleGroups`,
-// the prescriber generates the exercise, and then the theme guard
-// silently drops it because the focus muscle isn't in the schedule's
-// allowedAccessories. That was the production bug on Push/Legs days
-// for a user with biceps focus.
-test('themeCoherence: preserves the monthly fitness focus exercise even when off-theme', () => {
+// ("layer this muscle into every workout, no matter what"). The contract
+// is now expressed via the per-exercise `isUndroppable` flag set at
+// selection time (centralised replacement for the muscle-group-specific
+// carve-out we used to need across three drop sites).
+test('themeCoherence: preserves any isUndroppable exercise even when off-theme', () => {
   const chest = makeExercise({ exerciseName: 'Bench Press', targetMuscleGroup: 'mid_chest' });
   const focusBiceps = makeExercise({
     exerciseName: 'Bicep Curl',
     targetMuscleGroup: 'biceps',
     exerciseRole: 'isolation',
     sets: 2,
+    // Biceps is the user's monthly fitness focus; the engine marked the
+    // layered slot as undroppable at selection time.
+    isUndroppable: true,
+    undroppableReason: 'monthly_focus',
   });
   const workout = makeWorkout([chest, focusBiceps]);
   const theme: DayTheme = {
@@ -297,33 +299,38 @@ test('themeCoherence: preserves the monthly fitness focus exercise even when off
     source: 'schedule',
   };
 
-  // Without the focus context: biceps would be flagged + dropped (the bug).
-  const noFocusCtx = makeCtx({ dayTheme: theme });
-  const noFocusViolations = themeCoherenceInvariant.check(workout, noFocusCtx);
-  assert.equal(noFocusViolations.length, 1, 'baseline: theme guard would drop off-theme biceps');
+  // Baseline: same workout without the flag would still drop biceps.
+  const unflagged: GeneratedExercise = { ...focusBiceps, isUndroppable: false };
+  const baselineViolations = themeCoherenceInvariant.check(makeWorkout([chest, unflagged]), makeCtx({ dayTheme: theme }));
+  assert.equal(baselineViolations.length, 1, 'sanity: theme guard would drop unflagged off-theme biceps');
 
-  // With the focus context: biceps must be exempt.
-  const focusCtx = makeCtx({ dayTheme: theme, monthlyFocusMuscle: 'biceps' });
-  const focusViolations = themeCoherenceInvariant.check(workout, focusCtx);
-  assert.equal(focusViolations.length, 0, 'focus muscle must be exempt from theme guard');
+  // With the flag set, the theme guard must skip biceps.
+  const flaggedViolations = themeCoherenceInvariant.check(workout, makeCtx({ dayTheme: theme }));
+  assert.equal(flaggedViolations.length, 0, 'isUndroppable exercises must be exempt from theme guard');
 });
 
-// Defense in depth: the focus exemption must be exact-match on the
-// canonical group. We do NOT want a focus on "biceps" to accidentally
-// whitelist e.g. "back_lats" just because they share a movement pattern.
-test('themeCoherence: focus exemption only applies to the focus muscle itself', () => {
+// Defense in depth: the flag is exercise-scoped, not group-scoped. A
+// flagged biceps exercise does NOT also whitelist OTHER off-theme
+// exercises that happen to share its target muscle group.
+test('themeCoherence: undroppable flag is per-exercise, not group-wide', () => {
   const chest = makeExercise({ exerciseName: 'Bench Press', targetMuscleGroup: 'mid_chest' });
+  const focusBiceps = makeExercise({
+    exerciseName: 'Bicep Curl',
+    targetMuscleGroup: 'biceps',
+    isUndroppable: true,
+  });
   const offTheme = makeExercise({
     exerciseName: 'Lat Pulldown',
     targetMuscleGroup: 'back_lats',
+    isUndroppable: false,
   });
-  const workout = makeWorkout([chest, offTheme]);
+  const workout = makeWorkout([chest, focusBiceps, offTheme]);
   const theme: DayTheme = {
     primary: 'mid_chest',
     allowedAccessories: ['triceps', 'anterior_deltoid', 'core'],
     source: 'schedule',
   };
-  const ctx = makeCtx({ dayTheme: theme, monthlyFocusMuscle: 'biceps' });
+  const ctx = makeCtx({ dayTheme: theme });
 
   const violations = themeCoherenceInvariant.check(workout, ctx);
   assert.equal(violations.length, 1);

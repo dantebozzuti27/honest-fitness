@@ -360,6 +360,37 @@ export interface GeneratedExercise {
   rirRange: [number, number] | null;
   impactScore: number | null;
   estimatedMinutes: number;
+  /**
+   * Hard contract: this exercise must NOT be removed by any downstream
+   * trim / cap / invariant pass. Set at selection time when an exercise
+   * represents a non-negotiable user contract (the monthly fitness focus
+   * lift today; in the future also things like a sport-prehab anchor or
+   * a user-pinned must-include lift).
+   *
+   * Why a flag and not N carve-outs: the engine has at least three
+   * separate drop sites (themeCoherenceInvariant, stepApplyConstraints
+   * Phase 3, validateAndCorrect maxExerciseCount cap) plus per-budget
+   * trims. Each previously had its own muscle-group exemption logic,
+   * which meant adding a fourth drop site without touching every
+   * exemption silently broke the contract. With this flag, every drop
+   * loop becomes `if (ex.isUndroppable) continue;` and future "must
+   * include" features inherit protection for free.
+   *
+   * Rules:
+   *   - This exercise's *sets* may still be reduced (down to a sane
+   *     floor of 2) when budget is tight — presence is the contract,
+   *     not volume.
+   *   - This exercise may still be re-ordered.
+   *   - This exercise may still have its weight/reps clamped by the
+   *     1RM safety invariant — that's a safety contract that wins over
+   *     a presence contract.
+   *   - Compounds-when-only-one and required-staple-family carve-outs
+   *     stay separate because they're heuristic protections (the engine
+   *     decides when they apply); `isUndroppable` is a hard contract
+   *     the *user* opted into.
+   */
+  isUndroppable?: boolean;
+  undroppableReason?: 'monthly_focus';
 }
 
 function isTimedHoldExercise(exerciseName: string): boolean {
@@ -457,6 +488,16 @@ export interface GeneratedWorkout {
   fatLossDoseExplanation?: string;
   /** Phase 1: theme that drove this workout's selection — preserved for invariants and audit. */
   dayTheme?: DayTheme | null;
+  /**
+   * Engine version that produced this workout. Persisted on the saved
+   * `planned_workout` JSONB so we can answer "which deploy generated
+   * this plan?" during incident response without diffing git timestamps.
+   * Pulled from `WORKOUT_ENGINE_VERSION` at generation time, so a single
+   * weekly plan can carry mixed versions if regenerated mid-week.
+   */
+  engineVersion?: string;
+  /** Model config version (separate from engine logic version). */
+  modelConfigVersion?: string;
 }
 
 // ─── Data Fetching ──────────────────────────────────────────────────────────
@@ -4712,6 +4753,13 @@ function stepPrescribe(
       supersetType: null,
       impactScore: impact,
       estimatedMinutes: estMin,
+      // Mark the focus-muscle exercise as undroppable so downstream
+      // trim/cap/invariant passes preserve it as a hard contract.
+      // We mark only the FIRST exercise per focus muscle (idxInGroup === 0)
+      // — the contract is "presence", not "high volume". Subsequent
+      // focus-muscle exercises remain eligible for trimming.
+      isUndroppable: isMonthlyFocusMuscle && idxInGroup === 0 ? true : undefined,
+      undroppableReason: isMonthlyFocusMuscle && idxInGroup === 0 ? 'monthly_focus' : undefined,
     };
   });
 }
@@ -4897,21 +4945,14 @@ function stepApplyConstraints(
   progressionScale: number = 1.0,
   breakRampMultiplier: number = 1.0,
   planningDate?: Date,
-  monthlyFocusMuscle: string | null = null,
+  // Kept on the signature for source-compat with existing callers; the
+  // actual protection is now driven entirely by `ex.isUndroppable`.
+  // Slated for removal once call sites are migrated.
+  _monthlyFocusMuscle: string | null = null,
 ): GeneratedExercise[] {
+  void _monthlyFocusMuscle;
   const cardio = exercises.filter(e => e.isCardio);
   const strength = exercises.filter(e => !e.isCardio);
-  // The monthly fitness focus is a hard user contract ("layer this muscle
-  // into every workout"). Phase 3 trimming below sorts by impactScore and
-  // drops the lowest first — which always kills the focus isolation
-  // exercise (low impactScore by definition) before anything else. Keep
-  // exactly one focus-muscle exercise undroppable so the contract holds
-  // even when the session is over-budget. We allow dropping additional
-  // focus-muscle exercises beyond the first because the contract is
-  // "presence", not "high volume".
-  const focusGroupNorm = monthlyFocusMuscle
-    ? (normalizeMuscleGroupName(monthlyFocusMuscle) ?? String(monthlyFocusMuscle).toLowerCase())
-    : null;
 
   const orderProfiles = profile.exerciseOrderProfiles ?? [];
   const positionMap = new Map<string, ExerciseOrderProfile>();
@@ -5177,34 +5218,31 @@ function stepApplyConstraints(
   }
 
   if (totalStrengthMin > strengthBudget) {
-    // Phase 3: Last resort — drop lowest-impact exercises entirely
+    // Phase 3: Last resort — drop lowest-impact exercises entirely.
+    //
+    // Drop policy (in order of authority):
+    //   1. Hard contracts: any exercise marked `isUndroppable` is
+    //      preserved unconditionally. This is the user-opt-in protection
+    //      (today: monthly focus; future: prehab anchors, pinned lifts).
+    //   2. Floor on session size (`minExercisesUnderTimePressure`).
+    //   3. Heuristic protections: keep ≥1 compound, keep ≥1 of every
+    //      required staple family.
+    //   4. Otherwise drop lowest-impact first.
     const sortedByImpact = [...ordered].sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
     const keepSet = new Set(ordered.map(e => e.exerciseName));
     const keepExercises = () => ordered.filter(e => keepSet.has(e.exerciseName));
     const compoundCount = () => keepExercises().filter(isCompoundGenerated).length;
     const stapleFamilyCount = (familyKey: string) =>
       keepExercises().filter(e => stapleFamilyKey(e.exerciseName) === familyKey).length;
-    const focusExercisesKept = () =>
-      focusGroupNorm
-        ? keepExercises().filter(e => String(e.targetMuscleGroup ?? '').toLowerCase() === focusGroupNorm).length
-        : 0;
 
     for (const ex of sortedByImpact) {
       if (totalStrengthMin <= strengthBudget) break;
+      if (ex.isUndroppable) continue;
       if (ex.exerciseRole === 'corrective') continue;
       if (keepSet.size <= cfg.minExercisesUnderTimePressure) break;
       if (isCompoundGenerated(ex) && compoundCount() <= 1) continue;
       const familyKey = stapleFamilyKey(ex.exerciseName);
       if (requiredStapleFamilies.has(familyKey) && stapleFamilyCount(familyKey) <= 1) continue;
-      // Protect the monthly fitness focus: keep at least one exercise
-      // targeting the focus muscle even if it has the lowest impactScore
-      // in the session. Without this, the focus isolation lift is always
-      // the first to die under time pressure.
-      if (
-        focusGroupNorm
-        && String(ex.targetMuscleGroup ?? '').toLowerCase() === focusGroupNorm
-        && focusExercisesKept() <= 1
-      ) continue;
       keepSet.delete(ex.exerciseName);
       totalStrengthMin -= ex.estimatedMinutes;
     }
@@ -6345,23 +6383,39 @@ function parseLlmPatternObservations(
  * violations in-place. Every correction is logged to the exercise's
  * `adjustments` array so the decision tree UI can surface it.
  */
+/**
+ * Result envelope for validateAndCorrect.
+ *
+ * Why this exists: the previous shape returned only `exercises` and let
+ * the corrections list fall on the floor. That meant when the per-budget
+ * exercise cap or the time-budget trim removed the user's monthly focus
+ * lift, there was no audit trail anywhere — neither on the exercise nor
+ * on the workout's adjustmentsSummary. The user (and us) had no way to
+ * answer "why did my biceps disappear?" without re-running the engine.
+ *
+ * The corrections array now flows out and is merged into the workout's
+ * adjustmentsSummary by the caller. This is the only invariant: any
+ * structural mutation we make here MUST be surface in `corrections` so
+ * the user-visible audit log reflects reality.
+ */
+interface ValidateAndCorrectResult {
+  exercises: GeneratedExercise[];
+  corrections: string[];
+}
+
 function validateAndCorrect(
   exercises: GeneratedExercise[],
   profile: TrainingProfile,
   sessionBudgetMin: number,
-  monthlyFocusMuscle: string | null = null,
-): GeneratedExercise[] {
+  // Kept on the signature for source-compat with existing callers; the
+  // actual protection is now driven entirely by `ex.isUndroppable`. This
+  // parameter is unused inside the function and slated for removal once
+  // the call sites are migrated.
+  _monthlyFocusMuscle: string | null = null,
+): ValidateAndCorrectResult {
+  void _monthlyFocusMuscle;
   const corrections: string[] = [];
   const finiteBudget = Number.isFinite(sessionBudgetMin) ? Math.max(20, Math.round(sessionBudgetMin)) : 60;
-  // Normalise the focus muscle once so all guards below match what
-  // `targetMuscleGroup` actually carries (lowercase canonical group).
-  const focusGroupNorm = monthlyFocusMuscle
-    ? (normalizeMuscleGroupName(monthlyFocusMuscle) ?? String(monthlyFocusMuscle).toLowerCase())
-    : null;
-  const isFocusEx = (ex: GeneratedExercise): boolean =>
-    !!focusGroupNorm
-    && !ex.isCardio
-    && String(ex.targetMuscleGroup ?? '').toLowerCase() === focusGroupNorm;
 
   // Pareto guardrail: cap total exercises so plans stay focused and executable.
   const maxExerciseCount = (() => {
@@ -6375,21 +6429,18 @@ function validateAndCorrect(
     return 12;
   })();
   if (exercises.length > maxExerciseCount) {
-    // The monthly fitness focus is a hard contract — pin one focus-muscle
-    // exercise into the keep set BEFORE the cap is enforced. Without
-    // this, an isolation focus lift (low role-base + low impactScore) is
-    // always the first to be cut, and the user sees zero biceps work on
-    // a chest day even though the engine selected one.
-    const focusKeptIdx: number | null = focusGroupNorm
-      ? (() => {
-          const focusCandidates = exercises
-            .map((ex, idx) => ({ ex, idx }))
-            .filter(({ ex }) => isFocusEx(ex));
-          if (focusCandidates.length === 0) return null;
-          focusCandidates.sort((a, b) => (b.ex.impactScore ?? 0) - (a.ex.impactScore ?? 0));
-          return focusCandidates[0].idx;
-        })()
-      : null;
+    // Pin every isUndroppable exercise into the keep set BEFORE the
+    // ranked cut runs. This is the centralised replacement for the
+    // muscle-group-specific carve-out we used to need: any exercise
+    // marked as a hard contract at selection time (today: monthly
+    // focus; future: prehab/sport anchors, user-pinned lifts) is
+    // automatically protected from this cap.
+    const undroppableIdx = new Set(
+      exercises
+        .map((ex, idx) => ({ ex, idx }))
+        .filter(({ ex }) => Boolean(ex.isUndroppable))
+        .map(({ idx }) => idx),
+    );
     const ranked = exercises
       .map((ex, idx) => {
         const roleBase =
@@ -6404,7 +6455,7 @@ function validateAndCorrect(
       })
       .sort((a, b) => b.score - a.score);
     const keepIdx = new Set(ranked.slice(0, maxExerciseCount).map(r => r.idx));
-    if (focusKeptIdx !== null) keepIdx.add(focusKeptIdx);
+    for (const idx of undroppableIdx) keepIdx.add(idx);
     const removed = exercises.filter((_, idx) => !keepIdx.has(idx));
     if (removed.length > 0) {
       exercises.splice(0, exercises.length, ...exercises.filter((_, idx) => keepIdx.has(idx)));
@@ -6540,7 +6591,10 @@ function validateAndCorrect(
         const cutBySec = Math.min(old - minFloorSec, Math.max(0, Math.round((totalMin - hardMaxMin) * 60)));
         if (cutBySec > 0) {
           ex.cardioDurationSeconds = Math.max(minFloorSec, old - cutBySec);
-          ex.adjustments.push(`Hard budget trim: cardio ${Math.round(old / 60)} → ${Math.round((ex.cardioDurationSeconds ?? old) / 60)} min`);
+          const newMin = Math.round((ex.cardioDurationSeconds ?? old) / 60);
+          const oldMin = Math.round(old / 60);
+          ex.adjustments.push(`Hard budget trim: cardio ${oldMin} → ${newMin} min`);
+          corrections.push(`${ex.exerciseName}: cardio ${oldMin} → ${newMin} min (hard budget)`);
           recalcAll();
         }
       }
@@ -6552,15 +6606,19 @@ function validateAndCorrect(
         .sort((a, b) => (a.impactScore ?? 0) - (b.impactScore ?? 0));
       for (const ex of nonPrimary) {
         if (totalMin <= hardMaxMin) break;
-        // Floor the focus exercise at 2 sets (already its starting point);
-        // this loop would otherwise still iterate it once the budget is
-        // tight. Skip explicitly so the trim logs stay accurate.
-        if (isFocusEx(ex)) continue;
+        // Hard contract: don't shrink an undroppable exercise's set count
+        // here. Presence is the contract, and it's already at its
+        // selection-time floor (typically 2 sets for the monthly focus
+        // layered slot). Trimming further would either drop it below the
+        // useful-stimulus floor or leave it as a meaningless 1-set
+        // appearance. Either way the contract is violated.
+        if (ex.isUndroppable) continue;
         while (ex.sets > 2 && totalMin > hardMaxMin) {
           const oldSets = ex.sets;
           ex.sets -= 1;
           recalcAll();
           ex.adjustments.push(`Hard budget trim: ${oldSets} → ${ex.sets} sets`);
+          corrections.push(`${ex.exerciseName}: accessory sets ${oldSets} → ${ex.sets} (hard budget)`);
         }
       }
     };
@@ -6584,11 +6642,12 @@ function validateAndCorrect(
         ex.sets -= 1;
         recalcAll();
         ex.adjustments.push(`Hard budget trim (primary): ${oldSets} → ${ex.sets} sets`);
+        corrections.push(`${ex.exerciseName}: primary sets ${oldSets} → ${ex.sets} (hard budget)`);
       }
     }
   }
 
-  return exercises;
+  return { exercises, corrections };
 }
 
 export interface PreFetchedEngineData {
@@ -6996,7 +7055,14 @@ export async function generateWorkout(
   );
   stageEnd(tConstraints);
 
-  // Step 5b: Post-generation validation — catch absurd prescriptions
+  // Step 5b: Post-generation validation — catch absurd prescriptions.
+  //
+  // Both passes return a corrections array; we accumulate them so the
+  // workout's final `adjustmentsSummary` reflects every structural mutation
+  // (cap-driven drops, set trims, cardio shrinks) that happened here.
+  // Prior to the corrections-surfacing change these messages were built
+  // and then discarded, leaving the user — and us during incident
+  // response — with no audit trail when an exercise vanished.
   const tValidate = stageStart('validate_adapt');
   const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes, monthlyFocusMuscle);
   const adaptiveContext = buildAdaptivePolicyContext(profile, {
@@ -7005,8 +7071,8 @@ export async function generateWorkout(
     age: prefs.age ?? null,
   });
   const adaptedRaw = runtimeFlags.policy_learning
-    ? optimizePrescription(validated as unknown as AdaptiveExercise[], adaptiveContext) as unknown as GeneratedExercise[]
-    : validated;
+    ? optimizePrescription(validated.exercises as unknown as AdaptiveExercise[], adaptiveContext) as unknown as GeneratedExercise[]
+    : validated.exercises;
   const recalcEstimatedMinutes = (exercises: GeneratedExercise[]): GeneratedExercise[] => exercises.map((ex) => {
     if (ex.isCardio) {
       return {
@@ -7028,7 +7094,13 @@ export async function generateWorkout(
   });
   const adaptedRecomputed = recalcEstimatedMinutes(adaptedRaw);
   const adaptedValidated = validateAndCorrect(adaptedRecomputed, profile, prefs.session_duration_minutes, monthlyFocusMuscle);
-  const adapted = recalcEstimatedMinutes(adaptedValidated);
+  const adapted = recalcEstimatedMinutes(adaptedValidated.exercises);
+  // De-dupe corrections — both passes can fire the same cap and we don't
+  // want noisy duplicates in the surface log. Insertion order preserved.
+  const validateCorrections = Array.from(new Set([
+    ...validated.corrections,
+    ...adaptedValidated.corrections,
+  ]));
   stageEnd(tValidate);
 
   // Step 6: Generate rationale + decision log
@@ -7056,6 +7128,11 @@ export async function generateWorkout(
     adaptiveContext.promoteReady
       ? 'Adaptive policy gate: promoted aggressive progression profile.'
       : 'Adaptive policy gate: held conservative profile until evidence improves.',
+    // Surface the structural mutations from validateAndCorrect so the user
+    // sees an explanation when an exercise vanishes or a set count shrinks.
+    // Prefixed with "Validation:" so the existing UI grouping still works
+    // and these never collide with the natural-language rationale lines.
+    ...validateCorrections.map(c => `Validation: ${c}`),
   ];
 
   const decisionProvenance = [
@@ -7174,6 +7251,13 @@ export async function generateWorkout(
   // Persist the day theme used during selection so downstream invariants (and
   // the UI) can reason about coherence without re-deriving it.
   if (effectiveDayTheme) workout.dayTheme = effectiveDayTheme;
+
+  // Stamp the engine + model-config versions so we can attribute any saved
+  // plan to the deploy that generated it. This is the single most useful
+  // field for incident response: "which engine version emitted this plan?"
+  // takes one query instead of git-bisecting deploy timestamps.
+  workout.engineVersion = WORKOUT_ENGINE_VERSION;
+  workout.modelConfigVersion = MODEL_CONFIG_VERSION;
 
   // Phase 5c: run the deterministic invariant pipeline as the final
   // safety net. Invariants are pure, fast, and individually auditable;

@@ -544,8 +544,20 @@ export interface ModelConfig {
 }
 
 // Version stamps persisted with generated workouts for reproducibility.
+//
+// MODEL_CONFIG_VERSION: bump when the numeric tunings in DEFAULT_MODEL_CONFIG
+// change in a way that would shift prescriptions (volume tiers, set caps,
+// rep ranges, etc.). Bug fixes that don't move the numbers do not require a
+// bump.
+//
+// WORKOUT_ENGINE_VERSION: bump on any code-path change in workoutEngine.ts
+// or its helpers that could change which exercises get selected, dropped,
+// re-ordered, or re-prescribed. Use semantic-ish dating: YYYY-MM-DD.N.
+// When in doubt: bump. The downside of a spurious bump is zero; the
+// downside of a missed bump is "we shipped a behaviour change but every
+// saved plan still claims to be the old version."
 export const MODEL_CONFIG_VERSION = '2026-04-27.1';
-export const WORKOUT_ENGINE_VERSION = '2026-04-27.1';
+export const WORKOUT_ENGINE_VERSION = '2026-05-12.2';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery

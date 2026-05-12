@@ -253,21 +253,18 @@ export const themeCoherenceInvariant: WorkoutInvariant = {
       String(theme.primary).toLowerCase(),
       ...theme.allowedAccessories.map(g => String(g).toLowerCase()),
     ]);
-    // Monthly fitness focus is a hard user contract that supersedes the
-    // schedule's theme accessories. Without this, the focus slot the
-    // engine deliberately layers into every workout (`stepSelectMuscleGroups`
-    // append-always block) gets dropped the instant it lands on a day whose
-    // schedule theme doesn't already include the focus muscle. That's the
-    // exact failure mode the focus feature was designed to prevent.
-    const focusMuscle = ctx.monthlyFocusMuscle
-      ? String(ctx.monthlyFocusMuscle).toLowerCase()
-      : null;
-    if (focusMuscle) allowed.add(focusMuscle);
     const severity: InvariantSeverity =
       theme.source === 'schedule' || theme.source === 'rotation' ? 'error' : 'warning';
     const violations: WorkoutInvariantViolation[] = [];
     workout.exercises.forEach((ex, idx) => {
       if (ex.isCardio) return;
+      // Hard user contract: an exercise marked undroppable at selection
+      // time is always allowed, regardless of theme. The engine put it
+      // there deliberately (today this is monthly fitness focus; the
+      // shape generalises to future "must include" features). The
+      // muscle-group-specific exemption that used to live here is now
+      // obsolete — the flag travels with the exercise.
+      if (ex.isUndroppable) return;
       const group = String(ex.targetMuscleGroup ?? '').toLowerCase();
       if (!group) return;
       if (!STRENGTH_GROUPS.has(group)) return; // only enforce on muscle-targeted strength work

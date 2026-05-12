@@ -83,6 +83,23 @@ export interface WorkoutInvariantContext {
    * date.
    */
   monthlyFocusMuscle?: string | null;
+  /**
+   * Hard schedule contract: when set, this is the verbatim list of
+   * canonical muscle groups the user authored for this day's workout
+   * via the Profile schedule editor. The contract is "train these
+   * muscles, period" — any exercise targeting a non-cardio group
+   * outside this set (and not exempt via `isUndroppable`) is a hard
+   * error and gets dropped by `hardScheduleConstraintInvariant`.
+   *
+   * Set by the engine ONLY when the schedule was authored by the user
+   * (not when derived from auto-detected splits or rotations); we
+   * trust the user's explicit choice harder than our inference.
+   *
+   * `null`/undefined when the day was generated from a non-authored
+   * source — the (softer) `themeCoherenceInvariant` is then the
+   * primary defence.
+   */
+  userAuthoredScheduleGroups?: ReadonlySet<string> | null;
 }
 
 export type InvariantSeverity = 'error' | 'warning';
@@ -292,6 +309,77 @@ export const themeCoherenceInvariant: WorkoutInvariant = {
     return {
       modifiedWorkout: { ...workout, exercises: kept },
       notes: [`Theme guard: dropped ${droppedNames.join(', ')} — not in today's theme.`],
+    };
+  },
+};
+
+/**
+ * Hard schedule-constraint invariant.
+ *
+ * When the user has explicitly authored a day's split via the Profile
+ * schedule editor, ANY off-schedule strength exercise that survives
+ * upstream selection is a contract violation, full stop. This is the
+ * post-hoc backstop for #2 — the upstream selection logic in
+ * `stepSelectMuscleGroups` already filters to user-authored groups,
+ * but if anything (synergist expansion, recovery fallbacks, future
+ * code-paths I haven't audited) lets one slip through, this invariant
+ * catches it and drops it as an error.
+ *
+ * Why this is separate from `themeCoherenceInvariant`:
+ *   - theme_coherence runs against `dayTheme` and is a soft 'warning'
+ *     for inferred sources; only schedule/rotation-sourced themes
+ *     escalate to 'error'.
+ *   - hard_schedule_constraint runs against `userAuthoredScheduleGroups`
+ *     specifically, is always 'error' severity, and has no overlap
+ *     with the theme's allowedAccessories (which can include synergists
+ *     the user didn't ask for).
+ *
+ * Exemptions:
+ *   - `isUndroppable` exercises (monthly fitness focus today, future
+ *     pinned/prehab lifts) are exempt — same hard contract as theme.
+ *   - Cardio is exempt; cardio targeting is governed elsewhere.
+ *   - Universal accessories (core/calves) are NOT exempt here — if the
+ *     user wants them, they must be in the schedule. (The engine's
+ *     selection logic already adds them via UNIVERSAL_ACCESSORIES, so
+ *     in practice they'll be in `userAuthoredScheduleGroups` after
+ *     normalisation. If a user-authored schedule deliberately excludes
+ *     them, the engine should respect that.)
+ */
+export const hardScheduleConstraintInvariant: WorkoutInvariant = {
+  id: 'hard_schedule_constraint',
+  description: 'When the user authored the day\'s split, every strength exercise must target a scheduled muscle.',
+  check(workout, ctx) {
+    if (!ctx.userAuthoredScheduleGroups || ctx.userAuthoredScheduleGroups.size === 0) return [];
+    const allowed = ctx.userAuthoredScheduleGroups;
+    const violations: WorkoutInvariantViolation[] = [];
+    workout.exercises.forEach((ex, idx) => {
+      if (ex.isCardio) return;
+      if (ex.isUndroppable) return;
+      const group = String(ex.targetMuscleGroup ?? '').toLowerCase();
+      if (!group) return;
+      if (allowed.has(group)) return;
+      violations.push({
+        invariantId: 'hard_schedule_constraint',
+        severity: 'error',
+        exerciseIndex: idx,
+        message: `${ex.exerciseName} targets "${group}" which is not in your authored schedule for today`,
+        details: { group, allowed: Array.from(allowed) },
+      });
+    });
+    return violations;
+  },
+  autoFix(workout, violations, _ctx) {
+    const dropIndices = new Set(
+      violations.map(v => v.exerciseIndex!).filter(i => Number.isInteger(i)),
+    );
+    if (dropIndices.size === 0) return { modifiedWorkout: null, notes: [] };
+    const kept = workout.exercises.filter((_, idx) => !dropIndices.has(idx));
+    const droppedNames = workout.exercises
+      .filter((_, idx) => dropIndices.has(idx))
+      .map(ex => ex.exerciseName);
+    return {
+      modifiedWorkout: { ...workout, exercises: kept },
+      notes: [`Schedule guard: dropped ${droppedNames.join(', ')} — not in your authored schedule.`],
     };
   },
 };
@@ -650,6 +738,12 @@ export const dailyAbsInvariant: WorkoutInvariant = {
  *   7. daily_abs — informational; ab presence check (all phases)
  */
 export const DEFAULT_WORKOUT_INVARIANTS: readonly WorkoutInvariant[] = [
+  // Hard-schedule first: when the user authored a day's split, off-
+  // schedule muscles must be removed before any other invariant has a
+  // chance to react to them. This also makes the (softer) theme
+  // invariant a no-op for user-authored days, which is the right
+  // semantics — the schedule is the truth, the theme is its derivative.
+  hardScheduleConstraintInvariant,
   themeCoherenceInvariant,
   singleExerciseVolumeCapInvariant,
   compoundBeforeIsolationInvariant,

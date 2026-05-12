@@ -2438,6 +2438,37 @@ function stepSelectMuscleGroups(
   const priorityMuscleSet = new Set<string>(normalizeMuscleGroupList(prefs.priority_muscles ?? []));
   const isPriorityMuscle = (group: string) => priorityMuscleSet.has(group);
 
+  // Hard contract detection: did the user explicitly author this day's
+  // split via the Profile schedule editor? When true, the split is a
+  // HARD constraint — no synergist expansion, no maintenance-anchor
+  // fallback to off-schedule majors, and no theme/recovery override may
+  // bring an off-schedule muscle into the candidate pool. The right
+  // response when recovery is bad on the user's chosen muscles is
+  // "lower volume on those muscles" (RIR up, sets down), not "swap to
+  // a different muscle group".
+  //
+  // We treat `activeDayTheme.source === 'schedule'` as canonical proof of
+  // user authorship because that's what the schedule editor produces; we
+  // also accept a populated `weekly_split_schedule[dow].groups` directly
+  // in case the theme failed to derive (defensive belt + braces).
+  const userAuthoredScheduleGroups: Set<string> | null = (() => {
+    if (activeDayTheme?.source === 'schedule' && activeDayTheme.primary) {
+      return new Set(normalizeMuscleGroupList([
+        activeDayTheme.primary,
+        ...activeDayTheme.allowedAccessories,
+      ]));
+    }
+    const ws = prefs.weekly_split_schedule;
+    if (ws) {
+      const day = ws[String(todayDow)];
+      if (day && Array.isArray(day.groups) && day.groups.length > 0) {
+        return new Set(normalizeMuscleGroupList(day.groups));
+      }
+    }
+    return null;
+  })();
+  const isUserAuthoredSchedule = userAuthoredScheduleGroups !== null;
+
   // Phase 1: an explicit `activeDayTheme` (typically from weekly_split_schedule)
   // is the highest-priority source of truth and short-circuits the rotation /
   // detected-pattern fallbacks below.
@@ -2758,16 +2789,20 @@ function stepSelectMuscleGroups(
 
   let filteredCandidates = candidates;
   if (splitTargetGroups && splitTargetGroups.size > 0) {
-    const hardFilter = activeDayTheme?.source === 'schedule' || activeDayTheme?.source === 'rotation';
+    const hardFilter = isUserAuthoredSchedule || activeDayTheme?.source === 'rotation';
     // Tighter filter for explicit splits/schedules. Previously we always
     // applied a second `expandWithSynergists` pass on top of the theme's
     // already-expanded `allowedAccessories`, which let push days end up
     // with posterior_deltoid, upper_traps, etc — direct violations of
-    // common splits (PPL/upper-lower). For schedule/rotation sources, use
-    // the theme's allowed list verbatim and add only universal accessories
-    // (core/calves/cardio).
+    // common splits (PPL/upper-lower). For user-authored schedules,
+    // we use the schedule's groups VERBATIM (no synergist expansion)
+    // plus universal accessories (core/calves/cardio) plus the monthly
+    // focus muscle — all other inclusions are off-contract.
     let expandedTargets: Set<string>;
-    if (hardFilter && activeDayTheme) {
+    if (isUserAuthoredSchedule && userAuthoredScheduleGroups) {
+      expandedTargets = new Set(userAuthoredScheduleGroups);
+      for (const ua of UNIVERSAL_ACCESSORIES) expandedTargets.add(ua);
+    } else if (hardFilter && activeDayTheme) {
       expandedTargets = new Set([
         activeDayTheme.primary,
         ...activeDayTheme.allowedAccessories,
@@ -2778,7 +2813,13 @@ function stepSelectMuscleGroups(
     }
     if (monthlyNorm) expandedTargets.add(monthlyNorm);
     const splitFiltered = candidates.filter(c => expandedTargets.has(c.muscleGroup));
-    if (splitFiltered.length >= 1 || hardFilter) {
+    // For user-authored schedules: empty pool is still valid. The user
+    // is telling us "train these muscles today, period". If recovery
+    // makes none of them available we'd rather emit a low-volume
+    // session on the right muscles than a high-volume session on the
+    // wrong ones. The recovery-aware `targetSets` and validation passes
+    // downstream will keep the prescription sane.
+    if (splitFiltered.length >= 1 || hardFilter || isUserAuthoredSchedule) {
       filteredCandidates = splitFiltered;
     }
   }
@@ -2867,8 +2908,17 @@ function stepSelectMuscleGroups(
     ]);
     const hasMajorSelected = selected.some((s) => primaryMajorGroups.has(s.muscleGroup));
     if (!hasMajorSelected) {
-      const splitExpanded =
-        splitTargetGroups && splitTargetGroups.size > 0 ? expandWithSynergists(splitTargetGroups) : null;
+      // Hard contract: when the user has authored this day's schedule,
+      // the maintenance-anchor fallback must NEVER reach outside the
+      // schedule's groups. Previously this used `expandWithSynergists`
+      // which let e.g. a "back/biceps" Tuesday pull in hamstrings as a
+      // "major maintenance anchor" — the exact off-split muscle the
+      // user said they didn't want today. For user-authored schedules
+      // we use the literal groups; for inferred splits the historical
+      // synergist expansion is fine.
+      const splitExpanded = isUserAuthoredSchedule && userAuthoredScheduleGroups
+        ? userAuthoredScheduleGroups
+        : (splitTargetGroups && splitTargetGroups.size > 0 ? expandWithSynergists(splitTargetGroups) : null);
       const majorFallback = profile.muscleVolumeStatuses
         .filter((v) => primaryMajorGroups.has(v.muscleGroup))
         .filter((v) => !splitExpanded || splitExpanded.has(v.muscleGroup))
@@ -7367,6 +7417,25 @@ export async function generateWorkout(
   // this is the layer that catches anything the upstream selectors,
   // prescribers, and validators missed. Auto-fixes are conservative:
   // theme violations drop offenders; rep×load violations clamp weight.
+  // Recompute the user-authored schedule for this planning date so the
+  // hard-schedule invariant has a verbatim list of allowed groups. We
+  // can't reach into stepSelectMuscleGroups' local — but we can re-derive
+  // it cheaply: prefs.weekly_split_schedule is the single source of
+  // truth and the lookup is trivial.
+  const userAuthoredScheduleGroups: ReadonlySet<string> | null = (() => {
+    const dow = planningDate ? planningDate.getDay() : new Date().getDay();
+    const ws = prefs.weekly_split_schedule;
+    if (!ws) return null;
+    const day = ws[String(dow)];
+    if (!day || !Array.isArray(day.groups) || day.groups.length === 0) return null;
+    const allowed = new Set(day.groups.map(g => String(g).toLowerCase()));
+    // Cardio is a separate concern — universal accessories already in
+    // the schedule remain in the allowed set; the engine adds
+    // core/calves separately when needed and they should be in the
+    // user's schedule explicitly when they want them.
+    return allowed;
+  })();
+
   const invariantCtx: WorkoutInvariantContext = {
     profile,
     preferences: prefs,
@@ -7379,6 +7448,7 @@ export async function generateWorkout(
     // engine deliberately layered into a non-matching schedule day (e.g.
     // biceps on a chest/triceps push day) gets dropped here.
     monthlyFocusMuscle: monthlyFocusMuscle ?? null,
+    userAuthoredScheduleGroups,
   };
   const invariantResult = runInvariantPipeline(workout, invariantCtx, DEFAULT_WORKOUT_INVARIANTS);
   if (invariantResult.notes.length > 0) {

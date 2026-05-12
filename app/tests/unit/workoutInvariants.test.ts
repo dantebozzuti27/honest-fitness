@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 
 import {
   themeCoherenceInvariant,
+  hardScheduleConstraintInvariant,
   singleExerciseVolumeCapInvariant,
   compoundBeforeIsolationInvariant,
   repLoadVs1RMInvariant,
@@ -338,6 +339,76 @@ test('themeCoherence: undroppable flag is per-exercise, not group-wide', () => {
   assert.match(violations[0].message, /Lat Pulldown/);
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// hardScheduleConstraintInvariant — #2 audit fix
+// ─────────────────────────────────────────────────────────────────────────
+
+test('hardScheduleConstraint: no-op when user did not author the schedule', () => {
+  const ex = makeExercise({ exerciseName: 'Romanian Deadlift', targetMuscleGroup: 'hamstrings' });
+  const violations = hardScheduleConstraintInvariant.check(makeWorkout([ex]), makeCtx({}));
+  assert.equal(violations.length, 0);
+});
+
+test('hardScheduleConstraint: drops off-schedule strength exercises with error severity', () => {
+  // The user authored Tue as back/biceps. The engine somehow let
+  // hamstrings through (synergist expansion, recovery fallback, etc).
+  // The hard invariant must catch and drop it.
+  const back = makeExercise({ exerciseName: 'Lat Pulldown', targetMuscleGroup: 'back_lats' });
+  const offSchedule = makeExercise({
+    exerciseName: 'Romanian Deadlift',
+    targetMuscleGroup: 'hamstrings',
+  });
+  const workout = makeWorkout([back, offSchedule]);
+  const ctx = makeCtx({
+    userAuthoredScheduleGroups: new Set(['back_lats', 'biceps', 'back_upper']),
+  });
+
+  const violations = hardScheduleConstraintInvariant.check(workout, ctx);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].severity, 'error');
+  assert.match(violations[0].message, /Romanian Deadlift/);
+  assert.match(violations[0].message, /not in your authored schedule/);
+
+  const fix = hardScheduleConstraintInvariant.autoFix!(workout, violations, ctx);
+  assert.ok(fix.modifiedWorkout);
+  assert.equal(fix.modifiedWorkout!.exercises.length, 1);
+  assert.equal(fix.modifiedWorkout!.exercises[0].exerciseName, 'Lat Pulldown');
+});
+
+test('hardScheduleConstraint: exempts undroppable exercises (monthly focus)', () => {
+  // User's schedule is back/biceps but their monthly focus is calves.
+  // The focus calf raise is undroppable and must survive even though
+  // calves isn't in today's schedule.
+  const back = makeExercise({ exerciseName: 'Lat Pulldown', targetMuscleGroup: 'back_lats' });
+  const focusCalves = makeExercise({
+    exerciseName: 'Standing Calf Raise',
+    targetMuscleGroup: 'calves',
+    isUndroppable: true,
+    undroppableReason: 'monthly_focus',
+  });
+  const ctx = makeCtx({
+    userAuthoredScheduleGroups: new Set(['back_lats', 'biceps']),
+  });
+
+  const violations = hardScheduleConstraintInvariant.check(makeWorkout([back, focusCalves]), ctx);
+  assert.equal(violations.length, 0, 'undroppable exercise must be exempt from hard schedule guard');
+});
+
+test('hardScheduleConstraint: cardio is exempt (governed elsewhere)', () => {
+  const back = makeExercise({ exerciseName: 'Lat Pulldown', targetMuscleGroup: 'back_lats' });
+  const cardio = makeExercise({
+    exerciseName: 'Treadmill Run',
+    targetMuscleGroup: 'cardio',
+    isCardio: true,
+  });
+  const ctx = makeCtx({
+    userAuthoredScheduleGroups: new Set(['back_lats', 'biceps']),
+  });
+
+  const violations = hardScheduleConstraintInvariant.check(makeWorkout([back, cardio]), ctx);
+  assert.equal(violations.length, 0);
+});
+
 test('themeCoherence: drops out-of-theme exercises when source=rotation (error)', () => {
   const chest = makeExercise({ exerciseName: 'Bench Press', targetMuscleGroup: 'mid_chest' });
   const legs = makeExercise({ exerciseName: 'Squat', targetMuscleGroup: 'quadriceps' });
@@ -523,11 +594,12 @@ test('pipeline: terminates within maxPasses even with cascading fixes', () => {
   assert.ok(Array.isArray(result.violations));
 });
 
-test('DEFAULT_WORKOUT_INVARIANTS exposes all seven concrete invariants by id', () => {
+test('DEFAULT_WORKOUT_INVARIANTS exposes all eight concrete invariants by id', () => {
   const ids = DEFAULT_WORKOUT_INVARIANTS.map(i => i.id).sort();
   assert.deepEqual(ids, [
     'compound_before_isolation_order',
     'daily_abs',
+    'hard_schedule_constraint',
     'physique_deficit_priority',
     'rep_load_vs_1rm',
     'single_exercise_volume_cap',

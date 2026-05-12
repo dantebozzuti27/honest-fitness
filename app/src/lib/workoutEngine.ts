@@ -7131,6 +7131,11 @@ export async function generateWorkout(
     bodyAssessment: prefetched?.bodyAssessment ?? null,
     dayTheme: effectiveDayTheme,
     weeklyCardio: null, // populated by weekly planner via runtimeFlags later if needed
+    // Tell the invariant pipeline about the active focus muscle so the
+    // theme-coherence guard exempts it. Otherwise the focus exercise the
+    // engine deliberately layered into a non-matching schedule day (e.g.
+    // biceps on a chest/triceps push day) gets dropped here.
+    monthlyFocusMuscle: monthlyFocusMuscle ?? null,
   };
   const invariantResult = runInvariantPipeline(workout, invariantCtx, DEFAULT_WORKOUT_INVARIANTS);
   if (invariantResult.notes.length > 0) {

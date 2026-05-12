@@ -69,6 +69,20 @@ export interface WorkoutInvariantContext {
   dayTheme?: DayTheme | null;
   /** Optional — when omitted, weekly cardio invariant is a no-op. */
   weeklyCardio?: WeeklyCardioContext | null;
+  /**
+   * Active monthly fitness focus muscle (canonical, lowercase).
+   *
+   * The monthly-focus contract is "this muscle gets layered into every
+   * workout, no matter what." So invariants like `theme_coherence` that
+   * normally drop off-theme strength work MUST exempt this muscle —
+   * otherwise the focus slot the engine deliberately appends gets killed
+   * the moment it goes into a day whose schedule theme doesn't already
+   * cover it (e.g. layered biceps on a chest/triceps push day).
+   *
+   * `null`/undefined when no monthly focus is configured for the planning
+   * date.
+   */
+  monthlyFocusMuscle?: string | null;
 }
 
 export type InvariantSeverity = 'error' | 'warning';
@@ -239,6 +253,16 @@ export const themeCoherenceInvariant: WorkoutInvariant = {
       String(theme.primary).toLowerCase(),
       ...theme.allowedAccessories.map(g => String(g).toLowerCase()),
     ]);
+    // Monthly fitness focus is a hard user contract that supersedes the
+    // schedule's theme accessories. Without this, the focus slot the
+    // engine deliberately layers into every workout (`stepSelectMuscleGroups`
+    // append-always block) gets dropped the instant it lands on a day whose
+    // schedule theme doesn't already include the focus muscle. That's the
+    // exact failure mode the focus feature was designed to prevent.
+    const focusMuscle = ctx.monthlyFocusMuscle
+      ? String(ctx.monthlyFocusMuscle).toLowerCase()
+      : null;
+    if (focusMuscle) allowed.add(focusMuscle);
     const severity: InvariantSeverity =
       theme.source === 'schedule' || theme.source === 'rotation' ? 'error' : 'warning';
     const violations: WorkoutInvariantViolation[] = [];

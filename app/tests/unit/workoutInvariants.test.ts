@@ -274,6 +274,63 @@ test('themeCoherence: drops out-of-theme exercises when source=schedule (error)'
   assert.deepEqual(remaining, ['Bench Press']);
 });
 
+// Regression: the monthly fitness focus is a hard user contract
+// ("layer this muscle into every workout, no matter what"). Without the
+// exemption, the engine appends a focus slot in `stepSelectMuscleGroups`,
+// the prescriber generates the exercise, and then the theme guard
+// silently drops it because the focus muscle isn't in the schedule's
+// allowedAccessories. That was the production bug on Push/Legs days
+// for a user with biceps focus.
+test('themeCoherence: preserves the monthly fitness focus exercise even when off-theme', () => {
+  const chest = makeExercise({ exerciseName: 'Bench Press', targetMuscleGroup: 'mid_chest' });
+  const focusBiceps = makeExercise({
+    exerciseName: 'Bicep Curl',
+    targetMuscleGroup: 'biceps',
+    exerciseRole: 'isolation',
+    sets: 2,
+  });
+  const workout = makeWorkout([chest, focusBiceps]);
+  const theme: DayTheme = {
+    primary: 'mid_chest',
+    // Biceps is deliberately NOT in the schedule's accessories.
+    allowedAccessories: ['triceps', 'anterior_deltoid', 'core'],
+    source: 'schedule',
+  };
+
+  // Without the focus context: biceps would be flagged + dropped (the bug).
+  const noFocusCtx = makeCtx({ dayTheme: theme });
+  const noFocusViolations = themeCoherenceInvariant.check(workout, noFocusCtx);
+  assert.equal(noFocusViolations.length, 1, 'baseline: theme guard would drop off-theme biceps');
+
+  // With the focus context: biceps must be exempt.
+  const focusCtx = makeCtx({ dayTheme: theme, monthlyFocusMuscle: 'biceps' });
+  const focusViolations = themeCoherenceInvariant.check(workout, focusCtx);
+  assert.equal(focusViolations.length, 0, 'focus muscle must be exempt from theme guard');
+});
+
+// Defense in depth: the focus exemption must be exact-match on the
+// canonical group. We do NOT want a focus on "biceps" to accidentally
+// whitelist e.g. "back_lats" just because they share a movement pattern.
+test('themeCoherence: focus exemption only applies to the focus muscle itself', () => {
+  const chest = makeExercise({ exerciseName: 'Bench Press', targetMuscleGroup: 'mid_chest' });
+  const offTheme = makeExercise({
+    exerciseName: 'Lat Pulldown',
+    targetMuscleGroup: 'back_lats',
+  });
+  const workout = makeWorkout([chest, offTheme]);
+  const theme: DayTheme = {
+    primary: 'mid_chest',
+    allowedAccessories: ['triceps', 'anterior_deltoid', 'core'],
+    source: 'schedule',
+  };
+  const ctx = makeCtx({ dayTheme: theme, monthlyFocusMuscle: 'biceps' });
+
+  const violations = themeCoherenceInvariant.check(workout, ctx);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].severity, 'error');
+  assert.match(violations[0].message, /Lat Pulldown/);
+});
+
 test('themeCoherence: drops out-of-theme exercises when source=rotation (error)', () => {
   const chest = makeExercise({ exerciseName: 'Bench Press', targetMuscleGroup: 'mid_chest' });
   const legs = makeExercise({ exerciseName: 'Squat', targetMuscleGroup: 'quadriceps' });

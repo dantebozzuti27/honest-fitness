@@ -1,0 +1,24 @@
+{
+  "name": "Monthly focus on calves survives a back/biceps user-authored schedule (undroppable trumps schedule)",
+  "target": "invariantPipeline",
+  "exercises": [
+    { "exerciseName": "Lat Pulldown", "targetMuscleGroup": "back_lats", "exerciseRole": "primary" },
+    { "exerciseName": "Bicep Curl", "targetMuscleGroup": "biceps", "exerciseRole": "isolation" },
+    {
+      "exerciseName": "Standing Calf Raise",
+      "targetMuscleGroup": "calves",
+      "exerciseRole": "isolation",
+      "sets": 2,
+      "isUndroppable": true,
+      "undroppableReason": "monthly_focus"
+    }
+  ],
+  "context": {
+    "userAuthoredScheduleGroups": ["back_lats", "biceps"],
+    "monthlyFocusMuscle": "calves"
+  },
+  "expectations": {
+    "passed": true,
+    "mustInclude": ["Lat Pulldown", "Bicep Curl", "Standing Calf Raise"]
+  }
+}

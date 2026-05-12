@@ -1,0 +1,24 @@
+{
+  "name": "Hard schedule guard drops hamstrings on a user-authored back/biceps day (regression: synergist expansion let RDL through)",
+  "target": "invariantPipeline",
+  "exercises": [
+    { "exerciseName": "Lat Pulldown", "targetMuscleGroup": "back_lats", "exerciseRole": "primary" },
+    { "exerciseName": "Seated Cable Row", "targetMuscleGroup": "back_upper", "exerciseRole": "secondary" },
+    { "exerciseName": "Bicep Curl", "targetMuscleGroup": "biceps", "exerciseRole": "isolation" },
+    { "exerciseName": "Romanian Deadlift", "targetMuscleGroup": "hamstrings", "exerciseRole": "primary" }
+  ],
+  "context": {
+    "dayTheme": {
+      "primary": "back_lats",
+      "allowedAccessories": ["back_upper", "biceps"],
+      "source": "schedule"
+    },
+    "userAuthoredScheduleGroups": ["back_lats", "back_upper", "biceps"]
+  },
+  "expectations": {
+    "passed": true,
+    "mustInclude": ["Lat Pulldown", "Seated Cable Row", "Bicep Curl"],
+    "mustExclude": ["Romanian Deadlift"],
+    "noteContains": ["Schedule guard"]
+  }
+}

@@ -8,7 +8,7 @@
     "build": "node node_modules/vite/bin/vite.js build",
     "typecheck": "tsc --noEmit",
     "test:visual": "node --test tests/visual/*.test.js",
-    "test:unit": "node --import tsx --test tests/unit/*.test.ts",
+    "test:unit": "node --import tsx --test tests/unit/*.test.ts tests/fixtures/**/*.test.ts",
     "test": "npm run test:unit && npm run test:visual",
     "preview": "vite preview",
     "cap:sync": "npx cap sync",

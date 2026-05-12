@@ -1,0 +1,30 @@
+{
+  "name": "Monthly biceps focus survives a chest/triceps day (regression: theme guard used to drop it)",
+  "target": "invariantPipeline",
+  "exercises": [
+    { "exerciseName": "Bench Press", "targetMuscleGroup": "mid_chest", "exerciseRole": "primary" },
+    { "exerciseName": "Tricep Pushdown", "targetMuscleGroup": "triceps", "exerciseRole": "isolation" },
+    {
+      "exerciseName": "Bicep Curl",
+      "targetMuscleGroup": "biceps",
+      "exerciseRole": "isolation",
+      "sets": 2,
+      "isUndroppable": true,
+      "undroppableReason": "monthly_focus"
+    }
+  ],
+  "context": {
+    "dayTheme": {
+      "primary": "mid_chest",
+      "allowedAccessories": ["triceps", "anterior_deltoid", "core"],
+      "source": "schedule"
+    },
+    "userAuthoredScheduleGroups": ["mid_chest", "triceps", "anterior_deltoid", "core"],
+    "monthlyFocusMuscle": "biceps"
+  },
+  "expectations": {
+    "passed": true,
+    "mustInclude": ["Bench Press", "Tricep Pushdown", "Bicep Curl"],
+    "remainingExerciseNames": ["Bench Press", "Tricep Pushdown", "Bicep Curl"]
+  }
+}

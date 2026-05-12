@@ -1990,6 +1990,10 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
   )
 
   // Preferred path: single transactional RPC (version + days + diffs).
+  // The `p_engine_input_snapshot` parameter is new (audit #3a) — older
+  // RPC deployments will surface "function does not exist with these
+  // args" and we fall through to the legacy path. The legacy path also
+  // writes the snapshot, so coverage is identical either way.
   try {
     const rpcDays = serializeWeeklyPlanDaysForRpc(userId, weeklyPlan)
     const rpcDiffs = serializeWeeklyDiffsForRpc(userId, diffs)
@@ -1999,6 +2003,7 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
       p_feature_snapshot_id: weeklyPlan.featureSnapshotId || null,
       p_days: rpcDays,
       p_diffs: rpcDiffs,
+      p_engine_input_snapshot: weeklyPlan.engineInputSnapshot ?? null,
     })
     if (!error && data) {
       await persistWeeklyPlanProvenance(userId, data as string, weeklyPlan)
@@ -2023,17 +2028,47 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
     .eq('status', 'active')
     .maybeSingle()
 
-  const { data: version, error: versionError } = await supabase
-    .from('weekly_plan_versions')
-    .insert({
-      user_id: userId,
-      week_start_date: weeklyPlan.weekStartDate,
-      status: 'active',
-      feature_snapshot_id: weeklyPlan.featureSnapshotId || null,
-    })
-    .select('id')
-    .single()
-  if (versionError) throw versionError
+  // Insert the new active version. We optimistically include the
+  // engine_input_snapshot column; if the migration hasn't run yet the
+  // insert will fail with PG 42703 ("undefined column") and we retry
+  // without it. This pattern is used elsewhere in this file and is
+  // preferable to a feature flag because it keeps the new column the
+  // default on freshly migrated deployments.
+  let version: { id: string } | null = null
+  let versionError: any = null
+  {
+    const insertWithSnapshot = await supabase
+      .from('weekly_plan_versions')
+      .insert({
+        user_id: userId,
+        week_start_date: weeklyPlan.weekStartDate,
+        status: 'active',
+        feature_snapshot_id: weeklyPlan.featureSnapshotId || null,
+        engine_input_snapshot: weeklyPlan.engineInputSnapshot ?? null,
+      })
+      .select('id')
+      .single()
+    if (insertWithSnapshot.error
+      && (insertWithSnapshot.error.code === '42703'
+        || `${insertWithSnapshot.error.message || ''}`.toLowerCase().includes('column'))) {
+      const retry = await supabase
+        .from('weekly_plan_versions')
+        .insert({
+          user_id: userId,
+          week_start_date: weeklyPlan.weekStartDate,
+          status: 'active',
+          feature_snapshot_id: weeklyPlan.featureSnapshotId || null,
+        })
+        .select('id')
+        .single()
+      version = (retry.data as { id: string } | null) ?? null
+      versionError = retry.error
+    } else {
+      version = (insertWithSnapshot.data as { id: string } | null) ?? null
+      versionError = insertWithSnapshot.error
+    }
+  }
+  if (versionError || !version) throw versionError ?? new Error('weekly_plan_versions insert returned no row')
 
   const rows = (weeklyPlan.days || []).map((d: any) => ({
     weekly_plan_id: version.id,

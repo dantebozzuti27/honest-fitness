@@ -55,6 +55,10 @@ import {
   violationsBySeverity,
   type WorkoutInvariantContext,
 } from './workoutInvariants';
+import {
+  buildEngineInputSnapshot,
+  type EngineInputSnapshotV1,
+} from './engineInputSnapshot';
 
 /**
  * Normalize a raw muscle name from the exercise library to the snake_case
@@ -7526,6 +7530,15 @@ export interface WeeklyPlan {
   weekStartDate: string;
   featureSnapshotId: string;
   days: WeeklyPlanDay[];
+  /**
+   * Phase A engine-input snapshot (audit #3a). When present, `saveWeeklyPlanToSupabase`
+   * persists this to `weekly_plan_versions.engine_input_snapshot` so we
+   * can answer "what did the engine see when it produced this plan?"
+   * during incident response. Optional because older saved plans
+   * predate the column; consumers should not assume presence.
+   * Schema lives in `engineInputSnapshot.ts`.
+   */
+  engineInputSnapshot?: EngineInputSnapshotV1;
   planQuality?: {
     avgConsecutiveOverlap: number;
     avgAnchorCoverage: number;
@@ -8360,10 +8373,36 @@ export async function generateWeeklyPlan(
     );
   }
 
+  // Audit #3a: capture the engine inputs that produced this plan so
+  // we can answer "what did the engine see?" without re-running it.
+  // We tolerate a missing prefs object (the planPrefs fetch above can
+  // return null on legacy users); when prefs is null the snapshot is
+  // simply omitted — better that than a half-built snapshot misleading
+  // future investigation.
+  let engineInputSnapshot: EngineInputSnapshotV1 | undefined;
+  if (planPrefs) {
+    try {
+      const monthlyState = parseMonthlyFocusState(planPrefs.monthly_focus_state);
+      engineInputSnapshot = buildEngineInputSnapshot(
+        profile,
+        planPrefs,
+        {
+          weekStartDate: weekDates[0],
+          featureSnapshotId: profile.featureSnapshotId,
+          days,
+        },
+        (planDate) => activeMonthlyFitnessMuscleForDate(monthlyState, planDate),
+      );
+    } catch (err) {
+      logWarn('engineInputSnapshot build failed (non-fatal)', err);
+    }
+  }
+
   return {
     weekStartDate: weekDates[0],
     featureSnapshotId: profile.featureSnapshotId,
     days,
+    engineInputSnapshot,
     planQuality: {
       avgConsecutiveOverlap: Math.round(avg(overlapSamples) * 1000) / 1000,
       avgAnchorCoverage: Math.round(avg(anchorSamples) * 1000) / 1000,

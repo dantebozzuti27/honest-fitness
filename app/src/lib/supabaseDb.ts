@@ -2087,6 +2087,32 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
   return version.id as string
 }
 
+/**
+ * Mark every active weekly_plan_versions row for this user as superseded.
+ *
+ * Why this exists:
+ *   The TodayWorkout / WeekAhead screens prefer the saved active plan over
+ *   regenerating, gated by a narrow `isWeeklyPlanStale` heuristic. That
+ *   heuristic doesn't (and shouldn't) know about every preference field
+ *   that affects generation — for example `monthly_focus_state.fitness_muscle`
+ *   or a freshly-edited `weekly_split_schedule`. When such a field changes,
+ *   call this to invalidate the cached plan so the next visit regenerates.
+ *
+ * Returns the count of rows superseded so callers can decide whether to
+ * surface a "weekly plan will refresh" toast.
+ */
+export async function supersedeActiveWeeklyPlanForUser(userId: string): Promise<number> {
+  if (!userId) return 0
+  const { data, error } = await supabase
+    .from('weekly_plan_versions')
+    .update({ status: 'superseded' })
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .select('id')
+  if (error) throw error
+  return Array.isArray(data) ? data.length : 0
+}
+
 export async function getActiveWeeklyPlanFromSupabase(userId: string, weekStartDate: string) {
   const { data: version, error: versionError } = await supabase
     .from('weekly_plan_versions')

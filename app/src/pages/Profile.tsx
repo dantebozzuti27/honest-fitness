@@ -5,6 +5,7 @@ import { exportUserDataJSON, exportWorkoutsCSV, exportHealthMetricsCSV, download
 import { getAllConnectedAccounts, disconnectAccount } from '../lib/wearables'
 import { connectFitbit } from '../lib/fitbitAuth'
 import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferencesDb'
+import { supersedeActiveWeeklyPlanForUser } from '../lib/supabaseDb'
 import { ageRecoveryFactor } from '../lib/recoveryModel'
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { getLocalDate, getTodayEST } from '../utils/dateUtils'
@@ -611,6 +612,17 @@ export default function Profile() {
     life_completions: {},
   }))
   const [lifeLogSaving, setLifeLogSaving] = useState(false)
+  /**
+   * Captures the fitness-focus muscle as it stood when this profile was last
+   * loaded from RDS. Comparing against this on save lets us detect a real
+   * change (vs. saving with the focus untouched) so we only invalidate the
+   * cached weekly plan when needed.
+   *
+   * Stored as a ref because the value should not trigger re-renders and must
+   * survive the async save round-trip without races against React state.
+   */
+  const initialFitnessMuscleRef = useRef<string | null>(null)
+  const initialSplitScheduleSigRef = useRef<string>('')
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [newInjury, setNewInjury] = useState({ body_part: '', description: '', severity: 'moderate' })
@@ -744,7 +756,10 @@ export default function Profile() {
           sport_season: prefs.sport_season || '',
           hotel_mode: Boolean(prefs.hotel_mode),
         })
-        setMonthlyFocus(displayMonthlyFocusState(prefs.monthly_focus_state, currentMonthKey()))
+        const loadedFocus = displayMonthlyFocusState(prefs.monthly_focus_state, currentMonthKey())
+        setMonthlyFocus(loadedFocus)
+        initialFitnessMuscleRef.current = loadedFocus.fitness_muscle ?? null
+        initialSplitScheduleSigRef.current = JSON.stringify(prefs.weekly_split_schedule ?? null)
       }
       setProfileLoaded(true)
     } catch (err) {
@@ -826,6 +841,30 @@ export default function Profile() {
         })(),
       }
       await saveUserPreferences(user.id, payload)
+
+      // If a field that materially changes weekly-plan generation was edited,
+      // mark the cached active plan superseded so TodayWorkout / WeekAhead
+      // regenerate with the new inputs on next visit. Today this covers the
+      // monthly fitness focus muscle and the weekly split schedule; extend
+      // the comparison list when adding new prefs that the engine reads.
+      const nextFocusMuscle = monthlyFocus.fitness_muscle || null
+      const nextSplitScheduleSig = JSON.stringify(payload.weekly_split_schedule ?? null)
+      const focusChanged = nextFocusMuscle !== initialFitnessMuscleRef.current
+      const scheduleChanged = nextSplitScheduleSig !== initialSplitScheduleSigRef.current
+      if (focusChanged || scheduleChanged) {
+        try {
+          const supersededCount = await supersedeActiveWeeklyPlanForUser(user.id)
+          if (supersededCount > 0) {
+            showToast('Weekly plan will refresh on your next visit', 'info')
+          }
+        } catch (planErr) {
+          // Plan invalidation is best-effort. Don't block the save flow on it;
+          // the user can manually regenerate from TodayWorkout if needed.
+          logError('Weekly plan supersede after profile save failed', planErr)
+        }
+        initialFitnessMuscleRef.current = nextFocusMuscle
+        initialSplitScheduleSigRef.current = nextSplitScheduleSig
+      }
 
       // Write weight to health_metrics time-series so the trend computation stays current
       const weightLbs = trainingProfile.body_weight_lbs ? Number(trainingProfile.body_weight_lbs) : null

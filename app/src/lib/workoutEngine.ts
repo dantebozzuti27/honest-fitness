@@ -2760,6 +2760,57 @@ function stepSelectMuscleGroups(
     }
   }
 
+  // ── Monthly fitness focus guarantee ─────────────────────────────────────
+  // The whole point of the monthly focus is "layer this muscle into every
+  // workout." A priority-boost-only approach (which is what the candidate
+  // sort gives us above) can still lose to splitMatchBoost on non-focus
+  // days, and the user observes "the focus didn't apply." This block makes
+  // inclusion a hard guarantee whenever the focus muscle is a viable
+  // candidate (i.e. passed recovery and injury filters).
+  //
+  // The volume cap (1–2 sets, tighter on split-guard days) is still enforced
+  // downstream in stepPrescribe — this block only secures the slot, not the
+  // dose. If every remaining slot is an explicit user anchor / priority
+  // muscle, we accept that we can't layer in this session rather than
+  // overriding an explicit user preference.
+  if (monthlyNorm) {
+    const alreadySelected = selected.some((s) => s.muscleGroup === monthlyNorm);
+    if (!alreadySelected) {
+      const focusCandidate = filteredCandidates.find((c) => c.muscleGroup === monthlyNorm);
+      if (focusCandidate) {
+        const focusMajorSet = new Set([
+          'upper_chest', 'mid_chest', 'lower_chest', 'back_lats', 'quadriceps',
+          'hamstrings', 'glutes', 'anterior_deltoid', 'lateral_deltoid',
+          'posterior_deltoid', 'biceps', 'triceps',
+        ]);
+        const focusMinorSet = new Set([
+          'forearms', 'abductors', 'adductors', 'core', 'erector_spinae',
+          'rotator_cuff', 'hip_flexors', 'upper_traps', 'mid_traps',
+          'lower_traps', 'back_upper',
+        ]);
+        const evictionRank = (g: string): number => {
+          // Lower rank = preferred eviction target.
+          if (preferredGroupSet.has(g)) return 100;
+          if (priorityMuscleSet.has(g)) return 90;
+          if (focusMajorSet.has(g)) return 50;
+          if (focusMinorSet.has(g)) return 10;
+          return 30;
+        };
+        if (selected.length < maxGroups) {
+          selected.push(focusCandidate);
+        } else {
+          const evictionOrder = selected
+            .map((s, i) => ({ s, i, r: evictionRank(s.muscleGroup), p: s.priority }))
+            .sort((a, b) => (a.r - b.r) || (a.p - b.p));
+          const evictable = evictionOrder.find((e) => e.r < 90);
+          if (evictable) {
+            selected[evictable.i] = focusCandidate;
+          }
+        }
+      }
+    }
+  }
+
   return { selected, skipped };
 }
 

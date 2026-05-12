@@ -2760,52 +2760,62 @@ function stepSelectMuscleGroups(
     }
   }
 
-  // ── Monthly fitness focus guarantee ─────────────────────────────────────
-  // The whole point of the monthly focus is "layer this muscle into every
-  // workout." A priority-boost-only approach (which is what the candidate
-  // sort gives us above) can still lose to splitMatchBoost on non-focus
-  // days, and the user observes "the focus didn't apply." This block makes
-  // inclusion a hard guarantee whenever the focus muscle is a viable
-  // candidate (i.e. passed recovery and injury filters).
+  // ── Monthly fitness focus: append-always layering ──────────────────────
+  // User contract: "if it's the focus it should be in every workout no
+  // matter what". So we DO NOT compete for slot space with the split's
+  // muscles (which violated split fidelity in earlier iterations). Instead
+  // we APPEND the focus as a layered accessory slot regardless of the
+  // `maxGroups` cap, with a small fixed `targetSets` so downstream exercise
+  // selection picks one isolation movement and stepPrescribe gives it ~2
+  // working sets — minimal time impact, guaranteed presence.
   //
-  // The volume cap (1–2 sets, tighter on split-guard days) is still enforced
-  // downstream in stepPrescribe — this block only secures the slot, not the
-  // dose. If every remaining slot is an explicit user anchor / priority
-  // muscle, we accept that we can't layer in this session rather than
-  // overriding an explicit user preference.
-  if (monthlyNorm) {
-    const alreadySelected = selected.some((s) => s.muscleGroup === monthlyNorm);
-    if (!alreadySelected) {
-      const focusCandidate = filteredCandidates.find((c) => c.muscleGroup === monthlyNorm);
-      if (focusCandidate) {
-        const focusMajorSet = new Set([
-          'upper_chest', 'mid_chest', 'lower_chest', 'back_lats', 'quadriceps',
-          'hamstrings', 'glutes', 'anterior_deltoid', 'lateral_deltoid',
-          'posterior_deltoid', 'biceps', 'triceps',
-        ]);
-        const focusMinorSet = new Set([
-          'forearms', 'abductors', 'adductors', 'core', 'erector_spinae',
-          'rotator_cuff', 'hip_flexors', 'upper_traps', 'mid_traps',
-          'lower_traps', 'back_upper',
-        ]);
-        const evictionRank = (g: string): number => {
-          // Lower rank = preferred eviction target.
-          if (preferredGroupSet.has(g)) return 100;
-          if (priorityMuscleSet.has(g)) return 90;
-          if (focusMajorSet.has(g)) return 50;
-          if (focusMinorSet.has(g)) return 10;
-          return 30;
-        };
-        if (selected.length < maxGroups) {
-          selected.push(focusCandidate);
-        } else {
-          const evictionOrder = selected
-            .map((s, i) => ({ s, i, r: evictionRank(s.muscleGroup), p: s.priority }))
-            .sort((a, b) => (a.r - b.r) || (a.p - b.p));
-          const evictable = evictionOrder.find((e) => e.r < 90);
-          if (evictable) {
-            selected[evictable.i] = focusCandidate;
-          }
+  // Why we accept the budget overrun:
+  //   2 sets of an isolation move ≈ 3-5 min. On a 30-min session that's
+  //   ~13% overrun; on 60+ min it's noise. The user explicitly traded
+  //   strict budget adherence for guaranteed focus inclusion.
+  //
+  // What we still respect:
+  //   - Injury conflicts: never force a focus muscle the user has injured.
+  //   - Already-selected: if the focus is already in `selected` (because
+  //     it's in today's split), do nothing — let normal prescription run.
+  //
+  // What we override:
+  //   - `maxGroups` cap (we append).
+  //   - The recovery skip in the candidates loop (still recovering ≠
+  //     unsafe; the 2-set cap keeps it tolerable). The reason field
+  //     surfaces the recovery percent so the user has visibility.
+  if (monthlyFocusMuscle) {
+    // Narrow to a real canonical muscle group; if the user's chosen focus
+    // doesn't normalize to anything the volume model knows about, we have
+    // nothing meaningful to layer.
+    const focusCanonical = normalizeMuscleGroupName(monthlyFocusMuscle);
+    if (focusCanonical) {
+      const alreadySelected = selected.some((s) => s.muscleGroup === focusCanonical);
+      if (!alreadySelected) {
+        const skippedEntry = skipped.find((sk) => sk.muscleGroup === focusCanonical);
+        const isInjured = skippedEntry?.reason === 'Injury conflict';
+        if (!isInjured) {
+          const rawVol = profile.muscleVolumeStatuses.find(
+            (v) => normalizeMuscleGroupName(v.muscleGroup) === focusCanonical,
+          );
+          const recovery = profile.muscleRecovery.find((r) => r.muscleGroup === focusCanonical);
+          const recPct = recovery?.recoveryPercent ?? null;
+          const layeredSlot: MuscleGroupSelection = {
+            muscleGroup: focusCanonical,
+            priority: 0.5,
+            reason: monthlyFocusSplitGuard
+              ? `Monthly fitness focus — light layer (split day for ${focusCanonical} is tomorrow${
+                  recPct != null ? `, ${recPct}% recovered` : ''
+                })`
+              : `Monthly fitness focus — layered into every workout${
+                  recPct != null ? ` (${recPct}% recovered)` : ''
+                }`,
+            targetSets: 2,
+            recoveryPercent: recPct,
+            weeklyVolume: rawVol?.weeklyDirectSets ?? 0,
+            volumeTarget: 'focus_layer',
+          };
+          selected.push(layeredSlot);
         }
       }
     }
@@ -4647,11 +4657,19 @@ function stepPrescribe(
       targetWeight = safe.weight;
     }
 
-    if (isMonthlyFocusMuscle && monthlyFocusSplitGuard) {
-      const capped = Math.min(sets, 2);
+    if (isMonthlyFocusMuscle) {
+      // The focus is layered as accessory work, not a primary slot — cap
+      // hard so guaranteed inclusion (see stepSelectMuscleGroups) never
+      // turns into "biceps day on top of Push day". On a split-guard day
+      // (tomorrow's split owns this muscle) we go even lighter so the
+      // dedicated day still drives the heavy stimulus.
+      const cap = monthlyFocusSplitGuard ? 2 : 2;
+      const capped = Math.min(sets, cap);
       if (capped !== sets) {
         adjustments.push(
-          `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets — heavier work reserved for tomorrow's split day`,
+          monthlyFocusSplitGuard
+            ? `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets — heavier work reserved for tomorrow's split day`
+            : `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets — accessory layer, not a primary slot`,
         );
         sets = capped;
       }

@@ -1630,7 +1630,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         <div style={{ width: 32 }} />
       </div>
 
-      <div className={styles.content}>
+      <div className={isWeekPage ? `${styles.content} ${styles.contentWeek}` : styles.content}>
         <div className={styles.pageSwitch}>
           <Button
             variant={isWeekPage ? 'secondary' : 'primary'}
@@ -1909,7 +1909,19 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
                       )}
                     </div>
                   </div>
-                  <span className={styles.expandArrow}>{isExpanded ? '▼' : '▶'}</span>
+                  <div className={styles.exerciseHeaderActions}>
+                    {!ex.isCardio && (
+                      <button
+                        className={styles.swapBtnInline}
+                        onClick={(e) => { e.stopPropagation(); handleSwapExercise(ex.exerciseName) }}
+                        disabled={regenerating}
+                        title="Swap this exercise for a different one"
+                      >
+                        Swap
+                      </button>
+                    )}
+                    <span className={styles.expandArrow}>{isExpanded ? '▼' : '▶'}</span>
+                  </div>
                 </div>
 
                 {isExpanded && (
@@ -2565,7 +2577,12 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           </div>
         )}
 
-        {/* Actions */}
+        {/* Actions — only on Today, not on Week Ahead. Week Ahead is a
+            preview / inspection surface; users start a workout by going
+            back to Today. Rendering the fixed action bar here was
+            consuming ~96px of bottom space and clipping the Details
+            accordion contents on phones. */}
+        {!isWeekPage && (
         <div className={styles.actions}>
           {isReadyState ? (
             <>
@@ -2621,6 +2638,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
             </>
           )}
         </div>
+        )}
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} duration={toast.duration} onClose={hideToast} />}

@@ -28,6 +28,23 @@
   gap: 16px;
 }
 
+/**
+ * Week-Ahead variant of .content.
+ *
+ * The Week Ahead page does NOT render the fixed Start/Regenerate action
+ * bar, so we don't need 196 px of clearance — only the bottom nav (104
+ * px) plus a small breathing buffer. The wider padding-bottom on
+ * `.content` was wasting scroll space and pushing content beneath the
+ * fold even when nothing was overlapping it.
+ *
+ * Mobile rule below preserves this override (was lost in the previous
+ * mobile media query, which is the root of the WeekAhead scroll
+ * report).
+ */
+.contentWeek {
+  padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+}
+
 .sectionPlaceholder {
   min-height: 6px;
 }
@@ -475,6 +492,45 @@
 .expandArrow {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+.exerciseHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/**
+ * Inline swap button on the collapsed exercise card. Visible without
+ * expanding so users can change exercises at a glance — the previous
+ * placement (inside `exerciseDetails`) required two taps to find and
+ * was a major reason for the report "Why can't I swap exercises
+ * before I start the workout?"
+ */
+.swapBtnInline {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+  background: var(--surface-secondary, #f5f5f5);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 120ms ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.swapBtnInline:hover:not(:disabled) {
+  background: var(--accent, #14b8a6);
+  color: white;
+  border-color: var(--accent, #14b8a6);
+}
+
+.swapBtnInline:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Exercise Details */
@@ -1445,10 +1501,23 @@
 
 @media (max-width: 640px) {
   .content {
+    /* Preserve the bottom safe-area + fixed-actions clearance from the
+     * base rule. Previously this shorthand wiped it out — the most
+     * common cause of "I can't scroll on Week Ahead" on iPhone. */
     padding: 14px;
+    padding-bottom: calc(196px + env(safe-area-inset-bottom, 0px));
     gap: 12px;
+  }
+  .contentWeek {
+    padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
   }
   .weekGlanceGrid {
     grid-auto-columns: minmax(156px, 1fr);
+    /* Stop horizontal pans on the day strip from hijacking vertical
+     * page scroll on touch devices. `pan-y` allows vertical scroll
+     * gestures to pass through; `overscroll-behavior-x: contain`
+     * prevents scroll-chaining feedback. */
+    overscroll-behavior-x: contain;
+    touch-action: pan-y;
   }
 }

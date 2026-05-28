@@ -129,6 +129,62 @@ export function muscleGroupDisplayLabel(canonicalId: string | null | undefined):
 }
 
 /**
+ * Week-of-month index for a calendar date (1-4 or 5).
+ *
+ * Used by the workout engine to ramp focus volume across the month:
+ *   week 1 → +1 set (intro / ramp)
+ *   week 2 → +2 sets (full focus dose)
+ *   week 3 → +2 sets (full focus dose)
+ *   week 4 → +1 set (consolidation / partial deload)
+ *   week 5 → +1 set (rare; bleed-over week)
+ *
+ * Cheap rule: week = ceil(day-of-month / 7). The first 7 days are week 1,
+ * the next 7 are week 2, etc. No business reason to align to ISO weeks.
+ */
+export function focusWeekOfMonth(planDateStr: string): number {
+  const m = /^\d{4}-\d{2}-(\d{2})$/.exec(planDateStr)
+  if (!m) return 1
+  const day = Number(m[1])
+  if (!Number.isFinite(day) || day < 1) return 1
+  return Math.min(5, Math.ceil(day / 7))
+}
+
+/**
+ * Extra-set volume bonus for the monthly fitness focus on a given plan date.
+ *
+ * Returns 0 when the focus is not active (state missing, wrong month, no
+ * fitness muscle set). Otherwise returns the per-week ramp described in
+ * `focusWeekOfMonth`. Engine reads this to size:
+ *   - The layered slot's `targetSets` (when focus muscle is NOT in today's
+ *     split).
+ *   - The bonus sets added to the focus exercise(s) when the focus IS in
+ *     today's split (so split day still gets the "more than reasonable"
+ *     dose the user asked for).
+ *   - The prescribe-step cap on the layered exercise.
+ *
+ * Split-guard days (focus muscle is in TOMORROW's split) deliberately
+ * receive a smaller bonus — heavy work belongs on the dedicated day, not
+ * the day before. Guard ratio is `floor(bonus / 2)`.
+ */
+export function monthlyFocusVolumeBonus(
+  state: MonthlyFocusStateV1 | null | undefined,
+  planDateStr: string,
+  isSplitGuardDay: boolean = false,
+): number {
+  const active = activeMonthlyFitnessMuscleForDate(state, planDateStr)
+  if (!active) return 0
+  const week = focusWeekOfMonth(planDateStr)
+  const baseBonus =
+    week === 1 ? 1 :
+    week === 2 ? 2 :
+    week === 3 ? 2 :
+    week === 4 ? 1 :
+    1
+  if (isSplitGuardDay) return Math.floor(baseBonus / 2)
+  return baseBonus
+}
+
+/**
  * When tomorrow's scheduled split already includes the monthly focus muscle,
  * treat today as a "split guard" day — still allow layering, but cap stimulus
  * (see workout engine prescribe step) so heavy work lands on the dedicated day.

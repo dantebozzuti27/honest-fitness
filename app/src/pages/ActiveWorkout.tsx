@@ -31,6 +31,11 @@ import Sheet from '../components/ui/Sheet'
 import IconButton from '../components/ui/IconButton'
 import { uuidv4 } from '../utils/uuid'
 import { logExerciseSwapToSupabase } from '../lib/swapLogging'
+import {
+  clearGeneratedWorkoutHandoff,
+  parseGeneratedWorkoutPayload,
+  peekGeneratedWorkoutPayload,
+} from '../lib/generatedWorkoutHandoff'
 import { getExerciseRom, computeMechanicalWork, formatJoules } from '../lib/exerciseRom'
 import styles from './ActiveWorkout.module.css'
 
@@ -109,6 +114,35 @@ function defaultSetMetaForExercise(exerciseName: string) {
     _load_interpretation: unilateral ? 'per_hand_per_side' : 'unknown',
     _reps_interpretation: unilateral ? 'per_side' : 'total_reps',
   }
+}
+
+function mapGeneratedWorkoutExercises(generatedExercises: any[]): any[] {
+  return generatedExercises.map((gex: any, idx: number) => {
+    const isCardio = gex.category === 'Cardio'
+    return {
+      id: Date.now() + idx,
+      name: gex.name,
+      category: gex.category || 'Strength',
+      bodyPart: gex.body_part || '',
+      exercise_library_id: gex.exercise_library_id || null,
+      _prescription: gex._prescription || null,
+      sets: (gex.sets || []).map((s: any) => ({
+        weight: s.target_weight != null ? String(s.target_weight) : (s.weight ?? ''),
+        reps: s.target_reps != null ? String(s.target_reps) : (s.reps ?? ''),
+        time: s.time != null ? String(s.time) : '',
+        time_seconds: s.time_seconds != null ? String(s.time_seconds) : (isCardio && s.time ? String(s.time) : ''),
+        speed: s.speed != null ? String(s.speed) : '',
+        incline: s.incline != null ? String(s.incline) : '',
+        _target_weight: s.target_weight,
+        _target_reps: s.target_reps,
+        _tempo: s.tempo,
+        _is_bodyweight: s._is_bodyweight,
+        _load_interpretation: s._load_interpretation ?? defaultSetMetaForExercise(gex.name)._load_interpretation,
+        _reps_interpretation: s._reps_interpretation ?? defaultSetMetaForExercise(gex.name)._reps_interpretation,
+      })),
+      expanded: idx === 0,
+    }
+  })
 }
 
 type RestContractSnapshot = {
@@ -1257,7 +1291,60 @@ export default function ActiveWorkout() {
           }
         }
         
-        // If still no session and no restored exercises, initialize new workout
+        // Launch from Today's generator — runs even when a stale empty DB session exists
+        // (rest/timer saves persist session rows without exercises, which blocked this path).
+        if (!restoredExercises && !templateId && !randomWorkout && !aiWorkout) {
+          const generated = parseGeneratedWorkoutPayload(peekGeneratedWorkoutPayload(userId))
+          if (generated) {
+            const sessionHasExercises = Boolean(
+              session?.exercises && Array.isArray(session.exercises) && session.exercises.length > 0
+            )
+            if (session && !sessionHasExercises) {
+              try {
+                await deleteActiveWorkoutSession(userId)
+                localStorage.removeItem(`activeWorkout_${userId}`)
+              } catch (err) {
+                logError('Failed to delete empty active session before generated workout', err)
+              }
+            }
+
+            workoutStartTimeRef.current = Date.now()
+            setWorkoutTime(0)
+            setPausedTime(0)
+            pausedTimeRef.current = 0
+
+            if (userId) triggerFitbitSync(userId)
+
+            const startMetrics = await getCurrentWearableMetrics()
+            workoutStartMetricsRef.current = startMetrics
+
+            try {
+              localStorage.setItem(`workoutStartMetrics_${userId}`, JSON.stringify(startMetrics))
+            } catch (err) {
+              logError('Failed to store workout start metrics in localStorage', err)
+            }
+
+            if (generated.hotelMode) setHotelModeOn(true)
+            const genExercises = generated.exercises
+            if (Array.isArray(genExercises) && genExercises.length > 0) {
+              const prePopulated = mapGeneratedWorkoutExercises(genExercises)
+              setExercises(prePopulated)
+              generatedWorkoutIdRef.current = (generated.generated_workout_id as string) || null
+              generatedWorkoutNameRef.current = (generated.templateName as string) || null
+              if (generated.templateName && generatedWorkoutNamePersistKey) {
+                try {
+                  localStorage.setItem(generatedWorkoutNamePersistKey, String(generated.templateName))
+                } catch (err) {
+                  logError('Failed to persist generated workout name to localStorage', err)
+                }
+              }
+              restoredExercises = true
+            }
+            clearGeneratedWorkoutHandoff(userId)
+          }
+        }
+
+        // Fresh manual session when nothing was restored and no generated handoff
         if (!session && !restoredExercises) {
           workoutStartTimeRef.current = Date.now()
           setWorkoutTime(0)
@@ -1272,50 +1359,6 @@ export default function ActiveWorkout() {
           try {
             localStorage.setItem(`workoutStartMetrics_${userId}`, JSON.stringify(startMetrics))
           } catch (err) { logError('Failed to store workout start metrics in localStorage', err) }
-          
-          // Check for pre-populated exercises from the workout generator
-          try {
-            const generatedRaw = sessionStorage.getItem('generated_workout')
-            if (generatedRaw) {
-              sessionStorage.removeItem('generated_workout')
-              const generated = JSON.parse(generatedRaw)
-              if (generated.hotelMode) setHotelModeOn(true)
-              if (generated.exercises?.length > 0) {
-                const prePopulated = generated.exercises.map((gex: any, idx: number) => {
-                  const isCardio = gex.category === 'Cardio'
-                  return {
-                    id: Date.now() + idx,
-                    name: gex.name,
-                    category: gex.category || 'Strength',
-                    bodyPart: gex.body_part || '',
-                    exercise_library_id: gex.exercise_library_id || null,
-                    _prescription: gex._prescription || null,
-                    sets: (gex.sets || []).map((s: any) => ({
-                      weight: s.target_weight != null ? String(s.target_weight) : (s.weight ?? ''),
-                      reps: s.target_reps != null ? String(s.target_reps) : (s.reps ?? ''),
-                      time: s.time != null ? String(s.time) : '',
-                      time_seconds: s.time_seconds != null ? String(s.time_seconds) : (isCardio && s.time ? String(s.time) : ''),
-                      speed: s.speed != null ? String(s.speed) : '',
-                      incline: s.incline != null ? String(s.incline) : '',
-                      _target_weight: s.target_weight,
-                      _target_reps: s.target_reps,
-                      _tempo: s.tempo,
-                      _is_bodyweight: s._is_bodyweight,
-                      _load_interpretation: s._load_interpretation ?? defaultSetMetaForExercise(gex.name)._load_interpretation,
-                      _reps_interpretation: s._reps_interpretation ?? defaultSetMetaForExercise(gex.name)._reps_interpretation,
-                    })),
-                    expanded: idx === 0,
-                  }
-                })
-                setExercises(prePopulated)
-                generatedWorkoutIdRef.current = generated.generated_workout_id || null
-                generatedWorkoutNameRef.current = generated.templateName || null
-                if (generated.templateName && generatedWorkoutNamePersistKey) {
-                  try { localStorage.setItem(generatedWorkoutNamePersistKey, generated.templateName) } catch (err) { logError('Failed to persist generated workout name to localStorage', err) }
-                }
-              }
-            }
-          } catch (err) { logError('Failed to load generated workout from sessionStorage', err) }
           
           // Don't persist an empty session to the DB — the auto-save will
           // create the DB record once the first exercise is added.

@@ -1,7 +1,7 @@
 import { logError } from '../utils/logger'
 import { db } from './dbClient'
 
-export type SwapContext = 'today_regen' | 'week_regen' | 'active_replace' | 'unknown'
+export type SwapContext = 'today_regen' | 'today_surgical' | 'today_regen_fallback' | 'week_regen' | 'active_replace' | 'unknown'
 
 export type LogExerciseSwapParams = {
   userId: string

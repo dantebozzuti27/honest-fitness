@@ -2004,6 +2004,7 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
       p_days: rpcDays,
       p_diffs: rpcDiffs,
       p_engine_input_snapshot: weeklyPlan.engineInputSnapshot ?? null,
+      p_plan_constraints: weeklyPlan.planConstraints ?? null,
     })
     if (!error && data) {
       await persistWeeklyPlanProvenance(userId, data as string, weeklyPlan)
@@ -2045,6 +2046,7 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
         status: 'active',
         feature_snapshot_id: weeklyPlan.featureSnapshotId || null,
         engine_input_snapshot: weeklyPlan.engineInputSnapshot ?? null,
+        plan_constraints: weeklyPlan.planConstraints ?? null,
       })
       .select('id')
       .single()
@@ -2161,7 +2163,7 @@ export async function supersedeActiveWeeklyPlanForUser(userId: string): Promise<
 export async function getActiveWeeklyPlanFromSupabase(userId: string, weekStartDate: string) {
   const { data: version, error: versionError } = await supabase
     .from('weekly_plan_versions')
-    .select('id, week_start_date, feature_snapshot_id, created_at')
+    .select('id, week_start_date, feature_snapshot_id, plan_constraints, created_at')
     .eq('user_id', userId)
     .eq('week_start_date', weekStartDate)
     .eq('status', 'active')
@@ -2183,6 +2185,7 @@ export async function getActiveWeeklyPlanFromSupabase(userId: string, weekStartD
     id: version.id,
     weekStartDate: version.week_start_date,
     featureSnapshotId: version.feature_snapshot_id,
+    planConstraints: version.plan_constraints ?? undefined,
     days: (days || []).map((d: any) => ({
       planDate: d.plan_date,
       dayOfWeek: d.day_of_week,

@@ -37,33 +37,36 @@ WHERE duration > 300;
 -- (Already handled above via UPDATE SET completed = true WHERE NULL)
 
 -- ── #9: Migrate weekly_split_schedule to 24-group taxonomy ──
--- Replace old group names with new canonical names in the JSON schedule.
--- This handles the user_preferences.weekly_split_schedule JSONB column.
+-- Only process object-shaped schedules; skip entries whose groups is not an array.
 UPDATE user_preferences
 SET weekly_split_schedule = (
   SELECT jsonb_object_agg(
     key,
     jsonb_build_object(
       'focus', value->>'focus',
-      'groups', (
-        SELECT jsonb_agg(
-          CASE elem::text
-            WHEN '"chest"' THEN '"upper_chest"'
-            WHEN '"back"' THEN '"back_lats"'
-            WHEN '"traps"' THEN '"upper_traps"'
-            WHEN '"shoulders"' THEN '"front_delts"'
-            WHEN '"calves"' THEN NULL
-            ELSE elem
-          END
+      'groups', CASE
+        WHEN jsonb_typeof(value->'groups') = 'array' THEN (
+          SELECT jsonb_agg(
+            CASE elem::text
+              WHEN '"chest"' THEN '"upper_chest"'
+              WHEN '"back"' THEN '"back_lats"'
+              WHEN '"traps"' THEN '"upper_traps"'
+              WHEN '"shoulders"' THEN '"front_delts"'
+              WHEN '"calves"' THEN NULL
+              ELSE elem
+            END
+          )
+          FROM jsonb_array_elements(value->'groups') AS elem
+          WHERE CASE elem::text WHEN '"calves"' THEN false ELSE true END
         )
-        FROM jsonb_array_elements(value->'groups') AS elem
-        WHERE CASE elem::text WHEN '"calves"' THEN false ELSE true END
-      )
+        ELSE COALESCE(value->'groups', '[]'::jsonb)
+      END
     )
   )
   FROM jsonb_each(weekly_split_schedule)
 )
-WHERE weekly_split_schedule IS NOT NULL;
+WHERE weekly_split_schedule IS NOT NULL
+  AND jsonb_typeof(weekly_split_schedule) = 'object';
 
 -- ── Fix body_part = 'Other' where we can resolve from exercise_library ──
 UPDATE workout_exercises we

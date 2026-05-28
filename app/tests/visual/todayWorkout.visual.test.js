@@ -32,6 +32,14 @@ test('layout-contract: today css defines stable placeholder geometry', () => {
   assert.ok(css.includes('.reviewSkeleton'), 'review placeholder should reserve vertical area')
 })
 
+test('layout-contract: week ahead day strip scrolls inside page bounds', () => {
+  const css = fs.readFileSync(cssPath, 'utf8')
+  const page = fs.readFileSync(pagePath, 'utf8')
+  assert.ok(css.includes('.weekGlanceScroll'), 'day strip should use a dedicated horizontal scroll container')
+  assert.ok(css.includes('.contentWeek'), 'week page content variant should constrain overflow')
+  assert.ok(page.includes('styles.weekGlanceScroll'), 'week glance grid should be wrapped for scroll containment')
+})
+
 test('visual-scaffold: optional playwright screenshot smoke test', async (t) => {
   let playwright
   try {

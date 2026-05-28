@@ -1,7 +1,14 @@
 import { getIdToken } from '../lib/cognitoAuth'
 
 const STORAGE_KEY = 'hf_analytics_events'
-const isDev = import.meta.env.DEV
+const nodeEnv: string | undefined =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } })
+    .process?.env?.NODE_ENV;
+const env: { DEV?: boolean; MODE?: string } =
+  (typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean; MODE?: string } }).env)
+    ? (import.meta as { env: { DEV?: boolean; MODE?: string } }).env
+    : { MODE: nodeEnv };
+const isDev = Boolean(env.DEV || env.MODE === 'development')
 let isFlushingModelOutcomes = false
 
 async function getAccessToken(): Promise<string | null> {

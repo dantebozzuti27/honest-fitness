@@ -208,6 +208,10 @@ export interface ModelConfig {
   heavyRepRange: [number, number];
   moderateRepRange: [number, number];
   metabolicRepRange: [number, number];
+  bulkHeavyRepRange: [number, number];
+  bulkModerateRepRange: [number, number];
+  bulkHeavySecondaryRepRange: [number, number];
+  bulkModerateSecondaryRepRange: [number, number];
 
   // ── Rest by Intensity Tier ────────────────────────────────────────────
   heavyRestSeconds: number;
@@ -557,7 +561,9 @@ export interface ModelConfig {
 // downside of a missed bump is "we shipped a behaviour change but every
 // saved plan still claims to be the old version."
 export const MODEL_CONFIG_VERSION = '2026-04-27.1';
-export const WORKOUT_ENGINE_VERSION = '2026-05-27.1';
+/** Bump when rep-range / prescription policy logic changes (invalidates cached week plans). */
+export const PRESCRIPTION_POLICY_VERSION = '2026-05-28.4';
+export const WORKOUT_ENGINE_VERSION = '2026-05-27.10';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery
@@ -683,6 +689,10 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   heavyRepRange: [4, 6],
   moderateRepRange: [8, 12],
   metabolicRepRange: [12, 20],
+  bulkHeavyRepRange: [6, 8],
+  bulkModerateRepRange: [8, 12],
+  bulkHeavySecondaryRepRange: [8, 12],
+  bulkModerateSecondaryRepRange: [10, 15],
 
   // Rest by intensity tier
   heavyRestSeconds: 210,
@@ -713,9 +723,9 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
 
   // Rep range table
   repRangeTable: {
-    bulk:     { primary: { min: 5, max: 8, target: 6 },  secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
+    bulk:     { primary: { min: 8, max: 12, target: 10 }, secondary: { min: 10, max: 15, target: 12 }, isolation: { min: 10, max: 15, target: 12 } },
     cut:      { primary: { min: 4, max: 6, target: 5 },  secondary: { min: 6, max: 10, target: 8 },  isolation: { min: 10, max: 12, target: 10 } },
-    maintain: { primary: { min: 5, max: 8, target: 6 },  secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
+    maintain: { primary: { min: 6, max: 10, target: 8 },  secondary: { min: 8, max: 12, target: 10 }, isolation: { min: 10, max: 15, target: 12 } },
   },
   maxCompoundRepsPrimary: 15,
   maxCompoundRepsSecondary: 18,

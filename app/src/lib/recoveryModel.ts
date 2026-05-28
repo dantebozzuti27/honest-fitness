@@ -14,13 +14,21 @@
  *   Helms, Morgan & Valdez — The Muscle & Strength Pyramids
  */
 
+import { resolveMuscleToken } from './exerciseOntology';
+import {
+  buildMechanicalCouplingEdges,
+  computeCardioRecoveryPenalty,
+  type CardioMechanicalLoadSignal,
+} from './biomechanicsOntology';
 import {
   VOLUME_GUIDELINES,
-  SYNERGIST_FATIGUE,
-  MUSCLE_HEAD_TO_GROUP,
   getGuidelineForGroup,
   type CanonicalMuscleGroup,
 } from './volumeGuidelines';
+
+const SYNERGIST_COUPLING_EDGES = buildMechanicalCouplingEdges().filter(
+  edge => edge.coupling_kind === 'synergist_fatigue',
+);
 
 export interface MuscleRecoveryStatus {
   muscleGroup: CanonicalMuscleGroup;
@@ -28,6 +36,7 @@ export interface MuscleRecoveryStatus {
   baselineRecoveryHours: number;
   directSetsLastSession: number;
   synergistFatiguePenalty: number;
+  cardioMechanicalPenalty: number;
   recoveryModifier: number;
   recoveryPercent: number;
   readyToTrain: boolean;
@@ -101,8 +110,10 @@ export function computeSynergistPenalty(
   for (const record of recentTraining) {
     if (record.muscleGroup === targetGroup) continue;
 
-    const fatigueMap = SYNERGIST_FATIGUE[record.muscleGroup];
-    if (!fatigueMap || !fatigueMap[targetGroup]) continue;
+    const edge = SYNERGIST_COUPLING_EDGES.find(
+      e => e.source_group === record.muscleGroup && e.target_group === targetGroup,
+    );
+    if (!edge) continue;
 
     const hoursSince = (nowMs - record.lastTrainedAt.getTime()) / (1000 * 60 * 60);
     const guideline = VOLUME_GUIDELINES.find(g => g.muscleGroup === record.muscleGroup);
@@ -110,7 +121,7 @@ export function computeSynergistPenalty(
 
     if (hoursSince < baseRecovery) {
       const remainingFatigueFraction = 1 - (hoursSince / baseRecovery);
-      const crossFatigueCoeff = fatigueMap[targetGroup] ?? 0;
+      const crossFatigueCoeff = edge.weight;
       penalty += remainingFatigueFraction * crossFatigueCoeff * baseRecovery * 0.5;
     }
   }
@@ -149,6 +160,36 @@ export function ageRecoveryFactor(age: number | null): number {
  *
  * age: optional age for automatic recovery rate adjustment.
  */
+/**
+ * Project per-muscle recovery forward in time for future-dated planning.
+ * Week Ahead must not treat "just finished chest today" as "chest unavailable
+ * on Thursday" — advance hoursSinceLastTrained by the horizon to planDate.
+ */
+export function projectMuscleRecoveryForward(
+  statuses: MuscleRecoveryStatus[],
+  hoursForward: number,
+  muscleReadyThresholdPct: number = 85,
+): MuscleRecoveryStatus[] {
+  if (hoursForward <= 0) return statuses;
+  return statuses.map((r) => {
+    if (!Number.isFinite(r.hoursSinceLastTrained) || r.hoursSinceLastTrained <= 0) {
+      return r;
+    }
+    const effectiveHours = r.recoveryPercent > 0
+      ? r.hoursSinceLastTrained / (r.recoveryPercent / 100)
+      : r.baselineRecoveryHours + r.synergistFatiguePenalty + r.cardioMechanicalPenalty;
+    const safeEffective = Math.max(effectiveHours, r.baselineRecoveryHours * 0.5);
+    const projectedHours = r.hoursSinceLastTrained + hoursForward;
+    const projectedPercent = Math.min(100, Math.round((projectedHours / safeEffective) * 100));
+    return {
+      ...r,
+      hoursSinceLastTrained: Math.round(projectedHours * 10) / 10,
+      recoveryPercent: projectedPercent,
+      readyToTrain: projectedPercent >= muscleReadyThresholdPct,
+    };
+  });
+}
+
 export function computeAllRecoveryStatuses(
   recentTraining: MuscleGroupTrainingRecord[],
   recoveryCtx: RecoveryContext,
@@ -157,6 +198,7 @@ export function computeAllRecoveryStatuses(
   recoverySpeedMultiplier: number = 1.0,
   muscleReadyThreshold: number = 85,
   age: number | null = null,
+  cardioSignal?: CardioMechanicalLoadSignal,
 ): MuscleRecoveryStatus[] {
   const nowMs = now.getTime();
   const globalModifier = computeRecoveryModifier(recoveryCtx);
@@ -173,6 +215,7 @@ export function computeAllRecoveryStatuses(
         baselineRecoveryHours: guideline.recoveryHours,
         directSetsLastSession: 0,
         synergistFatiguePenalty: 0,
+        cardioMechanicalPenalty: 0,
         recoveryModifier: globalModifier,
         recoveryPercent: 100,
         readyToTrain: true,
@@ -193,9 +236,14 @@ export function computeAllRecoveryStatuses(
       nowMs
     );
 
+    const cardioPenalty = cardioSignal
+      ? computeCardioRecoveryPenalty(guideline.muscleGroup, cardioSignal)
+      : 0;
+
     const effectiveRecoveryHours =
       (guideline.recoveryHours * volumeScaling) / (globalModifier * individualMod * speedMult)
-      + (synergistPenalty / speedMult);
+      + (synergistPenalty / speedMult)
+      + (cardioPenalty / speedMult);
 
     const recoveryPercent = Math.min(100, (hoursSince / effectiveRecoveryHours) * 100);
 
@@ -205,6 +253,7 @@ export function computeAllRecoveryStatuses(
       baselineRecoveryHours: guideline.recoveryHours,
       directSetsLastSession: record.directSets,
       synergistFatiguePenalty: Math.round(synergistPenalty * 10) / 10,
+      cardioMechanicalPenalty: Math.round(cardioPenalty * 10) / 10,
       recoveryModifier: Math.round(globalModifier * 100) / 100,
       recoveryPercent: Math.round(recoveryPercent),
       readyToTrain: recoveryPercent >= muscleReadyThreshold,
@@ -238,15 +287,13 @@ export function exercisesToMuscleGroupRecords(
     const primary = Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [];
     const secondary = Array.isArray(ex.secondary_muscles) ? ex.secondary_muscles : [];
     for (const muscle of primary) {
-      const key = String(muscle || '').trim().toLowerCase().replace(/\s+/g, '_');
-      const group = MUSCLE_HEAD_TO_GROUP[key];
+      const group = resolveMuscleToken(muscle);
       if (group) {
         groupSets[group] = (groupSets[group] ?? 0) + ex.sets;
       }
     }
     for (const muscle of secondary) {
-      const key = String(muscle || '').trim().toLowerCase().replace(/\s+/g, '_');
-      const group = MUSCLE_HEAD_TO_GROUP[key];
+      const group = resolveMuscleToken(muscle);
       if (group) {
         const guideline = getGuidelineForGroup(group);
         const credit = guideline?.indirectVolumeCredit ?? 0.5;

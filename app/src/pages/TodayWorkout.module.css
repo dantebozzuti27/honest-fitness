@@ -1,6 +1,9 @@
 .container {
   min-height: 100vh;
   background: var(--bg-primary);
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .header {
@@ -26,6 +29,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /**
@@ -43,6 +48,9 @@
  */
 .contentWeek {
   padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .sectionPlaceholder {
@@ -963,6 +971,9 @@
   border-radius: var(--radius-lg);
   padding: 12px;
   margin-bottom: 8px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .weekPreviewTitle {
@@ -976,12 +987,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .weekHint {
   font-size: 11px;
   color: var(--text-tertiary);
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .mesocycleBadge {
@@ -992,6 +1007,9 @@
   border-radius: 10px;
   letter-spacing: 0.3px;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .inlineDetails {
@@ -1010,14 +1028,29 @@
   color: var(--text-tertiary);
 }
 
+.weekGlanceScroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+
 .weekGlanceGrid {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(172px, 1fr);
+  grid-auto-columns: minmax(140px, 172px);
   gap: 8px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 4px;
+  width: max-content;
+  max-width: none;
+}
+
+.weekGlanceGrid > * {
+  min-width: 140px;
+  max-width: none;
 }
 
 .glanceDayCard {
@@ -1512,12 +1545,12 @@
     padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
   }
   .weekGlanceGrid {
-    grid-auto-columns: minmax(156px, 1fr);
-    /* Stop horizontal pans on the day strip from hijacking vertical
-     * page scroll on touch devices. `pan-y` allows vertical scroll
-     * gestures to pass through; `overscroll-behavior-x: contain`
-     * prevents scroll-chaining feedback. */
-    overscroll-behavior-x: contain;
-    touch-action: pan-y;
+    grid-auto-columns: minmax(132px, 156px);
+  }
+  .weekGlanceGrid > * {
+    min-width: 132px;
+  }
+  .weekHint {
+    flex-basis: 100%;
   }
 }

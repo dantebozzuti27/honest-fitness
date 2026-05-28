@@ -223,6 +223,8 @@ export interface CardioMechanicalLoadSignal {
   sagittal_plane_load: number
   external_rotation_bias: number
   internal_rotation_bias: number
+  plantarflexion_load?: number
+  hip_flexor_demand?: number
 }
 
 export interface BiomechanicsOntologySnapshot {
@@ -272,4 +274,41 @@ export interface SetTransformationAuditDTO {
   metadata: Record<string, unknown>
   created_at: string
 }
+
+/** Runtime: app/src/lib/exerciseOntology.ts */
+export interface ExerciseIdentityV2DTO {
+  originalName: string
+  familyKey: string
+  canonicalNameKey: string
+  primaryGroups: CanonicalMuscleGroup[]
+  secondaryGroups: CanonicalMuscleGroup[]
+  movementPattern: string | null
+  exerciseType: string | null
+  muscleEmphasis: string | null
+}
+
+/** Runtime: app/src/lib/splitOntology.ts */
+export interface SplitOntologySnapshot {
+  schema_version: string
+  updated_at: string
+  split_slots: string[]
+}
+
+/** Hashed into weekly plan stale checks — app/src/lib/weekPlanConstraints.ts */
+export interface WeekPlanConstraintsV1DTO {
+  version: 1
+  prescriptionPolicyVersion: string
+  ontologyVersion: string
+  biomechanicsOntologyVersion: string
+  weekStartDate: string
+  trainingGoal: string
+  sessionDurationMinutes: number
+  restDays: number[]
+  preferredSplit: string | null
+  exercisesToAvoid: string[]
+  mesocycleWeek: number | null
+}
+
+export type LlmVerdict = 'pass' | 'minor_issues' | 'major_issues' | 'pending'
+export type LlmVerdictPersisted = Exclude<LlmVerdict, 'pending'>
 

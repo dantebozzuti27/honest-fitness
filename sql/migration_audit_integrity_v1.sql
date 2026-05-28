@@ -170,9 +170,11 @@ DECLARE
   d JSONB;
   x JSONB;
 BEGIN
-  -- Enforce caller-user lineage.
-  IF auth.uid() IS NULL OR auth.uid() <> p_user_id THEN
-    RAISE EXCEPTION 'Unauthorized weekly plan write';
+  -- Enforce caller-user lineage (Supabase only; RDS trusts API-layer auth).
+  IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'auth') THEN
+    IF auth.uid() IS NULL OR auth.uid() <> p_user_id THEN
+      RAISE EXCEPTION 'Unauthorized weekly plan write';
+    END IF;
   END IF;
 
   -- Lock previous active row to avoid dual-active races.
@@ -272,5 +274,10 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.save_weekly_plan_atomic(UUID, DATE, TEXT, JSONB, JSONB) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.save_weekly_plan_atomic(UUID, DATE, TEXT, JSONB, JSONB) TO authenticated;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    GRANT EXECUTE ON FUNCTION public.save_weekly_plan_atomic(UUID, DATE, TEXT, JSONB, JSONB) TO authenticated;
+  END IF;
+END $$;
 

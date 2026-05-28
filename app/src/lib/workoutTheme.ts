@@ -21,6 +21,7 @@
  */
 
 import { normalizeMuscleGroupList } from './volumeGuidelines';
+import { THEME_LABEL_FAMILY_SYNONYMS } from './splitOntology';
 
 export interface DayTheme {
   /** Primary muscle group for the day, e.g. "mid_chest", "back_lats", "quadriceps". */
@@ -66,38 +67,10 @@ export const NON_PRIMARY_THEME_GROUPS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Family synonyms for label-driven theme primary selection.
- *
- * Users label split days with informal terms ("Chest", "Shoulders",
- * "Back", "Legs"). Those terms aren't canonical muscle groups but DO
- * unambiguously identify which canonical groups the user meant. This
- * map lets `deriveDayTheme` honor the user's stated intent ("Chest /
- * Triceps day") rather than just picking the first muscle in the
- * groups array (which can be e.g. `upper_traps` due to ordering
- * accidents in the Profile editor).
- *
- * Order within each value array matters: it's the preference order
- * when multiple canonical groups in the eligible set match the same
- * family (e.g. "chest" prefers mid_chest over upper_chest because
- * mid_chest is the default home for horizontal push work).
+ * Family synonyms — canonical source in splitOntology.ts.
+ * Re-exported here for backward-compatible imports from workoutTheme.
  */
-export const THEME_LABEL_FAMILY_SYNONYMS: ReadonlyMap<string, readonly string[]> = new Map([
-  ['chest', ['mid_chest', 'upper_chest', 'lower_chest']],
-  ['shoulders', ['anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid']],
-  ['delts', ['lateral_deltoid', 'anterior_deltoid', 'posterior_deltoid']],
-  ['rear delts', ['posterior_deltoid']],
-  ['back', ['back_lats', 'back_upper']],
-  ['lats', ['back_lats']],
-  ['traps', ['upper_traps', 'mid_traps', 'lower_traps']],
-  ['legs', ['quadriceps', 'hamstrings', 'glutes']],
-  ['quads', ['quadriceps']],
-  ['hams', ['hamstrings']],
-  ['arms', ['biceps', 'triceps']],
-  ['push', ['mid_chest', 'anterior_deltoid', 'triceps']],
-  ['pull', ['back_lats', 'biceps', 'posterior_deltoid']],
-  ['upper', ['mid_chest', 'back_lats']],
-  ['lower', ['quadriceps', 'glutes']],
-]);
+export { THEME_LABEL_FAMILY_SYNONYMS } from './splitOntology';
 
 /**
  * Tokenise a focus label into normalised lowercase fragments.

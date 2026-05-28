@@ -97,6 +97,17 @@ Each migration is **idempotent** (guarded with `IF NOT EXISTS` / `DO $$ BEGIN ..
 15. `sql/migration_model_integration_v3.sql`
 16. `sql/migration_ontology_v4_data_capture.sql`
 17. `sql/migration_monthly_focus_v1.sql` *(profile-level monthly fitness/life focus)*
+18. `sql/migration_biceps_variety_v1.sql` + `sql/migration_biceps_variety_enrich_v1.sql`
+19. `sql/migration_engine_input_snapshot_v1.sql`
+20. `sql/migration_plan_constraints_v1.sql`
+21. `sql/migration_rds_auth_compat_v1.sql` *(RDS: Cognito auth at API layer, no `auth.uid()` in RPC)*
+
+On RDS, Supabase-origin files that reference `auth.users` / RLS may fail; companion `*_rds*.sql` files apply the same DDL without auth dependencies. Use the batch runner:
+
+```bash
+set -a && . ./.env.vercel-prod && set +a
+node scripts/run-all-sql-migrations.mjs
+```
 
 Optional seeds (run after the schema + migrations are in):
 

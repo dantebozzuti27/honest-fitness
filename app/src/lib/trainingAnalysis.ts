@@ -22,7 +22,8 @@
 
 import { db } from './dbClient';
 import { DEFAULT_MODEL_CONFIG, WORKOUT_ENGINE_VERSION } from './modelConfig';
-import { MUSCLE_HEAD_TO_GROUP, VOLUME_GUIDELINES, SYNERGIST_FATIGUE, type CanonicalMuscleGroup, type MuscleGroupOrCardio, type ExerciseType, type MovementPattern, type ForceType, type Difficulty } from './volumeGuidelines';
+import { aggregateExerciseExecutionDeltas, type ExerciseExecutionDeltaV1 } from './liftCapacity';
+import { VOLUME_GUIDELINES, SYNERGIST_FATIGUE, type CanonicalMuscleGroup, type MuscleGroupOrCardio, type ExerciseType, type MovementPattern, type ForceType, type Difficulty } from './volumeGuidelines';
 import { getAllConnectedAccounts } from './wearables';
 import {
   computeAllRecoveryStatuses,
@@ -31,7 +32,16 @@ import {
   type MuscleRecoveryStatus,
   type MuscleGroupTrainingRecord,
 } from './recoveryModel';
+import { buildCardioMechanicalLoadSignal } from './biomechanicsOntology';
 import { getExerciseMapping } from './exerciseMuscleMap';
+import {
+  dominantCanonicalGroup,
+  ONTOLOGY_VERSION,
+  preferenceAggregationKey,
+  resolveExerciseCanonicalGroups,
+  resolveExerciseIdentity,
+} from './exerciseOntology';
+import { classifySessionMuscleGroups } from './splitOntology';
 import { localDayOfWeek } from '../utils/dateUtils';
 import strengthStandardsData from './strengthStandards.json';
 
@@ -486,6 +496,9 @@ export interface TrainingProfile {
       completedCount: number;
     }>>;
   };
+
+  /** Per-exercise execution deltas — closes the weight prescription loop. */
+  exerciseExecutionDeltas: Record<string, ExerciseExecutionDeltaV1>;
 
   // #4: Individual muscle recovery rates (learned from performance-after-rest)
   individualRecoveryRates: Partial<Record<CanonicalMuscleGroup, number>>;
@@ -1339,7 +1352,7 @@ function computeExerciseOrderingEffects(workouts: WorkoutRecord[], userBodyWeigh
     const snap: typeof workoutSnapshots[0] = [];
     for (let i = 0; i < workout.workout_exercises.length; i++) {
       const ex = workout.workout_exercises[i];
-      const key = ex.exercise_name.toLowerCase();
+      const key = preferenceAggregationKey(ex.exercise_name);
       const vol = computeVolumeLoad(ex.workout_sets, ex.exercise_name, userBodyWeight);
       if (vol === 0) continue;
 
@@ -1351,7 +1364,7 @@ function computeExerciseOrderingEffects(workouts: WorkoutRecord[], userBodyWeigh
 
       const predecessors = new Set<string>();
       for (let j = 0; j < i; j++) {
-        const pName = workout.workout_exercises[j].exercise_name.toLowerCase();
+        const pName = preferenceAggregationKey(workout.workout_exercises[j].exercise_name);
         predecessors.add(pName);
         if (!knownPredecessors[key]) knownPredecessors[key] = new Set();
         knownPredecessors[key].add(pName);
@@ -1631,9 +1644,7 @@ function computeIndividualMRV(
 ): Record<string, number> {
   const exerciseToGroup = new Map<string, string>();
   for (const ex of exercises) {
-    const primaryGroup = ex.primary_muscles?.[0]
-      ? MUSCLE_HEAD_TO_GROUP[ex.primary_muscles[0]]
-      : null;
+    const primaryGroup = dominantCanonicalGroup(ex.name, ex.primary_muscles);
     if (primaryGroup) exerciseToGroup.set(ex.name.toLowerCase(), primaryGroup);
   }
 
@@ -1841,28 +1852,30 @@ function computeMuscleVolumeStatuses(
   exercises: EnrichedExercise[],
   individualMrv: Record<string, number>
 ): MuscleVolumeStatus[] {
-  const normalizeMuscleHeads = (heads: unknown): string[] =>
-    (Array.isArray(heads) ? heads : [])
-      .map((m) => String(m || '').trim().toLowerCase().replace(/\s+/g, '_'))
-      .filter(Boolean);
-  const exerciseToMuscles = new Map<string, { primary: string[]; secondary: string[]; mlType: string | null }>();
+  const exerciseToMuscles = new Map<string, { primary: CanonicalMuscleGroup[]; secondary: CanonicalMuscleGroup[]; mlType: string | null }>();
   for (const ex of exercises) {
+    const { primary, secondary } = resolveExerciseCanonicalGroups(
+      ex.name,
+      ex.primary_muscles,
+      ex.secondary_muscles,
+    );
     exerciseToMuscles.set(ex.name.toLowerCase(), {
-      primary: normalizeMuscleHeads(ex.primary_muscles),
-      secondary: normalizeMuscleHeads(ex.secondary_muscles),
+      primary,
+      secondary,
       mlType: ex.ml_exercise_type != null ? String(ex.ml_exercise_type).toLowerCase() : null,
     });
   }
-  const resolveExerciseSignals = (exerciseName: string): { primary: string[]; secondary: string[]; mlType: string | null } | null => {
+  const resolveExerciseSignals = (exerciseName: string): { primary: CanonicalMuscleGroup[]; secondary: CanonicalMuscleGroup[]; mlType: string | null } | null => {
     const key = String(exerciseName || '').toLowerCase().trim();
     if (!key) return null;
     const fromEnriched = exerciseToMuscles.get(key);
     if (fromEnriched) return fromEnriched;
     const mapping = getExerciseMapping(key);
     if (!mapping) return null;
+    const { primary, secondary } = resolveExerciseCanonicalGroups(exerciseName);
     return {
-      primary: normalizeMuscleHeads(mapping.primary_muscles),
-      secondary: normalizeMuscleHeads(mapping.secondary_muscles),
+      primary,
+      secondary,
       mlType: mapping.exercise_type != null ? String(mapping.exercise_type).toLowerCase() : null,
     };
   };
@@ -1892,9 +1905,7 @@ function computeMuscleVolumeStatuses(
       // Only count working sets (exclude warmups) for hypertrophy volume tracking
       const sets = filterWorkingSets(ex.workout_sets).length;
 
-      for (const m of muscles.primary) {
-        const group = MUSCLE_HEAD_TO_GROUP[m];
-        if (!group) continue;
+      for (const group of muscles.primary) {
         if (!weekBuckets[group]) weekBuckets[group] = {};
         weekBuckets[group][weekIdx] = (weekBuckets[group][weekIdx] ?? 0) + sets;
 
@@ -1903,9 +1914,7 @@ function computeMuscleVolumeStatuses(
         }
       }
 
-      for (const m of muscles.secondary) {
-        const group = MUSCLE_HEAD_TO_GROUP[m];
-        if (!group) continue;
+      for (const group of muscles.secondary) {
         groupIndirectSets[group] = (groupIndirectSets[group] ?? 0) + sets * 0.5; // sets already warmup-filtered
       }
     }
@@ -1995,7 +2004,7 @@ function computeExerciseProgressions(
 
   for (const w of workouts) {
     for (const ex of w.workout_exercises) {
-      const key = ex.exercise_name.toLowerCase();
+      const key = preferenceAggregationKey(ex.exercise_name);
       if (!exerciseSessions[key]) exerciseSessions[key] = [];
 
       // Filter warmup sets before computing progressions
@@ -2930,12 +2939,8 @@ function detectTrainingSplit(
 ): DetectedSplit {
   const exerciseToGroup = new Map<string, Set<string>>();
   for (const ex of exercises) {
-    const groups = new Set<string>();
-    for (const m of ex.primary_muscles ?? []) {
-      const g = MUSCLE_HEAD_TO_GROUP[m];
-      if (g) groups.add(g);
-    }
-    if (groups.size > 0) exerciseToGroup.set(ex.name.toLowerCase(), groups);
+    const { primary } = resolveExerciseCanonicalGroups(ex.name, ex.primary_muscles);
+    if (primary.length > 0) exerciseToGroup.set(ex.name.toLowerCase(), new Set(primary));
   }
 
   // Extract muscle group sets per session
@@ -2959,38 +2964,7 @@ function detectTrainingSplit(
     return { type: 'custom', confidence: 0, typicalRotation: [], nextRecommended: [], evidence: ['Not enough data to detect split'] };
   }
 
-  const PUSH_GROUPS = new Set(['upper_chest', 'mid_chest', 'lower_chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps']);
-  const PULL_GROUPS = new Set(['back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps', 'biceps', 'posterior_deltoid', 'rotator_cuff']);
-  const LEG_GROUPS = new Set(['quadriceps', 'hamstrings', 'glutes', 'hip_flexors', 'abductors', 'adductors']);
-  const UPPER_GROUPS = new Set([...PUSH_GROUPS, ...PULL_GROUPS]);
-
-  // Classify each session
-  type SessionClass = 'push' | 'pull' | 'legs' | 'upper' | 'lower' | 'full' | 'other';
-  const classified: SessionClass[] = [];
-
-  for (const sp of sessionProfiles) {
-    const pushCount = [...sp.groups].filter(g => PUSH_GROUPS.has(g)).length;
-    const pullCount = [...sp.groups].filter(g => PULL_GROUPS.has(g)).length;
-    const legCount = [...sp.groups].filter(g => LEG_GROUPS.has(g)).length;
-    const upperCount = [...sp.groups].filter(g => UPPER_GROUPS.has(g)).length;
-    const total = sp.groups.size;
-
-    if (total === 0) { classified.push('other'); continue; }
-
-    // Full body: hits upper + lower significantly
-    if (upperCount >= 2 && legCount >= 2) { classified.push('full'); continue; }
-    // Push: mostly push muscles
-    if (pushCount >= 2 && pullCount <= 1 && legCount <= 1) { classified.push('push'); continue; }
-    // Pull: mostly pull muscles
-    if (pullCount >= 2 && pushCount <= 1 && legCount <= 1) { classified.push('pull'); continue; }
-    // Legs: mostly leg muscles
-    if (legCount >= 2 && upperCount <= 1) { classified.push('legs'); continue; }
-    // Upper: mostly upper body
-    if (upperCount >= 3 && legCount <= 1) { classified.push('upper'); continue; }
-    // Lower: mostly lower body
-    if (legCount >= 2 && upperCount <= 1) { classified.push('lower'); continue; }
-    classified.push('other');
-  }
+  const classified = sessionProfiles.map(sp => classifySessionMuscleGroups(sp.groups));
 
   // Count session types
   const counts: Record<string, number> = {};
@@ -3036,7 +3010,7 @@ function detectTrainingSplit(
   const rotation: string[] = [];
   const seen = new Set<string>();
   for (const c of recentClassified) {
-    if (c !== 'other' && !seen.has(c)) {
+    if (c !== 'mixed' && !seen.has(c)) {
       rotation.push(c);
       seen.add(c);
     }
@@ -3082,12 +3056,8 @@ function computeDayOfWeekPatterns(
 
   const exerciseToGroup = new Map<string, Set<string>>();
   for (const ex of exercises) {
-    const groups = new Set<string>();
-    for (const m of ex.primary_muscles ?? []) {
-      const g = MUSCLE_HEAD_TO_GROUP[m];
-      if (g) groups.add(g);
-    }
-    if (groups.size > 0) exerciseToGroup.set(ex.name.toLowerCase(), groups);
+    const { primary } = resolveExerciseCanonicalGroups(ex.name, ex.primary_muscles);
+    if (primary.length > 0) exerciseToGroup.set(ex.name.toLowerCase(), new Set(primary));
   }
 
   // Count weeks in history
@@ -3183,6 +3153,7 @@ function computeExercisePreferences(workouts: WorkoutRecord[]): ExercisePreferen
     lastUsed: number;
     totalSets: number;
     sessions: SessionSnapshot[];
+    displayName: string;
   }> = {};
 
   const fourWeeksAgo = now - 28 * 24 * 60 * 60 * 1000;
@@ -3193,16 +3164,19 @@ function computeExercisePreferences(workouts: WorkoutRecord[]): ExercisePreferen
     const isRecent = wDate >= fourWeeksAgo;
 
     for (const ex of w.workout_exercises) {
-      const key = ex.exercise_name.toLowerCase();
+      const key = preferenceAggregationKey(ex.exercise_name);
       if (!exerciseData[key]) {
-        exerciseData[key] = { totalSessions: 0, recentSessions: 0, recencySum: 0, lastUsed: 0, totalSets: 0, sessions: [] };
+        exerciseData[key] = { totalSessions: 0, recentSessions: 0, recencySum: 0, lastUsed: 0, totalSets: 0, sessions: [], displayName: ex.exercise_name };
       }
       const d = exerciseData[key];
       d.totalSessions++;
       d.recencySum += decayFactor;
       d.totalSets += ex.workout_sets.length;
       if (isRecent) d.recentSessions++;
-      if (wDate > d.lastUsed) d.lastUsed = wDate;
+      if (wDate > d.lastUsed) {
+        d.lastUsed = wDate;
+        d.displayName = ex.exercise_name;
+      }
 
       const reps: number[] = [];
       const weights: number[] = [];
@@ -3465,10 +3439,8 @@ function computeExerciseOrderProfiles(
 
   const exerciseGroupLookup = new Map<string, string[]>();
   for (const ex of exercises) {
-    const groups = (ex.primary_muscles ?? [])
-      .map(m => MUSCLE_HEAD_TO_GROUP[m])
-      .filter(Boolean);
-    exerciseGroupLookup.set(ex.name.toLowerCase(), groups);
+    const { primary } = resolveExerciseCanonicalGroups(ex.name, ex.primary_muscles);
+    exerciseGroupLookup.set(ex.name.toLowerCase(), primary);
   }
 
   for (const w of workouts) {
@@ -3650,14 +3622,14 @@ function computeRolling30DayTrends(
 
   const exerciseTrends: ExerciseTrend[] = topExercises.map(prog => {
     const exWorkouts = recentWorkouts.filter(w =>
-      w.workout_exercises.some(e => e.exercise_name.toLowerCase() === prog.exerciseName)
+      w.workout_exercises.some(e => preferenceAggregationKey(e.exercise_name) === prog.exerciseName)
     );
 
     const e1rmValues: number[] = [];
     const volumeLoadByWeek: number[] = [0, 0, 0, 0];
 
     for (const w of exWorkouts) {
-      const exRecord = w.workout_exercises.find(e => e.exercise_name.toLowerCase() === prog.exerciseName);
+      const exRecord = w.workout_exercises.find(e => preferenceAggregationKey(e.exercise_name) === prog.exerciseName);
       if (!exRecord || !Array.isArray(exRecord.workout_sets)) continue;
 
       let sessionMax1RM = 0;
@@ -3743,11 +3715,10 @@ function computeRolling30DayTrends(
     const weekIdx = Math.min(Math.floor(daysAgo / 7), 3);
 
     for (const ex of w.workout_exercises) {
-      const mapping = getExerciseMapping(ex.exercise_name);
-      if (!mapping) continue;
+      const { primary } = resolveExerciseCanonicalGroups(ex.exercise_name);
+      if (primary.length === 0) continue;
 
-      const groups = (mapping.primary_muscles || []).map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
-      const uniqueGroups = [...new Set(groups)];
+      const uniqueGroups = [...new Set(primary)];
       const setCount = Array.isArray(ex.workout_sets) ? ex.workout_sets.filter((s: SetRecord) => s.weight != null || s.reps != null).length : 0;
 
       for (const g of uniqueGroups) {
@@ -3837,9 +3808,9 @@ function computeExerciseRotation(
     if (weekNum > 12) break; // only look at last 12 weeks
 
     for (const ex of w.workout_exercises) {
-      const key = ex.exercise_name.toLowerCase();
+      const key = preferenceAggregationKey(ex.exercise_name);
       if (!exerciseMap.has(key)) {
-        const libEx = exercises.find(e => e.name.toLowerCase() === key);
+        const libEx = exercises.find(e => preferenceAggregationKey(e.name) === key);
         exerciseMap.set(key, {
           weeks: new Set(),
           lastSeen: w.date,
@@ -4171,8 +4142,8 @@ function computeAntifragilityIndices(
     if (weekNum > 16) continue;
 
     for (const ex of (w.workout_exercises ?? [])) {
-      const name = (ex.exercise_name ?? '').toLowerCase();
-      const primary = muscleMap.get(name);
+      const name = preferenceAggregationKey(ex.exercise_name ?? '');
+      const primary = muscleMap.get((ex.exercise_name ?? '').toLowerCase());
       if (!primary) continue;
 
       for (const mg of primary) {
@@ -4234,37 +4205,14 @@ function computeAntifragilityIndices(
   return results;
 }
 
-function buildMuscleExerciseMap(exercises: EnrichedExercise[]): Map<string, string[]> {
-  const map = new Map<string, string[]>();
+function buildMuscleExerciseMap(exercises: EnrichedExercise[]): Map<string, CanonicalMuscleGroup[]> {
+  const map = new Map<string, CanonicalMuscleGroup[]>();
   for (const ex of exercises) {
     const name = (ex.name ?? '').toLowerCase();
-    const muscles: string[] = [];
-    if (ex.primary_muscles) {
-      const pm = Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [];
-      for (const m of pm) {
-        const normalized = normalizeToCanonicalGroup(String(m));
-        if (normalized) muscles.push(normalized);
-      }
-    }
-    if (muscles.length > 0) map.set(name, muscles);
+    const { primary } = resolveExerciseCanonicalGroups(ex.name ?? '', ex.primary_muscles);
+    if (primary.length > 0) map.set(name, primary);
   }
   return map;
-}
-
-function normalizeToCanonicalGroup(muscle: string): string | null {
-  const m = muscle.toLowerCase().replace(/[_\s]+/g, '_');
-  const MAP: Record<string, string> = {
-    chest: 'chest', pectorals: 'chest', pecs: 'chest',
-    back: 'back', lats: 'back', latissimus: 'back', rhomboids: 'back', traps: 'back', trapezius: 'back',
-    shoulders: 'shoulders', delts: 'shoulders', deltoids: 'shoulders', anterior_deltoid: 'shoulders',
-    lateral_deltoid: 'shoulders', posterior_deltoid: 'shoulders', rear_delts: 'shoulders',
-    biceps: 'biceps', triceps: 'triceps', forearms: 'forearms',
-    quadriceps: 'quadriceps', quads: 'quadriceps',
-    hamstrings: 'hamstrings', glutes: 'glutes', calves: 'calves',
-    core: 'core', abs: 'core', abdominals: 'core', obliques: 'core',
-    adductors: 'adductors', abductors: 'abductors', hip_flexors: 'hip_flexors',
-  };
-  return MAP[m] ?? null;
 }
 
 const STRENGTH_RATIO_BENCHMARKS: Array<{
@@ -4881,6 +4829,9 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
   // #4: Compute individual recovery rates first, pass into recovery model
   const individualRecoveryRates = computeIndividualRecoveryRates(workouts, exercises);
 
+  const cardioHistory = computeCardioHistory(workouts, exercises);
+  const cardioSignal = buildCardioMechanicalLoadSignal({ cardioHistory } as TrainingProfile);
+
   const muscleRecovery = computeAllRecoveryStatuses(
     Array.from(latestRecords.values()),
     recoveryCtx,
@@ -4889,6 +4840,7 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
     userRecoverySpeed,
     DEFAULT_MODEL_CONFIG.muscleReadyThreshold * 100,
     userAge,
+    cardioSignal,
   );
 
   // Global stats
@@ -4922,27 +4874,19 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
 
   // Per-muscle-group training frequency (sessions/week over last 14 days)
   // Used by the engine to derive per-session volume ceilings: weeklyTarget / frequency
-  const normalizeMuscleHeads = (heads: unknown): string[] =>
-    (Array.isArray(heads) ? heads : [])
-      .map((m) => String(m || '').trim().toLowerCase().replace(/\s+/g, '_'))
-      .filter(Boolean);
   const exToGroups = new Map<string, string[]>();
   for (const ex of exercises) {
-    const groups = normalizeMuscleHeads(ex.primary_muscles)
-      .map((m: string) => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
-    if (groups.length > 0) exToGroups.set((ex.name ?? '').toLowerCase(), [...new Set(groups)]);
+    const { primary } = resolveExerciseCanonicalGroups(ex.name ?? '', ex.primary_muscles);
+    if (primary.length > 0) exToGroups.set((ex.name ?? '').toLowerCase(), primary);
   }
   const resolveGroupsForExercise = (exerciseName: string): string[] => {
     const key = String(exerciseName || '').toLowerCase().trim();
     if (!key) return [];
     const cached = exToGroups.get(key);
     if (cached && cached.length > 0) return cached;
-    const mapping = getExerciseMapping(key);
-    if (!mapping) return [];
-    const groups = normalizeMuscleHeads(mapping.primary_muscles)
-      .map((m: string) => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
-    if (groups.length > 0) exToGroups.set(key, [...new Set(groups)]);
-    return groups;
+    const { primary } = resolveExerciseCanonicalGroups(key);
+    if (primary.length > 0) exToGroups.set(key, primary);
+    return primary;
   };
   const muscleGroupFrequency: Record<string, number> = {};
   const twoWeeksAgo = localDateStr(new Date(Date.now() - 14 * 86400000));
@@ -5015,9 +4959,11 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
     (feedbackRows ?? []).length,
     JSON.stringify(prefsForSnapshot),
     WORKOUT_ENGINE_VERSION,
+    ONTOLOGY_VERSION,
   ]);
 
-  const prescribedVsActual = computePrescribedVsActualFromData(genWorkouts, outcomesRows, execEventsRows, workouts, exercises);
+  const prescribedVsActualRaw = computePrescribedVsActualFromData(genWorkouts, outcomesRows, execEventsRows, workouts, exercises);
+  const { exerciseExecutionDeltas, ...prescribedVsActual } = prescribedVsActualRaw;
   const progressionScore = (() => {
     const eligible = exerciseProgressions.filter(p => p.sessionsTracked >= 3);
     if (eligible.length === 0) return 0.5;
@@ -5106,7 +5052,7 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
     detectedSplit: detectTrainingSplit(workouts, exercises),
     dayOfWeekPatterns: computeDayOfWeekPatterns(workouts, exercises),
     exercisePreferences: computeExercisePreferences(workouts),
-    cardioHistory: computeCardioHistory(workouts, exercises),
+    cardioHistory,
     cardioCapabilityProfiles,
     exerciseOrderProfiles: computeExerciseOrderProfiles(workouts, exercises),
 
@@ -5117,6 +5063,7 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
 
     // #1: Prescribed vs actual feedback loop
     prescribedVsActual,
+    exerciseExecutionDeltas,
 
     // #4: Individual muscle recovery rates
     individualRecoveryRates: computeIndividualRecoveryRates(workouts, exercises),
@@ -5760,23 +5707,23 @@ async function computeSwapLearningFeatures(userId: string): Promise<{
     const pairMap = new Map<string, { weight: number; count: number }>();
 
     for (const row of data as any[]) {
-      const name = String(row.exercise_name || '').toLowerCase().trim();
-      if (!name) continue;
+      const key = preferenceAggregationKey(String(row.exercise_name || ''));
+      if (!key) continue;
       const w = decayForRow(row);
       const date = String(row.swap_date || '').slice(0, 10) || localDateStr(new Date());
-      const ex = byExercise.get(name) ?? { weight: 0, count: 0, lastDate: date };
+      const ex = byExercise.get(key) ?? { weight: 0, count: 0, lastDate: date };
       ex.weight += w;
       ex.count += 1;
       if (date > ex.lastDate) ex.lastDate = date;
-      byExercise.set(name, ex);
+      byExercise.set(key, ex);
 
-      const to = String(row.replacement_exercise_name || '').toLowerCase().trim();
-      if (to) {
-        const key = `${name}\t${to}`;
-        const p = pairMap.get(key) ?? { weight: 0, count: 0 };
+      const toKey = preferenceAggregationKey(String(row.replacement_exercise_name || ''));
+      if (toKey) {
+        const pairKey = `${key}\t${toKey}`;
+        const p = pairMap.get(pairKey) ?? { weight: 0, count: 0 };
         p.weight += w;
         p.count += 1;
-        pairMap.set(key, p);
+        pairMap.set(pairKey, p);
       }
     }
 
@@ -5808,7 +5755,7 @@ async function computeSwapLearningFeatures(userId: string): Promise<{
   }
 }
 
-function computeSwapLearningFeaturesFromData(data: any[]): {
+export function computeSwapLearningFeaturesFromData(data: any[]): {
   exerciseSwapHistory: TrainingProfile['exerciseSwapHistory'];
   substitutionAffinities: TrainingProfile['substitutionAffinities'];
 } {
@@ -5824,20 +5771,20 @@ function computeSwapLearningFeaturesFromData(data: any[]): {
   const byExercise = new Map<string, { weight: number; count: number; lastDate: string }>();
   const pairMap = new Map<string, { weight: number; count: number }>();
   for (const row of data) {
-    const name = String(row.exercise_name || '').toLowerCase().trim();
-    if (!name) continue;
+    const key = preferenceAggregationKey(String(row.exercise_name || ''));
+    if (!key) continue;
     const w = decayForRow(row);
     const date = String(row.swap_date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
-    const ex = byExercise.get(name) ?? { weight: 0, count: 0, lastDate: date };
+    const ex = byExercise.get(key) ?? { weight: 0, count: 0, lastDate: date };
     ex.weight += w; ex.count += 1;
     if (date > ex.lastDate) ex.lastDate = date;
-    byExercise.set(name, ex);
-    const to = String(row.replacement_exercise_name || '').toLowerCase().trim();
-    if (to) {
-      const key = `${name}\t${to}`;
-      const p = pairMap.get(key) ?? { weight: 0, count: 0 };
+    byExercise.set(key, ex);
+    const toKey = preferenceAggregationKey(String(row.replacement_exercise_name || ''));
+    if (toKey) {
+      const pairKey = `${key}\t${toKey}`;
+      const p = pairMap.get(pairKey) ?? { weight: 0, count: 0 };
       p.weight += w; p.count += 1;
-      pairMap.set(key, p);
+      pairMap.set(pairKey, p);
     }
   }
   return {
@@ -5862,7 +5809,7 @@ function computeSwapLearningFeaturesFromData(data: any[]): {
  * exercise but never resurrect or strengthen one. That's a one-way ratchet
  * that guarantees rotation collapse.
  */
-function computeExerciseAcceptancesFromData(
+export function computeExerciseAcceptancesFromData(
   workouts: WorkoutRecord[],
   swapHistory: TrainingProfile['exerciseSwapHistory']
 ): TrainingProfile['exerciseAcceptances'] {
@@ -5870,7 +5817,7 @@ function computeExerciseAcceptancesFromData(
   const halfLife = DEFAULT_MODEL_CONFIG.swapDecayHalfLifeDays;
   const recentSwapByExercise = new Map<string, string>();
   for (const s of swapHistory) {
-    recentSwapByExercise.set(s.exerciseName, s.lastSwapDate);
+    recentSwapByExercise.set(preferenceAggregationKey(s.exerciseName), s.lastSwapDate);
   }
   const byExercise = new Map<string, { weight: number; count: number; lastDate: string }>();
   const now = Date.now();
@@ -5882,20 +5829,20 @@ function computeExerciseAcceptancesFromData(
     const days = Math.max(0, (now - wTs) / 86_400_000);
     const decay = Math.exp(-Math.LN2 * days / halfLife);
     for (const ex of w.workout_exercises) {
-      const name = String(ex.exercise_name || '').toLowerCase().trim();
-      if (!name) continue;
+      const key = preferenceAggregationKey(String(ex.exercise_name || ''));
+      if (!key) continue;
       // Require at least one logged working set to count as "kept".
       const filtered = filterWorkingSets(ex.workout_sets);
       const hasWorkingSet = filtered.some(s => (s.weight != null && s.weight > 0) || (s.reps != null && s.reps > 0));
       if (!hasWorkingSet) continue;
       // Skip the acceptance if it was swapped out shortly after this session.
-      const lastSwap = recentSwapByExercise.get(name);
+      const lastSwap = recentSwapByExercise.get(key);
       if (lastSwap && lastSwap >= wDate) continue;
-      const entry = byExercise.get(name) ?? { weight: 0, count: 0, lastDate: wDate };
+      const entry = byExercise.get(key) ?? { weight: 0, count: 0, lastDate: wDate };
       entry.weight += decay;
       entry.count += 1;
       if (wDate > entry.lastDate) entry.lastDate = wDate;
-      byExercise.set(name, entry);
+      byExercise.set(key, entry);
     }
   }
   return Array.from(byExercise.entries())
@@ -5919,34 +5866,38 @@ function computePrescribedVsActualFromData(
     avgSessionOutcomeScore: 0, outcomeSampleSize: 0,
     avgSetExecutionAccuracy: 0, executionSampleSize: 0,
     muscleGroupExecutionDeltas: {} as Record<string, { completionRate: number; avgWeightDeviation: number; avgRepsDeviation: number; sampleSize: number; prescribedCount: number; completedCount: number }>,
+    exerciseExecutionDeltas: {} as Record<string, ExerciseExecutionDeltaV1>,
   };
   if (!generated || generated.length === 0) return defaultResult;
 
   const linkedWorkouts = workouts.filter((w: any) => w.generated_workout_id);
   if (linkedWorkouts.length === 0) return defaultResult;
 
-  const normalizeMuscleHeads = (heads: unknown): string[] =>
-    (Array.isArray(heads) ? heads : []).map(m => String(m || '').trim().toLowerCase().replace(/\s+/g, '_')).filter(Boolean);
   const dominantGroupByExercise = new Map<string, string>();
   for (const ex of exercises) {
-    const groups = normalizeMuscleHeads(ex.primary_muscles).map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
-    if (groups.length > 0) dominantGroupByExercise.set(ex.name.toLowerCase(), groups[0]);
+    const dominant = dominantCanonicalGroup(ex.name, ex.primary_muscles);
+    if (dominant) dominantGroupByExercise.set(ex.name.toLowerCase(), dominant);
   }
   const getDominantGroup = (exerciseName: unknown): string | null => {
     const key = String(exerciseName || '').toLowerCase().trim();
     if (!key) return null;
     const cached = dominantGroupByExercise.get(key);
     if (cached) return cached;
-    const mapping = getExerciseMapping(key);
-    if (!mapping) return null;
-    const groups = normalizeMuscleHeads(mapping.primary_muscles).map(m => MUSCLE_HEAD_TO_GROUP[m]).filter(Boolean);
-    const dominant = groups[0] ?? null;
+    const dominant = dominantCanonicalGroup(key);
     if (dominant) dominantGroupByExercise.set(key, dominant);
     return dominant;
   };
 
   let totalPrescribed = 0, totalCompleted = 0, totalSkipped = 0;
   let weightDeviations: number[] = [], repsDeviations: number[] = [];
+  const exercisePairs: Array<{
+    exerciseName: string;
+    prescribedWeight: number | null;
+    actualWeight: number | null;
+    prescribedReps: number | null;
+    actualReps: number | null;
+    completed: boolean;
+  }> = [];
   const byGroup = new Map<string, { prescribed: number; completed: number; weightDev: number[]; repsDev: number[] }>();
   const ensureGroup = (g: string) => { if (!byGroup.has(g)) byGroup.set(g, { prescribed: 0, completed: 0, weightDev: [], repsDev: [] }); return byGroup.get(g)!; };
 
@@ -5995,15 +5946,35 @@ function computePrescribedVsActualFromData(
         totalCompleted++;
         usedActualKeys.add(String(matched.id || matched.exercise_name));
         if (group) ensureGroup(group).completed += 1;
+        let actualWeight: number | null = null;
+        let actualReps: number | null = null;
         if (pe.targetWeight && pe.targetWeight > 0) {
           const actualSets = Array.isArray(matched.workout_sets) ? matched.workout_sets : [];
           const workingSets = filterWorkingSets(actualSets);
-          const actualWeight = workingSets.find((s: any) => s.weight)?.weight;
+          actualWeight = workingSets.find((s: any) => s.weight)?.weight ?? null;
           if (actualWeight) { const wDev = (actualWeight - pe.targetWeight) / pe.targetWeight; weightDeviations.push(wDev); if (group) ensureGroup(group).weightDev.push(wDev); }
-          const actualReps = workingSets.find((s: any) => s.reps)?.reps;
+          actualReps = workingSets.find((s: any) => s.reps)?.reps ?? null;
           if (actualReps && pe.targetReps) { const rDev = actualReps - pe.targetReps; repsDeviations.push(rDev); if (group) ensureGroup(group).repsDev.push(rDev); }
         }
-      } else { totalSkipped++; }
+        exercisePairs.push({
+          exerciseName: pe.exerciseName,
+          prescribedWeight: pe.targetWeight ?? null,
+          actualWeight,
+          prescribedReps: pe.targetReps ?? null,
+          actualReps,
+          completed: true,
+        });
+      } else {
+        totalSkipped++;
+        exercisePairs.push({
+          exerciseName: pe.exerciseName,
+          prescribedWeight: pe.targetWeight ?? null,
+          actualWeight: null,
+          prescribedReps: pe.targetReps ?? null,
+          actualReps: null,
+          completed: false,
+        });
+      }
     }
   }
 
@@ -6030,6 +6001,7 @@ function computePrescribedVsActualFromData(
     avgSessionOutcomeScore: mean(outcomeScores), outcomeSampleSize: outcomeScores.length,
     avgSetExecutionAccuracy: mean(execAccuracies), executionSampleSize: execAccuracies.length,
     muscleGroupExecutionDeltas,
+    exerciseExecutionDeltas: aggregateExerciseExecutionDeltas(exercisePairs),
   };
 }
 
@@ -6116,7 +6088,7 @@ function computeProgressionForecasts(
         }
       }
       if (bestE1rm > 0) {
-        const key = ex.exercise_name.toLowerCase();
+        const key = preferenceAggregationKey(ex.exercise_name);
         if (!exerciseE1rmSeries.has(key)) exerciseE1rmSeries.set(key, []);
         exerciseE1rmSeries.get(key)!.push(bestE1rm);
       }
@@ -6126,7 +6098,7 @@ function computeProgressionForecasts(
   for (const prog of exerciseProgressions) {
     if (prog.sessionsTracked < 4) continue;
 
-    const key = prog.exerciseName.toLowerCase();
+    const key = prog.exerciseName;
     const series = exerciseE1rmSeries.get(key);
     if (!series || series.length < 4) continue;
 
@@ -6244,15 +6216,40 @@ const EXERCISE_NAME_PATTERN_HINTS: Array<{ keywords: string[]; pattern: string }
   { keywords: ['leg extension', 'leg curl', 'calf raise', 'hip adduction', 'hip abduction', 'seated calf'], pattern: 'isolation_lower' },
 ];
 
-function classifyMovementPattern(exercise: { exercise_name: string }, enriched?: EnrichedExercise): string | null {
-  // Try enriched data first: match primary muscles to pattern
-  if (enriched?.primary_muscles) {
-    for (const [pattern, muscles] of Object.entries(MOVEMENT_PATTERN_MAP)) {
-      for (const muscle of enriched.primary_muscles) {
-        if (muscles.some(m => muscle.toLowerCase().includes(m))) return pattern;
-      }
-    }
+function mapOntologyMovementPatternToFatigueKey(pattern: MovementPattern | null | undefined): string | null {
+  if (!pattern) return null;
+  switch (pattern) {
+    case 'horizontal_push':
+    case 'horizontal_pull':
+    case 'vertical_push':
+    case 'vertical_pull':
+      return pattern;
+    case 'hinge':
+    case 'hip_extension':
+      return 'hip_hinge';
+    case 'squat':
+    case 'lunge':
+      return 'knee_dominant';
+    case 'flexion':
+    case 'rotation':
+    case 'anti_rotation':
+    case 'elevation':
+      return 'isolation_upper';
+    case 'extension':
+    case 'abduction':
+    case 'adduction':
+      return 'isolation_lower';
+    default:
+      return null;
   }
+}
+
+function classifyMovementPattern(exercise: { exercise_name: string }, enriched?: EnrichedExercise): string | null {
+  const identityPattern = mapOntologyMovementPatternToFatigueKey(
+    resolveExerciseIdentity(exercise.exercise_name, enriched?.primary_muscles).movementPattern,
+  );
+  if (identityPattern) return identityPattern;
+
   if (enriched?.movement_pattern) {
     const mp = enriched.movement_pattern.toLowerCase();
     if (mp.includes('push') && mp.includes('horizontal')) return 'horizontal_push';
@@ -6261,6 +6258,15 @@ function classifyMovementPattern(exercise: { exercise_name: string }, enriched?:
     if (mp.includes('pull') && mp.includes('vertical')) return 'vertical_pull';
     if (mp.includes('hinge')) return 'hip_hinge';
     if (mp.includes('squat')) return 'knee_dominant';
+  }
+
+  // Fall back to primary-muscle keyword matching
+  if (enriched?.primary_muscles) {
+    for (const [pattern, muscles] of Object.entries(MOVEMENT_PATTERN_MAP)) {
+      for (const muscle of enriched.primary_muscles) {
+        if (muscles.some(m => muscle.toLowerCase().includes(m))) return pattern;
+      }
+    }
   }
 
   // Fall back to exercise name keyword matching
@@ -6399,6 +6405,7 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
       prescribedCount: number;
       completedCount: number;
     }>,
+    exerciseExecutionDeltas: {} as Record<string, ExerciseExecutionDeltaV1>,
   };
   try {
     const supabase = db as any;
@@ -6413,28 +6420,17 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
 
     if (!generated || generated.length === 0) return defaultResult;
 
-    const normalizeMuscleHeads = (heads: unknown): string[] =>
-      (Array.isArray(heads) ? heads : [])
-        .map((m) => String(m || '').trim().toLowerCase().replace(/\s+/g, '_'))
-        .filter(Boolean);
     const dominantGroupByExercise = new Map<string, string>();
     for (const ex of exercises) {
-      const groups = normalizeMuscleHeads(ex.primary_muscles)
-        .map(m => MUSCLE_HEAD_TO_GROUP[m])
-        .filter(Boolean);
-      if (groups.length > 0) dominantGroupByExercise.set(ex.name.toLowerCase(), groups[0]);
+      const dominant = dominantCanonicalGroup(ex.name, ex.primary_muscles);
+      if (dominant) dominantGroupByExercise.set(ex.name.toLowerCase(), dominant);
     }
     const getDominantGroup = (exerciseName: unknown): string | null => {
       const key = String(exerciseName || '').toLowerCase().trim();
       if (!key) return null;
       const cached = dominantGroupByExercise.get(key);
       if (cached) return cached;
-      const mapping = getExerciseMapping(key);
-      if (!mapping) return null;
-      const groups = normalizeMuscleHeads(mapping.primary_muscles)
-        .map((m) => MUSCLE_HEAD_TO_GROUP[m])
-        .filter(Boolean);
-      const dominant = groups[0] ?? null;
+      const dominant = dominantCanonicalGroup(key);
       if (dominant) dominantGroupByExercise.set(key, dominant);
       return dominant;
     };
@@ -6452,6 +6448,14 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
 
     let totalPrescribed = 0, totalCompleted = 0, totalSkipped = 0;
     let weightDeviations: number[] = [], repsDeviations: number[] = [];
+    const exercisePairs: Array<{
+      exerciseName: string;
+      prescribedWeight: number | null;
+      actualWeight: number | null;
+      prescribedReps: number | null;
+      actualReps: number | null;
+      completed: boolean;
+    }> = [];
     const byGroup = new Map<string, {
       prescribed: number;
       completed: number;
@@ -6480,23 +6484,41 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
           const actualEx = actual.workout_exercises.find(
             e => e.exercise_name.toLowerCase() === pe.exerciseName.toLowerCase()
           );
+          let actualWeight: number | null = null;
+          let actualReps: number | null = null;
           if (actualEx && pe.targetWeight && pe.targetWeight > 0) {
             const actualSets = Array.isArray(actualEx.workout_sets) ? actualEx.workout_sets : [];
-            const actualWeight = actualSets.find(s => s.weight)?.weight;
+            actualWeight = actualSets.find(s => s.weight)?.weight ?? null;
             if (actualWeight) {
               const wDev = (actualWeight - pe.targetWeight) / pe.targetWeight;
               weightDeviations.push(wDev);
               if (group) ensureGroup(group).weightDev.push(wDev);
             }
-            const actualReps = actualSets.find(s => s.reps)?.reps;
+            actualReps = actualSets.find(s => s.reps)?.reps ?? null;
             if (actualReps && pe.targetReps) {
               const rDev = actualReps - pe.targetReps;
               repsDeviations.push(rDev);
               if (group) ensureGroup(group).repsDev.push(rDev);
             }
           }
+          exercisePairs.push({
+            exerciseName: pe.exerciseName,
+            prescribedWeight: pe.targetWeight ?? null,
+            actualWeight,
+            prescribedReps: pe.targetReps ?? null,
+            actualReps,
+            completed: true,
+          });
         } else {
           totalSkipped++;
+          exercisePairs.push({
+            exerciseName: pe.exerciseName,
+            prescribedWeight: pe.targetWeight ?? null,
+            actualWeight: null,
+            prescribedReps: pe.targetReps ?? null,
+            actualReps: null,
+            completed: false,
+          });
         }
       }
     }
@@ -6533,6 +6555,7 @@ async function computePrescribedVsActual(userId: string, workouts: WorkoutRecord
       avgSetExecutionAccuracy: executionScores.length > 0 ? mean(executionScores) : 0,
       executionSampleSize: executionScores.length,
       muscleGroupExecutionDeltas,
+      exerciseExecutionDeltas: aggregateExerciseExecutionDeltas(exercisePairs),
     };
   } catch {
     return defaultResult;
@@ -6544,28 +6567,17 @@ function computeIndividualRecoveryRates(workouts: WorkoutRecord[], exercises: En
   const rates: Record<string, number> = {};
   if (workouts.length < 10) return rates;
 
-  const normalizeMuscleHeads = (heads: unknown): string[] =>
-    (Array.isArray(heads) ? heads : [])
-      .map((m) => String(m || '').trim().toLowerCase().replace(/\s+/g, '_'))
-      .filter(Boolean);
   const exerciseBodyMap = new Map<string, string>();
   for (const ex of exercises) {
-    const groups = normalizeMuscleHeads(ex.primary_muscles)
-      .map(m => MUSCLE_HEAD_TO_GROUP[m])
-      .filter(Boolean);
-    if (groups.length > 0) exerciseBodyMap.set(ex.name.toLowerCase(), groups[0]);
+    const dominant = dominantCanonicalGroup(ex.name, ex.primary_muscles);
+    if (dominant) exerciseBodyMap.set(ex.name.toLowerCase(), dominant);
   }
   const resolveDominantGroup = (exerciseName: string): string | null => {
     const key = String(exerciseName || '').toLowerCase().trim();
     if (!key) return null;
     const cached = exerciseBodyMap.get(key);
     if (cached) return cached;
-    const mapping = getExerciseMapping(key);
-    if (!mapping) return null;
-    const groups = normalizeMuscleHeads(mapping.primary_muscles)
-      .map((m) => MUSCLE_HEAD_TO_GROUP[m])
-      .filter(Boolean);
-    const dominant = groups[0] ?? null;
+    const dominant = dominantCanonicalGroup(key);
     if (dominant) exerciseBodyMap.set(key, dominant);
     return dominant;
   };

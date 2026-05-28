@@ -1,40 +1,17 @@
--- ─────────────────────────────────────────────────────────────────────────
--- Engine input snapshot — Phase A of audit item #3.
+-- RDS auth compatibility — Cognito verifies identity at the API layer.
+-- Supabase deployments keep auth.uid() enforcement; RDS skips it.
 --
--- Adds an `engine_input_snapshot JSONB` column to weekly_plan_versions so
--- the inputs that produced each plan are persisted alongside the outputs.
--- This is the artefact that lets us answer "what did the engine see?"
--- without re-running the engine (which we can't, because the user's
--- recovery/volume state has moved on by the time anyone investigates).
---
--- Schema is documented in app/src/lib/engineInputSnapshot.ts. The column
--- is JSONB with no shape constraint at the DB layer — schema versioning
--- is enforced in application code via the `version` field, which is
--- currently 1.
---
--- Idempotent: safe to run repeatedly. The JSONB default of NULL means
--- pre-existing rows have no snapshot (nothing to backfill — historical
--- plan inputs are unrecoverable).
---
--- Migration runner: scripts/run-sql-migration.mjs
--- ─────────────────────────────────────────────────────────────────────────
+-- Also consolidates save_weekly_plan_atomic to the 7-arg version and
+-- drops the legacy 6-arg overload that omitted plan_constraints.
 
-ALTER TABLE public.weekly_plan_versions
-  ADD COLUMN IF NOT EXISTS engine_input_snapshot JSONB;
-
-COMMENT ON COLUMN public.weekly_plan_versions.engine_input_snapshot IS
-  'Phase A engine input snapshot (audit #3). See app/src/lib/engineInputSnapshot.ts for schema. version=1.';
-
--- Update the atomic save RPC to accept and persist the snapshot. We keep
--- backward compatibility by defaulting the new parameter to NULL — older
--- callers (and the legacy fallback path in supabaseDb.ts) keep working.
 CREATE OR REPLACE FUNCTION public.save_weekly_plan_atomic(
   p_user_id UUID,
   p_week_start_date DATE,
   p_feature_snapshot_id TEXT,
   p_days JSONB,
   p_diffs JSONB DEFAULT '[]'::jsonb,
-  p_engine_input_snapshot JSONB DEFAULT NULL
+  p_engine_input_snapshot JSONB DEFAULT NULL,
+  p_plan_constraints JSONB DEFAULT NULL
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -47,14 +24,12 @@ DECLARE
   d JSONB;
   x JSONB;
 BEGIN
-  -- Enforce caller-user lineage.
   IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'auth') THEN
     IF auth.uid() IS NULL OR auth.uid() <> p_user_id THEN
       RAISE EXCEPTION 'Unauthorized weekly plan write';
     END IF;
   END IF;
 
-  -- Lock previous active row to avoid dual-active races.
   SELECT id
     INTO v_prev_active_id
   FROM public.weekly_plan_versions
@@ -70,13 +45,15 @@ BEGIN
     week_start_date,
     status,
     feature_snapshot_id,
-    engine_input_snapshot
+    engine_input_snapshot,
+    plan_constraints
   ) VALUES (
     p_user_id,
     p_week_start_date,
     'active',
     p_feature_snapshot_id,
-    p_engine_input_snapshot
+    p_engine_input_snapshot,
+    p_plan_constraints
   )
   RETURNING id INTO v_new_plan_id;
 
@@ -150,3 +127,13 @@ BEGIN
   RETURN v_new_plan_id;
 END;
 $$;
+
+DROP FUNCTION IF EXISTS public.save_weekly_plan_atomic(UUID, DATE, TEXT, JSONB, JSONB, JSONB);
+DROP FUNCTION IF EXISTS public.save_weekly_plan_atomic(UUID, DATE, TEXT, JSONB, JSONB);
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    GRANT EXECUTE ON FUNCTION public.save_weekly_plan_atomic(UUID, DATE, TEXT, JSONB, JSONB, JSONB, JSONB) TO authenticated;
+  END IF;
+END $$;

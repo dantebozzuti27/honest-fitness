@@ -7,6 +7,8 @@ import {
   saveGeneratedWorkout,
   generateWeeklyPlan,
   recomputeWeeklyPlanWithDiff,
+  rematerializeStaleWeeklyPlanDays,
+  performSurgicalExerciseSwap,
   parseRawPreferences,
   type WeeklyPlan,
   type WeeklyPlanDay,
@@ -40,8 +42,17 @@ import {
   type RedistributionProposal,
 } from '../lib/missedDayRedistribution'
 import { logExerciseSwapToSupabase } from '../lib/swapLogging'
+import { WORKOUT_ENGINE_VERSION, PRESCRIPTION_POLICY_VERSION } from '../lib/modelConfig'
+import { ONTOLOGY_VERSION } from '../lib/exerciseOntology'
+import { BIOMECHANICS_ONTOLOGY_VERSION } from '../lib/biomechanicsOntology'
+import {
+  buildWeekPlanConstraints,
+  isWeeklyPlanDayStale,
+  type WeekPlanConstraintsV1,
+} from '../lib/weekPlanConstraints'
 import { getPausedWorkoutFromSupabase, deletePausedWorkoutFromSupabase } from '../lib/db/pausedWorkoutsDb'
 import { getActiveWorkoutSession, deleteActiveWorkoutSession } from '../lib/db/workoutsSessionDb'
+import { stageGeneratedWorkoutPayload } from '../lib/generatedWorkoutHandoff'
 import styles from './TodayWorkout.module.css'
 import s from '../styles/shared.module.css'
 
@@ -382,6 +393,25 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const isWeeklyPlanStale = (existing: WeeklyPlan, tp: TrainingProfile): boolean => {
     if (!existing) return true
     if (existing.featureSnapshotId !== tp.featureSnapshotId) return true
+    const storedConstraints = existing.planConstraints
+    if (!storedConstraints || storedConstraints.engineVersion !== WORKOUT_ENGINE_VERSION) return true
+    if (storedConstraints.prescriptionPolicyVersion !== PRESCRIPTION_POLICY_VERSION) return true
+    if (storedConstraints.ontologyVersion !== ONTOLOGY_VERSION) return true
+    if (storedConstraints.biomechanicsOntologyVersion !== BIOMECHANICS_ONTOLOGY_VERSION) return true
+    if (storedConstraints.constraintsHash && existing.weekStartDate) {
+      const sc = storedConstraints as WeekPlanConstraintsV1
+      const currentConstraints = buildWeekPlanConstraints({
+        training_goal: sc.trainingGoal,
+        session_duration_minutes: durationOverride ?? defaultDuration ?? sc.sessionDurationMinutes,
+        rest_days: restDays,
+        preferred_split: preferredSplit ?? sc.preferredSplit,
+        weekly_split_schedule: splitSchedule ?? sc.weeklySplitSchedule,
+        monthly_focus_state: sc.monthlyFocusState,
+        exercises_to_avoid: sc.exercisesToAvoid,
+        mesocycle_week: mesocycleWeek ?? sc.mesocycleWeek,
+      } as never, existing.weekStartDate, restDays)
+      if (isWeeklyPlanDayStale(sc.engineVersion, sc.constraintsHash, currentConstraints)) return true
+    }
     const plannedDays = (existing.days || []).filter(d => !d.isRestDay && d.plannedWorkout)
     const activeSessionBudget = (() => {
       const candidate = Number(durationOverride ?? defaultDuration ?? tp.avgSessionDuration)
@@ -428,8 +458,20 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     const weekStartDate = getWeekStartDate(new Date())
     const existing = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
     if (existing?.days?.length && !isWeeklyPlanStale(existing as WeeklyPlan, tp)) {
-      const validatedExisting = await annotateWeeklyPlanVerdicts(tp, existing as WeeklyPlan)
-      const mergedExisting = await attachActualWeekWorkouts(validatedExisting)
+      let mergedExisting = await attachActualWeekWorkouts(
+        await annotateWeeklyPlanVerdicts(tp, existing as WeeklyPlan),
+      )
+      mergedExisting = await rematerializeStaleWeeklyPlanDays(
+        tp,
+        mergedExisting,
+        userRestDays,
+        prefSplit ?? null,
+        schedule ?? null,
+        enginePrefetch,
+      )
+      if (mergedExisting !== existing) {
+        await saveWeeklyPlanToSupabase(user.id, mergedExisting).catch(() => null)
+      }
       if (hasConsecutiveDuplicateTrainingDays(mergedExisting)) {
         let repaired = mergedExisting
         let repairedDiffs: any[] = []
@@ -1032,39 +1074,53 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     }
   }
 
-  // #28: Swap exercise — regenerate with the current exercise excluded
+  // Surgical swap — one-slot replacement; full regen only as fallback.
   const handleSwapExercise = async (exerciseName: string) => {
     if (!workout) return
-    const oldEx = workout.exercises.find(
-      e => e.exerciseName.toLowerCase() === exerciseName.toLowerCase()
-    )
-    const newExcluded = new Set(excludedExercises)
-    newExcluded.add(exerciseName.toLowerCase())
-    setExcludedExercises(newExcluded)
+    const sessionAvoid = new Set(excludedExercises)
+    sessionAvoid.add(exerciseName.toLowerCase())
+    setExcludedExercises(sessionAvoid)
 
     setRegenerating(true)
     try {
       const activeProfile = await refreshTrainingProfile()
       if (!activeProfile) throw new Error('Training profile unavailable')
-      const o: SessionOverrides = { regenerationSeed: Date.now() }
+
+      const surgical = await performSurgicalExerciseSwap(workout, exerciseName, activeProfile)
+      if (surgical.replacementName && surgical.method !== 'none') {
+        if (user?.id) {
+          await logExerciseSwapToSupabase({
+            userId: user.id,
+            exerciseName,
+            replacementExerciseName: surgical.replacementName,
+            context: 'today_surgical',
+          })
+        }
+        setWorkout(surgical.workout)
+        setOriginalWorkout(surgical.workout)
+        setAdjustedWorkoutCandidate(null)
+        setAdjustedValidation(null)
+        setSelectedWorkoutVersion('original')
+        showToast(`Swapped ${exerciseName} → ${surgical.replacementName}`, 'success')
+        return
+      }
+
+      const o: SessionOverrides = {
+        regenerationSeed: Date.now(),
+        avoidExerciseNames: [...sessionAvoid],
+      }
       if (durationOverride != null) o.durationMinutes = durationOverride
       if (finishByTime) o.finishByTime = finishByTime
-      o.avoidExerciseNames = [...newExcluded]
       const w = await generateWorkout(activeProfile, o)
-      const group = oldEx?.targetMuscleGroup
-      const replacement = group
-        ? w.exercises.find(
-            e =>
-              e.targetMuscleGroup === group &&
-              e.exerciseName.toLowerCase() !== exerciseName.toLowerCase()
-          )
-        : w.exercises.find(e => e.exerciseName.toLowerCase() !== exerciseName.toLowerCase())
+      const replacement = w.exercises.find(
+        e => e.exerciseName.toLowerCase() !== exerciseName.toLowerCase(),
+      )
       if (user?.id) {
         await logExerciseSwapToSupabase({
           userId: user.id,
           exerciseName,
           replacementExerciseName: replacement?.exerciseName ?? null,
-          context: 'today_regen',
+          context: 'today_regen_fallback',
         })
       }
       setWorkout(w)
@@ -1213,13 +1269,13 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       ? workout.exercises.map(e => e.targetMuscleGroup).filter((v, i, a) => a.indexOf(v) === i).map(g => g.replace(/_/g, ' ')).slice(0, 3).join(', ')
       : 'Generated Workout'
 
-    sessionStorage.setItem('generated_workout', JSON.stringify({
+    stageGeneratedWorkoutPayload(user?.id, {
       exercises,
       generated_workout_id: workout.id,
       sessionRationale: workout.sessionRationale,
       templateName: workoutName,
       hotelMode: Boolean(profile?.hotel_mode),
-    }))
+    })
     navigate('/workout/active')
   }
 
@@ -1272,16 +1328,18 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
             <h3 className={styles.weekPreviewTitle}>Week At A Glance</h3>
             <span className={styles.weekHint}>Loading...</span>
           </div>
-          <div className={styles.weekGlanceGrid}>
-            {fallbackDays.map(day => (
-              <div key={day.planDate} className={styles.glanceDayCard}>
-                <div className={styles.glanceTopRow}>
-                  <span className={styles.glanceDow}>{day.dayName.slice(0, 3)}</span>
-                  <span className={styles.glanceDate}>{day.planDate.slice(5)}</span>
+          <div className={styles.weekGlanceScroll}>
+            <div className={styles.weekGlanceGrid}>
+              {fallbackDays.map(day => (
+                <div key={day.planDate} className={styles.glanceDayCard}>
+                  <div className={styles.glanceTopRow}>
+                    <span className={styles.glanceDow}>{day.dayName.slice(0, 3)}</span>
+                    <span className={styles.glanceDate}>{day.planDate.slice(5)}</span>
+                  </div>
+                  <div className={styles.glanceStatus}>Pending</div>
                 </div>
-                <div className={styles.glanceStatus}>Pending</div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
           <div className={styles.selectedDayCompact}>
             <div className={styles.selectedDayMain}>
@@ -1415,25 +1473,27 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
             })}
           </div>
         )}
-        <div className={styles.weekGlanceGrid}>
-          {weekCards.map((card) => {
-            const day = card.day
-            return (
-              <button
-                key={day.planDate}
-                onClick={() => setSelectedPlanDate(day.planDate)}
-                className={`${styles.glanceDayCard} ${card.selected ? styles.glanceDayCardSelected : ''} ${card.status === 'completed' ? styles.glanceDayCardCompleted : ''}`}
-              >
-                <div className={styles.glanceTopRow}>
-                  <span className={styles.glanceDow}>{day.dayName.slice(0, 3)}</span>
-                  <span className={styles.glanceDate}>{day.planDate.slice(5)}</span>
-                </div>
-                <div className={styles.glanceStatus}>
-                  {card.status === 'completed' ? 'Completed' : card.status === 'rest' || card.isUserRestOverride ? 'Rest' : `${card.shownMinutes}m`}
-                </div>
-              </button>
-            )
-          })}
+        <div className={styles.weekGlanceScroll}>
+          <div className={styles.weekGlanceGrid}>
+            {weekCards.map((card) => {
+              const day = card.day
+              return (
+                <button
+                  key={day.planDate}
+                  onClick={() => setSelectedPlanDate(day.planDate)}
+                  className={`${styles.glanceDayCard} ${card.selected ? styles.glanceDayCardSelected : ''} ${card.status === 'completed' ? styles.glanceDayCardCompleted : ''}`}
+                >
+                  <div className={styles.glanceTopRow}>
+                    <span className={styles.glanceDow}>{day.dayName.slice(0, 3)}</span>
+                    <span className={styles.glanceDate}>{day.planDate.slice(5)}</span>
+                  </div>
+                  <div className={styles.glanceStatus}>
+                    {card.status === 'completed' ? 'Completed' : card.status === 'rest' || card.isUserRestOverride ? 'Rest' : `${card.shownMinutes}m`}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         <div className={styles.selectedDayCompact}>

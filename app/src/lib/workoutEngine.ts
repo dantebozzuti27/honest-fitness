@@ -42,8 +42,55 @@ import {
   parseMonthlyFocusState,
   type MonthlyFocusStateV1,
 } from './monthlyFocus';
+import {
+  buildExerciseCapacityIndex,
+  capacityToWorkingWeight,
+  type ExerciseCapacityV1,
+} from './liftCapacity';
+import { computePrescriptionController } from './prescriptionController';
+import {
+  buildFocusWeeklyBudget,
+  focusSetBudgetForDate,
+  type FocusWeeklyBudgetV1,
+} from './focusVolumeBudget';
+import {
+  buildWeekPlanConstraints,
+  isWeeklyPlanDayStale,
+  type WeekPlanConstraintsV1,
+} from './weekPlanConstraints';
+import {
+  applySurgicalSwap,
+  pickSwapReplacement,
+  type SurgicalSwapResult,
+} from './surgicalSwap';
 import { normalizeEquipment } from '../utils/formatUtils';
 import { logWarn } from '../utils/logger';
+import { getRepRangeByRole, humanizeRepTarget, resolveDayOccurrenceIndex, resolveTargetRepsForRole } from './repRangePolicy';
+import { projectMuscleRecoveryForward } from './recoveryModel';
+import {
+  exerciseFamilyKey,
+  familyDiversityBonus,
+  findByExerciseFamily,
+  preferenceAggregationKey,
+  resolveMuscleToken,
+} from './exerciseOntology';
+import {
+  computeCouplingSignalsFromOntology,
+  computeHipAbductorLoadSignal,
+  type CouplingSignal,
+} from './biomechanicsOntology';
+import {
+  expandWithSynergists,
+  muscleGroupsForMovementPattern,
+  muscleGroupsForSplitSlot,
+  ACCESSORY_MINOR_GROUPS,
+  PRIMARY_MAJOR_GROUPS,
+  PUSH_DAY_GROUPS,
+  PULL_DAY_GROUPS,
+  LEG_DAY_GROUPS,
+  SPLIT_TYPE_ROTATIONS,
+  UNIVERSAL_ACCESSORIES,
+} from './splitOntology';
 import {
   buildAdaptivePolicyContext,
   optimizePrescription,
@@ -75,8 +122,7 @@ function normalizeMuscleName(raw: string): string {
  * case/space mismatches in the exercise library data.
  */
 function resolveToCanonicalGroup(raw: string): CanonicalMuscleGroup | undefined {
-  const key = normalizeMuscleName(raw);
-  return MUSCLE_HEAD_TO_GROUP[key] ?? MUSCLE_HEAD_TO_GROUP[raw];
+  return resolveMuscleToken(raw) ?? undefined;
 }
 
 // ─── Exercise Identity (structured lookup layer) ─────────────────────────────
@@ -88,7 +134,7 @@ const COMPOUND_MOVEMENT_PATTERNS = new Set([
 
 const BIG_THREE_RE = /^(bench press|barbell bench press|flat bench press|squat|back squat|barbell squat|barbell back squat|deadlift|conventional deadlift|barbell deadlift)$/i;
 const HINGE_NAME_RE = /(^|\b)(rdl|romanian deadlift|stiff\s*leg deadlift|good morning|deadlift)(\b|$)/i;
-const KNEE_FLEXION_RE = /curl|nordic|glute.ham/i;
+const KNEE_FLEXION_RE = /\b(leg curl|hamstring curl|nordic|glute.?ham|lying leg curl|seated leg curl|lying hamstring)\b/i;
 const CORE_FLEXION_RE = /crunch|sit.?up|v.?up/i;
 const CORE_ANTI_RE = /plank|dead.?bug|bird.?dog|pallof|anti/i;
 const CORE_ANTI_EXT_RE = /rollout|ab.?wheel|wheel/i;
@@ -255,14 +301,8 @@ function classifyGeneratedExercise(ex: GeneratedExercise): ExerciseIdentity {
   };
 }
 
-const STAPLE_RDL_RE = /(^|\b)(rdl|romanian deadlift)(\b|$)/;
-const STAPLE_LEG_PRESS_RE = /leg\s*press|sled\s*press|45[\s-]*degree\s*leg\s*press/;
-
 function stapleFamilyKey(exerciseName: string): string {
-  const n = String(exerciseName || '').trim().toLowerCase();
-  if (STAPLE_RDL_RE.test(n)) return 'romanian_deadlift';
-  if (STAPLE_LEG_PRESS_RE.test(n)) return 'leg_press';
-  return n;
+  return exerciseFamilyKey(exerciseName);
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -657,89 +697,6 @@ async function fetchAllExercises(): Promise<EnrichedExercise[]> {
 
 function generateId(): string {
   return uuidv4();
-}
-
-/**
- * Rep ranges vary by exercise role and goal.
- * Sources: NSCA CSCS guidelines, ACSM, Helms et al. (2014)
- *
- * If a secondary goal is set, ranges are blended 70/30.
- */
-const REP_RANGE_TABLE: Record<string, Record<string, { min: number; max: number; target: number }>> =
-  DEFAULT_MODEL_CONFIG.repRangeTable;
-
-function humanizeRepTarget(value: number, min: number, max: number): number {
-  const allowed = [3, 4, 5, 6, 8, 10, 12, 15, 20, 25].filter(v => v >= min && v <= max);
-  if (allowed.length === 0) return Math.max(min, Math.min(max, Math.round(value)));
-  let best = allowed[0];
-  let bestDist = Math.abs(value - best);
-  for (const candidate of allowed.slice(1)) {
-    const dist = Math.abs(value - candidate);
-    if (dist < bestDist) {
-      best = candidate;
-      bestDist = dist;
-    }
-  }
-  return best;
-}
-
-function getRepRangeByRole(
-  role: ExerciseRole,
-  primaryGoal: string,
-  secondaryGoal: string | null,
-  dayOccurrenceIndex?: number,
-  cfg?: ModelConfig,
-  exerciseType?: string | null,
-): { min: number; max: number; target: number } {
-  const roleKey = role === 'corrective' ? 'isolation' : role === 'cardio' ? 'isolation' : role;
-
-  if (dayOccurrenceIndex !== undefined && cfg && roleKey !== 'isolation') {
-    const isHeavyDay = dayOccurrenceIndex === 0;
-    if (roleKey === 'primary') {
-      const range = isHeavyDay ? cfg.heavyRepRange : cfg.moderateRepRange;
-      return { min: range[0], max: range[1], target: Math.round((range[0] + range[1]) / 2) };
-    }
-    if (roleKey === 'secondary') {
-      const range = isHeavyDay ? [6, 8] as const : [10, 15] as const;
-      return { min: range[0], max: range[1], target: Math.round((range[0] + range[1]) / 2) };
-    }
-  }
-
-  if (roleKey === 'isolation' && cfg) {
-    return { min: cfg.metabolicRepRange[0], max: cfg.metabolicRepRange[1], target: Math.round((cfg.metabolicRepRange[0] + cfg.metabolicRepRange[1]) / 2) };
-  }
-
-  const primary = REP_RANGE_TABLE[primaryGoal]?.[roleKey] ?? REP_RANGE_TABLE.maintain[roleKey];
-  let result: { min: number; max: number; target: number };
-  if (!secondaryGoal || secondaryGoal === primaryGoal) {
-    result = primary;
-  } else {
-    const secondary = REP_RANGE_TABLE[secondaryGoal]?.[roleKey] ?? primary;
-    result = {
-      min: Math.round(primary.min * 0.7 + secondary.min * 0.3),
-      max: Math.round(primary.max * 0.7 + secondary.max * 0.3),
-      target: Math.round(primary.target * 0.7 + secondary.target * 0.3),
-    };
-  }
-
-  const isCompound = exerciseType === 'compound';
-  if (isCompound && roleKey === 'primary') {
-    const maxReps = (cfg ?? DEFAULT_MODEL_CONFIG).maxCompoundRepsPrimary;
-    result = {
-      min: result.min,
-      max: Math.min(result.max, maxReps),
-      target: Math.min(result.target, maxReps),
-    };
-  } else if (isCompound && roleKey === 'secondary') {
-    const maxReps = (cfg ?? DEFAULT_MODEL_CONFIG).maxCompoundRepsSecondary;
-    result = {
-      min: result.min,
-      max: Math.min(result.max, maxReps),
-      target: Math.min(result.target, maxReps),
-    };
-  }
-
-  return result;
 }
 
 /**
@@ -1183,6 +1140,42 @@ function classifyExerciseRole(
   if (indexInGroup === 0 && exType === 'compound') return 'primary';
   if (exType === 'compound') return 'secondary';
   return 'isolation';
+}
+
+/** Forward-project recovery when planning a future session (Week Ahead). */
+function profileForPlanningHorizon(
+  profile: TrainingProfile,
+  planningDate: Date,
+  cfg: ModelConfig,
+): TrainingProfile {
+  const planDateStr = getLocalDate(planningDate);
+  const todayStr = getLocalDate();
+  if (planDateStr <= todayStr) return profile;
+
+  const hoursForward = (planningDate.getTime() - Date.now()) / (1000 * 60 * 60);
+  if (hoursForward <= 0) return profile;
+
+  const thresholdPct = Math.round(cfg.muscleReadyThreshold * 100);
+  return {
+    ...profile,
+    muscleRecovery: projectMuscleRecoveryForward(
+      profile.muscleRecovery,
+      hoursForward,
+      thresholdPct,
+    ),
+  };
+}
+
+function learnedRepContext(
+  profile: TrainingProfile,
+  exerciseName: string,
+): { hasLearnedData: boolean; learnedReps: number | null } {
+  const pref = findByExerciseFamily(profile.exercisePreferences, exerciseName);
+  const hasLearnedData = Boolean(pref && pref.recentSessions >= 4);
+  const learnedReps = hasLearnedData && pref?.learnedReps != null
+    ? Math.round(pref.learnedReps)
+    : null;
+  return { hasLearnedData, learnedReps };
 }
 
 /**
@@ -1909,89 +1902,17 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
 
 type MuscleGroupSelection = MuscleGroupDecision;
 
-const SPLIT_MUSCLE_MAPPING: Record<string, CanonicalMuscleGroup[]> = {
-  push: ['upper_chest', 'mid_chest', 'lower_chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps'],
-  pull: ['back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps', 'biceps', 'posterior_deltoid', 'forearms', 'rotator_cuff'],
-  legs: ['quadriceps', 'hamstrings', 'glutes', 'hip_flexors', 'abductors', 'adductors'],
-  upper: ['upper_chest', 'mid_chest', 'lower_chest', 'back_lats', 'anterior_deltoid', 'biceps', 'triceps'],
-  lower: ['quadriceps', 'hamstrings', 'glutes', 'hip_flexors', 'abductors', 'adductors'],
-  full: ['mid_chest', 'back_lats', 'quadriceps', 'hamstrings', 'glutes', 'lateral_deltoid'],
-};
+// Split/theme ontology → `./splitOntology` (re-exported for backward compat).
+export {
+  BRO_SPLIT_MAPPING,
+  SPLIT_MUSCLE_MAPPING,
+  SPLIT_SYNERGISTS,
+  SPLIT_TYPE_ROTATIONS,
+  UNIVERSAL_ACCESSORIES,
+  expandWithSynergists,
+} from './splitOntology';
 
-const SPLIT_TYPE_ROTATIONS: Record<string, string[]> = {
-  push_pull_legs: ['push', 'pull', 'legs'],
-  upper_lower: ['upper', 'lower'],
-  full_body: ['full'],
-  bro_split: ['chest', 'back', 'shoulders', 'arms', 'legs'],
-};
-
-const BRO_SPLIT_MAPPING: Record<string, CanonicalMuscleGroup[]> = {
-  chest: ['upper_chest', 'mid_chest', 'lower_chest'],
-  back: ['back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps'],
-  shoulders: ['anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid'],
-  arms: ['biceps', 'triceps', 'forearms'],
-};
-
-/**
- * Synergist mapping — for each primary muscle, the secondary muscles it
- * naturally pairs with in a session (e.g. triceps + chest, biceps + back).
- *
- * Used by:
- *   - stepSelectMuscleGroups: expand the split target set so accessories
- *     are allowed alongside the primary
- *   - deriveDayTheme: build the `allowedAccessories` for a `DayTheme`
- *
- * NOT exhaustive: groups missing here (e.g. `core`, `cardio`, `calves`)
- * are universally allowed — see `UNIVERSAL_ACCESSORIES` below.
- */
-const SPLIT_SYNERGISTS: Record<string, string[]> = {
-  upper_chest: ['triceps', 'anterior_deltoid', 'mid_chest', 'lower_chest'],
-  mid_chest: ['triceps', 'anterior_deltoid', 'upper_chest', 'lower_chest'],
-  lower_chest: ['triceps', 'mid_chest', 'upper_chest'],
-  back_lats: ['biceps', 'posterior_deltoid', 'lower_traps', 'forearms'],
-  back_upper: ['biceps', 'mid_traps', 'forearms'],
-  upper_traps: ['mid_traps', 'lateral_deltoid'],
-  mid_traps: ['back_upper', 'lower_traps', 'posterior_deltoid'],
-  lower_traps: ['mid_traps', 'rotator_cuff'],
-  quadriceps: ['glutes', 'hamstrings', 'hip_flexors', 'abductors', 'adductors'],
-  hamstrings: ['glutes', 'quadriceps'],
-  glutes: ['quadriceps', 'hamstrings', 'abductors'],
-  anterior_deltoid: ['lateral_deltoid', 'triceps', 'upper_chest', 'mid_chest'],
-  lateral_deltoid: ['anterior_deltoid', 'posterior_deltoid', 'upper_traps'],
-  posterior_deltoid: ['mid_traps', 'rotator_cuff', 'back_upper'],
-  triceps: ['mid_chest', 'upper_chest', 'anterior_deltoid'],
-  biceps: ['back_lats', 'back_upper', 'forearms'],
-  rotator_cuff: ['posterior_deltoid', 'lower_traps'],
-  hip_flexors: ['quadriceps', 'core'],
-};
-
-/**
- * Muscle groups that are always permissible regardless of split focus.
- * `cardio` is handled by Phase 2 weekly-frequency logic but we keep it here
- * so per-day theme filters never reject it. `core` and `calves` are similarly
- * "free" — they don't conflict with any split.
- */
-const UNIVERSAL_ACCESSORIES: readonly string[] = ['core', 'calves', 'cardio'];
-
-/**
- * Expand a set of primary muscle groups to include their synergists and
- * universally-accessible muscles. Pure function; no side effects.
- */
-function expandWithSynergists(primaries: ReadonlySet<string> | string[]): Set<string> {
-  const out = new Set<string>(typeof (primaries as Set<string>).has === 'function'
-    ? Array.from(primaries as Set<string>)
-    : (primaries as string[]));
-  for (const g of out) {
-    for (const syn of (SPLIT_SYNERGISTS[g] ?? [])) out.add(syn);
-  }
-  for (const ua of UNIVERSAL_ACCESSORIES) out.add(ua);
-  return out;
-}
-
-// Day-theme code (DayTheme + deriveDayTheme + label parsing) lives in
-// `./workoutTheme`. Re-exported here for backward compat with existing
-// importers (workoutInvariants.ts, tests, UI components). New consumers
-// should prefer importing from `./workoutTheme` directly.
+// Day-theme code lives in `./workoutTheme`. Re-exported for backward compat.
 export {
   deriveDayTheme,
   parseFocusLabelTokens,
@@ -2037,7 +1958,7 @@ function resolveEffectiveDayTheme(
       trainingSlot++;
     }
     const splitName = rotation[trainingSlot % rotation.length];
-    const groups = BRO_SPLIT_MAPPING[splitName] ?? SPLIT_MUSCLE_MAPPING[splitName];
+    const groups = muscleGroupsForSplitSlot(splitName);
     if (groups?.length) {
       const focus = splitName.replace(/_/g, ' ');
       return deriveDayTheme(focus, [...groups], 'rotation');
@@ -2047,96 +1968,11 @@ function resolveEffectiveDayTheme(
   return null;
 }
 
-function computeHipAbductorLoadSignal(profile: TrainingProfile): {
-  weeklyAmbulatoryHours: number;
-  externalHipLoadScore: number;
-  internalHipLoadScore: number;
-  abductorPriorityBoost: number;
-  adductorPriorityBoost: number;
-  adductorPriorityPenalty: number;
-  adaptiveSuppression: number;
-  suppressDirectIsolation: boolean;
-  shouldFrontLoadAbductors: boolean;
-} {
-  const WEEKS_WINDOW = 4;
-  const cardio = profile.cardioHistory ?? [];
-  const ambulatory = cardio.filter(c => {
-    const m = classifyCardioModality(String(c.exerciseName || '').toLowerCase());
-    return m === 'walk' || m === 'stair';
-  });
-  const weeklyAmbulatoryHours = ambulatory.reduce((sum, c) => {
-    const weeklyMinutes = ((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW);
-    return sum + (weeklyMinutes / 60);
-  }, 0);
-  const inclineWeightedHours = ambulatory.reduce((sum, c) => {
-    const baseHours = (((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW)) / 60;
-    const incline = Number(c.avgIncline ?? 0);
-    const inclineFactor = incline > 0 ? (1 + Math.min(0.8, incline / 12)) : 1;
-    return sum + (baseHours * inclineFactor);
-  }, 0);
-  const stairHours = cardio
-    .filter(c => classifyCardioModality(String(c.exerciseName || '').toLowerCase()) === 'stair')
-    .reduce((sum, c) => sum + ((((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW)) / 60), 0);
-
-  // External hip demand: gait/frontal-plane stabilization, especially incline/stairs.
-  const externalHipLoadScore = clampNumber(weeklyAmbulatoryHours * 0.55 + inclineWeightedHours * 0.35 + stairHours * 0.45, 0, 3);
-  // Internal hip demand: currently inferred from dedicated adduction/cardio signals (low until direct data exists).
-  const adductionSpecificHours = cardio
-    .filter(c => /adduct|copenhagen|lateral lunge|sumo/i.test(c.exerciseName))
-    .reduce((sum, c) => sum + ((((c.avgDurationSeconds ?? 0) / 60) * ((c.recentSessions ?? 0) / WEEKS_WINDOW)) / 60), 0);
-  const internalHipLoadScore = clampNumber(adductionSpecificHours * 1.2 + Math.max(0, weeklyAmbulatoryHours - inclineWeightedHours) * 0.08, 0, 2.2);
-  const hipLoadImbalance = Math.max(0, externalHipLoadScore - internalHipLoadScore);
-  const volumeByGroup = new Map((profile.muscleVolumeStatuses ?? []).map(v => [String(v.muscleGroup || '').toLowerCase(), Number(v.weeklyDirectSets || 0)]));
-  const freqByGroup = profile.muscleGroupFrequency ?? {};
-  const abductorDirect = Math.max(0, Number(volumeByGroup.get('abductors') ?? 0));
-  const adductorDirect = Math.max(0, Number(volumeByGroup.get('adductors') ?? 0));
-  const hipDirectExposure = abductorDirect + adductorDirect;
-  const hipFreq = Math.max(0, Number(freqByGroup.abductors ?? 0)) + Math.max(0, Number(freqByGroup.adductors ?? 0));
-  const targetDirectBand = 8; // adaptive center for combined direct hip-isolation stimulus
-  const volumeSaturation = clampNumber((hipDirectExposure - targetDirectBand) / Math.max(targetDirectBand, 1), 0, 1.25);
-  const freqSaturation = clampNumber((hipFreq - 2.1) / 1.6, 0, 1.2);
-  const adaptiveSuppression = clampNumber(1 - (volumeSaturation * 0.55) - (freqSaturation * 0.45), 0.25, 1);
-
-  const abductorPriorityBoostRaw = externalHipLoadScore >= 0.35
-    ? clampNumber(0.06 + externalHipLoadScore * 0.12, 0, 0.46)
-    : 0;
-  const adductorPriorityBoostRaw = internalHipLoadScore >= 0.55
-    ? clampNumber(0.05 + internalHipLoadScore * 0.08, 0, 0.22)
-    : 0;
-  const adductorPriorityPenaltyRaw = hipLoadImbalance >= 0.6
-    ? clampNumber(hipLoadImbalance * 0.08, 0, 0.18)
-    : 0;
-  const abductorPriorityBoost = clampNumber(abductorPriorityBoostRaw * adaptiveSuppression, 0, 0.46);
-  const adductorPriorityBoost = clampNumber(adductorPriorityBoostRaw * adaptiveSuppression, 0, 0.22);
-  const adductorPriorityPenalty = clampNumber(
-    adductorPriorityPenaltyRaw + (adaptiveSuppression < 0.7 ? (0.7 - adaptiveSuppression) * 0.12 : 0),
-    0,
-    0.24
-  );
-  const suppressDirectIsolation = hipDirectExposure >= (targetDirectBand * 1.25) || hipFreq >= 3.1;
-  return {
-    weeklyAmbulatoryHours,
-    externalHipLoadScore,
-    internalHipLoadScore,
-    abductorPriorityBoost,
-    adductorPriorityBoost,
-    adductorPriorityPenalty,
-    adaptiveSuppression,
-    suppressDirectIsolation,
-    shouldFrontLoadAbductors: externalHipLoadScore >= 0.9 && adaptiveSuppression >= 0.7,
-  };
-}
-
-type CouplingSignal = {
-  priorityDelta: number;
-  reasons: string[];
-};
-
 function computeSystemCouplingSignals(
   profile: TrainingProfile,
-  hipSignal: ReturnType<typeof computeHipAbductorLoadSignal>
+  hipSignal: ReturnType<typeof computeHipAbductorLoadSignal>,
 ): Record<string, CouplingSignal> {
-  const byGroup: Record<string, CouplingSignal> = {};
+  const byGroup = computeCouplingSignalsFromOntology(profile, hipSignal);
   const ensure = (group: string): CouplingSignal => {
     if (!byGroup[group]) byGroup[group] = { priorityDelta: 0, reasons: [] };
     return byGroup[group];
@@ -2147,41 +1983,8 @@ function computeSystemCouplingSignals(
     if (!g.reasons.includes(reason)) g.reasons.push(reason);
   };
 
-  // Hip mechanics (external vs internal) are one component of whole-system coupling.
-  if (hipSignal.abductorPriorityBoost > 0) {
-    add('abductors', hipSignal.abductorPriorityBoost, `external-hip demand ${hipSignal.externalHipLoadScore.toFixed(2)}`);
-  }
-  if (hipSignal.adductorPriorityBoost > 0) {
-    add('adductors', hipSignal.adductorPriorityBoost, `internal-hip demand ${hipSignal.internalHipLoadScore.toFixed(2)}`);
-  }
-  if (hipSignal.adductorPriorityPenalty > 0) {
-    add('adductors', -hipSignal.adductorPriorityPenalty, `external/internal hip imbalance`);
-  }
-  if (hipSignal.adaptiveSuppression < 0.95) {
-    const suppressionPenalty = clampNumber((1 - hipSignal.adaptiveSuppression) * 0.18, 0.01, 0.14);
-    add('abductors', -suppressionPenalty, `hip direct-dose saturation (${hipSignal.adaptiveSuppression.toFixed(2)})`);
-    add('adductors', -suppressionPenalty, `hip direct-dose saturation (${hipSignal.adaptiveSuppression.toFixed(2)})`);
-  }
-  if (hipSignal.weeklyAmbulatoryHours >= 3) {
-    const calfBoost = clampNumber((hipSignal.weeklyAmbulatoryHours - 2.5) * 0.03, 0, 0.12);
-    // Calves excluded from direct work — skip calf boost
-  }
-
-  const patternMap: Record<string, string[]> = {
-    horizontal_push: ['mid_chest', 'upper_chest', 'lower_chest', 'anterior_deltoid', 'triceps'],
-    vertical_push: ['anterior_deltoid', 'lateral_deltoid', 'triceps'],
-    horizontal_pull: ['back_upper', 'back_lats', 'mid_traps', 'posterior_deltoid', 'biceps', 'forearms'],
-    vertical_pull: ['back_lats', 'back_upper', 'biceps', 'forearms', 'lower_traps'],
-    hip_hinge: ['hamstrings', 'glutes', 'erector_spinae'],
-    knee_dominant: ['quadriceps', 'glutes', 'adductors', 'hip_flexors'],
-    isolation_upper: ['biceps', 'triceps', 'lateral_deltoid', 'posterior_deltoid', 'forearms', 'rotator_cuff'],
-    isolation_lower: ['abductors', 'adductors', 'quadriceps', 'hamstrings', 'hip_flexors'],
-    anti_rotation: ['core', 'erector_spinae', 'abductors'],
-    rotation: ['core', 'abductors', 'adductors'],
-  };
-
   for (const p of profile.movementPatternFatigue ?? []) {
-    const impacted = patternMap[p.pattern] ?? [];
+    const impacted = muscleGroupsForMovementPattern(p.pattern);
     if (impacted.length === 0) continue;
     if (p.fatigueLevel === 'high') {
       for (const g of impacted) add(g, -0.12, `${p.pattern} fatigue high`);
@@ -2328,6 +2131,7 @@ function stepSelectMuscleGroups(
   monthlyFocusMuscle: string | null = null,
   monthlyFocusSplitGuard: boolean = false,
   monthlyFocusVolumeBoost: number = 0,
+  focusDaySetBudget: number = 0,
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
@@ -2418,7 +2222,7 @@ function stepSelectMuscleGroups(
         trainingSlot++;
       }
       const splitName = rotation[trainingSlot % rotation.length];
-      const groups = (BRO_SPLIT_MAPPING[splitName] ?? SPLIT_MUSCLE_MAPPING[splitName]);
+      const groups = muscleGroupsForSplitSlot(splitName);
       if (groups?.length) splitTargetGroups = new Set(groups);
     } else {
       // Strict rotation from day of week — do NOT merge detected patterns when user explicitly set a split.
@@ -2431,7 +2235,7 @@ function stepSelectMuscleGroups(
         trainingSlot++;
       }
       const splitName = rotation[trainingSlot % rotation.length];
-      const groups = (BRO_SPLIT_MAPPING[splitName] ?? SPLIT_MUSCLE_MAPPING[splitName]);
+      const groups = muscleGroupsForSplitSlot(splitName);
       if (groups?.length) splitTargetGroups = new Set(groups);
     }
   } else if (dayOfWeekOverride != null && detectedSplit.typicalRotation.length > 0) {
@@ -2446,13 +2250,13 @@ function stepSelectMuscleGroups(
       trainingSlot++;
     }
     const splitName = rotation[trainingSlot % rotation.length];
-    const groups = SPLIT_MUSCLE_MAPPING[splitName];
+    const groups = muscleGroupsForSplitSlot(splitName);
     if (groups?.length) splitTargetGroups = new Set(groups);
   } else if (detectedSplit.confidence >= cfg.splitConfidenceThreshold && detectedSplit.nextRecommended.length > 0) {
     splitTargetGroups = new Set<string>();
     for (const rec of detectedSplit.nextRecommended) {
-      const groups = SPLIT_MUSCLE_MAPPING[rec];
-      if (groups) groups.forEach(g => splitTargetGroups!.add(g));
+      const groups = muscleGroupsForSplitSlot(rec);
+      if (groups.length) groups.forEach(g => splitTargetGroups!.add(g));
     }
   } else if (todayPattern && !todayPattern.isRestDay && todayPatternGroups.length > 0) {
     // Fall back to day-of-week pattern
@@ -2516,7 +2320,12 @@ function stepSelectMuscleGroups(
     if (guideline.mrv === 0) continue;
 
     const recovery = profile.muscleRecovery.find(r => r.muscleGroup === vol.muscleGroup);
-    if (recovery && !recovery.readyToTrain) {
+    const isOnUserSchedule = Boolean(
+      userAuthoredScheduleGroups?.has(vol.muscleGroup)
+      || splitTargetGroups?.has(vol.muscleGroup)
+      || preferredGroupSet.has(vol.muscleGroup),
+    );
+    if (recovery && !recovery.readyToTrain && !isOnUserSchedule) {
       const individualRate = profile.individualRecoveryRates?.[vol.muscleGroup];
       if (individualRate && individualRate > 1.2 && recovery.recoveryPercent >= 70) {
         // Fast recoverer at 70%+ can override default recovery window
@@ -2753,41 +2562,33 @@ function stepSelectMuscleGroups(
     : dur <= 105 ? 5
     : 6;
   let selected = filteredCandidates.slice(0, maxGroups);
-  const primaryMajorGroups = new Set([
-    'upper_chest', 'mid_chest', 'lower_chest', 'back_lats', 'quadriceps', 'hamstrings', 'glutes',
-    'anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid', 'biceps', 'triceps',
-  ]);
-  const accessoryMinorGroups = new Set([
-    'forearms', 'abductors', 'adductors', 'core', 'erector_spinae', 'rotator_cuff', 'hip_flexors',
-    'upper_traps', 'mid_traps', 'lower_traps', 'back_upper',
-  ]);
   const canTrainMajorCandidate = (c: MuscleGroupSelection): boolean => {
-    if (!primaryMajorGroups.has(c.muscleGroup)) return false;
+    if (!PRIMARY_MAJOR_GROUPS.has(c.muscleGroup)) return false;
     if (c.recoveryPercent == null) return true;
     // Human-coherence guard: allow moderately recovered major groups before overfilling with minors.
     return c.recoveryPercent >= Math.max(55, Math.round(cfg.muscleReadyThreshold * 100) - 20);
   };
   if (!recoveryAdj.isDeload && selected.length > 0) {
-    const selectedMajorCount = selected.filter((s) => primaryMajorGroups.has(s.muscleGroup)).length;
-    const selectedMinorCount = selected.filter((s) => accessoryMinorGroups.has(s.muscleGroup)).length;
+    const selectedMajorCount = selected.filter((s) => PRIMARY_MAJOR_GROUPS.has(s.muscleGroup)).length;
+    const selectedMinorCount = selected.filter((s) => ACCESSORY_MINOR_GROUPS.has(s.muscleGroup)).length;
     const majorPool = filteredCandidates.filter(canTrainMajorCandidate);
     const selectedSet = new Set(selected.map((s) => s.muscleGroup));
     // Guarantee at least one major driver unless truly unavailable.
     if (selectedMajorCount === 0 && majorPool.length > 0) {
       const replacement = majorPool.find((m) => !selectedSet.has(m.muscleGroup));
       if (replacement) {
-        const replaceIdx = selected.findIndex((s) => accessoryMinorGroups.has(s.muscleGroup));
+        const replaceIdx = selected.findIndex((s) => ACCESSORY_MINOR_GROUPS.has(s.muscleGroup));
         if (replaceIdx >= 0) selected[replaceIdx] = replacement;
       }
     }
     // Avoid accessory-dominant sessions by capping minor-group share.
     const maxMinorGroups = Math.max(1, Math.floor(selected.length / 2));
-    let workingMinorCount = selected.filter((s) => accessoryMinorGroups.has(s.muscleGroup)).length;
+    let workingMinorCount = selected.filter((s) => ACCESSORY_MINOR_GROUPS.has(s.muscleGroup)).length;
     if (workingMinorCount > maxMinorGroups) {
       for (const replacement of majorPool) {
         if (workingMinorCount <= maxMinorGroups) break;
         if (selectedSet.has(replacement.muscleGroup)) continue;
-        const idx = selected.findIndex((s) => accessoryMinorGroups.has(s.muscleGroup));
+        const idx = selected.findIndex((s) => ACCESSORY_MINOR_GROUPS.has(s.muscleGroup));
         if (idx < 0) break;
         selectedSet.delete(selected[idx].muscleGroup);
         selected[idx] = replacement;
@@ -2813,11 +2614,7 @@ function stepSelectMuscleGroups(
     }
   }
   if (!recoveryAdj.isDeload) {
-    const primaryMajorGroups = new Set([
-      'upper_chest', 'mid_chest', 'lower_chest', 'back_lats', 'quadriceps', 'hamstrings', 'glutes',
-      'anterior_deltoid', 'lateral_deltoid', 'posterior_deltoid', 'biceps', 'triceps',
-    ]);
-    const hasMajorSelected = selected.some((s) => primaryMajorGroups.has(s.muscleGroup));
+    const hasMajorSelected = selected.some((s) => PRIMARY_MAJOR_GROUPS.has(s.muscleGroup));
     if (!hasMajorSelected) {
       // Hard contract: when the user has authored this day's schedule,
       // the maintenance-anchor fallback must NEVER reach outside the
@@ -2831,7 +2628,7 @@ function stepSelectMuscleGroups(
         ? userAuthoredScheduleGroups
         : (splitTargetGroups && splitTargetGroups.size > 0 ? expandWithSynergists(splitTargetGroups) : null);
       const majorFallback = profile.muscleVolumeStatuses
-        .filter((v) => primaryMajorGroups.has(v.muscleGroup))
+        .filter((v) => PRIMARY_MAJOR_GROUPS.has(v.muscleGroup))
         .filter((v) => !splitExpanded || splitExpanded.has(v.muscleGroup))
         .map((v) => {
           const rec = profile.muscleRecovery.find((r) => r.muscleGroup === v.muscleGroup);
@@ -2916,7 +2713,9 @@ function stepSelectMuscleGroups(
           // Guard days halve the bonus (heavy work belongs on the
           // dedicated split day, not the day before).
           const baseLayeredSets = 2;
-          const layeredTargetSets = baseLayeredSets + Math.max(0, monthlyFocusVolumeBoost);
+          const layeredTargetSets = focusDaySetBudget > 0
+            ? Math.max(2, focusDaySetBudget)
+            : baseLayeredSets + Math.max(0, monthlyFocusVolumeBoost);
           // Priority bumps with the bonus — week-3 focus deserves to
           // beat ordinary recovery-aware fallbacks for slot placement.
           const layeredPriority = 0.5 + 0.1 * Math.max(0, monthlyFocusVolumeBoost);
@@ -2937,20 +2736,22 @@ function stepSelectMuscleGroups(
           };
           selected.push(layeredSlot);
         }
-      } else if (monthlyFocusVolumeBoost > 0) {
-        // Focus muscle IS in today's split. Bump its priority and add
-        // the bonus to its `targetSets` so the dedicated day also gets
-        // the "more than reasonable" dose the user asked for. Without
-        // this, the split day looked identical to any other and the
-        // monthly focus felt invisible on its scheduled day.
+      } else if (monthlyFocusVolumeBoost > 0 || focusDaySetBudget > 0) {
+        // Focus muscle IS in today's split. Bump its priority and set
+        // targetSets from the weekly volume budget when available.
         const idx = selected.findIndex((s) => s.muscleGroup === focusCanonical);
         if (idx >= 0) {
           const original = selected[idx];
+          const budgetSets = focusDaySetBudget > 0
+            ? focusDaySetBudget
+            : (original.targetSets ?? 3) + monthlyFocusVolumeBoost;
           selected[idx] = {
             ...original,
-            priority: Math.max(original.priority, 0.85 + 0.05 * monthlyFocusVolumeBoost),
-            targetSets: (original.targetSets ?? 3) + monthlyFocusVolumeBoost,
-            reason: `${original.reason} · Monthly focus bonus: +${monthlyFocusVolumeBoost} sets`,
+            priority: Math.max(original.priority, 0.85 + 0.05 * Math.max(monthlyFocusVolumeBoost, focusDaySetBudget > 0 ? 2 : 0)),
+            targetSets: Math.max(original.targetSets ?? 3, budgetSets),
+            reason: focusDaySetBudget > 0
+              ? `${original.reason} · Monthly focus budget: ${budgetSets} direct sets`
+              : `${original.reason} · Monthly focus bonus: +${monthlyFocusVolumeBoost} sets`,
           };
         }
       }
@@ -3147,15 +2948,19 @@ function stepSelectExercises(
     if (g.exercise) goalMap.set(g.exercise.toLowerCase(), g);
   }
 
-  // Build preference lookup for fast access
+  // Build preference lookup — keyed by family so alias variants share history
   const prefMap = new Map<string, ExercisePreference>();
   for (const p of profile.exercisePreferences) {
-    prefMap.set(p.exerciseName, p);
+    const key = preferenceAggregationKey(p.exerciseName);
+    const existing = prefMap.get(key);
+    if (!existing || p.recencyScore > existing.recencyScore) {
+      prefMap.set(key, p);
+    }
   }
   const yesterdayExerciseSet = new Set(
     profile.exercisePreferences
       .filter((p) => Number(p.lastUsedDaysAgo) <= 1 && Number(p.totalSessions) > 0)
-      .map((p) => String(p.exerciseName || '').toLowerCase().trim())
+      .map((p) => preferenceAggregationKey(p.exerciseName))
       .filter(Boolean)
   );
   let yesterdayReuseCount = 0;
@@ -3169,6 +2974,7 @@ function stepSelectExercises(
 
   for (const group of muscleGroups) {
     const selectedHasHinge = selections.some(s => classifyExercise(s.exercise.name, s.exercise).isHinge);
+    const selectedInGroup = selections.filter(s => s.muscleGroup === group.muscleGroup).map(s => s.exercise.name);
     const groupExercises = strengthExercises.filter(ex => {
       if (avoidSet.has(ex.name.toLowerCase())) return false;
       if (usedExercises.has(ex.name.toLowerCase())) return false;
@@ -3198,13 +3004,13 @@ function stepSelectExercises(
         score += cfg.selectionPerformanceGoalScore;
         factors.push(`Performance goal: ${goal.targetWeight} lbs × ${goal.targetReps} reps (+${cfg.selectionPerformanceGoalScore})`);
       }
-      if (preferredExerciseNames.has(ex.name.toLowerCase())) {
+      if (preferredExerciseNames.has(preferenceAggregationKey(ex.name))) {
         score += cfg.selectionStapleScore;
         factors.push(`Weekly staple priority (+${cfg.selectionStapleScore})`);
       }
 
       // User preference is the DOMINANT signal — exercises they actually do
-      const pref = prefMap.get(ex.name.toLowerCase());
+      const pref = prefMap.get(preferenceAggregationKey(ex.name));
       if (pref) {
         const prefBonus = pref.recencyScore * cfg.selectionRecencyMultiplier;
         score += prefBonus;
@@ -3228,9 +3034,7 @@ function stepSelectExercises(
 
       // #9: Exercise Novelty Cycling — stronger rotation penalties
       if (profile.exerciseRotation) {
-        const rot = profile.exerciseRotation.find(
-          r => r.exerciseName === ex.name.toLowerCase()
-        );
+        const rot = findByExerciseFamily(profile.exerciseRotation, ex.name);
         if (rot) {
           if (rot.consecutiveWeeksUsed >= 6) {
             score += cfg.selectionStaleExercisePenalty;
@@ -3245,9 +3049,7 @@ function stepSelectExercises(
         }
       }
 
-      const prog = profile.exerciseProgressions.find(
-        p => p.exerciseName === ex.name.toLowerCase()
-      );
+      const prog = findByExerciseFamily(profile.exerciseProgressions, ex.name);
       if (prog) {
         if (prog.status === 'progressing') {
           score += cfg.selectionProgressingScore;
@@ -3263,9 +3065,10 @@ function stepSelectExercises(
 
       // Ordering interference
       if (selections.length > 0) {
-        const lastSelected = selections[selections.length - 1].exercise.name.toLowerCase();
+        const lastSelected = preferenceAggregationKey(selections[selections.length - 1].exercise.name);
         const interference = profile.exerciseOrderingEffects.find(
-          e => e.precedingExercise === lastSelected && e.affectedExercise === ex.name.toLowerCase()
+          e => preferenceAggregationKey(e.precedingExercise) === lastSelected
+            && preferenceAggregationKey(e.affectedExercise) === preferenceAggregationKey(ex.name)
         );
         if (interference && interference.interference < -0.05) {
           score += cfg.selectionOrderingInterferencePenalty;
@@ -3281,6 +3084,12 @@ function stepSelectExercises(
       if (selectedHasHinge && group.muscleGroup === 'hamstrings' && exIdentity.isKneeFlexion) {
         score += cfg.selectionKneeFlexionBonus;
         factors.push(`Pattern diversity: include knee-flexion hamstring work (+${cfg.selectionKneeFlexionBonus})`);
+      }
+
+      const diversityBonus = familyDiversityBonus(ex.name, selectedInGroup, group.muscleGroup);
+      if (diversityBonus !== 0) {
+        score += diversityBonus;
+        factors.push(`Ontology diversity: ${diversityBonus > 0 ? '+' : ''}${diversityBonus} (${exerciseFamilyKey(ex.name)})`);
       }
 
       if (prefs.equipment_access === 'limited' || prefs.equipment_access === 'bodyweight') {
@@ -3307,9 +3116,7 @@ function stepSelectExercises(
       // exercise was chosen as a replacement) and acceptance events (this
       // exercise was prescribed and completed without being swapped).
       if (profile.exerciseSwapHistory) {
-        const swapEntry = profile.exerciseSwapHistory.find(
-          s => s.exerciseName === ex.name.toLowerCase()
-        );
+        const swapEntry = findByExerciseFamily(profile.exerciseSwapHistory, ex.name);
         if (swapEntry) {
           const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
           let swapApplied = false;
@@ -3331,12 +3138,15 @@ function stepSelectExercises(
         }
       }
       if (profile.substitutionAffinities?.length) {
-        const exKey = ex.name.toLowerCase();
+        const exKey = preferenceAggregationKey(ex.name);
+        const swapFromKey = selections.length > 0
+          ? preferenceAggregationKey(selections[selections.length - 1].exercise.name)
+          : null;
         let aff = 0;
         for (const a of profile.substitutionAffinities) {
-          if (a.toExercise === exKey) {
-            aff += Math.min(8, a.affinity * 1.5);
-          }
+          if (preferenceAggregationKey(a.toExercise) !== exKey) continue;
+          if (swapFromKey && preferenceAggregationKey(a.fromExercise) !== swapFromKey) continue;
+          aff += Math.min(8, a.affinity * 1.5);
         }
         if (aff > 0) {
           const add = Math.round(aff * 10) / 10;
@@ -3349,9 +3159,7 @@ function stepSelectExercises(
       // the two channels are balanced. Without this, the system can only
       // ever kill exercises (asymmetric learning → permanent rotation collapse).
       if (profile.exerciseAcceptances?.length) {
-        const accEntry = profile.exerciseAcceptances.find(
-          a => a.exerciseName === ex.name.toLowerCase()
-        );
+        const accEntry = findByExerciseFamily(profile.exerciseAcceptances, ex.name);
         if (accEntry) {
           const reward = Math.min(
             cfg.selectionAcceptanceCap,
@@ -3388,9 +3196,8 @@ function stepSelectExercises(
       }
 
       // #9: Plateau strategies — penalize plateaued exercises with swap_variation so engine prefers alternatives
-      const plateau = profile.plateauDetections?.find(
-        p => p.exerciseName === ex.name.toLowerCase() && p.isPlateaued
-      );
+      const plateauEntry = findByExerciseFamily(profile.plateauDetections, ex.name);
+      const plateau = plateauEntry?.isPlateaued ? plateauEntry : undefined;
       if (plateau?.suggestedStrategy) {
         const strat = plateau.suggestedStrategy.toLowerCase();
         if (strat.includes('swap') || strat.includes('variation')) {
@@ -3436,17 +3243,13 @@ function stepSelectExercises(
     // (positive signal beats negative if the user has kept it 3+ times).
     if (profile.exerciseSwapHistory) {
       for (const item of scored) {
-        const swapEntry = profile.exerciseSwapHistory.find(
-          s => s.exerciseName === item.exercise.name.toLowerCase()
-        );
+        const swapEntry = findByExerciseFamily(profile.exerciseSwapHistory, item.exercise.name);
         if (!swapEntry) continue;
         const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
         if (eff >= 11 || swapEntry.swapCount >= 15) {
           // Acceptance reward escape hatch: if user kept this exercise
           // recently, do NOT hard-cap. Negative-only learning was the bug.
-          const accEntry = profile.exerciseAcceptances?.find(
-            a => a.exerciseName === item.exercise.name.toLowerCase()
-          );
+          const accEntry = findByExerciseFamily(profile.exerciseAcceptances, item.exercise.name);
           const acceptanceWeight = Number(accEntry?.effectiveWeight ?? 0);
           if (acceptanceWeight < 3) {
             item.score = Math.min(item.score, cfg.selectionSwapNearBanCeiling);
@@ -3482,7 +3285,7 @@ function stepSelectExercises(
     let remainingStimulus = group.targetSets;
 
     const userExercisesForGroup = scored.filter(s => {
-      const p = prefMap.get(s.exercise.name.toLowerCase());
+      const p = prefMap.get(preferenceAggregationKey(s.exercise.name));
       return p && p.recentSessions >= 1;
     }).length;
     const durationMin = prefs.session_duration_minutes;
@@ -3508,7 +3311,7 @@ function stepSelectExercises(
     let exerciseCount = 0;
     for (const item of ordered) {
       if (exerciseCount >= maxExercises || remainingStimulus <= 0) break;
-      const itemName = String(item.exercise.name || '').toLowerCase();
+      const itemName = preferenceAggregationKey(item.exercise.name);
       const isYesterdayExercise = yesterdayExerciseSet.has(itemName);
       if (isYesterdayExercise && yesterdayReuseCount >= maxYesterdayReuse) continue;
       const setWeight = estimateEffectiveSetWeight(item.exercise, group.muscleGroup);
@@ -3565,7 +3368,7 @@ function stepSelectExercises(
       correctiveNames.some(cn => ex.name.toLowerCase().includes(cn))
     );
     const userPreferredCorrective = userCorrectives.find(ex => {
-      const p = prefMap.get(ex.name.toLowerCase());
+      const p = prefMap.get(preferenceAggregationKey(ex.name));
       return p && p.recentSessions >= 1;
     });
     const corrective = userPreferredCorrective ?? userCorrectives[0] ?? null;
@@ -3605,7 +3408,7 @@ function stepSelectExercises(
         return groups.includes('hamstrings') && classifyExercise(ex.name, ex).isKneeFlexion;
       });
       const userPreferred = kneeFlexionExercises.find(ex => {
-        const p = prefMap.get(ex.name.toLowerCase());
+        const p = prefMap.get(preferenceAggregationKey(ex.name));
         return p && p.recentSessions >= 1;
       });
       const pick = userPreferred ?? kneeFlexionExercises[0] ?? null;
@@ -3644,7 +3447,7 @@ function stepSelectExercises(
         return classifyCorePattern(n) === 'flexion';
       });
       const pick = diverseCore.find(ex => {
-        const p = prefMap.get(ex.name.toLowerCase());
+        const p = prefMap.get(preferenceAggregationKey(ex.name));
         return p && p.recentSessions >= 1;
       }) ?? diverseCore[0] ?? null;
       if (pick) {
@@ -3840,7 +3643,7 @@ function stepSelectExercises(
   // Invariants: every generated workout should include
   // (1) at least one compound and (2) at least one staple when available.
   const shouldExcludeStapleFamily = (familyKey: string): boolean =>
-    familyKey === 'romanian_deadlift';
+    familyKey === 'hamstring_hip_dominant';
   const selectionHasCompound = () =>
     selections.some((sel) => !sel.isCardio && inferExerciseType(sel.exercise) === 'compound');
   const stapleFamilyAgg = new Map<string, {
@@ -3917,7 +3720,7 @@ function stepSelectExercises(
     const compoundCandidate = strengthExercises
       .filter((ex) => canUseExercise(ex) && inferExerciseType(ex) === 'compound')
       .map((ex) => {
-        const pref = prefMap.get(ex.name.toLowerCase());
+        const pref = prefMap.get(preferenceAggregationKey(ex.name));
         const score = (pref?.recencyScore ?? 0) + (pref?.isStaple ? 1.5 : 0);
         return { ex, score };
       })
@@ -4003,7 +3806,12 @@ function stepPrescribe(
   monthlyFocusMuscle: string | null = null,
   monthlyFocusSplitGuard: boolean = false,
   monthlyFocusVolumeBoost: number = 0,
+  capacityIndex?: Map<string, ExerciseCapacityV1>,
+  weightBias: number = 1,
+  controllerRirOffset: number = 0,
+  focusDaySetBudget: number = 0,
 ): GeneratedExercise[] {
+  const effectiveMesocycleRirOffset = (mesocycleRirOffset ?? 0) + controllerRirOffset;
   const goal = getEffectiveGoal(prefs);
   const hotelModeEnabled = Boolean(prefs.hotel_mode);
   const clampHotelModeWeight = (weight: number | null, equipment: string[]): number | null => {
@@ -4026,7 +3834,7 @@ function stepPrescribe(
     // Handle cardio with real duration/intensity from history
     if (sel.isCardio || sel.exercise.ml_exercise_type === 'cardio') {
       const cardio = profile.cardioHistory.find(c => c.exerciseName === sel.exercise.name.toLowerCase());
-      const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+      const pref = findByExerciseFamily(profile.exercisePreferences, sel.exercise.name);
 
       const goalCardioDefaults: Record<string, number> = cfg.cardioGoalDefaultDuration;
       const prefDuration = prefs.cardio_duration_minutes ? prefs.cardio_duration_minutes * 60 : null;
@@ -4075,9 +3883,7 @@ function stepPrescribe(
       // Include planned day as a seed so weekly days don't collapse to the
       // same exact cardio prescription when history is unchanged.
       const planningSeed = planningDate ? planningDate.getDay() : new Date().getDay();
-      const sessionIdx = ((profile.exercisePreferences.find(
-        p => p.exerciseName === sel.exercise.name.toLowerCase()
-      )?.totalSessions ?? 0) + planningSeed) % 4;
+      const sessionIdx = ((findByExerciseFamily(profile.exercisePreferences, sel.exercise.name)?.totalSessions ?? 0) + planningSeed) % 4;
 
       let targetHrZone: number | null = null;
 
@@ -4288,9 +4094,7 @@ function stepPrescribe(
     // kicks in once they reach the top of the range — classic double
     // progression. The learned value becomes a *floor* (don't prescribe
     // fewer reps than the user is comfortable with), not a *target*.
-    const pref = profile.exercisePreferences.find(
-      p => p.exerciseName === sel.exercise.name.toLowerCase()
-    );
+    const pref = findByExerciseFamily(profile.exercisePreferences, sel.exercise.name);
     // Raised from 2 → 4 sessions: with only 2 sessions, a single fluky
     // workout (illness, equipment swap, sleep deprivation) dominates the
     // median and propagates as the engine's "best estimate" of user
@@ -4407,14 +4211,14 @@ function stepPrescribe(
     }
 
     const isLastSetInExercise = false;
-    let displayRir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, mesocycleRirOffset, isLastSetInExercise);
+    let displayRir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, effectiveMesocycleRirOffset, isLastSetInExercise);
     if (highCapacityPush?.active && !recoveryAdj.isDeload && highCapacityPush.rirDelta !== 0) {
       displayRir = Math.max(0, Math.min(4, displayRir + highCapacityPush.rirDelta));
     }
 
     // RIR taper: set 1 starts at base+2, each set drops by 1, last set = base RIR.
     // targetRir = average across sets; rirRange = [startRir, endRir] for UI display.
-    let lastSetRir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, mesocycleRirOffset, true);
+    let lastSetRir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, effectiveMesocycleRirOffset, true);
     if (highCapacityPush?.active && !recoveryAdj.isDeload && highCapacityPush.rirDelta !== 0) {
       lastSetRir = Math.max(0, Math.min(4, lastSetRir + highCapacityPush.rirDelta));
     }
@@ -4439,9 +4243,7 @@ function stepPrescribe(
     const tempo = getTempo(sel.exercise.default_tempo, goal, sel.exercise.ml_exercise_type, dayOccurrenceIndex);
 
     // Weight determination: progression data > learned weight > lift ratios > null
-    const prog = profile.exerciseProgressions.find(
-      p => p.exerciseName === sel.exercise.name.toLowerCase()
-    );
+    const prog = findByExerciseFamily(profile.exerciseProgressions, sel.exercise.name);
 
     let targetWeight: number | null = null;
     const adjustments: string[] = [];
@@ -4474,14 +4276,21 @@ function stepPrescribe(
     // Three-phase decision: (1) compute baseWeight, (2) apply ONE modifier, (3) safety bounds.
     let weightSource: 'e1rm' | 'learned' | 'ratio' | 'none' = 'none';
 
-    if (prog) {
-      const e1rm = prog.estimated1RM;
+    const capRow = capacityIndex?.get(sel.exercise.name.toLowerCase());
+
+    if (prog || capRow) {
+      const e1rm = capRow?.estimated1RM ?? prog!.estimated1RM;
       targetWeight = weightForReps(e1rm, targetReps, rir, equipment, exType);
-      if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
+      if (prog && targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
         targetWeight = snapToPlate(prog.lastWeight * cfg.weightRescueFloorMult, equipment, exType);
       }
-      weightSource = 'e1rm';
-      adjustments.push(`Base weight from est. 1RM ${Math.round(e1rm)} lbs → ${targetWeight} lbs for ${targetReps} reps @ RIR ${rir}`);
+      weightSource = capRow ? (capRow.source === 'execution_boost' ? 'e1rm' : 'e1rm') : 'e1rm';
+      const capNote = capRow && capRow.source === 'execution_boost'
+        ? ' (execution-adjusted capacity)'
+        : capRow && capRow.source === 'blended'
+          ? ' (blended capacity model)'
+          : '';
+      adjustments.push(`Base weight from est. 1RM ${Math.round(e1rm)} lbs → ${targetWeight} lbs for ${targetReps} reps @ RIR ${rir}${capNote}`);
 
       // Phase 2: Apply ONE modifier (priority: deload > regression > plateau > progression > forecast)
       let modifierApplied = false;
@@ -4494,7 +4303,7 @@ function stepPrescribe(
       }
 
       // Priority 2: Regression
-      if (!modifierApplied && prog.status === 'regressing') {
+      if (!modifierApplied && prog?.status === 'regressing') {
         const regressionSeverity = Math.abs(prog.progressionSlope);
         const regressingLifts = profile.exerciseProgressions.filter(p => p.status === 'regressing');
         const isSystemicRegression = regressingLifts.length >= 3;
@@ -4517,13 +4326,10 @@ function stepPrescribe(
       }
 
       // Priority 3: Plateau (stalled)
-      if (!modifierApplied && prog.status === 'stalled') {
-        const plateauClass = profile.plateauClassifications?.find(
-          c => c.exerciseName === sel.exercise.name.toLowerCase()
-        );
-        const plateauInfo = profile.plateauDetections.find(
-          p => p.exerciseName === sel.exercise.name.toLowerCase() && p.isPlateaued
-        );
+      if (!modifierApplied && prog?.status === 'stalled') {
+        const plateauClass = findByExerciseFamily(profile.plateauClassifications, sel.exercise.name);
+        const plateauDetEntry = findByExerciseFamily(profile.plateauDetections, sel.exercise.name);
+        const plateauInfo = plateauDetEntry?.isPlateaued ? plateauDetEntry : undefined;
         if (plateauClass) {
           switch (plateauClass.plateauType) {
             case 'neural':
@@ -4553,7 +4359,7 @@ function stepPrescribe(
       }
 
       // Priority 4: Progression
-      if (!modifierApplied) {
+      if (!modifierApplied && prog) {
         const learnedInc = hasLearnedData ? pref.learnedIncrement : null;
         const fallbackIncrement = role === 'isolation' || role === 'corrective'
           ? cfg.isolationIncrement
@@ -4576,9 +4382,7 @@ function stepPrescribe(
         const movementPat = exMapping?.movement_pattern ?? sel.exercise.movement_pattern ?? '';
         const bestPatternType = profile.bestProgressionPatterns[movementPat] ?? null;
 
-        const breakthrough = profile.repWeightBreakthroughs.find(
-          b => b.exerciseName === sel.exercise.name.toLowerCase()
-        );
+        const breakthrough = findByExerciseFamily(profile.repWeightBreakthroughs, sel.exercise.name);
 
         // Honest effort gate: don't fully award progression if recent effort
         // is low, but never zero out completely. Hard-zero blocks meant a
@@ -4648,9 +4452,7 @@ function stepPrescribe(
 
       // Priority 5: Forecast — only when no other modifier applied
       if (!modifierApplied && profile.progressionForecasts && breakRampMultiplier >= 1.0) {
-        const forecast = profile.progressionForecasts.find(
-          f => f.exerciseName === sel.exercise.name.toLowerCase()
-        );
+        const forecast = findByExerciseFamily(profile.progressionForecasts, sel.exercise.name);
         if (forecast && forecast.confidence >= 0.5 && forecast.predictedTargetWeight > 0) {
           const forecastWeight = forecast.predictedTargetWeight;
           if (forecastWeight <= targetWeight * 1.10 && forecastWeight >= targetWeight * 0.90) {
@@ -4668,14 +4470,12 @@ function stepPrescribe(
         adjustments.push(`Hold: ${targetWeight} lbs (no modifier triggered)`);
       }
 
-      if (profile.bodyWeightTrend.phase === 'cutting' && prog.status !== 'regressing') {
+      if (profile.bodyWeightTrend.phase === 'cutting' && prog?.status !== 'regressing') {
         adjustments.push('Cutting phase: maintaining weight is success');
       }
 
       // Ego audit: safety cap applied after the single modifier decision
-      const egoFlag = profile.egoAuditFlags?.find(
-        f => f.exerciseName.toLowerCase() === sel.exercise.name.toLowerCase()
-      );
+      const egoFlag = findByExerciseFamily(profile.egoAuditFlags, sel.exercise.name);
       if (egoFlag && egoFlag.suspectedIssue === 'ego_lift' && targetWeight != null) {
         const cap = snapToPlate(targetWeight * cfg.egoAuditCapMult, equipment, exType);
         if (cap < targetWeight) {
@@ -4745,9 +4545,8 @@ function stepPrescribe(
     }
 
     // #18: Plateau strategy — actual prescription modifications
-    const plateau = profile.plateauDetections.find(
-      p => p.exerciseName === sel.exercise.name.toLowerCase() && p.isPlateaued
-    );
+    const plateauDetEntry = findByExerciseFamily(profile.plateauDetections, sel.exercise.name);
+    const plateau = plateauDetEntry?.isPlateaued ? plateauDetEntry : undefined;
     if (plateau?.suggestedStrategy) {
       adjustments.push(`Plateau: ${plateau.suggestedStrategy}`);
     }
@@ -4801,6 +4600,14 @@ function stepPrescribe(
         )
       : estimateExerciseMinutes(sets, restSeconds, role, warmupSets?.length ?? 0, targetReps, tempo);
 
+    if (weightBias !== 1 && targetWeight != null && targetWeight > 0 && !isBodyweight) {
+      const biased = snapToPlate(targetWeight * weightBias, equipment, exType);
+      if (Math.abs(biased - targetWeight) >= 0.01) {
+        adjustments.push(`Prescription controller: weight bias ×${weightBias.toFixed(2)} (${targetWeight} → ${biased} lbs)`);
+        targetWeight = biased;
+      }
+    }
+
     // Weight sanity cap: prevent absurd prescriptions from bad estimates or inflated 1RMs.
     // Caps are tiered by equipment, exercise type, AND exercise role.
     if (targetWeight != null && !isBodyweight) {
@@ -4840,7 +4647,7 @@ function stepPrescribe(
     // above does not know about reps, so this is the only check that
     // enforces the physical (Epley) relationship between weight and reps.
     if (targetWeight != null && !isBodyweight && !isTimedHold && targetReps > 0) {
-      const e1rmRef = deriveE1rmReference(prog, pref);
+      const e1rmRef = capRow?.estimated1RM ?? deriveE1rmReference(prog, pref);
       const safe = clampToRepLoadCeiling(targetWeight, targetReps, rir, e1rmRef, equipment, exType, cfg);
       if (safe.note) adjustments.push(safe.note);
       targetWeight = safe.weight;
@@ -4856,9 +4663,10 @@ function stepPrescribe(
       // Guard cap = 2 base + boost (week-1: 2, week-2/3: 3, week-4: 2).
       // Always respects the per-exercise sets that came out of upstream
       // tiered-sets allocation when those are below the cap.
-      const baseCap = monthlyFocusSplitGuard ? 2 : 3;
-      const cap = baseCap + Math.max(0, monthlyFocusVolumeBoost);
-      const capped = Math.min(sets, cap);
+      const baseCap = focusDaySetBudget > 0
+        ? (monthlyFocusSplitGuard ? Math.max(2, Math.floor(focusDaySetBudget * 0.55)) : focusDaySetBudget)
+        : (monthlyFocusSplitGuard ? 2 : 3) + Math.max(0, monthlyFocusVolumeBoost);
+      const capped = Math.min(sets, baseCap);
       if (capped !== sets) {
         adjustments.push(
           monthlyFocusSplitGuard
@@ -4866,7 +4674,7 @@ function stepPrescribe(
             : `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets (week-${focusWeekIndexForLog(planningDate)} dose)`,
         );
         sets = capped;
-      } else if (cap > 3) {
+      } else if (baseCap > 3) {
         adjustments.push(
           `Monthly fitness focus (${monthlyNorm}): ${sets} sets — beyond-typical dose (week-${focusWeekIndexForLog(planningDate)})`,
         );
@@ -5106,6 +4914,7 @@ function stepApplyConstraints(
   // actual protection is now driven entirely by `ex.isUndroppable`.
   // Slated for removal once call sites are migrated.
   _monthlyFocusMuscle: string | null = null,
+  dayOccurrenceIndex?: number,
 ): GeneratedExercise[] {
   void _monthlyFocusMuscle;
   const cardio = exercises.filter(e => e.isCardio);
@@ -5166,10 +4975,12 @@ function stepApplyConstraints(
 
   // #13: Enhanced interference avoidance — try multiple swaps and pick best
   for (let i = 0; i < ordered.length - 1; i++) {
-    const current = ordered[i].exerciseName.toLowerCase();
-    const next = ordered[i + 1].exerciseName.toLowerCase();
+    const current = preferenceAggregationKey(ordered[i].exerciseName);
+    const next = preferenceAggregationKey(ordered[i + 1].exerciseName);
     const interference = profile.exerciseOrderingEffects.find(
-      e => e.precedingExercise === current && e.affectedExercise === next && e.interference < -0.08
+      e => preferenceAggregationKey(e.precedingExercise) === current
+        && preferenceAggregationKey(e.affectedExercise) === next
+        && e.interference < -0.08
     );
     if (interference) {
       // Find the best swap candidate (least interference)
@@ -5177,7 +4988,8 @@ function stepApplyConstraints(
       let bestInterference = interference.interference;
       for (let j = i + 2; j < Math.min(ordered.length, i + 4); j++) {
         const candidateInterference = profile.exerciseOrderingEffects.find(
-          e => e.precedingExercise === current && e.affectedExercise === ordered[j].exerciseName.toLowerCase()
+          e => preferenceAggregationKey(e.precedingExercise) === current
+            && preferenceAggregationKey(e.affectedExercise) === preferenceAggregationKey(ordered[j].exerciseName)
         );
         const candidateVal = candidateInterference?.interference ?? 0;
         if (candidateVal > bestInterference) {
@@ -5323,13 +5135,13 @@ function stepApplyConstraints(
     (profile.exercisePreferences ?? [])
       .filter((p: any) => Boolean(p?.isStaple) || ((Number(p?.totalSessions) || 0) >= 12 && (Number(p?.lastUsedDaysAgo) || 999) <= 35))
       .map((p: any) => stapleFamilyKey(String(p?.exerciseName || '')))
-      .filter((k) => !!k && k !== 'romanian_deadlift')
+      .filter((k) => !!k && k !== 'hamstring_hip_dominant')
   );
   const fallbackRequiredStapleFamilies = new Set(
     (profile.exercisePreferences ?? [])
       .filter((p: any) => (Number(p?.totalSessions) || 0) >= 4 && (Number(p?.lastUsedDaysAgo) || 999) <= 84)
       .map((p: any) => stapleFamilyKey(String(p?.exerciseName || '')))
-      .filter((k) => !!k && k !== 'romanian_deadlift')
+      .filter((k) => !!k && k !== 'hamstring_hip_dominant')
   );
   const requiredStapleFamilies = strictRequiredStapleFamilies.size > 0
     ? strictRequiredStapleFamilies
@@ -5426,7 +5238,7 @@ function stepApplyConstraints(
 
   const timePerSet = (ex: GeneratedExercise) => ex.estimatedMinutes / Math.max(ex.sets, 1);
   const getMaxSets = (ex: GeneratedExercise): number => {
-    const pref = profile.exercisePreferences.find(p => p.exerciseName === ex.exerciseName.toLowerCase());
+    const pref = findByExerciseFamily(profile.exercisePreferences, ex.exerciseName);
     if (pref && pref.learnedSets != null && pref.recentSessions >= 2) {
       return Math.min(Math.round(pref.learnedSets) + 1, 8);
     }
@@ -5487,6 +5299,19 @@ function stepApplyConstraints(
     : strengthPool;
   const effectiveGoal = getEffectiveGoal(prefs);
   const secondaryGoal = prefs.secondary_goal;
+  const expansionReps = (sel: ExerciseSelection, role: ExerciseRole): number => {
+    const { hasLearnedData, learnedReps } = learnedRepContext(profile, sel.exercise.name);
+    return resolveTargetRepsForRole(
+      role,
+      effectiveGoal,
+      secondaryGoal,
+      dayOccurrenceIndex,
+      cfg,
+      sel.exercise.ml_exercise_type,
+      learnedReps,
+      hasLearnedData,
+    );
+  };
   let addedNewCount = 0;
   const maxNewExercises = 6;
   const MAX_ITERATIONS = 40;
@@ -5535,15 +5360,18 @@ function stepApplyConstraints(
         if ((exercisesPerGroup[groupKey] ?? 0) >= MAX_EXERCISES_PER_GROUP) continue;
         const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
         const sets = role === 'secondary' ? 3 : 2;
-        const rest = getRestByExercise(sel.exercise, role, effectiveGoal);
-        const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
-        const reps = humanizeRepTarget(tableRange.target, tableRange.min, tableRange.max);
-        const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+        const rest = getRestByExercise(sel.exercise, role, effectiveGoal, dayOccurrenceIndex, cfg);
+        const reps = expansionReps(sel, role);
+        const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type, dayOccurrenceIndex);
         const cost = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
         if (cost > remainingMinutes) continue;
         const effectiveSets = Math.round(estimateEffectiveSetWeight(sel.exercise, sel.muscleGroup) * sets * 100) / 100;
         const scoringSel: ExerciseSelection = { ...sel, sets, effectiveSets };
         const action: MarginalAction = { type: 'add_exercise', exercise: scoringSel };
+        const sameGroupNames = ordered
+          .filter(ex => String(ex.targetMuscleGroup || '').toLowerCase() === groupKey)
+          .map(ex => ex.exerciseName);
+        const diversityBonus = familyDiversityBonus(sel.exercise.name, sameGroupNames, sel.muscleGroup);
         const val = computeMarginalValue(
           action,
           ordered,
@@ -5552,7 +5380,7 @@ function stepApplyConstraints(
           systemCouplingSignals,
           cost,
           sessionStimulusByGroup,
-        );
+        ) + diversityBonus;
         if (val > bestValue) {
           bestValue = val;
           bestAction = action;
@@ -5576,23 +5404,23 @@ function stepApplyConstraints(
     } else {
       const sel = bestAction.exercise;
       const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
-      const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
-      const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
-      const reps = humanizeRepTarget(
-        pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target,
-        tableRange.min,
-        tableRange.max
-      );
-      const sets = pref?.learnedSets ? Math.min(Math.round(pref.learnedSets), 4) : (role === 'secondary' ? 3 : 2);
-      const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal);
-      const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+      const reps = expansionReps(sel, role);
+      const sets = (() => {
+        const pref = findByExerciseFamily(profile.exercisePreferences, sel.exercise.name);
+        return pref?.learnedSets && pref.recentSessions >= 4
+          ? Math.min(Math.round(pref.learnedSets), 4)
+          : (role === 'secondary' ? 3 : 2);
+      })();
+      const pref = findByExerciseFamily(profile.exercisePreferences, sel.exercise.name);
+      const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal, dayOccurrenceIndex, cfg);
+      const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type, dayOccurrenceIndex);
       const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
       const fillExType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
       const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
       const rir = getRirTarget(role, effectiveGoal, false);
 
       let targetWeight: number | null = null;
-      const prog = profile.exerciseProgressions.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+      const prog = findByExerciseFamily(profile.exerciseProgressions, sel.exercise.name);
       if (prog) {
         targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, fillExType);
         if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
@@ -5697,10 +5525,9 @@ function stepApplyConstraints(
       for (const sel of expansionPool) {
         if (usedNames.has(sel.exercise.name.toLowerCase())) continue;
         const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
-        const rest = getRestByExercise(sel.exercise, role, effectiveGoal);
-        const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
-        const reps = humanizeRepTarget(tableRange.target, tableRange.min, tableRange.max);
-        const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+        const rest = getRestByExercise(sel.exercise, role, effectiveGoal, dayOccurrenceIndex, cfg);
+        const reps = expansionReps(sel, role);
+        const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type, dayOccurrenceIndex);
         const cost = estimateExerciseMinutes(1, rest, role, 0, reps, tempo);
         if (cost > remainingMinutes) continue;
         const projected = remainingMinutes - cost;
@@ -5738,23 +5565,18 @@ function stepApplyConstraints(
     } else {
       const sel = bestFill.exercise;
       const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
-      const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
-      const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
-      const reps = humanizeRepTarget(
-        pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target,
-        tableRange.min,
-        tableRange.max
-      );
+      const reps = expansionReps(sel, role);
       const sets = 1;
-      const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal);
-      const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+      const pref = findByExerciseFamily(profile.exercisePreferences, sel.exercise.name);
+      const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal, dayOccurrenceIndex, cfg);
+      const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type, dayOccurrenceIndex);
       const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
       const fillExType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
       const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
       const rir = getRirTarget(role, effectiveGoal, false);
 
       let targetWeight: number | null = null;
-      const prog = profile.exerciseProgressions.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+      const prog = findByExerciseFamily(profile.exerciseProgressions, sel.exercise.name);
       if (prog) {
         targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, fillExType);
         if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
@@ -5843,22 +5665,19 @@ function stepApplyConstraints(
   };
   const buildGeneratedFromSelection = (sel: ExerciseSelection, forceSets?: number): GeneratedExercise => {
     const role: ExerciseRole = sel.exercise.ml_exercise_type === 'compound' ? 'secondary' : 'isolation';
-    const tableRange = getRepRangeByRole(role, effectiveGoal, secondaryGoal, undefined, undefined, sel.exercise.ml_exercise_type);
-    const pref = profile.exercisePreferences.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
-    const reps = humanizeRepTarget(
-      pref?.learnedReps ? Math.round(pref.learnedReps) : tableRange.target,
-      tableRange.min,
-      tableRange.max
-    );
-    const sets = forceSets ?? (pref?.learnedSets ? Math.min(Math.round(pref.learnedSets), 4) : (role === 'secondary' ? 3 : 2));
-    const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal);
-    const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type);
+    const reps = expansionReps(sel, role);
+    const pref = findByExerciseFamily(profile.exercisePreferences, sel.exercise.name);
+    const sets = forceSets ?? (pref?.learnedSets && pref.recentSessions >= 4
+      ? Math.min(Math.round(pref.learnedSets), 4)
+      : (role === 'secondary' ? 3 : 2));
+    const rest = pref?.learnedRestSeconds ?? getRestByExercise(sel.exercise, role, effectiveGoal, dayOccurrenceIndex, cfg);
+    const tempo = getTempo(sel.exercise.default_tempo, effectiveGoal, sel.exercise.ml_exercise_type, dayOccurrenceIndex);
     const equipment = Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : [];
     const fillExType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
     const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
     const rir = getRirTarget(role, effectiveGoal, false);
     let targetWeight: number | null = null;
-    const prog = profile.exerciseProgressions.find(p => p.exerciseName === sel.exercise.name.toLowerCase());
+    const prog = findByExerciseFamily(profile.exerciseProgressions, sel.exercise.name);
     if (prog) {
       targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, fillExType);
       if (targetWeight < prog.lastWeight * 0.5 && prog.lastWeight > 0) {
@@ -6493,6 +6312,8 @@ export interface SessionOverrides {
    * monthly fitness-focus muscle, set true to cap layered stimulus today.
    */
   monthlyFocusSplitGuard?: boolean;
+  /** Weekly focus volume budget — direct sets allocated for this plan date. */
+  focusDaySetBudget?: number;
 }
 
 interface LlmHints {
@@ -7059,6 +6880,18 @@ export async function generateWorkout(
     * (highCapacityPush.active ? highCapacityPush.progressionMultiplier : 1.0)
     * (runtimeFlags.nutrition_feedback ? policyFusion.progressionMultiplier : 1.0);
 
+  const prescriptionController = computePrescriptionController(profile, prefs);
+  recoveryAdj.volumeMultiplier *= prescriptionController.volumeMultiplier;
+  recoveryAdj.volumeMultiplier = Math.max(cfg.volumeMultiplierFloor, recoveryAdj.volumeMultiplier);
+  if (prescriptionController.rationale.length > 0) {
+    recoveryAdj.adjustmentReasons.push(...prescriptionController.rationale);
+  }
+  if (prescriptionController.suggestMesocycleWeek != null && !overrides?.planningDate) {
+    prefs.mesocycle_week = prescriptionController.suggestMesocycleWeek;
+  }
+  const capacityIndex = buildExerciseCapacityIndex(profile);
+  const controllerProgressionScale = progressionScale * prescriptionController.progressionScale;
+
   const effectiveDayTheme = resolveEffectiveDayTheme(prefs, planningDow, overrides?.dayTheme);
 
   const planDateStrForFocus = overrides?.planningDate
@@ -7085,11 +6918,14 @@ export async function generateWorkout(
         monthlyFocusSplitGuard,
       )
     : 0;
+  const focusDaySetBudget = overrides?.focusDaySetBudget ?? 0;
+
+  const planningProfile = profileForPlanningHorizon(profile, planningDate, cfg);
 
   // Step 2: Select muscle groups
   const tGroups = stageStart('select_muscle_groups');
   const { selected: muscleGroups, skipped: skippedGroups } = stepSelectMuscleGroups(
-    profile,
+    planningProfile,
     prefs,
     recoveryAdj,
     cfg,
@@ -7100,6 +6936,7 @@ export async function generateWorkout(
     monthlyFocusMuscle,
     monthlyFocusSplitGuard,
     monthlyFocusVolumeBoost,
+    focusDaySetBudget,
   );
   stageEnd(tGroups);
 
@@ -7116,16 +6953,16 @@ export async function generateWorkout(
   // User's DB-stored preferred exercises (from Profile)
   if (Array.isArray(prefs.preferred_exercises)) {
     for (const n of prefs.preferred_exercises) {
-      const key = String(n || '').trim().toLowerCase();
+      const key = preferenceAggregationKey(String(n || ''));
       if (key) preferredExerciseNames.add(key);
     }
   }
   for (const n of overrides?.preferredExerciseNames ?? []) {
-    const key = String(n || '').trim().toLowerCase();
+    const key = preferenceAggregationKey(String(n || ''));
     if (key) preferredExerciseNames.add(key);
   }
   for (const n of llmHints.preferExercises ?? []) {
-    const key = String(n || '').trim().toLowerCase();
+    const key = preferenceAggregationKey(String(n || ''));
     if (key) preferredExerciseNames.add(key);
   }
 
@@ -7134,7 +6971,7 @@ export async function generateWorkout(
   const { selections: exerciseSelections, decisions: exerciseDecisions } = stepSelectExercises(
     muscleGroups,
     allExercises,
-    profile,
+    planningProfile,
     prefs,
     cfg,
     preferredExerciseNames,
@@ -7178,11 +7015,18 @@ export async function generateWorkout(
 
   // Compute day occurrence index for rep cycling
   const anchorGroups = overrides?.anchorMuscleGroups ?? [];
+  const repCycleGroups = anchorGroups.length > 0
+    ? anchorGroups
+    : muscleGroups.map(g => g.muscleGroup);
+  const apolloGoal = getEffectiveGoal(prefs);
   let dayOccurrenceIndex: number | undefined;
-  if (anchorGroups.length > 0 && profile.muscleGroupFrequency) {
-    const freq = profile.muscleGroupFrequency;
-    const avgFreq = anchorGroups.reduce((sum, g) => sum + ((freq as Record<string, number>)[g] ?? 0), 0) / anchorGroups.length;
-    dayOccurrenceIndex = avgFreq >= 1.5 ? 1 : 0;
+  if (repCycleGroups.length > 0 && profile.muscleGroupFrequency) {
+    const freq = profile.muscleGroupFrequency as Record<string, number>;
+    const avgFreq = repCycleGroups.reduce((sum, g) => sum + (freq[g] ?? 0), 0) / repCycleGroups.length;
+    dayOccurrenceIndex = resolveDayOccurrenceIndex(apolloGoal, avgFreq);
+  } else if (apolloGoal === 'bulk') {
+    // Today’s Workout path — no frequency data yet; default to hypertrophy band.
+    dayOccurrenceIndex = 1;
   }
 
   // Step 4: Prescribe sets/reps/weight/tempo
@@ -7193,7 +7037,7 @@ export async function generateWorkout(
     prefs,
     recoveryAdj,
     cfg,
-    progressionScale,
+    controllerProgressionScale,
     breakRampMultiplier,
     planningDate,
     effectiveFatLossController,
@@ -7204,6 +7048,10 @@ export async function generateWorkout(
     monthlyFocusMuscle,
     monthlyFocusSplitGuard,
     monthlyFocusVolumeBoost,
+    capacityIndex,
+    prescriptionController.weightBias,
+    prescriptionController.rirOffset,
+    focusDaySetBudget,
   );
   stageEnd(tPrescribe);
 
@@ -7217,10 +7065,11 @@ export async function generateWorkout(
     allExercises,
     exerciseSelections,
     recoveryAdj,
-    progressionScale,
+    controllerProgressionScale,
     breakRampMultiplier,
     planningDate,
     monthlyFocusMuscle,
+    dayOccurrenceIndex,
   );
   stageEnd(tConstraints);
 
@@ -7551,6 +7400,8 @@ export interface WeeklyPlan {
    * Schema lives in `engineInputSnapshot.ts`.
    */
   engineInputSnapshot?: EngineInputSnapshotV1;
+  /** Constraint snapshot — when stale vs current prefs/engine, days rematerialize. */
+  planConstraints?: WeekPlanConstraintsV1;
   planQuality?: {
     avgConsecutiveOverlap: number;
     avgAnchorCoverage: number;
@@ -7735,6 +7586,25 @@ export async function generateWeeklyPlan(
   const previewByDow = new Map<number, DayPreview>(preview.map(p => [p.dayOfWeek, p]));
   const restSet = new Set(userRestDays);
 
+  const focusBudgetInputs = weekDates.map((planDate) => {
+    const d = new Date(`${planDate}T12:00:00`);
+    const dow = d.getDay();
+    const p = previewByDow.get(dow);
+    const isRest = restSet.size > 0 ? restSet.has(dow) : !!p?.isRestDay;
+    return {
+      planDate,
+      isRestDay: isRest,
+      scheduledGroups: normalizeMuscleGroupList(p?.muscleGroups ?? []),
+    };
+  });
+  const focusWeeklyBudget: FocusWeeklyBudgetV1 | null = buildFocusWeeklyBudget(
+    planPrefs?.monthly_focus_state ?? null,
+    focusBudgetInputs,
+  );
+  const planConstraints: WeekPlanConstraintsV1 | undefined = planPrefs
+    ? buildWeekPlanConstraints(planPrefs, weekDates[0], userRestDays)
+    : undefined;
+
   const days: WeeklyPlanDay[] = [];
   const weeklyExerciseCounts = new Map<string, number>();
   const weeklyLastSeen = new Map<string, number>();
@@ -7763,7 +7633,7 @@ export async function generateWeeklyPlan(
   const normalizeExerciseName = (name: string): string =>
     canonicalizeExerciseName(name);
   const shouldExcludeStapleFamily = (familyKey: string): boolean =>
-    familyKey === 'romanian_deadlift';
+    familyKey === 'hamstring_hip_dominant';
   const stapleFamilyAgg = new Map<string, {
     familyKey: string;
     representativeName: string;
@@ -7917,7 +7787,7 @@ export async function generateWeeklyPlan(
     if (rotation.length === 0) return [];
     const mondayBased = (dow + 6) % 7;
     const splitName = rotation[mondayBased % rotation.length];
-    return normalizeGroups(SPLIT_MUSCLE_MAPPING[splitName] ?? []);
+    return normalizeGroups(muscleGroupsForSplitSlot(splitName));
   };
   let prevTrainingSignature: string | null = null;
   for (let weekIdx = 0; weekIdx < weekDates.length; weekIdx++) {
@@ -7992,8 +7862,17 @@ export async function generateWeeklyPlan(
     const monthlyFocusSplitGuardForDay = monthlyMuscleForWeek
       ? computeMonthlyFocusSplitGuard(schedForGuard, userRestDays, planDate, monthlyMuscleForWeek)
       : false;
+    const focusDaySetBudget = focusSetBudgetForDate(
+      focusWeeklyBudget,
+      planDate,
+      monthlyFocusSplitGuardForDay,
+    );
     const monthlyPlannerOverrides =
-      monthlyMuscleForWeek != null ? { monthlyFocusSplitGuard: monthlyFocusSplitGuardForDay } : {};
+      monthlyMuscleForWeek != null
+        ? { monthlyFocusSplitGuard: monthlyFocusSplitGuardForDay, focusDaySetBudget }
+        : focusDaySetBudget > 0
+          ? { focusDaySetBudget }
+          : {};
 
     let plannedWorkout = await generateWorkout(
       profile,
@@ -8311,18 +8190,15 @@ export async function generateWeeklyPlan(
   }
 
   // Split adherence validation: check push/pull/leg volume balance
-  const PUSH_GROUPS = new Set(['upper_chest', 'mid_chest', 'lower_chest', 'anterior_deltoid', 'lateral_deltoid', 'triceps']);
-  const PULL_GROUPS = new Set(['back_lats', 'back_upper', 'upper_traps', 'mid_traps', 'lower_traps', 'posterior_deltoid', 'biceps']);
-  const LEG_GROUPS_SET = new Set(['quadriceps', 'hamstrings', 'glutes', 'adductors', 'abductors', 'hip_flexors']);
   let pushExercises = 0, pullExercises = 0, legExercises = 0;
   for (const day of days) {
     if (day.isRestDay || !day.plannedWorkout?.exercises) continue;
     for (const ex of day.plannedWorkout.exercises) {
       if (ex.isCardio) continue;
       const g = String(ex.targetMuscleGroup || '').toLowerCase();
-      if (PUSH_GROUPS.has(g)) pushExercises++;
-      else if (PULL_GROUPS.has(g)) pullExercises++;
-      else if (LEG_GROUPS_SET.has(g)) legExercises++;
+      if (PUSH_DAY_GROUPS.has(g as CanonicalMuscleGroup)) pushExercises++;
+      else if (PULL_DAY_GROUPS.has(g as CanonicalMuscleGroup)) pullExercises++;
+      else if (LEG_DAY_GROUPS.has(g as CanonicalMuscleGroup)) legExercises++;
     }
   }
   if (pullExercises > 0 && pushExercises / pullExercises > 1.8) {
@@ -8414,6 +8290,7 @@ export async function generateWeeklyPlan(
     weekStartDate: weekDates[0],
     featureSnapshotId: profile.featureSnapshotId,
     days,
+    planConstraints,
     engineInputSnapshot,
     planQuality: {
       avgConsecutiveOverlap: Math.round(avg(overlapSamples) * 1000) / 1000,
@@ -8518,8 +8395,8 @@ export function generateWeekPreview(
       if (pattern && !pattern.isRestDay && daysBack > 0) {
         const lastFocus = normalizeMuscleGroupList(pattern.muscleGroupsTypical ?? []);
         for (let r = 0; r < rotation.length; r++) {
-          const rotGroups = SPLIT_MUSCLE_MAPPING[rotation[r]];
-          if (rotGroups && lastFocus.some(mg => rotGroups.includes(mg))) {
+          const rotGroups = muscleGroupsForSplitSlot(rotation[r]);
+          if (rotGroups.length > 0 && lastFocus.some(mg => rotGroups.includes(mg))) {
             rotationIdx = (r + 1) % rotation.length;
             break;
           }
@@ -8624,7 +8501,7 @@ export function generateWeekPreview(
     if (!focus && rotation.length > 0) {
       const slot = rotation[(rotationIdx + usedRotationSlots) % rotation.length];
       focus = splitLabels[slot] || slot;
-      muscleGroups = BRO_SPLIT_MAPPING[slot] ?? SPLIT_MUSCLE_MAPPING[slot] ?? [];
+      muscleGroups = muscleGroupsForSplitSlot(slot);
       themeSource = 'rotation';
       usedRotationSlots++;
     }
@@ -8639,7 +8516,7 @@ export function generateWeekPreview(
       if (rotation.length > 0) {
         const slot = rotation[(rotationIdx + usedRotationSlots - 1) % rotation.length];
         focus = splitLabels[slot] || slot;
-        muscleGroups = BRO_SPLIT_MAPPING[slot] ?? SPLIT_MUSCLE_MAPPING[slot] ?? [];
+        muscleGroups = muscleGroupsForSplitSlot(slot);
         themeSource = 'rotation';
       } else {
         focus = 'Full Body';
@@ -8776,4 +8653,129 @@ export async function saveGeneratedWorkout(
   } catch (e) {
     logWarn('Intervention episode memory persistence failed', e);
   }
+}
+
+/**
+ * Rematerialize future plan days when engine version or constraints drift.
+ * Completed and past days are preserved; only upcoming training days regenerate.
+ */
+export async function rematerializeStaleWeeklyPlanDays(
+  profile: TrainingProfile,
+  plan: WeeklyPlan,
+  userRestDays: number[] = [],
+  preferredSplit?: string | null,
+  splitSchedule?: Record<string, { focus: string; groups: string[] }> | null,
+  prefetched?: PreFetchedEngineData,
+): Promise<WeeklyPlan> {
+  const planPrefs = prefetched?.preferences
+    ?? await fetchUserPreferences(profile.userId).catch(() => null as UserPreferences | null);
+  if (!planPrefs) return plan;
+
+  const currentConstraints = buildWeekPlanConstraints(planPrefs, plan.weekStartDate, userRestDays);
+  const stored = plan.planConstraints;
+  if (stored && !isWeeklyPlanDayStale(stored.engineVersion, stored.constraintsHash, currentConstraints)) {
+    return plan;
+  }
+
+  const today = getLocalDate();
+  const focusBudgetInputs = plan.days.map((d) => ({
+    planDate: d.planDate,
+    isRestDay: d.isRestDay,
+    scheduledGroups: normalizeMuscleGroupList(d.muscleGroups ?? []),
+  }));
+  const focusWeeklyBudget = buildFocusWeeklyBudget(planPrefs.monthly_focus_state ?? null, focusBudgetInputs);
+
+  const days = await Promise.all(plan.days.map(async (day) => {
+    if (day.isRestDay || day.dayStatus === 'completed' || day.planDate < today) return day;
+
+    const schedForGuard = splitSchedule ?? planPrefs.weekly_split_schedule ?? null;
+    const monthlyMuscle = activeMonthlyFitnessMuscleForDate(planPrefs.monthly_focus_state ?? null, day.planDate);
+    const monthlyFocusSplitGuardForDay = monthlyMuscle
+      ? computeMonthlyFocusSplitGuard(schedForGuard, userRestDays, day.planDate, monthlyMuscle)
+      : false;
+    const focusDaySetBudget = focusSetBudgetForDate(focusWeeklyBudget, day.planDate, monthlyFocusSplitGuardForDay);
+
+    const regenerated = await generateWorkout(
+      profile,
+      {
+        planningDate: day.planDate,
+        anchorMuscleGroups: day.muscleGroups,
+        dayTheme: day.dayTheme ?? undefined,
+        monthlyFocusSplitGuard: monthlyFocusSplitGuardForDay,
+        focusDaySetBudget,
+      },
+      prefetched,
+    );
+
+    return {
+      ...day,
+      plannedWorkout: regenerated,
+      estimatedExercises: regenerated.exercises.length,
+      estimatedMinutes: regenerated.estimatedDurationMinutes,
+      focus: day.focus,
+      muscleGroups: regenerated.muscleGroupsFocused ?? day.muscleGroups,
+    };
+  }));
+
+  return { ...plan, days, planConstraints: currentConstraints };
+}
+
+/** Surgical one-slot swap with capacity-based re-prescribe (no full regen). */
+export async function performSurgicalExerciseSwap(
+  workout: GeneratedWorkout,
+  exerciseName: string,
+  profile: TrainingProfile,
+  prefetched?: PreFetchedEngineData,
+): Promise<SurgicalSwapResult> {
+  const [prefs, library] = prefetched?.preferences && prefetched?.exerciseLibrary
+    ? [prefetched.preferences, prefetched.exerciseLibrary] as const
+    : await Promise.all([
+        fetchUserPreferences(profile.userId),
+        fetchAllExercises(),
+      ]);
+
+  const idx = workout.exercises.findIndex(
+    e => e.exerciseName.toLowerCase() === exerciseName.toLowerCase(),
+  );
+  if (idx < 0) {
+    return { workout, replacementName: null, method: 'none' };
+  }
+
+  const oldEx = workout.exercises[idx];
+  const { exercise: replacement, method } = pickSwapReplacement(oldEx, profile, library, workout);
+  if (!replacement || method === 'none') {
+    return { workout, replacementName: null, method: 'none' };
+  }
+
+  let swapped = applySurgicalSwap(workout, idx, replacement);
+  const controller = computePrescriptionController(profile, prefs);
+  const capacityIndex = buildExerciseCapacityIndex(profile);
+  const cap = capacityIndex.get(replacement.name.toLowerCase());
+  const slot = swapped.exercises[idx];
+  if (cap && slot.targetReps && slot.targetReps > 0) {
+    const rir = slot.targetRir ?? 1;
+    let w = capacityToWorkingWeight(cap.estimated1RM, slot.targetReps, rir);
+    if (controller.weightBias !== 1) w *= controller.weightBias;
+    const equipment = Array.isArray(replacement.equipment)
+      ? replacement.equipment.map(normalizeEquipment)
+      : [];
+    const snapped = snapToPlate(w, equipment, replacement.ml_exercise_type ?? undefined);
+    swapped = {
+      ...swapped,
+      exercises: swapped.exercises.map((ex, i) => i === idx
+        ? {
+            ...ex,
+            targetWeight: snapped > 0 ? snapped : ex.targetWeight,
+            adjustments: [
+              ...(ex.adjustments ?? []),
+              cap.source === 'execution_boost'
+                ? `Re-prescribed from execution-adjusted capacity (e1RM ${Math.round(cap.estimated1RM)} lbs)`
+                : `Re-prescribed from unified capacity model (e1RM ${Math.round(cap.estimated1RM)} lbs)`,
+            ],
+          }
+        : ex),
+    };
+  }
+
+  return { workout: swapped, replacementName: replacement.name, method };
 }

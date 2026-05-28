@@ -75,19 +75,19 @@ function defaultRoleTargets(
   }
   const primaryHypertrophy: RolePriors = {
     setRange: [3, 5],
-    repRange: [5, 10],
+    repRange: goal === 'bulk' ? [6, 12] : [5, 10],
     restRangeSec: [90, 180],
     rirRange: primaryRir,
   }
   const secondary: RolePriors = {
     setRange: [2, 5],
-    repRange: [6, 12],
+    repRange: goal === 'bulk' ? [8, 15] : [6, 12],
     restRangeSec: [75, 150],
     rirRange: secondaryRir,
   }
   const isolation: RolePriors = {
     setRange: [2, 5],
-    repRange: [8, 20],
+    repRange: goal === 'bulk' ? [10, 15] : [8, 20],
     restRangeSec: [45, 120],
     rirRange: isolationRir,
   }

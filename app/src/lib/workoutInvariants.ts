@@ -418,15 +418,38 @@ export const repLoadVs1RMInvariant: WorkoutInvariant = {
       // conservative possible reading and matches how the prescriber treats
       // missing RIR upstream.
       const rirEffective = ex.targetRir ?? 0;
+      // The TRUE rep×load capacity (no margin). The safety margin is a
+      // *buffer* for overshoot cases, not a steady-state shave. The
+      // prescriber's `clampToRepLoadCeiling` uses the same two-tier
+      // logic: pass through when `weight ≤ ceiling`, only apply margin
+      // when `weight > ceiling`.
+      //
+      // Previously this invariant compared against `ceiling × margin`,
+      // which silently flagged and floored every steady-state Epley-
+      // calibrated prescription by ~7% — the single biggest source of
+      // "the model under-prescribes weight" complaints. We now match
+      // the prescriber's semantics: flag only true capacity overshoots.
       const ceiling = e1rm / (1 + (ex.targetReps + rirEffective) / 30);
-      const safeCeiling = ceiling * margin;
-      if (ex.targetWeight > safeCeiling) {
+      // Tolerance: snap-to-plate can land the prescription 1-2 lb above
+      // the algebraic ceiling (e.g. 100 lb DB pair when ceiling = 99.4).
+      // That's not a safety violation — it's plate granularity. Use 2%
+      // tolerance so we only fire on real overshoots from stacked modifiers.
+      const tolerance = 1.02;
+      if (ex.targetWeight > ceiling * tolerance) {
+        const safeCeiling = ceiling * margin;
         violations.push({
           invariantId: 'rep_load_vs_1rm',
           severity: 'error',
           exerciseIndex: idx,
-          message: `${ex.exerciseName}: ${ex.targetWeight}lbs × ${ex.targetReps} @ RIR ${rirEffective} exceeds safe ceiling ${Math.round(safeCeiling)}lbs (e1RM ${Math.round(e1rm)})`,
-          details: { e1rm, ceiling, safeCeiling, prescribed: ex.targetWeight },
+          message: `${ex.exerciseName}: ${ex.targetWeight}lbs × ${ex.targetReps} @ RIR ${rirEffective} exceeds rep×load capacity ${Math.round(ceiling)}lbs (e1RM ${Math.round(e1rm)})`,
+          details: {
+            e1rm,
+            ceiling,
+            safeCeiling,
+            prescribed: ex.targetWeight,
+            equipment: ex.primaryMuscles, // carried for autoFix snap; falls through if absent
+            exerciseType: ex.exerciseRole,
+          },
         });
       }
     });
@@ -442,10 +465,13 @@ export const repLoadVs1RMInvariant: WorkoutInvariant = {
       const safeCeiling = Number((v.details ?? {}).safeCeiling);
       if (!Number.isFinite(safeCeiling) || safeCeiling <= 0) continue;
       const ex = exercises[idx];
-      // Floor (not round) is mandatory — rounding can land 1 lb above the
-      // ceiling and re-trigger the violation on the next pass. Floor is the
-      // only function that guarantees `clamped ≤ safeCeiling`.
-      const clamped = Math.max(0, Math.floor(safeCeiling));
+      // Snap-to-plate-floor: previously this used Math.floor() which
+      // shaved an extra 1-4 lb every time (e.g. safeCeiling=139.5 →
+      // 139 lb, missing the 140 lb plate). We now snap to the loadable
+      // plate at or below safeCeiling. Snap-floor preserves the
+      // "≤ safeCeiling" guarantee while landing on a real weight.
+      const snapped = snapToPlateAtOrBelow(safeCeiling);
+      const clamped = Math.max(0, snapped);
       exercises[idx] = {
         ...ex,
         targetWeight: clamped,
@@ -459,6 +485,21 @@ export const repLoadVs1RMInvariant: WorkoutInvariant = {
     return { modifiedWorkout: { ...workout, exercises }, notes };
   },
 };
+
+/**
+ * Snap to the nearest 2.5 lb increment AT OR BELOW the target. Used by
+ * `repLoadVs1RMInvariant.autoFix` so we never land above the safety
+ * ceiling. Equipment-specific plate stepping lives in `workoutEngine`'s
+ * `snapToPlate`; here we use 2.5 lb because the invariant doesn't know
+ * the equipment context and 2.5 lb works for dumbbells, isolations, and
+ * machines. Barbell weights snap upward to 45 lb minimum in the engine
+ * before reaching the invariant, so this floor-snap won't drop below
+ * loadable territory in practice.
+ */
+function snapToPlateAtOrBelow(weight: number): number {
+  if (weight <= 0) return 0;
+  return Math.floor(weight / 2.5) * 2.5;
+}
 
 /**
  * Weekly cardio coverage (per-day check).

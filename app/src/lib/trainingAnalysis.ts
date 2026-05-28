@@ -2059,13 +2059,34 @@ function computeExerciseProgressions(
 
       const last = filtered[filtered.length - 1];
 
+      // Rolling-max e1RM over the last 4 sessions (or all filtered sessions
+      // if fewer). Previously this was just `last.best1RM` — a single light
+      // session permanently dropped the user's strength anchor until they
+      // matched the old peak, which materially under-prescribed weight for
+      // weeks. Rolling max respects recent peaks while still demanding
+      // the user be hitting them lately (anything older than 4 sessions
+      // is excluded so old PRs don't haunt detraining periods).
+      const RECENT_PEAK_WINDOW = 4;
+      const recentWindow = filtered.slice(-RECENT_PEAK_WINDOW);
+      const recentPeakE1rm = recentWindow.reduce(
+        (best, s) => Math.max(best, s.best1RM),
+        0,
+      );
+      // bestSet for the peak: pick whichever session in the window produced
+      // the highest e1RM. Used by the progression gate to decide if the
+      // user is hitting the top of the rep range.
+      const peakSession = recentWindow.reduce(
+        (best, s) => (s.best1RM > best.best1RM ? s : best),
+        recentWindow[0],
+      );
+
       return {
         exerciseName: name,
-        estimated1RM: Math.round(last.best1RM * 10) / 10,
+        estimated1RM: Math.round(recentPeakE1rm * 10) / 10,
         progressionSlope: Math.round(normalizedSlope * 10000) / 10000,
         status,
         sessionsTracked: filtered.length,
-        bestSet: { weight: last.bestWeight, reps: last.bestReps },
+        bestSet: { weight: peakSession.bestWeight, reps: peakSession.bestReps },
         lastWeight: last.lastWeight,
         progressionPattern: 'unknown' as const,
       };

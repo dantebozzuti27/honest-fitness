@@ -38,6 +38,7 @@ import { getLocalDate } from '../utils/dateUtils';
 import {
   activeMonthlyFitnessMuscleForDate,
   computeMonthlyFocusSplitGuard,
+  monthlyFocusVolumeBonus,
   parseMonthlyFocusState,
   type MonthlyFocusStateV1,
 } from './monthlyFocus';
@@ -767,7 +768,17 @@ function getTieredSets(
   if (isPriorityMuscle && role !== 'corrective') sets += 1;
 
   if (mesocycleVolumeMult && !isDeload) {
-    sets = Math.round(sets * mesocycleVolumeMult);
+    // Use `ceil` for overreach (>1.0) and `floor` for accumulation (<1.0)
+    // so the multiplier ACTUALLY moves the prescribed sets. `Math.round`
+    // on base 3 sets with ×1.1 = 3.3 → 3 (no change), and ×0.9 = 2.7 →
+    // 3 (no change). Periodization that doesn't periodize was the main
+    // reason users reported "the Apollo phases don't change anything."
+    if (mesocycleVolumeMult > 1.0) {
+      sets = Math.ceil(sets * mesocycleVolumeMult);
+    } else if (mesocycleVolumeMult < 1.0) {
+      sets = Math.floor(sets * mesocycleVolumeMult);
+    }
+    // mult === 1.0 → no-op (loading week)
   }
 
   if (isDeload) sets = Math.max(cfg.setsAbsoluteMin, Math.round(sets * cfg.deloadSetMultiplier));
@@ -859,8 +870,18 @@ function deriveE1rmReference(
     typeof pref.learnedWeight === 'number' && pref.learnedWeight > 0 &&
     typeof pref.learnedReps === 'number' && pref.learnedReps > 0
   ) {
+    // Apply Epley with an implicit RIR assumption.
+    //
+    // The learned weight × reps came from logged sets that, in practice,
+    // were NOT grinding to failure — users typically leave ~1 RIR on
+    // working sets. Treating learnedReps as if they were 0-RIR
+    // systematically under-estimates true 1RM by 3-4%, which then
+    // under-prescribes downstream weights. Adding 1 effective rep to
+    // the Epley formula corrects for this conservative bias.
     const reps = Math.max(1, Math.round(pref.learnedReps));
-    return pref.learnedWeight * (1 + reps / 30);
+    const assumedRir = 1;
+    const effectiveReps = reps + assumedRir;
+    return pref.learnedWeight * (1 + effectiveReps / 30);
   }
   return null;
 }
@@ -1095,24 +1116,59 @@ const TRANSITION_TIME_SEC: Record<string, number> = DEFAULT_MODEL_CONFIG.transit
  * Time-per-exercise estimate including set execution, rest between sets,
  * warmup sets, and transition/setup time to the next station.
  *
- * Set execution time is derived from rep count and tempo rather than a fixed constant.
- * A 3-rep strength set is faster than a 15-rep endurance set.
+ * Set execution time is derived from rep count and tempo. Rest is counted
+ * BETWEEN sets only — N sets have (N-1) rest periods, not N.
+ *
+ * Historical bug (fixed 2026-05-27): `sets × (execution + rest)` counted
+ * rest AFTER the last set, inflating each exercise by one full rest
+ * period (60-210 s). Combined with `warmupSets × (exec + 0.5*rest)` doing
+ * the same, the engine over-estimated session time by 2-6 minutes per
+ * exercise. We now use `(n - 1)` rest intervals to match the timed-hold
+ * path and reality.
+ *
+ * For hypertrophy roles (secondary/isolation), set execution is capped at
+ * 35 s — slow tempos prescribed on paper don't usually translate to
+ * 60 s working sets in practice; users are generally faster than the
+ * prescribed tempo on accessory work, and over-tempo prescription
+ * shouldn't inflate the time budget.
  */
 function estimateExerciseMinutes(
   sets: number, restSeconds: number, role: ExerciseRole, warmupSets: number = 0,
   reps: number = 0, tempo: string = '2-1-1'
 ): number {
-  // Parse tempo to get seconds per rep (eccentric + pause + concentric)
   const tempoParts = tempo.split('-').map(Number);
   const secPerRep = (tempoParts[0] || 2) + (tempoParts[1] || 1) + (tempoParts[2] || 1);
   const effectiveReps = reps > 0 ? reps : (role === 'primary' ? 5 : role === 'secondary' ? 8 : 12);
-  const setExecutionSec = effectiveReps * secPerRep;
 
-  // Warmup rest scales with working rest but is always shorter
-  const warmupRestSec = Math.round(restSeconds * 0.5);
-  const warmupExecSec = Math.round(setExecutionSec * 0.8);
-  const workingTime = sets * (setExecutionSec + restSeconds);
-  const warmupTime = warmupSets * (warmupExecSec + warmupRestSec);
+  // Cap accessory execution at 35s/set. For primary lifts we trust the
+  // tempo (heavy doubles and triples DO take a real amount of time);
+  // for secondary/isolation, slow tempos rarely survive contact with
+  // the gym floor.
+  const rawSetExecutionSec = effectiveReps * secPerRep;
+  const setExecutionSec = role === 'primary'
+    ? rawSetExecutionSec
+    : Math.min(rawSetExecutionSec, 35);
+
+  // Per-set setup overhead (un-rack, position, grab DBs, etc.). Small
+  // but real — without it the formula assumes you can dive from one set
+  // straight into the next, which under-counts machine adjustments and
+  // grip changes. Empirical 8 s/set is conservative.
+  const SETUP_OVERHEAD_SEC = 8;
+
+  // Warmup rest is fixed, not a fraction of working rest. A heavy day
+  // with 210 s working rest doesn't mean 105 s rest between warmups —
+  // warmups are typically 30-60 s apart regardless of working rest.
+  const warmupRestSec = 45;
+  const warmupExecSec = Math.round(setExecutionSec * 0.7);
+
+  // (n - 1) rest intervals — no rest after the final set of either block.
+  const workingTime =
+    sets * (setExecutionSec + SETUP_OVERHEAD_SEC) +
+    Math.max(0, sets - 1) * restSeconds;
+  const warmupTime =
+    warmupSets * warmupExecSec +
+    Math.max(0, warmupSets - 1) * warmupRestSec;
+
   const transition = TRANSITION_TIME_SEC[role] ?? 60;
   return (workingTime + warmupTime + transition) / 60;
 }
@@ -1463,8 +1519,15 @@ function computePolicyFusion(
     ? clampNumber(0.9 + readiness * 0.2, 0.9, 1.08)
     : 1.0;
   // Skip nutrition-based modification when no compliance data exists
+  // Nutrition compliance has a meaningful effect now. Previously clamped to
+  // [0.92, 1.08] — at most ±8% — which was easily swallowed by rounding and
+  // recovery multipliers downstream, so users perceived it as having "no
+  // effect at all." Widened to [0.85, 1.12]: poor compliance reduces
+  // training volume by up to 15% (recoverable), strong compliance allows
+  // up to 12% more. The coefficient slope doubles (0.16 → 0.27) so the
+  // gradient between compliant and non-compliant is visible.
   const nutritionMultiplier = rawCompliance != null
-    ? clampNumber(0.92 + nutritionAdherence * 0.16, 0.92, 1.08)
+    ? clampNumber(0.85 + nutritionAdherence * 0.27, 0.85, 1.12)
     : 1.0;
   const strengthMultiplier = strengthDirection === 'down'
     ? clampNumber(0.98 + (strengthSlope / 100), 0.90, 1.0)
@@ -2264,6 +2327,7 @@ function stepSelectMuscleGroups(
   activeDayTheme?: DayTheme | null,
   monthlyFocusMuscle: string | null = null,
   monthlyFocusSplitGuard: boolean = false,
+  monthlyFocusVolumeBoost: number = 0,
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
@@ -2841,22 +2905,53 @@ function stepSelectMuscleGroups(
           );
           const recovery = profile.muscleRecovery.find((r) => r.muscleGroup === focusCanonical);
           const recPct = recovery?.recoveryPercent ?? null;
+          // Layered slot sets = 2 base + monthly bonus (1-2 sets ramped
+          // across the month). Previously a flat `targetSets: 2` cap
+          // made the focus a token presence. The user contract is
+          // "focus should be a REAL focus — go beyond reasonable
+          // volume," so we ramp:
+          //   week 1: 3 sets (base + 1)
+          //   week 2-3: 4 sets (base + 2)
+          //   week 4: 3 sets (base + 1, consolidation)
+          // Guard days halve the bonus (heavy work belongs on the
+          // dedicated split day, not the day before).
+          const baseLayeredSets = 2;
+          const layeredTargetSets = baseLayeredSets + Math.max(0, monthlyFocusVolumeBoost);
+          // Priority bumps with the bonus — week-3 focus deserves to
+          // beat ordinary recovery-aware fallbacks for slot placement.
+          const layeredPriority = 0.5 + 0.1 * Math.max(0, monthlyFocusVolumeBoost);
           const layeredSlot: MuscleGroupSelection = {
             muscleGroup: focusCanonical,
-            priority: 0.5,
+            priority: layeredPriority,
             reason: monthlyFocusSplitGuard
               ? `Monthly fitness focus — light layer (split day for ${focusCanonical} is tomorrow${
                   recPct != null ? `, ${recPct}% recovered` : ''
                 })`
-              : `Monthly fitness focus — layered into every workout${
-                  recPct != null ? ` (${recPct}% recovered)` : ''
-                }`,
-            targetSets: 2,
+              : `Monthly fitness focus — layered into every workout (${layeredTargetSets} sets${
+                  recPct != null ? `, ${recPct}% recovered` : ''
+                })`,
+            targetSets: layeredTargetSets,
             recoveryPercent: recPct,
             weeklyVolume: rawVol?.weeklyDirectSets ?? 0,
             volumeTarget: 'focus_layer',
           };
           selected.push(layeredSlot);
+        }
+      } else if (monthlyFocusVolumeBoost > 0) {
+        // Focus muscle IS in today's split. Bump its priority and add
+        // the bonus to its `targetSets` so the dedicated day also gets
+        // the "more than reasonable" dose the user asked for. Without
+        // this, the split day looked identical to any other and the
+        // monthly focus felt invisible on its scheduled day.
+        const idx = selected.findIndex((s) => s.muscleGroup === focusCanonical);
+        if (idx >= 0) {
+          const original = selected[idx];
+          selected[idx] = {
+            ...original,
+            priority: Math.max(original.priority, 0.85 + 0.05 * monthlyFocusVolumeBoost),
+            targetSets: (original.targetSets ?? 3) + monthlyFocusVolumeBoost,
+            reason: `${original.reason} · Monthly focus bonus: +${monthlyFocusVolumeBoost} sets`,
+          };
         }
       }
     }
@@ -3880,6 +3975,17 @@ function stepSelectExercises(
 
 // ─── Step 4: Prescribe Sets/Reps/Weight/Tempo ───────────────────────────────
 
+/**
+ * Small helper for monthly-focus prescription adjustments — log which
+ * "focus week" of the month a prescription belongs to, so the user can
+ * see why volume ramped or fell back. Falls back to 1 if no date supplied
+ * (live ad-hoc generation in tests, etc).
+ */
+function focusWeekIndexForLog(date: Date | undefined): number {
+  const d = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+  return Math.min(5, Math.ceil(d.getDate() / 7));
+}
+
 function stepPrescribe(
   selections: ExerciseSelection[],
   profile: TrainingProfile,
@@ -3896,6 +4002,7 @@ function stepPrescribe(
   mesocycleRirOffset?: number,
   monthlyFocusMuscle: string | null = null,
   monthlyFocusSplitGuard: boolean = false,
+  monthlyFocusVolumeBoost: number = 0,
 ): GeneratedExercise[] {
   const goal = getEffectiveGoal(prefs);
   const hotelModeEnabled = Boolean(prefs.hotel_mode);
@@ -4300,20 +4407,33 @@ function stepPrescribe(
     }
 
     const isLastSetInExercise = false;
-    let rir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, mesocycleRirOffset, isLastSetInExercise);
+    let displayRir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, mesocycleRirOffset, isLastSetInExercise);
     if (highCapacityPush?.active && !recoveryAdj.isDeload && highCapacityPush.rirDelta !== 0) {
-      rir = Math.max(0, Math.min(4, rir + highCapacityPush.rirDelta));
+      displayRir = Math.max(0, Math.min(4, displayRir + highCapacityPush.rirDelta));
     }
 
     // RIR taper: set 1 starts at base+2, each set drops by 1, last set = base RIR.
     // targetRir = average across sets; rirRange = [startRir, endRir] for UI display.
-    const lastSetRir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, mesocycleRirOffset, true);
-    let rirRangeStart = Math.min(4, rir + 2);
-    let rirRangeEnd = lastSetRir;
+    let lastSetRir = getRirTarget(role, goal, recoveryAdj.isDeload, prefs.experience_level, mesocycleRirOffset, true);
     if (highCapacityPush?.active && !recoveryAdj.isDeload && highCapacityPush.rirDelta !== 0) {
-      rirRangeStart = Math.max(0, Math.min(4, rirRangeStart + highCapacityPush.rirDelta));
-      rirRangeEnd = Math.max(0, Math.min(4, rirRangeEnd + highCapacityPush.rirDelta));
+      lastSetRir = Math.max(0, Math.min(4, lastSetRir + highCapacityPush.rirDelta));
     }
+
+    // Weight derivation uses LAST-SET RIR, not first-set RIR.
+    //
+    // The RIR taper means: set 1 = base+2 (warm-feeling), ..., last set = base
+    // (or 0 for advanced/elite primary/secondary). If we sized weight to the
+    // first-set RIR, the prescribed weight would be the weight you can move
+    // for `targetReps @ first-set RIR` — i.e. far below the load that pushes
+    // the LAST set to its actual target effort. Result: every set felt easy,
+    // the last set was never challenging, the user complained "not heavy
+    // enough." Sizing to lastSetRir means: by the final set, after the taper
+    // burns through your reserves, the load is genuinely at the prescribed
+    // last-set RIR. The earlier sets will naturally have more reps in reserve
+    // because you aren't fatigued yet — that's the point of the taper.
+    let rir = lastSetRir;
+    let rirRangeStart = Math.min(4, displayRir + 2);
+    let rirRangeEnd = lastSetRir;
     if (rirRangeStart < rirRangeEnd) rirRangeStart = rirRangeEnd;
     const rirRange: [number, number] = [rirRangeStart, rirRangeEnd];
     const tempo = getTempo(sel.exercise.default_tempo, goal, sel.exercise.ml_exercise_type, dayOccurrenceIndex);
@@ -4478,19 +4598,47 @@ function stepPrescribe(
 
         const lastReps = prog.bestSet.reps;
         // Double-progression gate: progress weight when user is hitting the
-        // TOP of the rep range, not just when they exceed a single target.
-        // Previously used `targetReps + 1` against a target derived from the
-        // user's median performance, which mathematically can never trigger.
-        const progressionRepThreshold = Math.max(tableRange.max, targetReps);
+        // TOP of the rep range. The threshold uses the table max OR
+        // `tableMax - 1` when effort is high — earning a +5 lb attempt at
+        // (max-1) reps is the right reward for a near-miss top-of-range
+        // performance and matches how lifting coaches actually program.
+        // Previously a single rep short of `tableMax` froze the weight
+        // indefinitely, and "double-progression" became "single-rep gate".
+        //
+        // Three-tier gate:
+        //   - lastReps >= tableMax           → full increment
+        //   - lastReps >= tableMax - 1       → full increment when effort >= half threshold
+        //   - lastReps >= targetReps + 1     → half increment (legacy "exceeded target" bonus)
+        //   - otherwise                      → carry forward (no jump)
+        const tableMax = Math.max(tableRange.max, targetReps);
         const canProgress = (prog.status === 'progressing' || prog.status === 'maintaining') && effortGateMultiplier > 0;
-        if (lastReps >= progressionRepThreshold && canProgress) {
+        const hitTopOfRange = lastReps >= tableMax;
+        const nearTopOfRange = lastReps >= tableMax - 1
+          && effortGateMultiplier >= 0.5;
+        const exceededTarget = lastReps >= targetReps + 1;
+        if ((hitTopOfRange || nearTopOfRange) && canProgress) {
           if (bestPatternType === 'double_progression' && breakthrough && !breakthrough.readyForWeightJump) {
             adjustments.push(`Double progression: add reps before weight (${breakthrough.accumulatedRepsAtWeight} reps accumulated, need ${breakthrough.typicalRepsBeforeJump})`);
           } else {
             const gatedIncrement = Math.round(increment * effortGateMultiplier * 10) / 10;
             targetWeight = snapToPlate(targetWeight + gatedIncrement, equipment, exType);
-            adjustments.push(`Progressive overload: +${snapToPlate(gatedIncrement, equipment, exType)} lbs (last session: ${lastReps} reps vs ${targetReps} target)`);
+            const why = hitTopOfRange
+              ? `hit top of range (${lastReps}/${tableMax})`
+              : `near top of range (${lastReps}/${tableMax}) + strong effort`;
+            adjustments.push(`Progressive overload: +${snapToPlate(gatedIncrement, equipment, exType)} lbs (${why})`);
           }
+          modifierApplied = true;
+        } else if (exceededTarget && canProgress) {
+          // User exceeded the target but not the top-of-range threshold.
+          // Award a HALF increment so they're not stuck carrying the same
+          // weight forever just because the table max is generous. This
+          // closes the "stall in the middle of the range" failure mode.
+          const halfIncrement = Math.max(
+            cfg.isolationIncrement / 2,
+            Math.round(increment * 0.5 * effortGateMultiplier * 10) / 10,
+          );
+          targetWeight = snapToPlate(targetWeight + halfIncrement, equipment, exType);
+          adjustments.push(`Half-step progression: +${snapToPlate(halfIncrement, equipment, exType)} lbs (${lastReps} reps vs ${targetReps} target)`);
           modifierApplied = true;
         } else if (prog.status === 'progressing') {
           adjustments.push(`Carry forward: ${targetWeight} lbs at RIR ${rir}`);
@@ -4699,20 +4847,29 @@ function stepPrescribe(
     }
 
     if (isMonthlyFocusMuscle) {
-      // The focus is layered as accessory work, not a primary slot — cap
-      // hard so guaranteed inclusion (see stepSelectMuscleGroups) never
-      // turns into "biceps day on top of Push day". On a split-guard day
-      // (tomorrow's split owns this muscle) we go even lighter so the
-      // dedicated day still drives the heavy stimulus.
-      const cap = monthlyFocusSplitGuard ? 2 : 2;
+      // Cap focus volume so the user-contract "focus in every workout"
+      // never compounds into 10 sets of bicep curls on a Squat day. Cap
+      // ramps with the week-of-month boost so the dose actually IS
+      // "beyond reasonable volume" as the user asked.
+      //
+      // Non-guard cap = 3 base + boost (week-1: 4, week-2/3: 5, week-4: 4).
+      // Guard cap = 2 base + boost (week-1: 2, week-2/3: 3, week-4: 2).
+      // Always respects the per-exercise sets that came out of upstream
+      // tiered-sets allocation when those are below the cap.
+      const baseCap = monthlyFocusSplitGuard ? 2 : 3;
+      const cap = baseCap + Math.max(0, monthlyFocusVolumeBoost);
       const capped = Math.min(sets, cap);
       if (capped !== sets) {
         adjustments.push(
           monthlyFocusSplitGuard
             ? `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets — heavier work reserved for tomorrow's split day`
-            : `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets — accessory layer, not a primary slot`,
+            : `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets (week-${focusWeekIndexForLog(planningDate)} dose)`,
         );
         sets = capped;
+      } else if (cap > 3) {
+        adjustments.push(
+          `Monthly fitness focus (${monthlyNorm}): ${sets} sets — beyond-typical dose (week-${focusWeekIndexForLog(planningDate)})`,
+        );
       }
     }
 
@@ -5887,12 +6044,20 @@ function stepGenerateRationale(
   const muscleGroupsFocused = muscleGroups.map(g => g.muscleGroup);
   const muscleReasons = muscleGroups.map(g => `${g.muscleGroup}: ${g.reason}`);
 
+  // Sum of per-exercise estimates. Previously this used `reduce(fn, 5)` —
+  // a hidden +5 min session padding that compounded with the per-exercise
+  // over-estimates to push session totals 8-12 min above reality. The
+  // padding was a band-aid for the rest-after-last-set bug; now that the
+  // bug is fixed (see `estimateExerciseMinutes`), the padding goes too.
+  // Display estimates should reflect actual time, not budget aspirations.
   const totalDuration = exercises.reduce(
-    (sum, ex) => sum + ex.estimatedMinutes, 5
+    (sum, ex) => sum + ex.estimatedMinutes, 0,
   );
+  // Cap to user's session budget so the displayed duration never exceeds
+  // what they asked for, but otherwise show the true estimate.
   const finalDuration = Math.min(
     Math.max(20, Math.round(prefs.session_duration_minutes)),
-    Math.max(0, Math.floor(totalDuration))
+    Math.max(0, Math.round(totalDuration))
   );
 
   let recoveryStatus = 'Good';
@@ -6908,6 +7073,18 @@ export async function generateWorkout(
         planDateStrForFocus,
         monthlyFocusMuscle,
       );
+  // Week-of-month volume bonus for the monthly focus. User contract:
+  // "Go beyond reasonable volume — the focus should be a REAL focus."
+  // Bonus ramps across the month (see `monthlyFocusVolumeBonus`) and is
+  // halved on split-guard days so heavy work lands on the dedicated split
+  // day instead of the day before.
+  const monthlyFocusVolumeBoost = monthlyFocusMuscle
+    ? monthlyFocusVolumeBonus(
+        prefs.monthly_focus_state ?? null,
+        planDateStrForFocus,
+        monthlyFocusSplitGuard,
+      )
+    : 0;
 
   // Step 2: Select muscle groups
   const tGroups = stageStart('select_muscle_groups');
@@ -6922,6 +7099,7 @@ export async function generateWorkout(
     effectiveDayTheme,
     monthlyFocusMuscle,
     monthlyFocusSplitGuard,
+    monthlyFocusVolumeBoost,
   );
   stageEnd(tGroups);
 
@@ -7025,6 +7203,7 @@ export async function generateWorkout(
     (mesocycleConfig.rirOffset ?? 0) + goalTimelineRirShift,
     monthlyFocusMuscle,
     monthlyFocusSplitGuard,
+    monthlyFocusVolumeBoost,
   );
   stageEnd(tPrescribe);
 

@@ -123,10 +123,38 @@ export function buildScientificPriors(prefs: AdaptiveUserPreferences): Scientifi
 export function estimatePersonalState(profile: TrainingProfile): PersonalStateEstimate {
   const readiness = clamp(Number(profile.fitnessFatigueModel?.readiness ?? 0.5), 0, 1)
   const fatigue = clamp(1 - readiness, 0, 1)
-  const adherence = clamp(Number(profile.canonicalModelContext?.adherenceScore ?? 0.5), 0, 1)
+
+  // Blended adherence: 60% canonical adherence (logged-vs-prescribed
+  // compliance), 25% consistency quotient (week-over-week training
+  // regularity), 15% honest-effort compliance (whether logged sessions
+  // were actually challenging). This makes both `honestEffort` and
+  // `consistencyQuotient` actually influence the adaptive prescription —
+  // previously they were dashboard-only metrics with zero engine effect.
+  const baseAdherence = clamp(Number(profile.canonicalModelContext?.adherenceScore ?? 0.5), 0, 1)
+  // `quotientScore` lives on the consistency quotient object (0-100);
+  // normalize to 0-1, default to 0.5 if missing.
+  const cqRaw = (profile as any).consistencyQuotient?.quotientScore
+  const cqNormalized = typeof cqRaw === 'number' && Number.isFinite(cqRaw)
+    ? clamp(cqRaw / 100, 0, 1)
+    : 0.5
+  // `avgCompositeScore` lives on honest effort (0-100 again).
+  const heRaw = (profile as any).honestEffort?.avgCompositeScore
+  const heNormalized = typeof heRaw === 'number' && Number.isFinite(heRaw)
+    ? clamp(heRaw / 100, 0, 1)
+    : 0.5
+  const adherence = clamp(
+    baseAdherence * 0.60 + cqNormalized * 0.25 + heNormalized * 0.15,
+    0,
+    1,
+  )
+
   const evidenceConfidence = clamp(Number(profile.canonicalModelContext?.evidenceConfidence ?? 0.5), 0, 1)
   const progressionScore = clamp(Number(profile.canonicalModelContext?.progressionScore ?? 0.5), 0, 1)
-  const progressionSignal = clamp((progressionScore - 0.5) * 2, -1, 1)
+  // Progression signal also gets a small honest-effort tilt: high effort
+  // with average progression score should still register as +pressure
+  // (you're trying — let's push).
+  const heTilt = (heNormalized - 0.5) * 0.20
+  const progressionSignal = clamp((progressionScore - 0.5) * 2 + heTilt, -1, 1)
 
   return {
     stateVersion: 'personal_state_v1',
@@ -153,7 +181,23 @@ export function optimizePrescription(exercises: AdaptiveExercise[], ctx: Adaptiv
     ((ctx.personalState.adherence - 0.5) * ctx.scientificPriors.adherenceSensitivity) -
     ((ctx.personalState.fatigue - 0.5) * ctx.scientificPriors.fatigueSensitivity)
 
-  const progressionPressure = clamp(pressure, -0.35, 0.35)
+  // promoteReady amplifies pressure. Previously this flag was advertised
+  // in the UI as "promoted aggressive progression profile" but had ZERO
+  // effect on the actual prescription — pure theatre. Now: when the
+  // adaptive system has high confidence AND the user has been adhering,
+  // pressure is biased toward progression (+0.05) and the threshold for
+  // acting on it drops from 0.12 → 0.08 (smaller signals can move the
+  // prescription). The opposite when the user is in a low-readiness
+  // pocket: pressure biases conservative.
+  const promoteReadyBias = ctx.promoteReady ? 0.05 : 0
+  const conservativeBias = !ctx.promoteReady && ctx.personalState.fatigue > 0.65 ? -0.05 : 0
+  const progressionPressure = clamp(
+    pressure + promoteReadyBias + conservativeBias,
+    -0.35,
+    0.35,
+  )
+  // Lower acting threshold when promoted; raise it slightly when conservative.
+  const setShiftThreshold = ctx.promoteReady ? 0.08 : 0.12
 
   return exercises.map((ex) => {
     if (ex.isCardio) {
@@ -172,11 +216,16 @@ export function optimizePrescription(exercises: AdaptiveExercise[], ctx: Adaptiv
     const priors = ctx.scientificPriors.roleTargets[ex.exerciseRole] || ctx.scientificPriors.roleTargets.secondary
     const out = { ...ex, adjustments: [...(ex.adjustments || [])] }
 
-    const targetSetShift = progressionPressure >= 0.12 ? 1 : progressionPressure <= -0.12 ? -1 : 0
+    const targetSetShift =
+      progressionPressure >= setShiftThreshold ? 1 :
+      progressionPressure <= -setShiftThreshold ? -1 : 0
     const shiftedSets = out.sets + targetSetShift
     const boundedSets = clamp(shiftedSets, priors.setRange[0], priors.setRange[1])
     if (boundedSets !== out.sets) {
-      out.adjustments.push(`Adaptive set progression: ${out.sets} -> ${boundedSets}`)
+      const why = ctx.promoteReady && targetSetShift > 0
+        ? 'promoted progression'
+        : 'adaptive progression'
+      out.adjustments.push(`Adaptive set ${why}: ${out.sets} -> ${boundedSets}`)
       out.sets = boundedSets
     }
 
@@ -195,8 +244,13 @@ export function optimizePrescription(exercises: AdaptiveExercise[], ctx: Adaptiv
     }
 
     if (out.targetRir != null) {
-      const rirCenter = out.targetRir + (progressionPressure > 0 ? -1 : progressionPressure < 0 ? 1 : 0)
-      out.targetRir = clamp(rirCenter, priors.rirRange[0], priors.rirRange[1])
+      // RIR shift: promoted users get to push past the role floor by one
+      // (e.g. primary RIR can hit 0 even on intermediates) when pressure
+      // is clearly positive; conservative bias pushes RIR up.
+      const promotedRirFloor = ctx.promoteReady ? Math.max(0, priors.rirRange[0] - 1) : priors.rirRange[0]
+      const rirShift = progressionPressure > 0 ? -1 : progressionPressure < 0 ? 1 : 0
+      const rirCenter = out.targetRir + rirShift
+      out.targetRir = clamp(rirCenter, promotedRirFloor, priors.rirRange[1])
     }
 
     return out

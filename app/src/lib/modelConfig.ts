@@ -557,7 +557,7 @@ export interface ModelConfig {
 // downside of a missed bump is "we shipped a behaviour change but every
 // saved plan still claims to be the old version."
 export const MODEL_CONFIG_VERSION = '2026-04-27.1';
-export const WORKOUT_ENGINE_VERSION = '2026-05-12.2';
+export const WORKOUT_ENGINE_VERSION = '2026-05-27.1';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery
@@ -755,8 +755,12 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   restAbsoluteMin: 30,
   restAbsoluteMax: 300,
 
-  // Transition times
-  transitionTimeSec: { primary: 120, secondary: 90, isolation: 60, corrective: 45, cardio: 60, strength: 90 },
+  // Transition times — empirical lower-bound estimates for moving between
+  // exercises. Previously: primary 120, secondary 90, isolation 60. Reduced
+  // 2026-05-27 because users consistently reported workouts ran shorter
+  // than estimated, and the (n-1) rest fix eliminated the double-rest
+  // inflation that was masking these high values.
+  transitionTimeSec: { primary: 75, secondary: 60, isolation: 40, corrective: 30, cardio: 45, strength: 60 },
 
   // Impact score weights
   impactPhaseWeights: {

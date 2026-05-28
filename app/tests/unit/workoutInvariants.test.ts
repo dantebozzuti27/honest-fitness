@@ -166,7 +166,7 @@ test('repLoadVs1RM: flags 11 reps at 1RM weight (user-reported failure mode)', (
   const violations = repLoadVs1RMInvariant.check(workout, ctx);
   assert.equal(violations.length, 1);
   assert.equal(violations[0].severity, 'error');
-  assert.match(violations[0].message, /exceeds safe ceiling/);
+  assert.match(violations[0].message, /exceeds rep×load capacity/);
 });
 
 test('repLoadVs1RM: clamp brings the prescribed weight under the safe ceiling', () => {

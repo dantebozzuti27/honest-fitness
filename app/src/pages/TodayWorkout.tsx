@@ -2182,16 +2182,9 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
                       })()}
                     </div>
 
-                    {/* #28: Exercise swap button */}
-                    {!ex.isCardio && (
-                      <button
-                        className={styles.swapBtn}
-                        onClick={(e) => { e.stopPropagation(); handleSwapExercise(ex.exerciseName) }}
-                        disabled={regenerating}
-                      >
-                        Swap Exercise
-                      </button>
-                    )}
+                    {/* Swap moved to the collapsed exercise header so
+                        it's visible without expanding (see
+                        `.swapBtnInline`). */}
                   </div>
                 )}
               </div>

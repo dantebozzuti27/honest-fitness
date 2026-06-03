@@ -101,6 +101,25 @@ export function enqueueOutboxItem({ userId, kind, payload }: { userId: string; k
   const current = loadOutbox()
 
   let updated = current
+  if (kind === 'metrics' && normalizedPayload?.date) {
+    const mDate = normalizedPayload.date
+    const dupIdx = current.findIndex(
+      (i: any) => i?.userId === userId && i?.kind === 'metrics' && i?.payload?.date === mDate,
+    )
+    if (dupIdx >= 0) {
+      updated = [...current]
+      updated[dupIdx] = {
+        ...current[dupIdx],
+        payload: normalizedPayload,
+        tries: 0,
+        nextAttemptAt: now,
+        lastError: undefined,
+      }
+      saveOutbox(updated.slice(-MAX_ITEMS))
+      logDebug('Outbox replaced pending metrics flush', { userId, date: mDate })
+      return current[dupIdx].id || itemId
+    }
+  }
   if (kind === 'workout' && normalizedPayload?.workout?.id) {
     const wId = normalizedPayload.workout.id
     const dupIdx = current.findIndex(

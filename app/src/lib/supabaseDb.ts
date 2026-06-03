@@ -1175,6 +1175,44 @@ export async function saveMetricsToSupabase(userId: string, date: string, metric
   }
   
   safeLogDebug('saveMetricsToSupabase: Prepared data for health_metrics', healthMetricsData)
+
+  const postMetricsSave = async (): Promise<any> => {
+    const { getIdToken } = await import('./cognitoAuth')
+    const { apiUrl } = await import('./urlConfig')
+    const token = await getIdToken().catch(() => '')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 8_000)
+    try {
+      const resp = await fetch(apiUrl('/api/metrics-save'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ date, metrics: metricsToSave, sourceProvider: healthMetricsData.source_provider }),
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        throw new Error(`HTTP ${resp.status}: ${text.slice(0, 200)}`)
+      }
+      const body = await resp.json()
+      if (body.error) throw new Error(body.error.message || 'Server returned error')
+      return body.data
+    } catch (e) {
+      clearTimeout(timer)
+      throw e
+    }
+  }
+
+  try {
+    const apiResult = await postMetricsSave()
+    invalidateDbCache()
+    return apiResult
+  } catch (apiErr) {
+    logWarn('metrics-save API failed, falling back to direct upsert', apiErr instanceof Error ? apiErr.message : apiErr)
+  }
   
   try {
     let { data, error } = await supabase

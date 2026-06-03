@@ -48,6 +48,7 @@ const MIGRATIONS = [
   'sql/migration_plan_constraints_v1.sql',
   'sql/migration_rds_auth_compat_v1.sql',
   'sql/migration_weekly_plan_active_invariant_v1.sql',
+  'sql/migration_weekly_plan_day_status_fix_v1.sql',
 ]
 
 function runFile(relPath) {

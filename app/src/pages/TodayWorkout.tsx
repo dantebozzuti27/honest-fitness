@@ -41,6 +41,7 @@ import Button from '../components/Button'
 import MonthlyFocusCard from '../components/MonthlyFocusCard'
 import { getLocalDate } from '../utils/dateUtils'
 import { shouldForceWeeklyPlanRegen } from '../lib/weekPlanLifecycle'
+import { assertDayStatusTransition } from '../lib/weekPlanDayStatus'
 import { logError } from '../utils/logger'
 // Schema probing removed — server-side schema is controlled by migrations
 import {
@@ -1058,6 +1059,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       let nextWorkout = await generateWorkout(activeProfile, overrides)
 
       const prevWorkout = selected.plannedWorkout ?? null
+      assertDayStatusTransition(selected.dayStatus, 'adapted')
       const updatedDay: WeeklyPlanDay = {
         ...selected,
         plannedWorkout: nextWorkout,

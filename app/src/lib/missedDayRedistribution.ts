@@ -55,6 +55,7 @@
  */
 
 import type { WeeklyPlan, WeeklyPlanDay, DayTheme } from './workoutEngine';
+import { assertDayStatusTransition } from './weekPlanDayStatus';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public types
@@ -509,10 +510,12 @@ export function applyRedistribution(
 
   if (modified.length === 0) return { applied: false, plan, modified: [] };
 
+  const nextStatus = targetDay.dayStatus === 'completed' ? 'completed' : 'adapted';
+  assertDayStatusTransition(targetDay.dayStatus, nextStatus);
   const newDay: WeeklyPlanDay = {
     ...targetDay,
     plannedWorkout: { ...w, exercises: newExercises },
-    dayStatus: targetDay.dayStatus === 'completed' ? 'completed' : 'adapted',
+    dayStatus: nextStatus,
   };
   const newDays = plan.days.map((d, i) => (i === targetIdx ? newDay : d));
   return { applied: true, plan: { ...plan, days: newDays }, modified };

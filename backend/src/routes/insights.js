@@ -119,12 +119,14 @@ Respond with ONLY this JSON:
 
 RULES:
 - If the workout looks good, return empty arrays and verdict "pass"
-- Maximum 3 immediate corrections — only flag the most critical
+- verdict MUST be "pass" when immediate_corrections and pattern_observations are both empty
+- Maximum 3 immediate corrections — only flag the most critical, evidence-backed issues
 - Maximum 3 pattern observations — ONLY if novel vs profile (not repeats of known MRV/volume facts)
 - Never invent data — cite specific profile fields (muscleVolumeStatuses, swap history, session duration)
 - If the profile already shows the same issue, return empty pattern_observations
 - Do not re-state generic advice (e.g. "train hard") — each pattern must change engine behavior
-- Be conservative: if unsure, return empty arrays`
+- Do not flag stylistic preferences, missing "ideal" exercises, or hypothetical risks
+- Be conservative: if unsure, return empty arrays and verdict "pass"`
 
 const WEEK_PLAN_REVIEW_PROMPT = `You are a strength coach reviewing a MACHINE-GENERATED weekly training plan (Week Ahead view).
 You receive a summarized athlete profile and each upcoming day (focus, muscle groups, top exercises, duration).
@@ -384,16 +386,24 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
 
     if (type === 'validate-workout') {
       const rejectionClasses = classifyValidationRejections(parsed)
+      let corrections = Array.isArray(parsed.immediate_corrections)
+        ? parsed.immediate_corrections.slice(0, 3).filter(c => c && typeof c.exerciseName === 'string')
+        : []
+      let patterns = Array.isArray(parsed.pattern_observations)
+        ? parsed.pattern_observations.slice(0, 3).filter(o => o && typeof o.pattern === 'string')
+        : []
+      let verdict = ['pass', 'minor_issues', 'major_issues'].includes(parsed.verdict)
+        ? parsed.verdict
+        : 'pass'
+      // Alarmist model output with no actionable items → treat as pass (Week Ahead / Today UX).
+      if (verdict !== 'pass' && corrections.length === 0 && patterns.length === 0) {
+        verdict = 'pass'
+      }
+
       const safe = {
-        immediate_corrections: Array.isArray(parsed.immediate_corrections)
-          ? parsed.immediate_corrections.slice(0, 3).filter(c => c && typeof c.exerciseName === 'string')
-          : [],
-        pattern_observations: Array.isArray(parsed.pattern_observations)
-          ? parsed.pattern_observations.slice(0, 3).filter(o => o && typeof o.pattern === 'string')
-          : [],
-        verdict: ['pass', 'minor_issues', 'major_issues'].includes(parsed.verdict)
-          ? parsed.verdict
-          : 'pass',
+        immediate_corrections: corrections,
+        pattern_observations: patterns,
+        verdict,
         rejection_classes: rejectionClasses,
         schema_version: VALIDATION_SCHEMA_VERSION,
       }

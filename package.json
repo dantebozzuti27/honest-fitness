@@ -9,6 +9,8 @@
     "analyze:patterns": "node scripts/analyze-llm-patterns.mjs",
     "cleanup:patterns": "node scripts/cleanup-llm-patterns-rds.mjs",
     "cleanup:patterns:dry": "node scripts/cleanup-llm-patterns-rds.mjs --dry-run",
+    "rekey:patterns": "node scripts/rekey-semantic-patterns-rds.mjs",
+    "rekey:patterns:dry": "node scripts/rekey-semantic-patterns-rds.mjs --dry-run",
     "reset:swap-penalties": "npx tsx scripts/reset-deprioritized-swaps-rds.mjs",
     "reset:swap-penalties:dry": "npx tsx scripts/reset-deprioritized-swaps-rds.mjs --dry-run"
   },

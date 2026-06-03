@@ -147,6 +147,7 @@ export interface EngineInputSnapshotV1 {
     reviewedAt: string;
     contentFingerprint?: string;
     source?: string;
+    dayNotes?: Array<{ planDate: string; status: 'ok' | 'watch' | 'concern'; note: string }>;
   };
 }
 

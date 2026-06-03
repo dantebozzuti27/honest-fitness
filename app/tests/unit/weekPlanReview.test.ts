@@ -4,9 +4,12 @@ import {
   buildDeterministicWeekReview,
   isWeekReviewFresh,
   mergeWeekReviews,
+  normalizeLoadedWeekPlan,
   parseWeekPlanReviewResponse,
   sanitizeLegacyWeekPlanLlm,
+  shouldShowDayVerdictPill,
   verdictLabel,
+  weekAtAGlanceLine,
   weekPlanContentFingerprint,
 } from '../../src/lib/weekPlanReview.ts'
 import type { WeeklyPlan } from '../../src/lib/workoutEngine.ts'
@@ -116,5 +119,65 @@ describe('weekPlanReview', () => {
     const merged = mergeWeekReviews(det, llm)
     const wed = merged.days.find((d) => d.planDate === '2026-06-04')
     assert.equal(wed?.status, 'concern')
+  })
+
+  it('normalizeLoadedWeekPlan applies dayNotes from engine snapshot meta', () => {
+    const plan = {
+      ...basePlan,
+      weekPlanReview: {
+        summary: 'Solid week.',
+        overallVerdict: 'minor_issues' as const,
+        reviewedAt: new Date().toISOString(),
+        contentFingerprint: 'fp',
+        dayNotes: [
+          { planDate: '2026-06-04', status: 'watch' as const, note: 'Back-to-back chest stress' },
+        ],
+      },
+      days: basePlan.days.map((d) => ({
+        ...d,
+        llmVerdict: undefined,
+        llmDayNote: undefined,
+      })),
+    }
+    const out = normalizeLoadedWeekPlan(plan)
+    const wed = out.days.find((d) => d.planDate === '2026-06-04')
+    assert.equal(wed?.llmVerdict, 'minor_issues')
+    assert.match(String(wed?.llmDayNote), /chest/i)
+  })
+
+  it('normalizeLoadedWeekPlan clears orphan verdicts when holistic pass', () => {
+    const plan = {
+      ...basePlan,
+      weekPlanReview: {
+        summary: 'Balanced week.',
+        overallVerdict: 'pass' as const,
+        reviewedAt: new Date().toISOString(),
+        contentFingerprint: 'fp',
+      },
+      days: basePlan.days.map((d) => ({
+        ...d,
+        llmVerdict: 'major_issues' as const,
+        llmDayNote: undefined,
+      })),
+    }
+    const out = normalizeLoadedWeekPlan(plan)
+    assert.equal(out.days[0].llmVerdict, undefined)
+  })
+
+  it('shouldShowDayVerdictPill hides pass without note', () => {
+    assert.equal(
+      shouldShowDayVerdictPill({ ...basePlan.days[0], llmVerdict: 'pass' }),
+      false,
+    )
+    assert.equal(
+      shouldShowDayVerdictPill({ ...basePlan.days[0], llmVerdict: 'minor_issues', llmDayNote: 'Heavy overlap' }),
+      true,
+    )
+  })
+
+  it('weekAtAGlanceLine summarizes upcoming days', () => {
+    const line = weekAtAGlanceLine(basePlan, '2026-06-03')
+    assert.match(line, /training/)
+    assert.match(line, /rest/)
   })
 })

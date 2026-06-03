@@ -26,6 +26,12 @@ test('patternKey is stable for duplicate LLM wording', () => {
   assert.equal(a, b);
 });
 
+test('patternKey merges paraphrased triceps volume patterns', () => {
+  const a = patternKey('User frequently trains triceps with high volume.', 'Reduce triceps sets next mesocycle.');
+  const b = patternKey('Triceps volume above MRV for several weeks.', 'Lower triceps volume next block.');
+  assert.equal(a, b);
+});
+
 test('aggregatePatternObservations collapses duplicate rows', () => {
   const rows = Array.from({ length: 20 }, () => ({
     feedback_data: {

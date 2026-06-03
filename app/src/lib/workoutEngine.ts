@@ -7388,6 +7388,7 @@ export interface WeeklyPlan {
     reviewedAt: string;
     contentFingerprint?: string;
     source?: 'deterministic' | 'llm' | 'merged';
+    dayNotes?: Array<{ planDate: string; status: 'ok' | 'watch' | 'concern'; note: string }>;
   };
   planQuality?: {
     avgConsecutiveOverlap: number;

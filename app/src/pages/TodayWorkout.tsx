@@ -21,12 +21,16 @@ import { db } from '../lib/dbClient'
 import { apiUrl } from '../lib/urlConfig'
 import { getIdToken } from '../lib/cognitoAuth'
 import { fetchWorkoutReview, fetchWorkoutValidation, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
+import { scheduleWorkoutValidation } from '../lib/workoutValidationSchedule'
 import {
   attachWeekReviewToEngineSnapshot,
   dayReviewDotColor,
+  normalizeLoadedWeekPlan,
   reviewWeeklyPlan,
+  shouldShowDayVerdictPill,
   verdictColor,
   verdictLabel,
+  weekAtAGlanceLine,
   weekPlanReviewFromEngineSnapshot,
 } from '../lib/weekPlanReview'
 import { getActiveWeeklyPlanFromSupabase, saveLlmValidationArtifact, saveWeeklyPlanToSupabase } from '../lib/supabaseDb'
@@ -109,6 +113,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const [weeklyDiffsByDate, setWeeklyDiffsByDate] = useState<Record<string, any>>({})
   const [selectedPlanDate, setSelectedPlanDate] = useState<string>('')
   const [regeneratingDay, setRegeneratingDay] = useState(false)
+  const [regeneratingWeek, setRegeneratingWeek] = useState(false)
   const [restDays, setRestDays] = useState<number[]>([])
   const [preferredSplit, setPreferredSplit] = useState<string | null>(null)
   const [splitSchedule, setSplitSchedule] = useState<Record<string, { focus: string; groups: string[] }> | null>(null)
@@ -134,6 +139,8 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const [pausedWorkout, setPausedWorkout2] = useState<any>(null)
   const [activeSession, setActiveSession] = useState<any>(null)
   const llmValidationFiredRef = useRef(false)
+  const llmPatternsPersistedForWorkoutRef = useRef<string | null>(null)
+  const llmValidationCancelRef = useRef<(() => void) | null>(null)
   const regeneratingRef = useRef(false)
   const regenerationSeedRef = useRef(0)
   const forceGenerateRef = useRef(false)
@@ -467,7 +474,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     const enginePrefetch = bodyAssessment ? { bodyAssessment } : undefined
     const weekStartDate = getWeekStartDate(new Date())
     const existingRaw = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
-    const existing = existingRaw ? weekPlanReviewFromEngineSnapshot(existingRaw as WeeklyPlan) : null
+    const existing = existingRaw ? normalizeLoadedWeekPlan(existingRaw as WeeklyPlan) : null
     const forceRegen = shouldForceWeeklyPlanRegen(existing as WeeklyPlan | null, getLocalDate(), null, userRestDays)
     if (existing?.days?.length && !forceRegen && !isWeeklyPlanStale(existing as WeeklyPlan, tp)) {
       let mergedExisting = await attachActualWeekWorkouts(
@@ -543,6 +550,33 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     setWeeklyPlan(reviewed)
     if (user) {
       await saveWeeklyPlanToSupabase(user.id, reviewed).catch(() => null)
+    }
+  }
+
+  const regenerateFullWeek = async () => {
+    if (!user || !cachedProfile) return
+    setRegeneratingWeek(true)
+    try {
+      const tp = (await refreshTrainingProfile()) ?? cachedProfile
+      const enginePrefetch = cachedBodyAssessment ? { bodyAssessment: cachedBodyAssessment } : undefined
+      const generatedPlan = await generateWeeklyPlan(
+        tp,
+        restDays,
+        preferredSplit ?? null,
+        splitSchedule ?? null,
+        enginePrefetch,
+      )
+      const validatedGenerated = await annotateWeeklyPlanVerdicts(tp, generatedPlan, { forceRefresh: true })
+      const mergedGenerated = await attachActualWeekWorkouts(validatedGenerated)
+      await saveWeeklyPlanToSupabase(user.id, attachWeekReviewToEngineSnapshot(mergedGenerated)).catch(() => null)
+      setWeeklyPlan(mergedGenerated)
+      setWeeklyDiffsByDate({})
+      showToast('Week plan regenerated', 'success')
+    } catch (e) {
+      logError('Full week regeneration failed', e)
+      showToast('Could not regenerate the week plan.', 'error')
+    } finally {
+      setRegeneratingWeek(false)
     }
   }
 
@@ -624,7 +658,21 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
 
   useEffect(() => {
     if (user) initialLoad()
+    return () => {
+      llmValidationCancelRef.current?.()
+      llmValidationCancelRef.current = null
+    }
   }, [user])
+
+  const queueWorkoutValidation = (tp: TrainingProfile, w: GeneratedWorkout) => {
+    llmValidationCancelRef.current?.()
+    llmValidationCancelRef.current = scheduleWorkoutValidation(
+      tp,
+      w,
+      (validation) => setLlmValidation(validation),
+      (e) => logError('LLM workout validation failed (non-blocking)', e),
+    )
+  }
 
   // Paused/active session data now comes from /api/workout-load in initialLoad
 
@@ -643,7 +691,9 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   useEffect(() => {
     if (!llmValidation || !workout || !user) return
 
-    if (llmValidation.pattern_observations?.length) {
+    const workoutKey = workout.id || 'anon'
+    if (llmValidation.pattern_observations?.length && llmPatternsPersistedForWorkoutRef.current !== workoutKey) {
+      llmPatternsPersistedForWorkoutRef.current = workoutKey
       void (async () => {
         try {
           const { patternKey, preparePatternRowsForInsert } = await import('../lib/patternLearning')
@@ -814,6 +864,12 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         })
       }
 
+      if (mode === 'week') {
+        await hydratePromise.catch(() => null)
+        setViewState('ready')
+        return
+      }
+
       if (todayDone) {
         setCompletedWorkout(existingWorkout)
         setViewState('completed')
@@ -845,7 +901,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
 
       if (!llmValidationFiredRef.current) {
         llmValidationFiredRef.current = true
-        fetchWorkoutValidation(tp, w).then(setLlmValidation).catch(e => logError('LLM workout validation failed (non-blocking)', e))
+        queueWorkoutValidation(tp, w)
       }
     } catch (err) {
       logError('Workout generation error', err)
@@ -894,7 +950,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       showToast('Workout regenerated', 'success')
 
       llmValidationFiredRef.current = true
-      fetchWorkoutValidation(activeProfile, w).then(setLlmValidation).catch(e => logError('LLM workout validation failed (non-blocking)', e))
+      queueWorkoutValidation(activeProfile, w)
 
       if (weeklyPlan) {
         await applyRecomputedPlan(weeklyPlan, activeProfile, restDays)
@@ -1390,7 +1446,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
               Week {mesocycleWeek} · {mesocycleWeek === 1 ? 'Accumulation' : mesocycleWeek === 2 ? 'Loading' : mesocycleWeek === 3 ? 'Overreach' : 'Deload'}
             </span>
           )}
-          <span className={styles.weekHint}>Tap a day card</span>
+          <span className={styles.weekHint}>{weekAtAGlanceLine(weeklyPlan, today)}</span>
         </div>
         <div
           style={{
@@ -1408,14 +1464,24 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
             >
               {weekReviewLoading ? 'Reviewing…' : verdictLabel(weeklyPlan.weekPlanReview?.overallVerdict ?? 'pass')}
             </span>
-            <Button
-              variant="secondary"
-              onClick={refreshWeekCoachSummary}
-              loading={weekReviewLoading}
-              style={{ fontSize: 11, padding: '4px 10px' }}
-            >
-              Refresh
-            </Button>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <Button
+                variant="secondary"
+                onClick={refreshWeekCoachSummary}
+                loading={weekReviewLoading}
+                style={{ fontSize: 11, padding: '4px 10px' }}
+              >
+                Refresh
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={regenerateFullWeek}
+                loading={regeneratingWeek}
+                style={{ fontSize: 11, padding: '4px 10px' }}
+              >
+                Regenerate week
+              </Button>
+            </div>
           </div>
           <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-secondary)', margin: '8px 0 0' }}>
             {weekReviewLoading && !weeklyPlan.weekPlanReview?.summary
@@ -1559,7 +1625,9 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
             </span>
             <div className={styles.selectedDayPills}>
               <span className={styles.statusPill}>{selectedStatus}</span>
-              <span className={styles.statusPill} style={{ color: selectedVerdictColor }}>{verdictLabel(selectedVerdict)}</span>
+              {shouldShowDayVerdictPill(selectedDay) && (
+                <span className={styles.statusPill} style={{ color: selectedVerdictColor }}>{verdictLabel(selectedVerdict)}</span>
+              )}
               {selectedDiff && <span className={styles.updatedPill}>Updated</span>}
             </div>
           </div>
@@ -2320,7 +2388,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
               </div>
               <div className={styles.contextItem}>
                 <span className="label">Avg Session</span>
-                <span className="value">{Math.round(profile.avgSessionDuration / 60)} min</span>
+                <span className="value">{Math.round(profile.avgSessionDuration)} min</span>
               </div>
               <div className={styles.contextItem}>
                 <span className="label">Training Age</span>
@@ -2516,9 +2584,12 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         {/* AI Workout Review */}
         <div className={s.card} style={{ marginBottom: 12 }}>
           {llmValidation && llmValidation.verdict !== 'pass' && (
+            (llmValidation.immediate_corrections?.length ?? 0) > 0 ||
+            (llmValidation.pattern_observations?.length ?? 0) > 0
+          ) && (
             <div style={{ marginBottom: 10, padding: 10, borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
-                LLM flags this workout ({llmValidation.verdict})
+                Coach review suggests tweaks ({verdictLabel(llmValidation.verdict)})
               </div>
               <Button
                 variant="secondary"
@@ -2526,7 +2597,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
                 loading={regeneratingWithLlm}
                 style={{ fontSize: 12, padding: '6px 12px' }}
               >
-                Regenerate with LLM Adjustments
+                Regenerate with suggested adjustments
               </Button>
             </div>
           )}

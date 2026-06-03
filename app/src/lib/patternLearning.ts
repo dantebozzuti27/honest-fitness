@@ -49,16 +49,42 @@ export interface PatternInsertRow {
   workout_date: string;
 }
 
-/** Stable key for deduplication across LLM re-validations. */
+const PATTERN_STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'to', 'for', 'of', 'in', 'on', 'with', 'at', 'by', 'from',
+  'user', 'lifter', 'athlete', 'often', 'frequently', 'consistently', 'typically', 'generally',
+  'usually', 'appears', 'seems', 'may', 'might', 'could', 'should', 'that', 'this', 'these',
+  'trains', 'training', 'trained',
+  'those', 'been', 'being', 'have', 'has', 'had', 'is', 'are', 'was', 'were',
+]);
+
+function normalizeSemanticPhrases(text: string): string {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/\b(above|over|exceeds?)\s+mrv\b/g, ' highvol ')
+    .replace(/\bhigh\s+volume\b/g, ' highvol ')
+    .replace(/\b(reduce|lower|decrease|cut)\b/g, ' reduce ')
+    .replace(/\b(mesocycle|microcycle|block|phase|weeks?|months?|days?|several|many)\b/g, ' period ')
+    .replace(/\b(sets?|volume)\b/g, ' vol ')
+    .replace(/\b(next|upcoming|following)\b/g, ' next ');
+}
+
+function tokenFingerprint(text: string, maxLen: number): string {
+  const tokens = normalizeSemanticPhrases(text)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(user|lifter|athlete)\b/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !PATTERN_STOP_WORDS.has(w))
+    .sort();
+  return [...new Set(tokens)].join(' ').slice(0, maxLen);
+}
+
+/** Semantic key — merges paraphrased LLM pattern spam (category + muscles + intent bag). */
 export function patternKey(pattern: string, suggestion: string = ''): string {
-  const norm = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 120);
-  return `${norm(pattern)}::${norm(suggestion).slice(0, 80)}`;
+  const combined = `${pattern} ${suggestion}`.trim();
+  const category = classifyPattern(combined);
+  const muscles = muscleMentioned(combined).sort().join('+') || '_';
+  const intent = tokenFingerprint(combined, 96);
+  return `${category}::${muscles}::${intent}`;
 }
 
 function classifyPattern(text: string): PatternCategory {

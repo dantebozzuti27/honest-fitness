@@ -17,12 +17,20 @@ export interface WeekPlanReview {
   schema_version?: 'v1';
 }
 
+export interface WeekPlanReviewDayMeta {
+  planDate: string;
+  status: WeekPlanReviewDayNote['status'];
+  note: string;
+}
+
 export interface WeekPlanReviewMeta {
   summary: string;
   overallVerdict: WeekPlanReviewVerdict;
   reviewedAt: string;
   contentFingerprint: string;
   source?: 'deterministic' | 'llm' | 'merged';
+  /** Compact per-day coach flags for reload without re-parsing day rows. */
+  dayNotes?: WeekPlanReviewDayMeta[];
 }
 
 const REVIEW_TTL_MS = 6 * 60 * 60 * 1000;
@@ -311,11 +319,21 @@ export function applyWeekPlanReviewToPlan(
       reviewedAt: new Date().toISOString(),
       contentFingerprint: fingerprint,
       source,
+      dayNotes: review.days
+        .filter((d) => d.status !== 'ok' || d.note.trim().length > 0)
+        .map((d) => ({
+          planDate: d.planDate,
+          status: d.status,
+          note: d.note.trim().slice(0, 200),
+        })),
     },
     days: plan.days.map((d) => {
+      if (d.isRestDay || d.dayStatus === 'completed') {
+        return { ...d, llmCorrections: undefined, llmDayNote: undefined };
+      }
       const note = byDate.get(d.planDate);
-      if (!note || d.isRestDay || d.dayStatus === 'completed') {
-        return { ...d, llmCorrections: undefined };
+      if (!note) {
+        return { ...d, llmVerdict: 'pass', llmDayNote: undefined, llmCorrections: undefined, dayStatus: d.dayStatus || 'planned' };
       }
       const llmVerdict = mapDayStatus(note.status);
       return {
@@ -378,14 +396,17 @@ export async function reviewWeeklyPlan(
   );
   let reviewed = applyWeekPlanReviewToPlan(sanitized, deterministic, fingerprint, 'deterministic');
 
-  try {
-    const payload = buildWeekPlanReviewPayload(profile, sanitized, today);
-    const raw = await fetchWeekPlanReview(profile, payload);
-    const llm = parseWeekPlanReviewResponse(raw);
-    const merged = mergeWeekReviews(deterministic, llm);
-    reviewed = applyWeekPlanReviewToPlan(sanitized, merged, fingerprint, 'merged');
-  } catch {
-    /* deterministic-only is fine */
+  const runLlm = options?.forceRefresh === true || deterministicNeedsLlmPolish(deterministic);
+  if (runLlm) {
+    try {
+      const payload = buildWeekPlanReviewPayload(profile, sanitized, today);
+      const raw = await fetchWeekPlanReview(profile, payload);
+      const llm = parseWeekPlanReviewResponse(raw);
+      const merged = mergeWeekReviews(deterministic, llm);
+      reviewed = applyWeekPlanReviewToPlan(sanitized, merged, fingerprint, 'merged');
+    } catch {
+      /* deterministic-only is fine */
+    }
   }
 
   return reviewed;
@@ -417,4 +438,66 @@ export function dayReviewDotColor(day: WeeklyPlanDay): string | null {
   if (day.llmVerdict === 'major_issues') return 'var(--danger)';
   if (day.llmVerdict === 'minor_issues') return '#e6a800';
   return null;
+}
+
+export function shouldShowDayVerdictPill(day: WeeklyPlanDay): boolean {
+  if (day.isRestDay || day.dayStatus === 'completed') return false;
+  if (day.llmDayNote?.trim()) return true;
+  return day.llmVerdict === 'minor_issues' || day.llmVerdict === 'major_issues';
+}
+
+/** Strip legacy per-day audit fields when holistic review is the source of truth. */
+export function normalizeLoadedWeekPlan(plan: WeeklyPlan): WeeklyPlan {
+  const sanitized = sanitizeLegacyWeekPlanLlm(plan);
+  const withReview = weekPlanReviewFromEngineSnapshot(sanitized);
+  const meta = withReview.weekPlanReview;
+  const metaDayNotes = new Map(
+    (meta?.dayNotes ?? []).map((n) => [n.planDate, n]),
+  );
+
+  return {
+    ...withReview,
+    days: (withReview.days ?? []).map((d) => {
+      const base = { ...d, llmCorrections: undefined };
+      if (d.isRestDay || d.dayStatus === 'completed') {
+        return { ...base, llmDayNote: undefined };
+      }
+
+      const stored = metaDayNotes.get(d.planDate);
+      if (stored?.note?.trim()) {
+        return {
+          ...base,
+          llmVerdict: mapDayStatus(stored.status),
+          llmDayNote: stored.note.trim(),
+        };
+      }
+
+      if (d.llmDayNote?.trim()) return base;
+      if (d.llmVerdict === 'pending') {
+        return { ...base, llmVerdict: undefined };
+      }
+      if (
+        meta?.overallVerdict === 'pass' &&
+        (d.llmVerdict === 'major_issues' || d.llmVerdict === 'minor_issues')
+      ) {
+        return { ...base, llmVerdict: undefined, llmDayNote: undefined };
+      }
+      return base;
+    }),
+  };
+}
+
+export function weekAtAGlanceLine(plan: WeeklyPlan, today: string): string {
+  const upcoming = (plan.days ?? []).filter((d) => d.planDate >= today);
+  const training = upcoming.filter((d) => !d.isRestDay && d.plannedWorkout).length;
+  const rest = upcoming.filter((d) => d.isRestDay).length;
+  const completed = upcoming.filter((d) => d.dayStatus === 'completed').length;
+  const parts = [`${training} training`, `${rest} rest`];
+  if (completed) parts.push(`${completed} done`);
+  return parts.join(' · ');
+}
+
+function deterministicNeedsLlmPolish(review: WeekPlanReview): boolean {
+  if (review.overallVerdict !== 'pass') return true;
+  return review.days.some((d) => d.status !== 'ok' && d.note.trim().length > 0);
 }

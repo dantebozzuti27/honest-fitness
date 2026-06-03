@@ -207,7 +207,8 @@ function makeCtx(fixtureCtx: FixtureContext): WorkoutInvariantContext {
     bodyAssessment: null,
     dayTheme,
     weeklyCardio: null,
-    monthlyFocusMuscle: fixtureCtx.monthlyFocusMuscle ?? null,
+    monthlyFocusMuscles: fixtureCtx.monthlyFocusMuscles
+      ?? (fixtureCtx.monthlyFocusMuscle ? [fixtureCtx.monthlyFocusMuscle] : []),
     userAuthoredScheduleGroups: fixtureCtx.userAuthoredScheduleGroups
       ? new Set(fixtureCtx.userAuthoredScheduleGroups)
       : null,

@@ -4,6 +4,7 @@ import {
   computeMonthlyFocusSplitGuard,
   focusWeekOfMonth,
   monthlyFocusVolumeBonus,
+  parseMonthlyFocusState,
 } from '../../src/lib/monthlyFocus';
 
 const schedule = {
@@ -61,7 +62,7 @@ test('focusWeekOfMonth: 29th-31st clamps to week 5', () => {
 
 const focusState = {
   month: '2026-05',
-  fitness_muscle: 'biceps',
+  fitness_muscles: ['biceps'],
   life_label: '',
   life_completions: {},
 };
@@ -91,8 +92,28 @@ test('monthlyFocusVolumeBonus: split guard day halves the bonus', () => {
 });
 
 test('monthlyFocusVolumeBonus: returns 0 when no fitness focus set', () => {
-  const noFocus = { ...focusState, fitness_muscle: null };
+  const noFocus = { ...focusState, fitness_muscles: [] };
   assert.equal(monthlyFocusVolumeBonus(noFocus, '2026-05-10'), 0);
+});
+
+test('parseMonthlyFocusState: migrates legacy fitness_muscle to array', () => {
+  const parsed = parseMonthlyFocusState({
+    month: '2026-05',
+    fitness_muscle: 'biceps',
+    life_label: '',
+    life_completions: {},
+  });
+  assert.deepEqual(parsed?.fitness_muscles, ['biceps']);
+});
+
+test('parseMonthlyFocusState: accepts fitness_muscles array', () => {
+  const parsed = parseMonthlyFocusState({
+    month: '2026-05',
+    fitness_muscles: ['biceps', 'calves'],
+    life_label: '',
+    life_completions: {},
+  });
+  assert.deepEqual(parsed?.fitness_muscles, ['biceps', 'calves']);
 });
 
 test('monthlyFocusVolumeBonus: returns 0 when month does not match', () => {

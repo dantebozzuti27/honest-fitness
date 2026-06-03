@@ -131,7 +131,7 @@ test('integration: focus budget totals match weekly target across days', () => {
     { planDate: '2026-05-14', isRestDay: false, scheduledGroups: ['mid_chest'] },
     { planDate: '2026-05-15', isRestDay: true, scheduledGroups: [] },
   ];
-  const budget = buildFocusWeeklyBudget({ month: '2026-05', fitness_muscle: 'biceps' }, days)!;
+  const budget = buildFocusWeeklyBudget({ month: '2026-05', fitness_muscles: ['biceps'] }, days)!;
   const allocated = Object.values(budget.allocatedByDate).reduce((s, v) => s + v, 0);
   assert.ok(allocated >= budget.totalDirectSets * 0.85, 'allocated should approximate weekly total');
   assert.equal(focusSetBudgetForDate(budget, '2026-05-15', false), 0);

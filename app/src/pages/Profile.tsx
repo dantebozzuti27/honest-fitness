@@ -10,7 +10,17 @@ import { ageRecoveryFactor } from '../lib/recoveryModel'
 import { deleteUserAccount } from '../lib/accountDeletion'
 import { getLocalDate, getTodayEST } from '../utils/dateUtils'
 import { getMetricsFromSupabase, getAllMetricsFromSupabase, saveMetricsToSupabase } from '../lib/db/metricsDb'
-import { currentMonthKey, displayMonthlyFocusState, type MonthlyFocusStateV1 } from '../lib/monthlyFocus'
+import {
+  currentMonthKey,
+  displayMonthlyFocusState,
+  MAX_MONTHLY_FITNESS_FOCUS_MUSCLES,
+  type MonthlyFocusStateV1,
+} from '../lib/monthlyFocus'
+import {
+  normalizeMonthlyFocusStateForSave,
+  normalizePriorityMuscles,
+  validateWeeklySplitSchedule,
+} from '../lib/userPrefsNormalize'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -607,7 +617,7 @@ export default function Profile() {
   })
   const [monthlyFocus, setMonthlyFocus] = useState<MonthlyFocusStateV1>(() => ({
     month: currentMonthKey(),
-    fitness_muscle: null,
+    fitness_muscles: [],
     life_label: '',
     life_completions: {},
   }))
@@ -621,7 +631,7 @@ export default function Profile() {
    * Stored as a ref because the value should not trigger re-renders and must
    * survive the async save round-trip without races against React state.
    */
-  const initialFitnessMuscleRef = useRef<string | null>(null)
+  const initialFitnessMusclesRef = useRef<string>('')
   const initialSplitScheduleSigRef = useRef<string>('')
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileLoaded, setProfileLoaded] = useState(false)
@@ -746,7 +756,7 @@ export default function Profile() {
           phase_start_date: prefs.phase_start_date || '',
           primary_goal: prefs.primary_goal || '',
           secondary_goal: prefs.secondary_goal || '',
-          priority_muscles: Array.isArray(prefs.priority_muscles) ? prefs.priority_muscles : [],
+          priority_muscles: normalizePriorityMuscles(prefs.priority_muscles),
           weekday_deadlines: (prefs.weekday_deadlines && typeof prefs.weekday_deadlines === 'object') ? prefs.weekday_deadlines : {},
           age: prefs.age != null ? String(prefs.age) : '',
           gym_profiles: Array.isArray(prefs.gym_profiles) ? prefs.gym_profiles : [],
@@ -758,7 +768,7 @@ export default function Profile() {
         })
         const loadedFocus = displayMonthlyFocusState(prefs.monthly_focus_state, currentMonthKey())
         setMonthlyFocus(loadedFocus)
-        initialFitnessMuscleRef.current = loadedFocus.fitness_muscle ?? null
+        initialFitnessMusclesRef.current = JSON.stringify([...loadedFocus.fitness_muscles].sort())
         initialSplitScheduleSigRef.current = JSON.stringify(prefs.weekly_split_schedule ?? null)
       }
       setProfileLoaded(true)
@@ -814,7 +824,27 @@ export default function Profile() {
         phase_start_date: trainingProfile.phase_start_date || null,
         primary_goal: null,
         secondary_goal: null,
-        priority_muscles: trainingProfile.priority_muscles.length > 0 ? trainingProfile.priority_muscles : null,
+        priority_muscles: (() => {
+          const norm = normalizePriorityMuscles(trainingProfile.priority_muscles);
+          return norm.length > 0 ? norm : null;
+        })(),
+        monthly_focus_state: (() => {
+          const ym = currentMonthKey()
+          const completionsEntries = Object.entries(monthlyFocus.life_completions).filter(([k]) => k.startsWith(`${ym}-`))
+          const completions = Object.fromEntries(completionsEntries)
+          const normalized = normalizeMonthlyFocusStateForSave({
+            month: ym,
+            fitness_muscles: monthlyFocus.fitness_muscles,
+            life_label: monthlyFocus.life_label,
+            life_completions: completions,
+          })
+          const has =
+            normalized.fitness_muscles.length > 0
+            || Boolean(normalized.life_label.trim())
+            || Object.keys(completions).length > 0
+          if (!has) return null
+          return normalized
+        })(),
         weekday_deadlines: Object.values(trainingProfile.weekday_deadlines).some(v => v) ? trainingProfile.weekday_deadlines : null,
         age: trainingProfile.age ? Number(trainingProfile.age) : null,
         gym_profiles: trainingProfile.gym_profiles.length > 0 ? trainingProfile.gym_profiles : null,
@@ -823,33 +853,22 @@ export default function Profile() {
         sport_focus: trainingProfile.sport_focus || null,
         sport_season: trainingProfile.sport_season || null,
         hotel_mode: Boolean(trainingProfile.hotel_mode),
-        monthly_focus_state: (() => {
-          const ym = currentMonthKey()
-          const completionsEntries = Object.entries(monthlyFocus.life_completions).filter(([k]) => k.startsWith(`${ym}-`))
-          const completions = Object.fromEntries(completionsEntries)
-          const has =
-            Boolean(monthlyFocus.fitness_muscle)
-            || Boolean(monthlyFocus.life_label.trim())
-            || Object.keys(completions).length > 0
-          if (!has) return null
-          return {
-            month: ym,
-            fitness_muscle: monthlyFocus.fitness_muscle || null,
-            life_label: monthlyFocus.life_label.trim(),
-            life_completions: completions,
-          }
-        })(),
       }
       await saveUserPreferences(user.id, payload)
+
+      const scheduleWarnings = validateWeeklySplitSchedule(payload.weekly_split_schedule)
+      if (scheduleWarnings.length > 0) {
+        showToast(scheduleWarnings[0], 'warning')
+      }
 
       // If a field that materially changes weekly-plan generation was edited,
       // mark the cached active plan superseded so TodayWorkout / WeekAhead
       // regenerate with the new inputs on next visit. Today this covers the
       // monthly fitness focus muscle and the weekly split schedule; extend
       // the comparison list when adding new prefs that the engine reads.
-      const nextFocusMuscle = monthlyFocus.fitness_muscle || null
+      const nextFocusMusclesSig = JSON.stringify([...monthlyFocus.fitness_muscles].sort())
       const nextSplitScheduleSig = JSON.stringify(payload.weekly_split_schedule ?? null)
-      const focusChanged = nextFocusMuscle !== initialFitnessMuscleRef.current
+      const focusChanged = nextFocusMusclesSig !== initialFitnessMusclesRef.current
       const scheduleChanged = nextSplitScheduleSig !== initialSplitScheduleSigRef.current
       if (focusChanged || scheduleChanged) {
         try {
@@ -862,7 +881,7 @@ export default function Profile() {
           // the user can manually regenerate from TodayWorkout if needed.
           logError('Weekly plan supersede after profile save failed', planErr)
         }
-        initialFitnessMuscleRef.current = nextFocusMuscle
+        initialFitnessMusclesRef.current = nextFocusMusclesSig
         initialSplitScheduleSigRef.current = nextSplitScheduleSig
       }
 
@@ -1230,21 +1249,51 @@ export default function Profile() {
                 <div style={{ padding: '12px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
                   <h3 style={{ margin: '0 0 8px', fontSize: '15px', color: 'var(--text-primary)' }}>This month&apos;s focuses</h3>
                   <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                    Pick one muscle to emphasize across the program. It is layered into sessions without replacing your split: on the day before a scheduled day that already trains that muscle, added volume stays light so the hardest work lands on the right workout.
+                    Pick up to {MAX_MONTHLY_FITNESS_FOCUS_MUSCLES} muscles to emphasize across the program. They are layered into sessions without replacing your split: on the day before a scheduled day that already trains a focus muscle, added volume stays light so the hardest work lands on the right workout.
                   </p>
-                  <SelectField
-                    label="Fitness focus (one body part)"
-                    value={monthlyFocus.fitness_muscle ?? ''}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setMonthlyFocus((f) => ({
-                        ...f,
-                        month: currentMonthKey(),
-                        fitness_muscle: v ? v : null,
-                      }))
-                    }}
-                    options={[{ value: '', label: 'None' }, ...MUSCLE_GROUPS]}
-                  />
+                  <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '8px' }}>
+                    Fitness focus (body parts)
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+                    {MUSCLE_GROUPS.map(mg => {
+                      const selected = monthlyFocus.fitness_muscles.includes(mg.value)
+                      const atMax = monthlyFocus.fitness_muscles.length >= MAX_MONTHLY_FITNESS_FOCUS_MUSCLES && !selected
+                      return (
+                        <button
+                          key={mg.value}
+                          type="button"
+                          onClick={() => {
+                            if (selected) {
+                              setMonthlyFocus((f) => ({
+                                ...f,
+                                month: currentMonthKey(),
+                                fitness_muscles: f.fitness_muscles.filter(v => v !== mg.value),
+                              }))
+                            } else if (!atMax) {
+                              setMonthlyFocus((f) => ({
+                                ...f,
+                                month: currentMonthKey(),
+                                fitness_muscles: [...f.fitness_muscles, mg.value],
+                              }))
+                            }
+                          }}
+                          disabled={atMax}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '16px',
+                            border: selected ? '1px solid var(--accent, #14b8a6)' : '1px solid var(--border)',
+                            background: selected ? 'rgba(20, 184, 166, 0.85)' : 'var(--bg-tertiary)',
+                            color: selected ? '#fff' : atMax ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                            fontSize: '13px',
+                            cursor: atMax ? 'not-allowed' : 'pointer',
+                            opacity: atMax ? 0.5 : 1,
+                          }}
+                        >
+                          {mg.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                   <InputField
                     label="Life habit"
                     value={monthlyFocus.life_label}

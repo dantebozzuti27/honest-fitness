@@ -103,7 +103,7 @@ test('computePrescriptionController: high execution deviation increases weight b
 
 test('buildFocusWeeklyBudget allocates sets across training days', () => {
   const budget = buildFocusWeeklyBudget(
-    { month: '2026-05', fitness_muscle: 'biceps' },
+    { month: '2026-05', fitness_muscles: ['biceps'] },
     [
       { planDate: '2026-05-12', isRestDay: false, scheduledGroups: ['back_lats', 'biceps'] },
       { planDate: '2026-05-13', isRestDay: false, scheduledGroups: ['quadriceps'] },
@@ -118,7 +118,7 @@ test('buildFocusWeeklyBudget allocates sets across training days', () => {
 
 test('focusSetBudgetForDate halves on split-guard days', () => {
   const budget = buildFocusWeeklyBudget(
-    { month: '2026-05', fitness_muscle: 'biceps' },
+    { month: '2026-05', fitness_muscles: ['biceps'] },
     [{ planDate: '2026-05-12', isRestDay: false, scheduledGroups: ['biceps'] }],
   );
   const raw = focusSetBudgetForDate(budget, '2026-05-12', false);

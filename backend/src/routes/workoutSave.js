@@ -32,7 +32,7 @@ workoutSaveRouter.post('/', async (req, res) => {
     const userId = req.userId
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } })
 
-    const { workout, exercises: rawEx, executionEvents: rawEv } = req.body
+    const { workout, exercises: rawEx, executionEvents: rawEv, sessionFeatures } = req.body
     if (!workout?.date) return res.status(400).json({ error: { message: 'Missing workout.date' } })
 
     const workoutId = isUuidV4(workout.id) ? workout.id : randomUUID()
@@ -72,7 +72,10 @@ workoutSaveRouter.post('/', async (req, res) => {
         [
           workoutId, userId, workout.date, workout.duration ?? null, true,
           workout.templateName || null,
-          workout.perceivedEffort ?? null, workout.perceivedEffort ?? null,
+          workout.perceivedEffort ??
+            (sessionFeatures?.behavioral?.inferredRpe ?? null),
+          workout.perceivedEffort ??
+            (sessionFeatures?.behavioral?.inferredRpe ?? null),
           workout.trainingDensity != null ? Number(workout.trainingDensity) : null,
           workout.moodAfter || null, workout.notes || null, workout.dayOfWeek ?? null,
           workout.workoutCaloriesBurned != null ? Number(workout.workoutCaloriesBurned) : null,
@@ -121,7 +124,8 @@ workoutSaveRouter.post('/', async (req, res) => {
       const setCols = ['workout_exercise_id', 'set_number', 'weight', 'is_bodyweight',
         'weight_label', 'reps', 'time', 'speed', 'incline', 'is_warmup',
         'is_unilateral', 'load_interpretation', 'reps_interpretation',
-        'logged_at', 'rest_seconds_before']
+        'logged_at', 'rest_seconds_before', 'prescribed_rest_seconds', 'rest_seconds_actual',
+        'set_rpe', 'actual_rir']
       const allSets = []
       for (let i = 0; i < exercises.length; i++) {
         const exId = exIdByOrder.get(i)
@@ -145,6 +149,10 @@ workoutSaveRouter.post('/', async (req, res) => {
             reps_interpretation: s.reps_interpretation || null,
             logged_at: s.logged_at || null,
             rest_seconds_before: s.rest_seconds_before ?? null,
+            prescribed_rest_seconds: s.prescribed_rest_seconds ?? null,
+            rest_seconds_actual: s.rest_seconds_actual ?? null,
+            set_rpe: s.set_rpe ?? null,
+            actual_rir: s.actual_rir ?? null,
           })
         }
       }
@@ -205,7 +213,7 @@ workoutSaveRouter.post('/', async (req, res) => {
       return workoutRow
     })
 
-    // Post-transaction best-effort: weekly plan reconciliation
+    // Post-transaction: weekly plan reconciliation + workout outcome (closed-loop learning)
     try {
       const ws = getWeekStartMonday(workout.date)
       const v = await query(
@@ -219,8 +227,100 @@ workoutSaveRouter.post('/', async (req, res) => {
           [workoutId, new Date().toISOString(), v.rows[0].id, userId, workout.date]
         )
       }
+
+      const evRows = await query(
+        `SELECT execution_accuracy FROM prescription_execution_events WHERE user_id=$1 AND workout_id=$2`,
+        [userId, workoutId]
+      )
+      const accs = evRows.rows.map((r) => Number(r.execution_accuracy)).filter((n) => Number.isFinite(n) && n > 0)
+      const outcomeScore = accs.length > 0
+        ? Math.round((accs.reduce((a, b) => a + b, 0) / accs.length) * 1000) / 1000
+        : (exercises.length > 0 ? 0.85 : 1)
+      const setCount = exercises.reduce((n, e) => n + (e.sets?.length || 0), 0)
+      const sf = sessionFeatures && typeof sessionFeatures === 'object' ? sessionFeatures : null
+      const behavioral = sf?.behavioral && typeof sf.behavioral === 'object' ? sf.behavioral : null
+      const behavioralOutcome =
+        behavioral?.behavioralOutcomeScore != null
+          ? Number(behavioral.behavioralOutcomeScore)
+          : null
+      const aestheticScore = sf?.aestheticScore != null ? Number(sf.aestheticScore) : null
+      const blendedOutcome =
+        behavioralOutcome != null
+          ? Math.round(
+              (behavioralOutcome * 0.55 +
+                outcomeScore * 0.3 +
+                (aestheticScore ?? behavioralOutcome) * 0.15) *
+                1000,
+            ) / 1000
+          : aestheticScore != null && accs.length > 0
+            ? Math.round((outcomeScore * 0.6 + aestheticScore * 0.4) * 1000) / 1000
+            : aestheticScore != null
+              ? aestheticScore
+              : outcomeScore
+
+      if (sf?.totalRestSeconds != null) {
+        try {
+          await query(
+            `UPDATE workouts SET
+               session_rest_seconds_total = $1,
+               rest_compliance_ratio = $2
+             WHERE id = $3 AND user_id = $4`,
+            [
+              Number(sf.totalRestSeconds) || null,
+              sf.restComplianceRatio != null ? Number(sf.restComplianceRatio) : null,
+              workoutId,
+              userId,
+            ],
+          )
+        } catch (wErr) {
+          console.warn('[workout-save] Session rest columns skipped:', wErr.message)
+        }
+      }
+
+      try {
+        await query(
+          `INSERT INTO training_session_features (user_id, workout_id, workout_date, feature_version, features)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (user_id, workout_id) DO UPDATE SET
+             features = EXCLUDED.features,
+             feature_version = EXCLUDED.feature_version`,
+          [
+            userId,
+            workoutId,
+            workout.date,
+            sf?.featureVersion || '2026-06-03.1',
+            JSON.stringify(sf || { setCount, source: 'workout_save' }),
+          ],
+        )
+      } catch (featErr) {
+        console.warn('[workout-save] training_session_features skipped:', featErr.message)
+      }
+
+      const idempotencyKey = `workout:${workoutId}`
+      await query(
+        `INSERT INTO workout_outcomes (user_id, generated_workout_id, workout_date, session_outcome_score, outcome_notes, idempotency_key)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (user_id, idempotency_key) DO UPDATE SET
+           session_outcome_score=EXCLUDED.session_outcome_score,
+           generated_workout_id=COALESCE(EXCLUDED.generated_workout_id, workout_outcomes.generated_workout_id),
+           outcome_notes=EXCLUDED.outcome_notes`,
+        [
+          userId,
+          genId,
+          workout.date,
+          blendedOutcome,
+          JSON.stringify({
+            source: 'workout_save',
+            exerciseCount: exercises.length,
+            setCount,
+            sessionFeatures: sf,
+            executionAccuracy: outcomeScore,
+          }),
+          idempotencyKey,
+        ]
+      )
     } catch (e) {
-      console.warn('[workout-save] Weekly plan reconciliation skipped:', e.message)
+      console.warn('[workout-save] Post-save reconcile/outcome skipped:', e.message)
     }
 
     const ms = Date.now() - t0

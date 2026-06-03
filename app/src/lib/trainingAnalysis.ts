@@ -26,6 +26,11 @@ import { aggregateExerciseExecutionDeltas, type ExerciseExecutionDeltaV1 } from 
 import { VOLUME_GUIDELINES, SYNERGIST_FATIGUE, type CanonicalMuscleGroup, type MuscleGroupOrCardio, type ExerciseType, type MovementPattern, type ForceType, type Difficulty } from './volumeGuidelines';
 import { getAllConnectedAccounts } from './wearables';
 import {
+  aggregatePatternObservations,
+  patternsForEngine,
+  type AggregatedPattern,
+} from './patternLearning';
+import {
   computeAllRecoveryStatuses,
   exercisesToMuscleGroupRecords,
   type RecoveryContext,
@@ -44,6 +49,12 @@ import {
 import { classifySessionMuscleGroups } from './splitOntology';
 import { localDayOfWeek } from '../utils/dateUtils';
 import strengthStandardsData from './strengthStandards.json';
+import {
+  epley1RM,
+  epley1RMWithRir,
+  robustRecentPeakE1rm,
+  sessionBestE1rmFromSets,
+} from './e1rmEstimation';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -610,6 +621,12 @@ export interface TrainingProfile {
   healthDataDays: number;
   connectedWearables: string[];
 
+  /** Median actual/prescribed rest from recent training_session_features (1.0 = on target). */
+  restComplianceMedian: number | null;
+
+  /** Deduped LLM patterns with behavioral verification (engine + UI). */
+  learnedPatterns: AggregatedPattern[];
+
   // ── Philosophical Theories ──
   honestEffort: HonestEffortSummary;
   consistencyQuotient: ConsistencyQuotient;
@@ -1008,32 +1025,6 @@ function stddev(arr: number[]): number {
   if (arr.length < 2) return 0;
   const m = mean(arr);
   return Math.sqrt(arr.reduce((sum, v) => sum + (v - m) ** 2, 0) / (arr.length - 1));
-}
-
-function epley1RM(weight: number, reps: number): number {
-  if (reps <= 0 || weight <= 0) return 0;
-  if (reps === 1) return weight;
-  return weight * (1 + reps / 30);
-}
-
-/**
- * RIR-corrected Epley: when the set was logged with reps in reserve, the
- * user's true capacity is `reps + RIR`, not `reps`. Plain Epley assumes the
- * input set was to failure. Without this correction, a user who consistently
- * trains at RIR 2 will have e1RM systematically underestimated by ~7%, which
- * propagates into reverse-Epley prescriptions and produces ever-lighter
- * working weights over time.
- *
- * If `rir` is null/undefined we conservatively assume RIR 1 — most
- * recreational lifters leave at least 1 rep in the tank rather than truly
- * grinding to failure. Callers that have explicit RIR data should pass it.
- */
-function epley1RMWithRir(weight: number, reps: number, rir: number | null | undefined): number {
-  if (reps <= 0 || weight <= 0) return 0;
-  const adjustedRir = rir == null ? 1 : Math.max(0, Math.min(4, rir));
-  const effectiveReps = reps + adjustedRir;
-  if (effectiveReps === 1) return weight;
-  return weight * (1 + effectiveReps / 30);
 }
 
 /**
@@ -2010,41 +2001,36 @@ function computeExerciseProgressions(
       // Filter warmup sets before computing progressions
       const workingSets = filterWorkingSets(ex.workout_sets);
 
-      let best1RM = 0;
-      let bestWeight = 0;
-      let bestReps = 0;
       let lastWeight = 0;
 
-      // Per-date BW for historical accuracy
       const bwForDate = weightByDate
         ? getWeightForDate(weightByDate, w.date, userBodyWeight ?? null)
         : userBodyWeight ?? null;
 
       for (const s of workingSets) {
-        let effectiveWeight = s.weight;
-
-        if (s.is_bodyweight && bwForDate && bwForDate > 0) {
-          effectiveWeight = Math.round(bwForDate * getBWFraction(ex.exercise_name));
-        }
-
-        if (effectiveWeight != null && s.reps != null && effectiveWeight > 0) {
-          // Prefer logged RIR; fall back to RPE-derived RIR (RIR ≈ 10 - RPE);
-          // else assume RIR 1 (conservative recreational default).
-          const loggedRir = s.actual_rir != null
-            ? Number(s.actual_rir)
-            : (s.set_rpe != null ? Math.max(0, 10 - Number(s.set_rpe)) : null);
-          const e1rm = epley1RMWithRir(effectiveWeight, s.reps, loggedRir);
-          if (e1rm > best1RM) {
-            best1RM = e1rm;
-            bestWeight = effectiveWeight;
-            bestReps = s.reps;
-          }
-          lastWeight = effectiveWeight;
-        }
+        if (s.weight != null && s.weight > 0) lastWeight = s.weight;
       }
 
-      if (best1RM > 0) {
-        exerciseSessions[key].push({ date: w.date, best1RM, bestWeight, bestReps, lastWeight });
+      const sessionBest = sessionBestE1rmFromSets(
+        workingSets.map((s) => ({
+          weight: s.weight,
+          reps: s.reps,
+          is_bodyweight: s.is_bodyweight,
+          actual_rir: s.actual_rir,
+          set_rpe: s.set_rpe,
+        })),
+        bwForDate,
+        getBWFraction(ex.exercise_name),
+      );
+
+      if (sessionBest) {
+        exerciseSessions[key].push({
+          date: w.date,
+          best1RM: sessionBest.e1rm,
+          bestWeight: sessionBest.weight,
+          bestReps: sessionBest.reps,
+          lastWeight,
+        });
       }
     }
   }
@@ -2077,9 +2063,9 @@ function computeExerciseProgressions(
       // is excluded so old PRs don't haunt detraining periods).
       const RECENT_PEAK_WINDOW = 4;
       const recentWindow = filtered.slice(-RECENT_PEAK_WINDOW);
-      const recentPeakE1rm = recentWindow.reduce(
-        (best, s) => Math.max(best, s.best1RM),
-        0,
+      const recentPeakE1rm = robustRecentPeakE1rm(
+        recentWindow.map((s) => s.best1RM),
+        RECENT_PEAK_WINDOW,
       );
       // bestSet for the peak: pick whichever session in the window produced
       // the highest e1RM. Used by the progression gate to decide if the
@@ -4626,6 +4612,7 @@ export interface PreFetchedTrainingData {
   generatedWorkouts: any[];
   workoutOutcomes: any[];
   executionEvents: any[];
+  sessionFeatures: any[];
 }
 
 export async function computeTrainingProfile(userId: string): Promise<TrainingProfile> {
@@ -4645,7 +4632,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
           .eq('feedback_type', 'pattern_observation')
           .gte('created_at', thirtyDaysAgo)
           .order('created_at', { ascending: false })
-          .limit(10);
+          .limit(800);
       } catch {
         return { data: null, error: null } as any;
       }
@@ -4686,6 +4673,31 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     } catch { /* non-fatal */ }
   }
 
+  let sessionFeatures: any[] = [];
+  try {
+    const { data } = await supabase
+      .from('training_session_features')
+      .select('workout_id, features, workout_date')
+      .eq('user_id', userId)
+      .order('workout_date', { ascending: false })
+      .limit(24);
+    sessionFeatures = data || [];
+  } catch {
+    sessionFeatures = [];
+  }
+
+  const behavioralRpeByWorkoutId = new Map<string, number>();
+  for (const row of sessionFeatures) {
+    const rpe = row?.features?.behavioral?.inferredRpe;
+    if (row?.workout_id && rpe != null) behavioralRpeByWorkoutId.set(row.workout_id, Number(rpe));
+  }
+  for (const w of workouts) {
+    if (w.session_rpe == null && w.perceived_effort == null) {
+      const inferred = behavioralRpeByWorkoutId.get(w.id);
+      if (inferred != null) (w as WorkoutRecord).perceived_effort = inferred;
+    }
+  }
+
   return computeTrainingProfileFromData(userId, {
     preferences: prefsResult?.data ?? null,
     workouts,
@@ -4698,6 +4710,7 @@ export async function computeTrainingProfile(userId: string): Promise<TrainingPr
     generatedWorkouts: genWorkouts,
     workoutOutcomes: outcomes,
     executionEvents: execEvents,
+    sessionFeatures,
   });
 }
 
@@ -4918,6 +4931,18 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
   const swapLearning = computeSwapLearningFeaturesFromData(swapRows);
   const nutritionLoggingCoverage14d = computeNutritionLoggingCoverage14d(health);
 
+  const restRatios = (data.sessionFeatures ?? [])
+    .map((row: any) => Number(row?.features?.medianRestVsPrescribed))
+    .filter((n: number) => Number.isFinite(n) && n > 0);
+  const restComplianceMedian =
+    restRatios.length > 0
+      ? (() => {
+          const s = [...restRatios].sort((a, b) => a - b);
+          const m = Math.floor(s.length / 2);
+          return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+        })()
+      : null;
+
   const athleteProfileResult = computeAthleteProfile(spResults, hpResults, muscleVolumeStatuses, {
     consistencyScore,
     trainingFrequency,
@@ -5100,23 +5125,35 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
     trainingAgeDays: Math.round(trainingAgeDays),
     consistencyScore: Math.round(consistencyScore * 100) / 100,
     muscleGroupFrequency,
-    llmPatternObservations: (feedbackRows ?? [])
-      .filter((r: any) => {
-        // Keep legacy rows with no provenance metadata, but exclude unverified model-only observations.
-        const source = r?.feedback_source ?? null;
-        const quality = r?.feedback_quality ?? null;
-        const verified = r?.verified_by_user === true;
-        if (!source && !quality && !verified) return true;
-        if (verified) return true;
-        if (quality === 'verified' || quality === 'trusted') return true;
-        return source !== 'model_review';
-      })
-      .map((r: any) => r.feedback_data)
-      .filter((d: any) => d && typeof d.pattern === 'string'),
+    ...(() => {
+      const patternProfileCtx = {
+        muscleVolumeStatuses,
+        muscleGroupFrequency,
+        exerciseSwapHistory: swapLearning.exerciseSwapHistory,
+        exercisePreferences: computeExercisePreferences(workouts),
+        avgSessionDuration,
+        cumulativeSleepDebt,
+        totalWorkoutCount: workouts.length,
+        restComplianceMedian: restComplianceMedian ?? null,
+      } as TrainingProfile;
+      const aggregated = aggregatePatternObservations(
+        (feedbackRows ?? []).map((r: any) => ({
+          feedback_data: r.feedback_data,
+          created_at: r.created_at,
+        })),
+        patternProfileCtx,
+        { maxPatterns: 12, minOccurrences: 1 },
+      );
+      return {
+        learnedPatterns: aggregated,
+        llmPatternObservations: patternsForEngine(aggregated),
+      };
+    })(),
 
     totalWorkoutCount,
     healthDataDays,
     connectedWearables,
+    restComplianceMedian: restComplianceMedian != null ? Math.round(restComplianceMedian * 1000) / 1000 : null,
 
     // Philosophical theories
     honestEffort: honestEffortResult,

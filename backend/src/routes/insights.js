@@ -120,9 +120,11 @@ Respond with ONLY this JSON:
 RULES:
 - If the workout looks good, return empty arrays and verdict "pass"
 - Maximum 3 immediate corrections — only flag the most critical
-- Maximum 3 pattern observations
-- Never invent data — only reference values present in the profile
-- Be conservative: if unsure, do not correct`
+- Maximum 3 pattern observations — ONLY if novel vs profile (not repeats of known MRV/volume facts)
+- Never invent data — cite specific profile fields (muscleVolumeStatuses, swap history, session duration)
+- If the profile already shows the same issue, return empty pattern_observations
+- Do not re-state generic advice (e.g. "train hard") — each pattern must change engine behavior
+- Be conservative: if unsure, return empty arrays`
 
 const insightsLimiter = rateLimit({
   windowMs: 60 * 1000,

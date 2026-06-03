@@ -1,14 +1,14 @@
 /**
  * Monthly fitness focus as a weekly volume budget — not an append slot.
  *
- * Allocates direct sets for the focus muscle across the training week.
+ * Allocates direct sets for each focus muscle across the training week.
  * Split days that already train the muscle get the heavy share; other
  * days get layered maintenance dose.
  */
 
 import { normalizeMuscleGroupName } from './volumeGuidelines';
 import {
-  activeMonthlyFitnessMuscleForDate,
+  activeMonthlyFitnessMusclesForDate,
   focusWeekOfMonth,
   type MonthlyFocusStateV1,
 } from './monthlyFocus';
@@ -26,30 +26,26 @@ export interface FocusBudgetDayInput {
   scheduledGroups: string[];
 }
 
-/** Weekly direct-set target for the focus muscle (aggressive but finite). */
-function weeklyFocusSetTarget(weekOfMonth: number): number {
-  if (weekOfMonth === 1) return 14;
-  if (weekOfMonth === 2 || weekOfMonth === 3) return 18;
-  return 14; // week 4+ consolidation
+/** Weekly direct-set target for one focus muscle (aggressive but finite). */
+function weeklyFocusSetTarget(weekOfMonth: number, focusMuscleCount: number): number {
+  const base =
+    weekOfMonth === 1 ? 14 :
+    weekOfMonth === 2 || weekOfMonth === 3 ? 18 :
+    14;
+  if (focusMuscleCount <= 1) return base;
+  return Math.max(6, Math.round(base / focusMuscleCount));
 }
 
-/**
- * Distribute weekly focus sets across training days.
- * - Days where focus is in the split: ~65% of budget (heavy)
- * - Other training days: split remainder (layered)
- */
-export function buildFocusWeeklyBudget(
+function buildFocusWeeklyBudgetForMuscle(
   focusState: MonthlyFocusStateV1 | null | undefined,
   days: FocusBudgetDayInput[],
+  muscle: string,
+  focusMuscleCount: number,
 ): FocusWeeklyBudgetV1 | null {
   if (!days.length) return null;
-  const ym = days[0].planDate.slice(0, 7);
-  const muscle = activeMonthlyFitnessMuscleForDate(focusState ?? null, days[0].planDate);
-  if (!muscle) return null;
-
   const canonical = normalizeMuscleGroupName(muscle) ?? muscle;
   const weekOfMonth = focusWeekOfMonth(days[0].planDate);
-  const total = weeklyFocusSetTarget(weekOfMonth);
+  const total = weeklyFocusSetTarget(weekOfMonth, focusMuscleCount);
 
   const trainingDays = days.filter(d => !d.isRestDay);
   if (trainingDays.length === 0) return null;
@@ -85,6 +81,28 @@ export function buildFocusWeeklyBudget(
   };
 }
 
+/** Budget for the first active focus muscle (legacy single-focus callers). */
+export function buildFocusWeeklyBudget(
+  focusState: MonthlyFocusStateV1 | null | undefined,
+  days: FocusBudgetDayInput[],
+): FocusWeeklyBudgetV1 | null {
+  const budgets = buildFocusWeeklyBudgets(focusState, days);
+  return budgets[0] ?? null;
+}
+
+/** One weekly budget per active monthly focus muscle. */
+export function buildFocusWeeklyBudgets(
+  focusState: MonthlyFocusStateV1 | null | undefined,
+  days: FocusBudgetDayInput[],
+): FocusWeeklyBudgetV1[] {
+  if (!days.length) return [];
+  const muscles = activeMonthlyFitnessMusclesForDate(focusState ?? null, days[0].planDate);
+  if (!muscles.length) return [];
+  return muscles
+    .map((muscle) => buildFocusWeeklyBudgetForMuscle(focusState, days, muscle, muscles.length))
+    .filter((b): b is FocusWeeklyBudgetV1 => b != null);
+}
+
 /** Sets budget for a single plan date (0 if rest or no focus). */
 export function focusSetBudgetForDate(
   budget: FocusWeeklyBudgetV1 | null | undefined,
@@ -95,4 +113,21 @@ export function focusSetBudgetForDate(
   const raw = budget.allocatedByDate[planDate] ?? 0;
   if (isSplitGuardDay) return Math.max(2, Math.floor(raw * 0.55));
   return raw;
+}
+
+/** Per-muscle set budgets for one plan date. */
+export function focusSetBudgetsForDate(
+  budgets: FocusWeeklyBudgetV1[],
+  planDate: string,
+  splitGuardByMuscle: Record<string, boolean>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const budget of budgets) {
+    out[budget.muscle] = focusSetBudgetForDate(
+      budget,
+      planDate,
+      Boolean(splitGuardByMuscle[budget.muscle]),
+    );
+  }
+  return out;
 }

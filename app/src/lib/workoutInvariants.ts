@@ -70,19 +70,10 @@ export interface WorkoutInvariantContext {
   /** Optional — when omitted, weekly cardio invariant is a no-op. */
   weeklyCardio?: WeeklyCardioContext | null;
   /**
-   * Active monthly fitness focus muscle (canonical, lowercase).
-   *
-   * The monthly-focus contract is "this muscle gets layered into every
-   * workout, no matter what." So invariants like `theme_coherence` that
-   * normally drop off-theme strength work MUST exempt this muscle —
-   * otherwise the focus slot the engine deliberately appends gets killed
-   * the moment it goes into a day whose schedule theme doesn't already
-   * cover it (e.g. layered biceps on a chest/triceps push day).
-   *
-   * `null`/undefined when no monthly focus is configured for the planning
-   * date.
+   * Active monthly fitness focus muscles (canonical ids). Exercises marked
+   * `isUndroppable` for monthly focus are exempt from theme/schedule drops.
    */
-  monthlyFocusMuscle?: string | null;
+  monthlyFocusMuscles?: string[];
   /**
    * Hard schedule contract: when set, this is the verbatim list of
    * canonical muscle groups the user authored for this day's workout

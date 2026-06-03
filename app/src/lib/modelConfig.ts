@@ -562,8 +562,8 @@ export interface ModelConfig {
 // saved plan still claims to be the old version."
 export const MODEL_CONFIG_VERSION = '2026-04-27.1';
 /** Bump when rep-range / prescription policy logic changes (invalidates cached week plans). */
-export const PRESCRIPTION_POLICY_VERSION = '2026-05-28.4';
-export const WORKOUT_ENGINE_VERSION = '2026-05-27.10';
+export const PRESCRIPTION_POLICY_VERSION = '2026-05-28.5';
+export const WORKOUT_ENGINE_VERSION = '2026-05-28.1';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery

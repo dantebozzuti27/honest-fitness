@@ -106,7 +106,7 @@ workoutLoadRouter.get('/', async (req, res) => {
         `SELECT feedback_data, feedback_source, feedback_quality, verified_by_user, created_at
          FROM model_feedback
          WHERE user_id = $1 AND feedback_type = 'pattern_observation' AND created_at >= $2
-         ORDER BY created_at DESC LIMIT 10`,
+         ORDER BY created_at DESC LIMIT 500`,
         [userId, thirtyDaysAgo]
       ),
 

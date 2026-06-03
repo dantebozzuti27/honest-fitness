@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getUserPreferences, saveUserPreferences } from '../lib/db/userPreferencesDb'
 import {
-  computeMonthlyFocusSplitGuard,
+  computeMonthlyFocusSplitGuardForAny,
   currentMonthKey,
   displayMonthlyFocusState,
-  muscleGroupDisplayLabel,
+  muscleGroupsDisplayLabels,
   type MonthlyFocusStateV1,
 } from '../lib/monthlyFocus'
 import { getLocalDate } from '../utils/dateUtils'
@@ -16,22 +16,6 @@ import Button from './Button'
 
 /**
  * Surfaces the user's monthly fitness + life focuses outside Profile.
- *
- * Why a dedicated component:
- *   - Home and TodayWorkout both want the same data; the engine reads it
- *     silently. Without a UI here the user has no way to see whether the
- *     focus is active, mark a habit completion, or know that today is a
- *     "split guard" day for the fitness focus.
- *
- * Variants (`variant` prop):
- *   - `full` (default) — used on Home. Shows both rows, a daily check-off
- *     toggle for the life habit, a month progress count, and a "Set in
- *     Profile" link. Renders an empty-state CTA when no focus is set so
- *     the user can discover the feature.
- *   - `compact` — used on TodayWorkout / WeekAhead. Single-line read-only
- *     banner: "This month's focus: Biceps · light layered today". Nothing
- *     renders if no fitness focus is set, since the compact placement is
- *     primarily there to explain why bicep accessories show up in plans.
  */
 type Variant = 'full' | 'compact'
 
@@ -80,11 +64,11 @@ export default function MonthlyFocusCard({
       const ym = currentMonthKey()
       const next = displayMonthlyFocusState(prefs?.monthly_focus_state, ym)
       setState(next)
-      const guard = computeMonthlyFocusSplitGuard(
+      const guard = computeMonthlyFocusSplitGuardForAny(
         prefs?.weekly_split_schedule ?? null,
         Array.isArray(prefs?.rest_days) ? prefs.rest_days : null,
         getLocalDate(),
-        next.fitness_muscle,
+        next.fitness_muscles,
       )
       setSplitGuardActive(guard)
     } catch (err) {
@@ -104,10 +88,10 @@ export default function MonthlyFocusCard({
   const monthDone = state ? completionsForMonth(state, ym) : 0
   const monthTotal = monthLength(ym)
 
-  const fitnessLabel = state?.fitness_muscle
-    ? muscleGroupDisplayLabel(state.fitness_muscle)
+  const fitnessLabel = state?.fitness_muscles.length
+    ? muscleGroupsDisplayLabels(state.fitness_muscles)
     : ''
-  const hasAnyFocus = Boolean(state && (state.fitness_muscle || state.life_label.trim()))
+  const hasAnyFocus = Boolean(state && (state.fitness_muscles.length > 0 || state.life_label.trim()))
 
   const toggleToday = async () => {
     if (!user?.id || !state || !state.life_label.trim()) return
@@ -139,7 +123,7 @@ export default function MonthlyFocusCard({
   if (loading) return null
 
   if (variant === 'compact') {
-    if (!state?.fitness_muscle) return null
+    if (!state?.fitness_muscles.length) return null
     return (
       <button
         type="button"
@@ -197,7 +181,7 @@ export default function MonthlyFocusCard({
               Set this month&apos;s focuses
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-              One body part to layer into workouts and one daily life habit to track.
+              Body parts to layer into workouts and one daily life habit to track.
             </div>
           </div>
           <Button variant="secondary" onClick={() => navigate('/profile')}>
@@ -284,7 +268,7 @@ export default function MonthlyFocusCard({
               </>
             ) : (
               <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
-                No fitness focus set — pick one in Profile.
+                No fitness focus set — pick muscles in Profile.
               </div>
             )}
           </div>

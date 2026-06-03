@@ -36,10 +36,12 @@ import { DEFAULT_MODEL_CONFIG, MODEL_CONFIG_VERSION, WORKOUT_ENGINE_VERSION, typ
 import { getSportProfile, type SportProfile, type SportSeason } from './sportProfiles';
 import { getLocalDate } from '../utils/dateUtils';
 import {
-  activeMonthlyFitnessMuscleForDate,
+  activeMonthlyFitnessMusclesForDate,
+  buildMonthlyFocusDayContext,
   computeMonthlyFocusSplitGuard,
-  monthlyFocusVolumeBonus,
+  muscleGroupsDisplayLabels,
   parseMonthlyFocusState,
+  type MonthlyFocusDayContext,
   type MonthlyFocusStateV1,
 } from './monthlyFocus';
 import {
@@ -49,10 +51,22 @@ import {
 } from './liftCapacity';
 import { computePrescriptionController } from './prescriptionController';
 import {
-  buildFocusWeeklyBudget,
-  focusSetBudgetForDate,
+  buildFocusWeeklyBudgets,
+  focusSetBudgetsForDate,
   type FocusWeeklyBudgetV1,
 } from './focusVolumeBudget';
+import {
+  computeBreakRampMultiplier,
+  effectiveSessionDurationMinutes,
+  isOverlappingFocusAndPriority,
+  learnedRestMultiplierFromTelemetry,
+} from './enginePersonalization';
+import { learnedPreferenceToE1rm } from './e1rmEstimation';
+import {
+  backfillPlanConstraints,
+  shouldSkipWeekRegenForSwapActivity,
+} from './weekPlanLifecycle';
+import { normalizePriorityMuscles } from './userPrefsNormalize';
 import {
   buildWeekPlanConstraints,
   isWeeklyPlanDayStale,
@@ -822,25 +836,7 @@ function deriveE1rmReference(
   if (prog && typeof prog.estimated1RM === 'number' && prog.estimated1RM > 0) {
     return prog.estimated1RM;
   }
-  if (
-    pref &&
-    typeof pref.learnedWeight === 'number' && pref.learnedWeight > 0 &&
-    typeof pref.learnedReps === 'number' && pref.learnedReps > 0
-  ) {
-    // Apply Epley with an implicit RIR assumption.
-    //
-    // The learned weight × reps came from logged sets that, in practice,
-    // were NOT grinding to failure — users typically leave ~1 RIR on
-    // working sets. Treating learnedReps as if they were 0-RIR
-    // systematically under-estimates true 1RM by 3-4%, which then
-    // under-prescribes downstream weights. Adding 1 effective rep to
-    // the Epley formula corrects for this conservative bias.
-    const reps = Math.max(1, Math.round(pref.learnedReps));
-    const assumedRir = 1;
-    const effectiveReps = reps + assumedRir;
-    return pref.learnedWeight * (1 + effectiveReps / 30);
-  }
-  return null;
+  return learnedPreferenceToE1rm(pref?.learnedWeight, pref?.learnedReps);
 }
 
 /**
@@ -1485,14 +1481,14 @@ function runtimeFlagEnabled(flag: string, defaultValue = true): boolean {
 }
 
 function getNutritionAdherenceSignal(profile: TrainingProfile): number {
-  // Prefer actual nutrition logging coverage (from meal_logs / health_metrics) over workout compliance
   const nutritionCov = profile.nutritionLoggingCoverage14d;
-  if (nutritionCov != null && nutritionCov > 0) return clampNumber(nutritionCov, 0, 1);
+  if (nutritionCov == null || nutritionCov <= 0) return 0.5;
+  return clampNumber(nutritionCov, 0, 1);
+}
 
-  // Fall back to workout compliance as a rough proxy when no nutrition data exists
-  const rawCompliance = profile.prescribedVsActual?.complianceRate ?? null;
-  if (rawCompliance == null) return 0.5;
-  return clampNumber(Number(rawCompliance) * 0.8, 0, 1);
+function hasNutritionLogging(profile: TrainingProfile): boolean {
+  const cov = profile.nutritionLoggingCoverage14d;
+  return cov != null && cov > 0;
 }
 
 function computePolicyFusion(
@@ -1519,7 +1515,7 @@ function computePolicyFusion(
   // training volume by up to 15% (recoverable), strong compliance allows
   // up to 12% more. The coefficient slope doubles (0.16 → 0.27) so the
   // gradient between compliant and non-compliant is visible.
-  const nutritionMultiplier = rawCompliance != null
+  const nutritionMultiplier = hasNutritionLogging(profile)
     ? clampNumber(0.85 + nutritionAdherence * 0.27, 0.85, 1.12)
     : 1.0;
   const strengthMultiplier = strengthDirection === 'down'
@@ -1694,16 +1690,18 @@ function computeFatLossController(profile: TrainingProfile, prefs: UserPreferenc
     controlSignal *= scale;
   }
 
-  // Nutrition logging + adherence: avoid blaming training when intake is unknown or chaotic.
+  // Nutrition dampening only when user actually logs meals — not for Fitbit-only users.
   const nutritionCov = profile.nutritionLoggingCoverage14d;
   const nutritionAdherence = getNutritionAdherenceSignal(profile);
   let nutritionDampeningFactor = 1;
-  if (nutritionCov != null && nutritionCov < cfg.fatLossNutritionCoverageThreshold && nutritionAdherence < cfg.fatLossNutritionAdherenceThreshold) {
-    nutritionDampeningFactor = cfg.fatLossNutritionCoverageFloor + (1 - cfg.fatLossNutritionCoverageFloor) * (nutritionCov / cfg.fatLossNutritionCoverageThreshold);
-    controlSignal *= nutritionDampeningFactor;
-  } else if (nutritionAdherence < cfg.fatLossNutritionAdherenceLowThreshold) {
-    nutritionDampeningFactor = cfg.fatLossNutritionAdherenceLowFloor + (1 - cfg.fatLossNutritionAdherenceLowFloor) * nutritionAdherence;
-    controlSignal *= nutritionDampeningFactor;
+  if (hasNutritionLogging(profile)) {
+    if (nutritionCov != null && nutritionCov < cfg.fatLossNutritionCoverageThreshold && nutritionAdherence < cfg.fatLossNutritionAdherenceThreshold) {
+      nutritionDampeningFactor = cfg.fatLossNutritionCoverageFloor + (1 - cfg.fatLossNutritionCoverageFloor) * (nutritionCov / cfg.fatLossNutritionCoverageThreshold);
+      controlSignal *= nutritionDampeningFactor;
+    } else if (nutritionAdherence < cfg.fatLossNutritionAdherenceLowThreshold) {
+      nutritionDampeningFactor = cfg.fatLossNutritionAdherenceLowFloor + (1 - cfg.fatLossNutritionAdherenceLowFloor) * nutritionAdherence;
+      controlSignal *= nutritionDampeningFactor;
+    }
   }
   controlSignal = clampNumber(controlSignal, cfg.fatLossControlClamp[0], cfg.fatLossControlClamp[1]);
 
@@ -2128,17 +2126,12 @@ function stepSelectMuscleGroups(
    * to all candidates if the filter is empty).
    */
   activeDayTheme?: DayTheme | null,
-  monthlyFocusMuscle: string | null = null,
-  monthlyFocusSplitGuard: boolean = false,
-  monthlyFocusVolumeBoost: number = 0,
-  focusDaySetBudget: number = 0,
+  monthlyFocusCtx: MonthlyFocusDayContext | null = null,
 ): { selected: MuscleGroupSelection[]; skipped: Array<{ muscleGroup: string; reason: string }> } {
   const candidates: MuscleGroupSelection[] = [];
   const skipped: Array<{ muscleGroup: string; reason: string }> = [];
-  const monthlyNorm = monthlyFocusMuscle
-    ? (normalizeMuscleGroupName(monthlyFocusMuscle) ?? monthlyFocusMuscle.toLowerCase())
-    : null;
-  const isMonthlyFocusGroup = (group: string) => Boolean(monthlyNorm && group === monthlyNorm);
+  const monthlyFocusSet = new Set(monthlyFocusCtx?.muscles ?? []);
+  const isMonthlyFocusGroup = (group: string) => monthlyFocusSet.has(group);
 
   // Determine today's target groups from detected split or user preference
   const { detectedSplit, dayOfWeekPatterns } = profile;
@@ -2150,8 +2143,10 @@ function stepSelectMuscleGroups(
   let splitTargetGroups: Set<string> | null = null;
   const preferredGroupSet = new Set<string>(normalizeMuscleGroupList(preferredGroups ?? []));
   const todayPatternGroups = normalizeMuscleGroupList(todayPattern?.muscleGroupsTypical ?? []);
-  const priorityMuscleSet = new Set<string>(normalizeMuscleGroupList(prefs.priority_muscles ?? []));
+  const priorityMusclesNorm = normalizePriorityMuscles(prefs.priority_muscles);
+  const priorityMuscleSet = new Set<string>(priorityMusclesNorm);
   const isPriorityMuscle = (group: string) => priorityMuscleSet.has(group);
+  const restDaySet = new Set(Array.isArray(prefs.rest_days) ? prefs.rest_days : []);
 
   // Hard contract detection: did the user explicitly author this day's
   // split via the Profile schedule editor? When true, the split is a
@@ -2407,9 +2402,16 @@ function stepSelectMuscleGroups(
     if (isPriorityMuscle(vol.muscleGroup)) {
       priority += cfg.priorityMuscleBoost;
     } else if (isMonthlyFocusGroup(vol.muscleGroup)) {
-      priority += monthlyFocusSplitGuard
+      const guarded = Boolean(monthlyFocusCtx?.splitGuardByMuscle[vol.muscleGroup]);
+      const overlap = isOverlappingFocusAndPriority(
+        vol.muscleGroup,
+        priorityMusclesNorm,
+        monthlyFocusCtx?.muscles ?? [],
+      );
+      const boost = overlap ? 0.55 : 1;
+      priority += (guarded
         ? cfg.priorityMuscleBoost * 0.38
-        : cfg.priorityMuscleBoost * 0.72;
+        : cfg.priorityMuscleBoost * 0.72) * boost;
     }
 
     // #8: Weak-point prioritization from strength percentiles
@@ -2531,7 +2533,7 @@ function stepSelectMuscleGroups(
     } else {
       expandedTargets = expandWithSynergists(splitTargetGroups);
     }
-    if (monthlyNorm) expandedTargets.add(monthlyNorm);
+    for (const mf of monthlyFocusSet) expandedTargets.add(mf);
     const splitFiltered = candidates.filter(c => expandedTargets.has(c.muscleGroup));
     // For user-authored schedules: empty pool is still valid. The user
     // is telling us "train these muscles today, period". If recovery
@@ -2555,12 +2557,15 @@ function stepSelectMuscleGroups(
   //   75 min  → 4 groups
   //   90 min+ → 5 groups
   const dur = prefs.session_duration_minutes;
-  const maxGroups = dur <= 35 ? 2
+  let maxGroups = dur <= 35 ? 2
     : dur <= 55 ? 2
     : dur <= 70 ? 3
     : dur <= 85 ? 4
     : dur <= 105 ? 5
     : 6;
+  if (userAuthoredScheduleGroups && userAuthoredScheduleGroups.size >= 5) {
+    maxGroups = Math.min(userAuthoredScheduleGroups.size + 1, maxGroups + 2);
+  }
   let selected = filteredCandidates.slice(0, maxGroups);
   const canTrainMajorCandidate = (c: MuscleGroupSelection): boolean => {
     if (!PRIMARY_MAJOR_GROUPS.has(c.muscleGroup)) return false;
@@ -2686,74 +2691,58 @@ function stepSelectMuscleGroups(
   //   - The recovery skip in the candidates loop (still recovering ≠
   //     unsafe; the 2-set cap keeps it tolerable). The reason field
   //     surfaces the recovery percent so the user has visibility.
-  if (monthlyFocusMuscle) {
-    // Narrow to a real canonical muscle group; if the user's chosen focus
-    // doesn't normalize to anything the volume model knows about, we have
-    // nothing meaningful to layer.
-    const focusCanonical = normalizeMuscleGroupName(monthlyFocusMuscle);
-    if (focusCanonical) {
-      const alreadySelected = selected.some((s) => s.muscleGroup === focusCanonical);
-      if (!alreadySelected) {
-        const skippedEntry = skipped.find((sk) => sk.muscleGroup === focusCanonical);
-        const isInjured = skippedEntry?.reason === 'Injury conflict';
-        if (!isInjured) {
-          const rawVol = profile.muscleVolumeStatuses.find(
-            (v) => normalizeMuscleGroupName(v.muscleGroup) === focusCanonical,
-          );
-          const recovery = profile.muscleRecovery.find((r) => r.muscleGroup === focusCanonical);
-          const recPct = recovery?.recoveryPercent ?? null;
-          // Layered slot sets = 2 base + monthly bonus (1-2 sets ramped
-          // across the month). Previously a flat `targetSets: 2` cap
-          // made the focus a token presence. The user contract is
-          // "focus should be a REAL focus — go beyond reasonable
-          // volume," so we ramp:
-          //   week 1: 3 sets (base + 1)
-          //   week 2-3: 4 sets (base + 2)
-          //   week 4: 3 sets (base + 1, consolidation)
-          // Guard days halve the bonus (heavy work belongs on the
-          // dedicated split day, not the day before).
-          const baseLayeredSets = 2;
-          const layeredTargetSets = focusDaySetBudget > 0
-            ? Math.max(2, focusDaySetBudget)
-            : baseLayeredSets + Math.max(0, monthlyFocusVolumeBoost);
-          // Priority bumps with the bonus — week-3 focus deserves to
-          // beat ordinary recovery-aware fallbacks for slot placement.
-          const layeredPriority = 0.5 + 0.1 * Math.max(0, monthlyFocusVolumeBoost);
-          const layeredSlot: MuscleGroupSelection = {
-            muscleGroup: focusCanonical,
-            priority: layeredPriority,
-            reason: monthlyFocusSplitGuard
-              ? `Monthly fitness focus — light layer (split day for ${focusCanonical} is tomorrow${
-                  recPct != null ? `, ${recPct}% recovered` : ''
-                })`
-              : `Monthly fitness focus — layered into every workout (${layeredTargetSets} sets${
-                  recPct != null ? `, ${recPct}% recovered` : ''
-                })`,
-            targetSets: layeredTargetSets,
-            recoveryPercent: recPct,
-            weeklyVolume: rawVol?.weeklyDirectSets ?? 0,
-            volumeTarget: 'focus_layer',
-          };
-          selected.push(layeredSlot);
-        }
-      } else if (monthlyFocusVolumeBoost > 0 || focusDaySetBudget > 0) {
-        // Focus muscle IS in today's split. Bump its priority and set
-        // targetSets from the weekly volume budget when available.
-        const idx = selected.findIndex((s) => s.muscleGroup === focusCanonical);
-        if (idx >= 0) {
-          const original = selected[idx];
-          const budgetSets = focusDaySetBudget > 0
-            ? focusDaySetBudget
-            : (original.targetSets ?? 3) + monthlyFocusVolumeBoost;
-          selected[idx] = {
-            ...original,
-            priority: Math.max(original.priority, 0.85 + 0.05 * Math.max(monthlyFocusVolumeBoost, focusDaySetBudget > 0 ? 2 : 0)),
-            targetSets: Math.max(original.targetSets ?? 3, budgetSets),
-            reason: focusDaySetBudget > 0
-              ? `${original.reason} · Monthly focus budget: ${budgetSets} direct sets`
-              : `${original.reason} · Monthly focus bonus: +${monthlyFocusVolumeBoost} sets`,
-          };
-        }
+  if (!restDaySet.has(todayDow)) for (const focusCanonical of monthlyFocusCtx?.muscles ?? []) {
+    const monthlyFocusSplitGuard = Boolean(monthlyFocusCtx?.splitGuardByMuscle[focusCanonical]);
+    const monthlyFocusVolumeBoost = monthlyFocusCtx?.volumeBoostByMuscle[focusCanonical] ?? 0;
+    const focusDaySetBudget = monthlyFocusCtx?.setBudgetByMuscle[focusCanonical] ?? 0;
+
+    const alreadySelected = selected.some((s) => s.muscleGroup === focusCanonical);
+    if (!alreadySelected) {
+      const skippedEntry = skipped.find((sk) => sk.muscleGroup === focusCanonical);
+      const isInjured = skippedEntry?.reason === 'Injury conflict';
+      if (!isInjured) {
+        const rawVol = profile.muscleVolumeStatuses.find(
+          (v) => normalizeMuscleGroupName(v.muscleGroup) === focusCanonical,
+        );
+        const recovery = profile.muscleRecovery.find((r) => r.muscleGroup === focusCanonical);
+        const recPct = recovery?.recoveryPercent ?? null;
+        const baseLayeredSets = 2;
+        const layeredTargetSets = focusDaySetBudget > 0
+          ? Math.max(2, focusDaySetBudget)
+          : baseLayeredSets + Math.max(0, monthlyFocusVolumeBoost);
+        const layeredPriority = 0.5 + 0.1 * Math.max(0, monthlyFocusVolumeBoost);
+        const layeredSlot: MuscleGroupSelection = {
+          muscleGroup: focusCanonical as CanonicalMuscleGroup,
+          priority: layeredPriority,
+          reason: monthlyFocusSplitGuard
+            ? `Monthly fitness focus — light layer (split day for ${focusCanonical} is tomorrow${
+                recPct != null ? `, ${recPct}% recovered` : ''
+              })`
+            : `Monthly fitness focus — layered into every workout (${layeredTargetSets} sets${
+                recPct != null ? `, ${recPct}% recovered` : ''
+              })`,
+          targetSets: layeredTargetSets,
+          recoveryPercent: recPct,
+          weeklyVolume: rawVol?.weeklyDirectSets ?? 0,
+          volumeTarget: 'focus_layer',
+        };
+        selected.push(layeredSlot);
+      }
+    } else if (monthlyFocusVolumeBoost > 0 || focusDaySetBudget > 0) {
+      const idx = selected.findIndex((s) => s.muscleGroup === focusCanonical);
+      if (idx >= 0) {
+        const original = selected[idx];
+        const budgetSets = focusDaySetBudget > 0
+          ? focusDaySetBudget
+          : (original.targetSets ?? 3) + monthlyFocusVolumeBoost;
+        selected[idx] = {
+          ...original,
+          priority: Math.max(original.priority, 0.85 + 0.05 * Math.max(monthlyFocusVolumeBoost, focusDaySetBudget > 0 ? 2 : 0)),
+          targetSets: Math.max(original.targetSets ?? 3, budgetSets),
+          reason: focusDaySetBudget > 0
+            ? `${original.reason} · Monthly focus budget: ${budgetSets} direct sets`
+            : `${original.reason} · Monthly focus bonus: +${monthlyFocusVolumeBoost} sets`,
+        };
       }
     }
   }
@@ -3803,13 +3792,10 @@ function stepPrescribe(
   dayOccurrenceIndex?: number,
   mesocycleVolumeMult?: number,
   mesocycleRirOffset?: number,
-  monthlyFocusMuscle: string | null = null,
-  monthlyFocusSplitGuard: boolean = false,
-  monthlyFocusVolumeBoost: number = 0,
+  monthlyFocusCtx: MonthlyFocusDayContext | null = null,
   capacityIndex?: Map<string, ExerciseCapacityV1>,
   weightBias: number = 1,
   controllerRirOffset: number = 0,
-  focusDaySetBudget: number = 0,
 ): GeneratedExercise[] {
   const effectiveMesocycleRirOffset = (mesocycleRirOffset ?? 0) + controllerRirOffset;
   const goal = getEffectiveGoal(prefs);
@@ -3822,9 +3808,7 @@ function stepPrescribe(
   };
   const secondaryGoal = prefs.secondary_goal;
   const prioritySet = new Set(prefs.priority_muscles.map(m => m.toLowerCase()));
-  const monthlyNorm = monthlyFocusMuscle
-    ? (normalizeMuscleGroupName(monthlyFocusMuscle) ?? monthlyFocusMuscle.toLowerCase())
-    : null;
+  const monthlyFocusSet = new Set(monthlyFocusCtx?.muscles ?? []);
   const lowerBodyGroups = new Set(['quadriceps', 'hamstrings', 'glutes', 'adductors', 'abductors', 'hip_flexors']);
   let primaryLowerBarbellPrimed = false;
 
@@ -4070,9 +4054,10 @@ function stepPrescribe(
     const idxInGroup = groupIndex[sel.muscleGroup] ?? 0;
     groupIndex[sel.muscleGroup] = idxInGroup + 1;
     const role = classifyExerciseRole(sel.exercise, idxInGroup);
-    const isMonthlyFocusMuscle = Boolean(monthlyNorm && sel.muscleGroup === monthlyNorm);
+    const isMonthlyFocusMuscle = monthlyFocusSet.has(sel.muscleGroup);
+    const focusSplitGuard = Boolean(monthlyFocusCtx?.splitGuardByMuscle[sel.muscleGroup]);
     const isPriority = prioritySet.has(sel.muscleGroup)
-      || Boolean(isMonthlyFocusMuscle && !monthlyFocusSplitGuard);
+      || Boolean(isMonthlyFocusMuscle && !focusSplitGuard);
 
     const equipment = (Array.isArray(sel.exercise.equipment) ? sel.exercise.equipment : []).map(normalizeEquipment);
     const exType = sel.exercise.ml_exercise_type ?? inferExerciseType(sel.exercise);
@@ -4197,6 +4182,10 @@ function stepPrescribe(
     let restAdjustedByFatLossController: { from: number; to: number } | null = null;
     if (profile.sleepVolumeModifier?.restTimeMultiplier) {
       restSeconds = Math.round(restSeconds * profile.sleepVolumeModifier.restTimeMultiplier);
+    }
+    const restLearn = learnedRestMultiplierFromTelemetry(profile.restComplianceMedian ?? null);
+    if (restLearn !== 1) {
+      restSeconds = Math.max(30, Math.round(restSeconds * restLearn));
     }
     if (fatLossController?.active && fatLossController.restSecondsMultiplier !== 1.0) {
       const oldRest = restSeconds;
@@ -4654,15 +4643,10 @@ function stepPrescribe(
     }
 
     if (isMonthlyFocusMuscle) {
-      // Cap focus volume so the user-contract "focus in every workout"
-      // never compounds into 10 sets of bicep curls on a Squat day. Cap
-      // ramps with the week-of-month boost so the dose actually IS
-      // "beyond reasonable volume" as the user asked.
-      //
-      // Non-guard cap = 3 base + boost (week-1: 4, week-2/3: 5, week-4: 4).
-      // Guard cap = 2 base + boost (week-1: 2, week-2/3: 3, week-4: 2).
-      // Always respects the per-exercise sets that came out of upstream
-      // tiered-sets allocation when those are below the cap.
+      const focusMuscle = sel.muscleGroup;
+      const monthlyFocusSplitGuard = Boolean(monthlyFocusCtx?.splitGuardByMuscle[focusMuscle]);
+      const monthlyFocusVolumeBoost = monthlyFocusCtx?.volumeBoostByMuscle[focusMuscle] ?? 0;
+      const focusDaySetBudget = monthlyFocusCtx?.setBudgetByMuscle[focusMuscle] ?? 0;
       const baseCap = focusDaySetBudget > 0
         ? (monthlyFocusSplitGuard ? Math.max(2, Math.floor(focusDaySetBudget * 0.55)) : focusDaySetBudget)
         : (monthlyFocusSplitGuard ? 2 : 3) + Math.max(0, monthlyFocusVolumeBoost);
@@ -4670,13 +4654,13 @@ function stepPrescribe(
       if (capped !== sets) {
         adjustments.push(
           monthlyFocusSplitGuard
-            ? `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets — heavier work reserved for tomorrow's split day`
-            : `Monthly fitness focus (${monthlyNorm}): capped at ${capped} sets (week-${focusWeekIndexForLog(planningDate)} dose)`,
+            ? `Monthly fitness focus (${focusMuscle}): capped at ${capped} sets — heavier work reserved for tomorrow's split day`
+            : `Monthly fitness focus (${focusMuscle}): capped at ${capped} sets (week-${focusWeekIndexForLog(planningDate)} dose)`,
         );
         sets = capped;
       } else if (baseCap > 3) {
         adjustments.push(
-          `Monthly fitness focus (${monthlyNorm}): ${sets} sets — beyond-typical dose (week-${focusWeekIndexForLog(planningDate)})`,
+          `Monthly fitness focus (${focusMuscle}): ${sets} sets — beyond-typical dose (week-${focusWeekIndexForLog(planningDate)})`,
         );
       }
     }
@@ -5857,8 +5841,7 @@ function stepGenerateRationale(
   highCapacityPush?: HighCapacityPushAdjustment,
   policyFusion?: PolicyFusionAdjustment,
   runtimeFlags?: Record<string, boolean>,
-  monthlyFocusMuscle: string | null = null,
-  monthlyFocusSplitGuard: boolean = false,
+  monthlyFocusCtx: MonthlyFocusDayContext | null = null,
 ): GeneratedWorkout {
   const muscleGroupsFocused = muscleGroups.map(g => g.muscleGroup);
   const muscleReasons = muscleGroups.map(g => `${g.muscleGroup}: ${g.reason}`);
@@ -5939,8 +5922,12 @@ function stepGenerateRationale(
     prefs.priority_muscles.length > 0
       ? `Priority muscles: ${prefs.priority_muscles.join(', ')} (extra volume)`
       : null,
-    monthlyFocusMuscle
-      ? `Monthly fitness focus: ${monthlyFocusMuscle}${monthlyFocusSplitGuard ? ' (light stimulus today — split day tomorrow)' : ' (layered across the week when compatible with your split)'}`
+    monthlyFocusCtx?.muscles.length
+      ? `Monthly fitness focus: ${muscleGroupsDisplayLabels(monthlyFocusCtx.muscles)}${
+          Object.values(monthlyFocusCtx.splitGuardByMuscle).some(Boolean)
+            ? ' (light layered today where split day is tomorrow)'
+            : ' (layered across the week when compatible with your split)'
+        }`
       : null,
     profile.bodyWeightTrend.phase !== 'maintaining'
       ? `Weight trend: ${profile.bodyWeightTrend.phase} (${profile.bodyWeightTrend.slope > 0 ? '+' : ''}${profile.bodyWeightTrend.slope} lbs/week)`
@@ -6310,10 +6297,15 @@ export interface SessionOverrides {
   /**
    * When the weekly planner knows tomorrow's split already includes the user's
    * monthly fitness-focus muscle, set true to cap layered stimulus today.
+   * Legacy single-muscle override; prefer `monthlyFocusSplitGuardByMuscle`.
    */
   monthlyFocusSplitGuard?: boolean;
   /** Weekly focus volume budget — direct sets allocated for this plan date. */
   focusDaySetBudget?: number;
+  /** Per-muscle split guard (multi-focus). */
+  monthlyFocusSplitGuardByMuscle?: Record<string, boolean>;
+  /** Per-muscle weekly budget sets for this plan date. */
+  focusDaySetBudgetByMuscle?: Record<string, number>;
 }
 
 interface LlmHints {
@@ -6723,12 +6715,14 @@ export async function generateWorkout(
 
   // Return-from-break detection: auto-deload after extended time off.
   // Guard: new users with no preference history should not be penalized.
-  let breakRampMultiplier = 1.0;
-  if (profile.exercisePreferences.length > 0) {
-    const daysSinceLastWorkout = Math.min(...profile.exercisePreferences.map(p => p.lastUsedDaysAgo));
-    if (daysSinceLastWorkout >= 7) {
-      breakRampMultiplier = Math.max(0.45, 1.0 - (daysSinceLastWorkout - 5) * 0.028);
-    }
+  const breakRampMultiplier = computeBreakRampMultiplier(profile);
+  const effectiveSessionMin = effectiveSessionDurationMinutes(prefs, profile);
+  if (effectiveSessionMin > 0 && effectiveSessionMin !== prefs.session_duration_minutes) {
+    prefs.session_duration_minutes = effectiveSessionMin;
+  }
+  const priorityMusclesNorm = normalizePriorityMuscles(prefs.priority_muscles);
+  if (priorityMusclesNorm.length) {
+    prefs.priority_muscles = priorityMusclesNorm as CanonicalMuscleGroup[];
   }
 
   // Step 1: Recovery check
@@ -6897,28 +6891,18 @@ export async function generateWorkout(
   const planDateStrForFocus = overrides?.planningDate
     ? String(overrides.planningDate).slice(0, 10)
     : getLocalDate(planningDate);
-  const monthlyFocusMuscle = activeMonthlyFitnessMuscleForDate(prefs.monthly_focus_state, planDateStrForFocus);
-  const monthlyFocusSplitGuard = overrides?.monthlyFocusSplitGuard !== undefined
-    ? Boolean(overrides.monthlyFocusSplitGuard)
-    : computeMonthlyFocusSplitGuard(
-        prefs.weekly_split_schedule,
-        prefs.rest_days,
-        planDateStrForFocus,
-        monthlyFocusMuscle,
-      );
-  // Week-of-month volume bonus for the monthly focus. User contract:
-  // "Go beyond reasonable volume — the focus should be a REAL focus."
-  // Bonus ramps across the month (see `monthlyFocusVolumeBonus`) and is
-  // halved on split-guard days so heavy work lands on the dedicated split
-  // day instead of the day before.
-  const monthlyFocusVolumeBoost = monthlyFocusMuscle
-    ? monthlyFocusVolumeBonus(
-        prefs.monthly_focus_state ?? null,
-        planDateStrForFocus,
-        monthlyFocusSplitGuard,
-      )
-    : 0;
-  const focusDaySetBudget = overrides?.focusDaySetBudget ?? 0;
+  const monthlyFocusCtx = buildMonthlyFocusDayContext(
+    prefs.monthly_focus_state ?? null,
+    planDateStrForFocus,
+    prefs.weekly_split_schedule,
+    prefs.rest_days,
+    {
+      splitGuardByMuscle: overrides?.monthlyFocusSplitGuardByMuscle,
+      setBudgetByMuscle: overrides?.focusDaySetBudgetByMuscle,
+      monthlyFocusSplitGuard: overrides?.monthlyFocusSplitGuard,
+      focusDaySetBudget: overrides?.focusDaySetBudget,
+    },
+  );
 
   const planningProfile = profileForPlanningHorizon(profile, planningDate, cfg);
 
@@ -6933,10 +6917,7 @@ export async function generateWorkout(
     planningDow,
     overrides?.anchorMuscleGroups,
     effectiveDayTheme,
-    monthlyFocusMuscle,
-    monthlyFocusSplitGuard,
-    monthlyFocusVolumeBoost,
-    focusDaySetBudget,
+    monthlyFocusCtx.muscles.length ? monthlyFocusCtx : null,
   );
   stageEnd(tGroups);
 
@@ -7045,13 +7026,10 @@ export async function generateWorkout(
     dayOccurrenceIndex,
     mesocycleConfig.volumeMult,
     (mesocycleConfig.rirOffset ?? 0) + goalTimelineRirShift,
-    monthlyFocusMuscle,
-    monthlyFocusSplitGuard,
-    monthlyFocusVolumeBoost,
+    monthlyFocusCtx.muscles.length ? monthlyFocusCtx : null,
     capacityIndex,
     prescriptionController.weightBias,
     prescriptionController.rirOffset,
-    focusDaySetBudget,
   );
   stageEnd(tPrescribe);
 
@@ -7068,7 +7046,7 @@ export async function generateWorkout(
     controllerProgressionScale,
     breakRampMultiplier,
     planningDate,
-    monthlyFocusMuscle,
+    null,
     dayOccurrenceIndex,
   );
   stageEnd(tConstraints);
@@ -7082,7 +7060,7 @@ export async function generateWorkout(
   // and then discarded, leaving the user — and us during incident
   // response — with no audit trail when an exercise vanished.
   const tValidate = stageStart('validate_adapt');
-  const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes, monthlyFocusMuscle);
+  const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes, null);
   const adaptiveContext = buildAdaptivePolicyContext(profile, {
     training_goal: (prefs.training_goal as GoalKind) ?? 'maintain',
     experience_level: prefs.experience_level ?? null,
@@ -7111,7 +7089,7 @@ export async function generateWorkout(
     };
   });
   const adaptedRecomputed = recalcEstimatedMinutes(adaptedRaw);
-  const adaptedValidated = validateAndCorrect(adaptedRecomputed, profile, prefs.session_duration_minutes, monthlyFocusMuscle);
+  const adaptedValidated = validateAndCorrect(adaptedRecomputed, profile, prefs.session_duration_minutes, null);
   const adapted = recalcEstimatedMinutes(adaptedValidated.exercises);
   // De-dupe corrections — both passes can fire the same cap and we don't
   // want noisy duplicates in the surface log. Insertion order preserved.
@@ -7136,8 +7114,7 @@ export async function generateWorkout(
     highCapacityPush,
     policyFusion,
     runtimeFlags,
-    monthlyFocusMuscle,
-    monthlyFocusSplitGuard,
+    monthlyFocusCtx.muscles.length ? monthlyFocusCtx : null,
   );
   workout.sessionRationale = `${workout.sessionRationale} ${toCoachNarrative(adapted as unknown as AdaptiveExercise[], adaptiveContext)}`.trim();
   workout.adjustmentsSummary = [
@@ -7312,7 +7289,7 @@ export async function generateWorkout(
     // theme-coherence guard exempts it. Otherwise the focus exercise the
     // engine deliberately layered into a non-matching schedule day (e.g.
     // biceps on a chest/triceps push day) gets dropped here.
-    monthlyFocusMuscle: monthlyFocusMuscle ?? null,
+    monthlyFocusMuscles: monthlyFocusCtx.muscles,
     userAuthoredScheduleGroups,
   };
   const invariantResult = runInvariantPipeline(workout, invariantCtx, DEFAULT_WORKOUT_INVARIANTS);
@@ -7597,7 +7574,7 @@ export async function generateWeeklyPlan(
       scheduledGroups: normalizeMuscleGroupList(p?.muscleGroups ?? []),
     };
   });
-  const focusWeeklyBudget: FocusWeeklyBudgetV1 | null = buildFocusWeeklyBudget(
+  const focusWeeklyBudgets: FocusWeeklyBudgetV1[] = buildFocusWeeklyBudgets(
     planPrefs?.monthly_focus_state ?? null,
     focusBudgetInputs,
   );
@@ -7852,26 +7829,32 @@ export async function generateWeeklyPlan(
     const protectedStapleSet = new Set(preferredStaplesForDay);
     const proactiveAvoidFiltered = proactiveAvoid.filter((name) => !protectedStapleSet.has(normalizeExerciseName(name)));
 
-    const planMonth = planDate.slice(0, 7);
-    const mfState = planPrefs?.monthly_focus_state;
-    const monthlyMuscleForWeek =
-      mfState && mfState.month === planMonth && mfState.fitness_muscle
-        ? (normalizeMuscleGroupName(mfState.fitness_muscle) ?? String(mfState.fitness_muscle).toLowerCase())
-        : null;
     const schedForGuard = splitSchedule ?? planPrefs?.weekly_split_schedule ?? null;
-    const monthlyFocusSplitGuardForDay = monthlyMuscleForWeek
-      ? computeMonthlyFocusSplitGuard(schedForGuard, userRestDays, planDate, monthlyMuscleForWeek)
-      : false;
-    const focusDaySetBudget = focusSetBudgetForDate(
-      focusWeeklyBudget,
+    const monthlyFocusCtxForDay = buildMonthlyFocusDayContext(
+      planPrefs?.monthly_focus_state ?? null,
       planDate,
-      monthlyFocusSplitGuardForDay,
+      schedForGuard,
+      userRestDays,
+    );
+    const splitGuardByMuscle = Object.fromEntries(
+      monthlyFocusCtxForDay.muscles.map((m) => [
+        m,
+        computeMonthlyFocusSplitGuard(schedForGuard, userRestDays, planDate, m),
+      ]),
+    ) as Record<string, boolean>;
+    const setBudgetByMuscle = focusSetBudgetsForDate(
+      focusWeeklyBudgets,
+      planDate,
+      splitGuardByMuscle,
     );
     const monthlyPlannerOverrides =
-      monthlyMuscleForWeek != null
-        ? { monthlyFocusSplitGuard: monthlyFocusSplitGuardForDay, focusDaySetBudget }
-        : focusDaySetBudget > 0
-          ? { focusDaySetBudget }
+      monthlyFocusCtxForDay.muscles.length > 0
+        ? {
+            monthlyFocusSplitGuardByMuscle: splitGuardByMuscle,
+            focusDaySetBudgetByMuscle: setBudgetByMuscle,
+          }
+        : Object.values(setBudgetByMuscle).some((n) => n > 0)
+          ? { focusDaySetBudgetByMuscle: setBudgetByMuscle }
           : {};
 
     let plannedWorkout = await generateWorkout(
@@ -8279,7 +8262,7 @@ export async function generateWeeklyPlan(
           featureSnapshotId: profile.featureSnapshotId,
           days,
         },
-        (planDate) => activeMonthlyFitnessMuscleForDate(monthlyState, planDate),
+        (planDate) => activeMonthlyFitnessMusclesForDate(monthlyState, planDate),
       );
     } catch (err) {
       logWarn('engineInputSnapshot build failed (non-fatal)', err);
@@ -8671,6 +8654,17 @@ export async function rematerializeStaleWeeklyPlanDays(
     ?? await fetchUserPreferences(profile.userId).catch(() => null as UserPreferences | null);
   if (!planPrefs) return plan;
 
+  const recentSurgical = (profile.exerciseSwapHistory ?? [])
+    .filter((s) => {
+      if (!s.lastSwapDate) return false;
+      const days = (Date.now() - new Date(s.lastSwapDate).getTime()) / 86_400_000;
+      return Number.isFinite(days) && days <= 7;
+    })
+    .reduce((n, s) => n + Math.max(1, s.swapCount ?? 1), 0);
+  if (shouldSkipWeekRegenForSwapActivity(recentSurgical)) {
+    return backfillPlanConstraints(plan, planPrefs, userRestDays);
+  }
+
   const currentConstraints = buildWeekPlanConstraints(planPrefs, plan.weekStartDate, userRestDays);
   const stored = plan.planConstraints;
   if (stored && !isWeeklyPlanDayStale(stored.engineVersion, stored.constraintsHash, currentConstraints)) {
@@ -8683,17 +8677,29 @@ export async function rematerializeStaleWeeklyPlanDays(
     isRestDay: d.isRestDay,
     scheduledGroups: normalizeMuscleGroupList(d.muscleGroups ?? []),
   }));
-  const focusWeeklyBudget = buildFocusWeeklyBudget(planPrefs.monthly_focus_state ?? null, focusBudgetInputs);
+  const focusWeeklyBudgets = buildFocusWeeklyBudgets(planPrefs.monthly_focus_state ?? null, focusBudgetInputs);
 
   const days = await Promise.all(plan.days.map(async (day) => {
     if (day.isRestDay || day.dayStatus === 'completed' || day.planDate < today) return day;
 
     const schedForGuard = splitSchedule ?? planPrefs.weekly_split_schedule ?? null;
-    const monthlyMuscle = activeMonthlyFitnessMuscleForDate(planPrefs.monthly_focus_state ?? null, day.planDate);
-    const monthlyFocusSplitGuardForDay = monthlyMuscle
-      ? computeMonthlyFocusSplitGuard(schedForGuard, userRestDays, day.planDate, monthlyMuscle)
-      : false;
-    const focusDaySetBudget = focusSetBudgetForDate(focusWeeklyBudget, day.planDate, monthlyFocusSplitGuardForDay);
+    const monthlyFocusCtxForDay = buildMonthlyFocusDayContext(
+      planPrefs.monthly_focus_state ?? null,
+      day.planDate,
+      schedForGuard,
+      userRestDays,
+    );
+    const splitGuardByMuscle = Object.fromEntries(
+      monthlyFocusCtxForDay.muscles.map((m) => [
+        m,
+        computeMonthlyFocusSplitGuard(schedForGuard, userRestDays, day.planDate, m),
+      ]),
+    ) as Record<string, boolean>;
+    const focusDaySetBudgetByMuscle = focusSetBudgetsForDate(
+      focusWeeklyBudgets,
+      day.planDate,
+      splitGuardByMuscle,
+    );
 
     const regenerated = await generateWorkout(
       profile,
@@ -8701,8 +8707,8 @@ export async function rematerializeStaleWeeklyPlanDays(
         planningDate: day.planDate,
         anchorMuscleGroups: day.muscleGroups,
         dayTheme: day.dayTheme ?? undefined,
-        monthlyFocusSplitGuard: monthlyFocusSplitGuardForDay,
-        focusDaySetBudget,
+        monthlyFocusSplitGuardByMuscle: splitGuardByMuscle,
+        focusDaySetBudgetByMuscle: focusDaySetBudgetByMuscle,
       },
       prefetched,
     );

@@ -244,11 +244,21 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       const loadNorm = normalizeSetLoadForStorage(ex.name, set)
       const loggedAt = set.logged_at || set.loggedAt || null
       const prevLoggedAt = idx > 0 ? (validSets[idx - 1]?.logged_at || validSets[idx - 1]?.loggedAt || null) : null
-      let restSecondsBefore: number | null = null
-      if (loggedAt && prevLoggedAt) {
+      let restSecondsBefore: number | null =
+        set.rest_seconds_before != null ? Number(set.rest_seconds_before) :
+        set.rest_seconds_actual != null ? Number(set.rest_seconds_actual) : null
+      if (restSecondsBefore == null && loggedAt && prevLoggedAt) {
         const diff = (new Date(loggedAt).getTime() - new Date(prevLoggedAt).getTime()) / 1000
         if (diff > 10 && diff < 1200) restSecondsBefore = Math.round(diff)
       }
+      const prescribedRestSeconds =
+        set.prescribed_rest_seconds != null
+          ? Number(set.prescribed_rest_seconds)
+          : ex?._prescription?.restSeconds != null
+            ? Number(ex._prescription.restSeconds)
+            : null
+      const restSecondsActual =
+        set.rest_seconds_actual != null ? Number(set.rest_seconds_actual) : restSecondsBefore
 
       // Build execution event data for this set
       const targetWeight = set?.target_weight != null ? Number(set.target_weight) : null
@@ -292,11 +302,16 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
         reps_interpretation: loadNorm.repsInterpretation,
         logged_at: loggedAt,
         rest_seconds_before: restSecondsBefore,
+        prescribed_rest_seconds: prescribedRestSeconds,
+        rest_seconds_actual: restSecondsActual,
+        set_rpe: set.set_rpe != null ? Number(set.set_rpe) : null,
+        actual_rir: set.actual_rir != null ? Number(set.actual_rir) : null,
       }
     })
 
     exercises.push({
       name: ex.name,
+      _prescription: ex._prescription,
       category: ex.category || null,
       bodyPart: ex.bodyPart || null,
       equipment: ex.equipment || null,
@@ -310,6 +325,29 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     })
   }
 
+  const { buildSessionTelemetry } = await import('./sessionTelemetry')
+  const { inferBehavioralSession } = await import('./behavioralInference')
+  const baseTelemetry = buildSessionTelemetry(
+    exercises.map((e) => ({
+      name: e.name,
+      bodyPart: e.bodyPart,
+      category: e.category,
+      sets: e.sets,
+      _prescription: e._prescription,
+    })),
+    workoutToSave.duration != null ? Number(workoutToSave.duration) : null,
+    null,
+  )
+  const completedEx = exercises.filter((e) => (e.sets?.length ?? 0) > 0).length
+  const behavioral = inferBehavioralSession(baseTelemetry, {
+    durationMinutes: Number(workoutToSave.duration) || 0,
+    prescribedExerciseCount: rawExercises.length,
+    completedExerciseCount: completedEx,
+    fitbitCalories: workoutToSave.workoutCaloriesBurned ?? null,
+    trainingGoal: null,
+  })
+  const sessionFeatures = { ...baseTelemetry, behavioral }
+
   // Step 5: Build the full payload
   const payload = {
     workout: {
@@ -317,10 +355,13 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       date: workoutToSave.date,
       duration: workoutToSave.duration,
       templateName: workoutToSave.templateName || null,
-      perceivedEffort: workoutToSave.perceivedEffort || null,
+      perceivedEffort:
+        workoutToSave.perceivedEffort ??
+        behavioral.inferredRpe ??
+        null,
       trainingDensity: workoutToSave.trainingDensity ?? null,
-      moodAfter: workoutToSave.moodAfter || null,
-      notes: workoutToSave.notes || null,
+      moodAfter: null,
+      notes: null,
       dayOfWeek: workoutToSave.dayOfWeek ?? null,
       workoutCaloriesBurned: workoutToSave.workoutCaloriesBurned ?? null,
       workoutSteps: workoutToSave.workoutSteps ?? null,
@@ -331,6 +372,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     },
     exercises,
     executionEvents,
+    sessionFeatures,
   }
 
   // Step 6: POST to dedicated endpoint with retry. Throws on failure — caller
@@ -2150,14 +2192,33 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
  */
 export async function supersedeActiveWeeklyPlanForUser(userId: string): Promise<number> {
   if (!userId) return 0
-  const { data, error } = await supabase
+  const { data: activeRows, error: fetchErr } = await supabase
     .from('weekly_plan_versions')
-    .delete()
+    .select('id, week_start_date')
     .eq('user_id', userId)
     .eq('status', 'active')
-    .select('id')
-  if (error) throw error
-  return Array.isArray(data) ? data.length : 0
+  if (fetchErr) throw fetchErr
+  const rows = Array.isArray(activeRows) ? activeRows : []
+  if (!rows.length) return 0
+
+  for (const row of rows) {
+    const week = row.week_start_date
+    if (week) {
+      await supabase
+        .from('weekly_plan_versions')
+        .delete()
+        .eq('user_id', userId)
+        .eq('week_start_date', week)
+        .eq('status', 'superseded')
+    }
+    const { error: updErr } = await supabase
+      .from('weekly_plan_versions')
+      .update({ status: 'superseded' })
+      .eq('id', row.id)
+      .eq('user_id', userId)
+    if (updErr) throw updErr
+  }
+  return rows.length
 }
 
 export async function getActiveWeeklyPlanFromSupabase(userId: string, weekStartDate: string) {

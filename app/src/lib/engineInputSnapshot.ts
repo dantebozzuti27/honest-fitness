@@ -104,8 +104,8 @@ export interface EngineInputSnapshotV1 {
      * a useful signal.
      */
     selectedMuscleGroups: string[];
-    /** The active monthly fitness focus muscle for this date, if any. */
-    monthlyFocusMuscle: string | null;
+    /** Active monthly fitness focus muscles for this date (canonical ids). */
+    monthlyFocusMuscles: string[];
   }>;
 
   /**
@@ -146,7 +146,7 @@ export function buildEngineInputSnapshot(
   profile: TrainingProfile,
   prefs: UserPreferences,
   weeklyPlan: WeeklyPlan,
-  monthlyFocusByDate: (planDate: string) => string | null,
+  monthlyFocusByDate: (planDate: string) => string[],
 ): EngineInputSnapshotV1 {
   const perDay: EngineInputSnapshotV1['perDay'] = (weeklyPlan.days ?? []).map((d) => ({
     planDate: d.planDate,
@@ -155,7 +155,7 @@ export function buildEngineInputSnapshot(
     selectedMuscleGroups: Array.isArray(d.plannedWorkout?.muscleGroupsFocused)
       ? (d.plannedWorkout!.muscleGroupsFocused as string[]).map(g => String(g))
       : [],
-    monthlyFocusMuscle: monthlyFocusByDate(d.planDate),
+    monthlyFocusMuscles: monthlyFocusByDate(d.planDate),
   }));
 
   const recoverySnapshot = bounded(

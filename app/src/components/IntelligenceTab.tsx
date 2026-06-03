@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import type { TrainingProfile } from '../lib/trainingAnalysis'
+import type { AggregatedPattern } from '../lib/patternLearning'
 import { fetchTrainingSummary, type TrainingSummary } from '../lib/insightsApi'
 import Button from './Button'
 import { logError } from '../utils/logger'
@@ -11,16 +12,15 @@ interface Props {
   onAnalyze: () => void
 }
 
-const arrow = (d: string) => d === 'up' ? '↑' : d === 'down' ? '↓' : '→'
+const arrow = (d: string) => (d === 'up' ? '↑' : d === 'down' ? '↓' : '→')
 const trendColor = (d: string, goodDir: 'up' | 'down') =>
   d === goodDir ? 'var(--success)' : d === (goodDir === 'up' ? 'down' : 'up') ? 'var(--danger)' : 'var(--text-secondary)'
-const pctColor = (p: number) => p >= 75 ? 'var(--success)' : p >= 50 ? '#e6a800' : p >= 25 ? 'var(--text-primary)' : '#ef4444'
-const pctBg = (p: number) => p >= 75 ? 'rgba(34,197,94,0.15)' : p >= 50 ? 'rgba(230,168,0,0.15)' : p >= 25 ? 'rgba(255,255,255,0.06)' : 'rgba(239,68,68,0.12)'
-const pctFill = (p: number) => p >= 75 ? 'rgba(34,197,94,0.3)' : p >= 50 ? 'rgba(230,168,0,0.3)' : p >= 25 ? 'rgba(255,255,255,0.1)' : 'rgba(239,68,68,0.2)'
-const levelLabel = (p: number) => p > 90 ? 'Elite' : p > 75 ? 'Advanced' : p > 50 ? 'Intermediate' : p >= 25 ? 'Novice' : 'Beginner'
-const interpLabel = (i: string) => {
-  switch (i) { case 'excellent': return 'Excellent'; case 'good': return 'Good'; case 'average': return 'Average'; case 'below_average': return 'Below Avg'; case 'poor': return 'Low'; default: return i }
-}
+const pctColor = (p: number) => (p >= 75 ? 'var(--success)' : p >= 50 ? '#e6a800' : p >= 25 ? 'var(--text-primary)' : '#ef4444')
+const pctBg = (p: number) =>
+  p >= 75 ? 'rgba(34,197,94,0.15)' : p >= 50 ? 'rgba(230,168,0,0.15)' : p >= 25 ? 'rgba(255,255,255,0.06)' : 'rgba(239,68,68,0.12)'
+const pctFill = (p: number) =>
+  p >= 75 ? 'rgba(34,197,94,0.3)' : p >= 50 ? 'rgba(230,168,0,0.3)' : p >= 25 ? 'rgba(255,255,255,0.1)' : 'rgba(239,68,68,0.2)'
+const levelLabel = (p: number) => (p > 90 ? 'Elite' : p > 75 ? 'Advanced' : p > 50 ? 'Intermediate' : p >= 25 ? 'Novice' : 'Beginner')
 
 function PctBarCell({ pct }: { pct: number }) {
   return (
@@ -31,113 +31,51 @@ function PctBarCell({ pct }: { pct: number }) {
   )
 }
 
-function TrendRow({ label, mt, unit, goodDir }: { label: string; mt: { current: number | null; avg30d: number | null; direction: string; slopePct: number; dataPoints: number }; unit: string; goodDir: 'up' | 'down' }) {
-  if (mt.dataPoints < 3) return null
-  return (
-    <tr>
-      <td>{label}</td>
-      <td>{mt.current != null ? `${unit === 'min' ? Math.round(mt.current) : mt.current.toFixed(1)} ${unit}` : '—'}</td>
-      <td>{mt.avg30d != null ? `${mt.avg30d.toFixed(1)} ${unit}` : '—'}</td>
-      <td style={{ color: trendColor(mt.direction, goodDir), fontWeight: 600 }}>
-        {arrow(mt.direction)} {Math.abs(mt.slopePct).toFixed(1)}%/wk
-      </td>
-    </tr>
-  )
+function swapStatus(effectiveSwapWeight: number, swapCount: number, acceptanceWeight: number) {
+  const w = effectiveSwapWeight
+  const recovering = acceptanceWeight > 0 && acceptanceWeight >= w * 0.6
+  if (w >= 11.0) return { label: recovering ? 'Excluded · Recovering' : 'Excluded', className: recovering ? s.badgeWarning : s.badgeDanger }
+  if (w >= 7.5) return { label: recovering ? 'Strong deprior · Recovering' : 'Strong deprior', className: s.badgeDanger }
+  if (w >= 3.5) return { label: recovering ? 'Deprior · Recovering' : 'Deprior', className: s.badgeWarning }
+  if (w >= 1.4) return { label: 'Slight penalty', className: s.badgeNeutral }
+  if (acceptanceWeight > 0) return { label: 'Active · Boosted', className: s.badgeSuccess }
+  return { label: 'Active', className: s.badgeNeutral }
 }
 
-/**
- * Map a (swap, acceptance) pair to the label that the workout engine will
- * actually apply. Mirrors `selectionSwapPenaltyTiers` and
- * `selectionAcceptancePerEvent` in `modelConfig.ts`. If you change the
- * thresholds there, update them here.
- *
- * Tiers (effective swap mass — decay-weighted, not raw count):
- *   ≥ 11.0  → Excluded            (≈ 15+ swaps in a recent window)
- *   ≥ 7.5   → Strongly deprioritized
- *   ≥ 3.5   → Deprioritized
- *   ≥ 1.4   → Slight penalty
- *   else    → Active
- *
- * Acceptance mass ≥ swap mass implies the user has been completing this
- * exercise more often than rejecting it; we surface that as "Recovering"
- * so the user knows the engine is no longer net-penalising it.
- */
-function swapStatus(effectiveSwapWeight: number, swapCount: number, acceptanceWeight: number): {
-  label: string;
-  className: string;
-  hint: string;
-} {
-  const w = effectiveSwapWeight;
-  const recovering = acceptanceWeight > 0 && acceptanceWeight >= w * 0.6;
-
-  if (w >= 11.0) {
-    return {
-      label: recovering ? 'Excluded · Recovering' : 'Excluded',
-      className: recovering ? s.badgeWarning : s.badgeDanger,
-      hint: `Effective swap mass ${w.toFixed(1)} (≈${swapCount} swaps). Hard-capped near the swap-ban floor; substitution affinity or "kept" rewards can still rescue it over time.`,
-    };
-  }
-  if (w >= 7.5) {
-    return {
-      label: recovering ? 'Strongly deprioritized · Recovering' : 'Strongly deprioritized',
-      className: s.badgeDanger,
-      hint: `Effective swap mass ${w.toFixed(1)}. Selection score reduced by ~20.`,
-    };
-  }
-  if (w >= 3.5) {
-    return {
-      label: recovering ? 'Deprioritized · Recovering' : 'Deprioritized',
-      className: s.badgeWarning,
-      hint: `Effective swap mass ${w.toFixed(1)}. Selection score reduced by ~10.`,
-    };
-  }
-  if (w >= 1.4) {
-    return {
-      label: 'Slight penalty',
-      className: s.badgeNeutral,
-      hint: `Effective swap mass ${w.toFixed(1)}. Selection score reduced by ~4.`,
-    };
-  }
-  if (acceptanceWeight > 0) {
-    return {
-      label: 'Active · Boosted',
-      className: s.badgeSuccess,
-      hint: `Acceptance mass ${acceptanceWeight.toFixed(1)} → small selection bonus.`,
-    };
-  }
-  return {
-    label: 'Active',
-    className: s.badgeNeutral,
-    hint: 'No active swap penalty.',
-  };
+const categoryLabel: Record<AggregatedPattern['category'], string> = {
+  volume_mrv: 'Volume',
+  swap_preference: 'Swaps',
+  exercise_gap: 'Gaps',
+  session_duration: 'Duration',
+  recovery: 'Recovery',
+  redundancy: 'Redundancy',
+  other: 'Other',
 }
 
-type SectionId = 'goal' | 'ai' | 'trends' | 'percentiles' | 'profile' | 'training' | 'recovery' | 'flags' | 'ml' | 'forecasts' | 'fatigue'
+type FoldId = 'ai' | 'percentiles' | 'trends' | 'profile' | 'flags'
 
 export default function IntelligenceTab({ trainingProfile, profileLoading, onAnalyze }: Props) {
-  const [expanded, setExpanded] = useState<Set<SectionId>>(new Set(['goal', 'ai', 'trends', 'percentiles', 'profile']))
+  const [open, setOpen] = useState<Set<FoldId>>(new Set())
   const [aiSummary, setAiSummary] = useState<TrainingSummary | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
 
-  const toggle = (id: SectionId) => {
-    setExpanded(prev => {
+  const toggle = (id: FoldId) =>
+    setOpen((prev) => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
-  }
 
   const runAiAnalysis = async () => {
     if (!trainingProfile || aiLoading) return
     setAiLoading(true)
     setAiError(null)
     try {
-      const result = await fetchTrainingSummary(trainingProfile)
-      setAiSummary(result)
-    } catch (err: any) {
+      setAiSummary(await fetchTrainingSummary(trainingProfile))
+    } catch (err: unknown) {
       logError('AI training summary failed', err)
-      setAiError(err?.message || 'Failed to generate AI analysis')
+      setAiError(err instanceof Error ? err.message : 'Failed to generate AI analysis')
     } finally {
       setAiLoading(false)
     }
@@ -151,961 +89,500 @@ export default function IntelligenceTab({ trainingProfile, profileLoading, onAna
     )
   }
 
-  if (profileLoading) {
-    return <div className={s.emptyText}>Computing intelligence data...</div>
-  }
-
+  if (profileLoading) return <div className={s.emptyText}>Computing intelligence...</div>
   if (!trainingProfile) return null
 
   const tp = trainingProfile
+  const gp = tp.goalProgress
+  const patterns = tp.learnedPatterns ?? []
+  const verified = patterns.filter((p) => p.autoVerified)
+  const enginePatterns = tp.llmPatternObservations?.length ?? 0
+  const hasFitbit = (tp.connectedWearables ?? []).some((w) => /fitbit/i.test(w))
+  const restPct =
+    tp.restComplianceMedian != null ? Math.round(tp.restComplianceMedian * 100) : null
+  const topSwaps = [...(tp.exerciseSwapHistory ?? [])]
+    .sort((a, b) => b.effectiveSwapWeight - a.effectiveSwapWeight)
+    .slice(0, 8)
+  const volumeAlerts = tp.muscleVolumeStatuses.filter(
+    (v) => v.status === 'above_mrv' || v.status === 'below_mev',
+  )
+  const topForecasts = (tp.progressionForecasts ?? []).slice(0, 5)
   const t = tp.rolling30DayTrends
-
-  const gp = tp.goalProgress;
 
   return (
     <div className={s.pageContent}>
-      {/* ── Goal Progress (Hero) ──────────────────────────────── */}
       {gp && (
-        <>
-          <div className={s.card}>
-            <div className={s.rowBetween}>
-              <div>
-                <h3 className={s.sectionTitle}>Goal: {gp.goalLabel}</h3>
-                <p className={s.sectionSubtitle}>{gp.summary}</p>
-              </div>
-              <div className={s.scoreDisplay}>
-                <span className={s.scoreValue} style={{ color: gp.overallScore >= 70 ? 'var(--success)' : gp.overallScore >= 45 ? '#e6a800' : '#ef4444' }}>
-                  {gp.overallScore}
-                </span>
-                <span className={s.scoreLabel}>Alignment</span>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {gp.signals.map((sig, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'flex-start', gap: 10,
-                  padding: '10px 12px', borderRadius: 8,
-                  backgroundColor: sig.trend === 'positive' ? 'rgba(34,197,94,0.08)' : sig.trend === 'negative' ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)',
-                  borderLeft: `3px solid ${sig.trend === 'positive' ? 'var(--success)' : sig.trend === 'negative' ? '#ef4444' : 'var(--text-muted)'}`,
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{sig.label}</span>
-                      <span style={{
-                        fontSize: 13, fontWeight: 700,
-                        color: sig.trend === 'positive' ? 'var(--success)' : sig.trend === 'negative' ? '#ef4444' : 'var(--text-secondary)',
-                      }}>{sig.value}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>{sig.detail}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {gp.workoutAlignment.length > 0 && (
-            <div className={s.card} style={{ marginTop: 12 }}>
-              <h3 className={s.sectionTitle}>How Your Workouts Target This Goal</h3>
-              <p className={s.sectionSubtitle}>How the prescribed workouts are designed for {gp.goalLabel.toLowerCase()}</p>
-              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {gp.workoutAlignment.map((wa, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    <span style={{
-                      fontSize: 12, fontWeight: 700, minWidth: 20, textAlign: 'center',
-                      color: wa.status === 'aligned' ? 'var(--success)' : wa.status === 'partial' ? '#e6a800' : '#ef4444',
-                    }}>
-                      {wa.status === 'aligned' ? '✓' : wa.status === 'partial' ? '~' : '✗'}
-                    </span>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{wa.factor}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>{wa.detail}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── AI Analysis ─────────────────────────────────────────── */}
-      <SectionHeader title="AI Training Analysis" id="ai" expanded={expanded} onToggle={toggle} />
-      {expanded.has('ai') && (
-        <div className={s.card}>
-          {!aiSummary && !aiLoading && !aiError && (
-            <div style={{ textAlign: 'center', padding: 'var(--space-md) 0' }}>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>
-                Have the AI analyze your complete training data and ML model outputs.
-              </p>
-              <Button onClick={runAiAnalysis}>Generate AI Analysis</Button>
-            </div>
-          )}
-          {aiLoading && (
-            <div style={{ textAlign: 'center', padding: 'var(--space-lg) 0', color: 'var(--text-muted)' }}>
-              Analyzing your training data...
-            </div>
-          )}
-          {aiError && (
-            <div style={{ textAlign: 'center', padding: 'var(--space-md) 0' }}>
-              <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{aiError}</p>
-              <Button variant="secondary" onClick={runAiAnalysis}>Retry</Button>
-            </div>
-          )}
-          {aiSummary && (
-            <>
-              <p style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 16 }}>
-                {aiSummary.overallAssessment}
-              </p>
-
-              {aiSummary.keyFindings?.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-                  {aiSummary.keyFindings.map((f, i) => {
-                    const sentimentColor: Record<string, string> = {
-                      positive: 'var(--success)',
-                      neutral: 'var(--text-muted)',
-                      warning: '#e6a800',
-                      negative: '#ef4444',
-                    }
-                    const sentimentBg: Record<string, string> = {
-                      positive: 'rgba(34,197,94,0.08)',
-                      neutral: 'rgba(255,255,255,0.04)',
-                      warning: 'rgba(230,168,0,0.08)',
-                      negative: 'rgba(239,68,68,0.08)',
-                    }
-                    return (
-                      <div key={i} style={{
-                        padding: '10px 12px', borderRadius: 8,
-                        backgroundColor: sentimentBg[f.sentiment] || sentimentBg.neutral,
-                        borderLeft: `3px solid ${sentimentColor[f.sentiment] || sentimentColor.neutral}`,
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{f.title}</span>
-                          <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{f.category}</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{f.detail}</div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {aiSummary.blindSpots?.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <div className={s.sectionLabel}>Blind Spots</div>
-                  <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                    {aiSummary.blindSpots.map((b, i) => (
-                      <li key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 4 }}>{b}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {aiSummary.dataQuality && (
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
-                  Data quality: {aiSummary.dataQuality}
-                </div>
-              )}
-
-              <div style={{ textAlign: 'right', marginTop: 8 }}>
-                <Button variant="secondary" onClick={runAiAnalysis} style={{ fontSize: 12, padding: '4px 12px' }}>
-                  Refresh Analysis
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ── Athlete Profile (Hero) ─────────────────────────────── */}
-      {tp.athleteProfile && tp.athleteProfile.items.length > 0 && (
         <div className={s.card}>
           <div className={s.rowBetween}>
             <div>
-              <h3 className={s.sectionTitle}>Athlete Profile</h3>
-              <p className={s.sectionSubtitle}>{tp.athleteProfile.summary}</p>
+              <h3 className={s.sectionTitle}>Goal: {gp.goalLabel}</h3>
+              <p className={s.sectionSubtitle}>{gp.summary}</p>
             </div>
             <div className={s.scoreDisplay}>
-              <span className={s.scoreValue} style={{ color: tp.athleteProfile.overallScore >= 70 ? 'var(--success)' : tp.athleteProfile.overallScore >= 45 ? '#e6a800' : '#ef4444' }}>
-                {tp.athleteProfile.overallScore}
+              <span
+                className={s.scoreValue}
+                style={{ color: gp.overallScore >= 70 ? 'var(--success)' : gp.overallScore >= 45 ? '#e6a800' : '#ef4444' }}
+              >
+                {gp.overallScore}
               </span>
-              <span className={s.scoreLabel}>Score</span>
+              <span className={s.scoreLabel}>Alignment</span>
             </div>
           </div>
-          {(['strength', 'weakness', 'opportunity', 'watch'] as const).map(cat => {
-            const items = tp.athleteProfile.items.filter(i => i.category === cat)
-            if (items.length === 0) return null
-            const config = {
-              strength: { label: 'Strengths', cls: s.profileItemStrength },
-              weakness: { label: 'Focus Areas', cls: s.profileItemWeakness },
-              opportunity: { label: 'Opportunities', cls: s.profileItemOpportunity },
-              watch: { label: 'Watch', cls: s.profileItemWatch },
-            }[cat]
-            return (
-              <div key={cat} style={{ marginTop: 12 }}>
-                <div className={s.sectionLabel}>{config.label} ({items.length})</div>
-                {items.map((item, idx) => (
-                  <div key={idx} className={config.cls}>
-                    <div className={s.profileItemTitle}>{item.area}</div>
-                    <div className={s.profileItemDetail}>{item.detail}</div>
-                    <div className={s.profileItemData}>{item.dataPoints}</div>
-                  </div>
-                ))}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* ── Percentiles ────────────────────────────────────────── */}
-      <SectionHeader title="Percentile Rankings" id="percentiles" expanded={expanded} onToggle={toggle} />
-      {expanded.has('percentiles') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {tp.strengthPercentiles.length > 0 && (
-            <div className={s.card}>
-              <h3 className={s.sectionTitle}>Strength Percentiles</h3>
-              <p className={s.sectionSubtitle}>
-                Weight class: {tp.strengthPercentiles[0]?.bodyWeightClass}
-                {tp.gender ? ` (${tp.gender.toUpperCase().startsWith('F') ? 'F' : 'M'})` : ''}
-              </p>
-              {tp.strengthPercentiles.some(sp => sp.ageAdjustedPercentile != null && sp.ageAdjustedPercentile !== sp.percentile) && (
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px' }}>Age-adjusted shown in parentheses</p>
-              )}
-              <table className={s.dataTable}>
-                <thead>
-                  <tr><th>Lift</th><th>e1RM</th><th>Percentile</th><th>Level</th></tr>
-                </thead>
-                <tbody>
-                  {tp.strengthPercentiles.map(sp => {
-                    const hasAdj = sp.ageAdjustedPercentile != null && sp.ageAdjustedPercentile !== sp.percentile
-                    const displayPct = sp.ageAdjustedPercentile ?? sp.percentile
-                    return (
-                      <tr key={sp.lift}>
-                        <td style={{ textTransform: 'capitalize' }}>{sp.lift}</td>
-                        <td>{sp.estimated1RM} lbs</td>
-                        <td><PctBarCell pct={displayPct} />{hasAdj ? <span style={{ fontSize: 10, opacity: 0.6 }}> ({sp.percentile})</span> : null}</td>
-                        <td>{levelLabel(displayPct)}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {tp.healthPercentiles.length > 0 && (
-            <div className={s.card}>
-              <h3 className={s.sectionTitle}>Health Percentiles</h3>
-              <p className={s.sectionSubtitle}>30-day averages vs. population (age {tp.healthPercentiles[0]?.ageGroup})</p>
-              <table className={s.dataTable}>
-                <thead>
-                  <tr><th>Metric</th><th>Your Avg</th><th>Percentile</th><th>Rating</th></tr>
-                </thead>
-                <tbody>
-                  {tp.healthPercentiles.map(h => (
-                    <tr key={h.metric}>
-                      <td>{h.label}</td>
-                      <td>{h.value} {h.unit}</td>
-                      <td><PctBarCell pct={h.percentile} /></td>
-                      <td>{interpLabel(h.interpretation)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── 30-Day Trends ──────────────────────────────────────── */}
-      <SectionHeader title="30-Day Trends" id="trends" expanded={expanded} onToggle={toggle} />
-      {expanded.has('trends') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Overall Progress */}
-          <div className={s.card}>
-            <h3 className={s.sectionTitle}>Overall Progress</h3>
-            <table className={s.dataTable}>
-              <thead><tr><th>Metric</th><th>Current</th><th>30d Avg</th><th>Trend</th></tr></thead>
-              <tbody>
-                <TrendRow label="Strength Index" mt={t.totalStrengthIndex} unit="" goodDir="up" />
-                <TrendRow label="Top Lifts Total" mt={t.big3Total} unit="lbs" goodDir="up" />
-                <TrendRow label="Relative Strength" mt={t.relativeStrength} unit="" goodDir="up" />
-                <TrendRow label="Volume Load" mt={t.totalVolumeLoad} unit="lbs" goodDir="up" />
-              </tbody>
-            </table>
-          </div>
-
-          {/* Recovery */}
-          <div className={s.card}>
-            <h3 className={s.sectionTitle}>Recovery Trends</h3>
-            <table className={s.dataTable}>
-              <thead><tr><th>Metric</th><th>Current</th><th>30d Avg</th><th>Trend</th></tr></thead>
-              <tbody>
-                <TrendRow label="Sleep" mt={t.sleep} unit="hrs" goodDir="up" />
-                <TrendRow label="HRV" mt={t.hrv} unit="ms" goodDir="up" />
-                <TrendRow label="RHR" mt={t.rhr} unit="bpm" goodDir="down" />
-                <TrendRow label="Steps" mt={t.steps} unit="" goodDir="up" />
-              </tbody>
-            </table>
-          </div>
-
-          {/* Training */}
-          <div className={s.card}>
-            <h3 className={s.sectionTitle}>Training Trends</h3>
-            <table className={s.dataTable}>
-              <thead><tr><th>Metric</th><th>Current</th><th>30d Avg</th><th>Trend</th></tr></thead>
-              <tbody>
-                <TrendRow label="Frequency" mt={t.trainingFrequency} unit="days/wk" goodDir="up" />
-                <TrendRow label="Session Duration" mt={t.avgSessionDuration} unit="min" goodDir="up" />
-                <TrendRow label="Weekly Sets" mt={t.totalWeeklyVolume} unit="sets" goodDir="up" />
-              </tbody>
-            </table>
-          </div>
-
-          {/* Lift Trends */}
-          {t.exerciseTrends.filter(e => e.estimated1RM.dataPoints >= 2).length > 0 && (
-            <div className={s.card}>
-              <h3 className={s.sectionTitle}>Lift Trends</h3>
-              <table className={s.dataTable}>
-                <thead><tr><th>Exercise</th><th>e1RM</th><th>Trend</th><th>Vol Load</th></tr></thead>
-                <tbody>
-                  {t.exerciseTrends.filter(e => e.estimated1RM.dataPoints >= 2).map(et => (
-                    <tr key={et.exerciseName}>
-                      <td>{et.exerciseName}</td>
-                      <td>{et.estimated1RM.current?.toFixed(0) ?? '—'} lbs</td>
-                      <td style={{ color: trendColor(et.estimated1RM.direction, 'up'), fontWeight: 600 }}>
-                        {arrow(et.estimated1RM.direction)} {Math.abs(et.estimated1RM.slopePct).toFixed(1)}%
-                      </td>
-                      <td style={{ color: trendColor(et.volumeLoad.direction, 'up') }}>
-                        {arrow(et.volumeLoad.direction)} {Math.abs(et.volumeLoad.slopePct).toFixed(1)}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Muscle Volume Trends */}
-          {t.muscleGroupTrends.filter(m => m.weeklySetsTrend.dataPoints >= 2).length > 0 && (
-            <div className={s.card}>
-              <h3 className={s.sectionTitle}>Muscle Volume Trends</h3>
-              <table className={s.dataTable}>
-                <thead><tr><th>Muscle</th><th>Sets/wk</th><th>Trend</th></tr></thead>
-                <tbody>
-                  {t.muscleGroupTrends.filter(m => m.weeklySetsTrend.dataPoints >= 2).map(mg => (
-                    <tr key={mg.muscleGroup}>
-                      <td style={{ textTransform: 'capitalize' }}>{mg.muscleGroup.replace(/_/g, ' ')}</td>
-                      <td>{mg.weeklySetsTrend.current?.toFixed(0) ?? '—'}</td>
-                      <td style={{ color: trendColor(mg.weeklySetsTrend.direction, 'up'), fontWeight: 600 }}>
-                        {arrow(mg.weeklySetsTrend.direction)} {Math.abs(mg.weeklySetsTrend.slopePct).toFixed(1)}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Training Details ───────────────────────────────────── */}
-      <SectionHeader title="Training Details" id="training" expanded={expanded} onToggle={toggle} />
-      {expanded.has('training') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Global Stats */}
-          <div className={s.card}>
-            <h3 className={s.sectionTitle}>Global Stats</h3>
-            <table className={s.dataTable}>
-              <tbody>
-                <tr><td>Training Frequency</td><td>{tp.trainingFrequency} days/week</td></tr>
-                <tr><td>Avg Session Duration</td><td>{Math.round(tp.avgSessionDuration / 60)} min</td></tr>
-                <tr><td>Training Age</td><td>{tp.trainingAgeDays} days</td></tr>
-                <tr><td>Consistency</td><td>{Math.round(tp.consistencyScore * 100)}%</td></tr>
-                <tr><td>Weight Trend</td><td>{tp.bodyWeightTrend.phase} ({tp.bodyWeightTrend.slope > 0 ? '+' : ''}{tp.bodyWeightTrend.slope} lbs/wk)</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Muscle Volume */}
-          <div className={s.card}>
-            <h3 className={s.sectionTitle}>Muscle Volume (Weekly Sets)</h3>
-            <table className={s.dataTable}>
-              <thead><tr><th>Muscle</th><th>Sets</th><th>Status</th><th>vs MRV</th></tr></thead>
-              <tbody>
-                {tp.muscleVolumeStatuses.map(v => (
-                  <tr key={v.muscleGroup}>
-                    <td style={{ textTransform: 'capitalize' }}>{v.muscleGroup.replace(/_/g, ' ')}</td>
-                    <td>{v.weeklyDirectSets}</td>
-                    <td style={{ color: v.status === 'above_mrv' ? 'var(--danger)' : v.status === 'in_mav' ? 'var(--success)' : v.status === 'below_mev' ? '#e6a800' : 'var(--text-secondary)' }}>
-                      {v.status.replace(/_/g, ' ')}
-                    </td>
-                    <td>{v.weeklyDirectSets}/{v.mrv}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Exercise Progression */}
-          {tp.exerciseProgressions.length > 0 && (
-            <div className={s.card}>
-              <h3 className={s.sectionTitle}>Exercise Progression</h3>
-              <table className={s.dataTable}>
-                <thead><tr><th>Exercise</th><th>e1RM</th><th>Status</th></tr></thead>
-                <tbody>
-                  {tp.exerciseProgressions.slice(0, 20).map(p => (
-                    <tr key={p.exerciseName}>
-                      <td>{p.exerciseName}</td>
-                      <td>{(p.estimated1RM ?? 0).toFixed(0)} lbs</td>
-                      <td style={{ color: p.status === 'progressing' ? 'var(--success)' : p.status === 'regressing' ? 'var(--danger)' : 'var(--text-secondary)' }}>
-                        {p.status}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Age Adjustments */}
-          {tp.healthPercentiles.length > 0 && (
-            <div className={s.card}>
-              <h3 className={s.sectionTitle}>Age-Based Model Adjustments</h3>
-              <p className={s.sectionSubtitle}>How your age affects the engine</p>
-              <table className={s.dataTable}>
-                <thead><tr><th>Factor</th><th>Adjustment</th></tr></thead>
-                <tbody>
-                  <tr><td>Health Percentiles</td><td>Compared vs. age group {tp.healthPercentiles[0]?.ageGroup || '—'}</td></tr>
-                  {tp.strengthPercentiles.some(sp => sp.ageAdjustedPercentile != null && sp.ageAdjustedPercentile !== sp.percentile) && (
-                    <tr><td>Strength Percentiles</td><td>Age-adjusted rankings active</td></tr>
-                  )}
-                  <tr><td>Recovery Speed</td><td>Auto-scaled by age</td></tr>
-                  <tr><td>Volume / Progression</td><td>Auto-scaled by age</td></tr>
-                  <tr><td>Cardio HR Zones</td><td>Age-derived max HR</td></tr>
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Recovery & Correlations ────────────────────────────── */}
-      <SectionHeader title="Recovery & Correlations" id="recovery" expanded={expanded} onToggle={toggle} />
-      {expanded.has('recovery') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Recovery Correlations */}
-          <div className={s.card}>
-            <h3 className={s.sectionTitle}>Sleep-Performance Correlation</h3>
-            <table className={s.dataTable}>
-              <thead><tr><th>Region</th><th>Coefficient</th><th>Confidence</th></tr></thead>
-              <tbody>
-                <tr>
-                  <td>Upper Body</td>
-                  <td style={{ color: (tp.sleepCoefficients.upperBody ?? 0) > 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {(tp.sleepCoefficients.upperBody ?? 0) > 0 ? '+' : ''}{((tp.sleepCoefficients.upperBody ?? 0) * 100).toFixed(0)}%
-                  </td>
-                  <td>{tp.sleepCoefficients.confidence} ({tp.sleepCoefficients.dataPoints} pts)</td>
-                </tr>
-                <tr>
-                  <td>Lower Body</td>
-                  <td style={{ color: (tp.sleepCoefficients.lowerBody ?? 0) > 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {(tp.sleepCoefficients.lowerBody ?? 0) > 0 ? '+' : ''}{((tp.sleepCoefficients.lowerBody ?? 0) * 100).toFixed(0)}%
-                  </td>
-                  <td>{tp.sleepCoefficients.confidence} ({tp.sleepCoefficients.dataPoints} pts)</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Time of Day */}
-          {tp.timeOfDayEffects.filter(e => e.dataPoints >= 3).length > 0 && (
-            <div className={s.card}>
-              <h3 className={s.sectionTitle}>Time of Day Effects</h3>
-              <table className={s.dataTable}>
-                <thead><tr><th>Window</th><th>Perf. Delta</th><th>Sessions</th></tr></thead>
-                <tbody>
-                  {tp.timeOfDayEffects.filter(e => e.dataPoints >= 3).map(e => (
-                    <tr key={e.bucket}>
-                      <td>{e.bucket}</td>
-                      <td style={{ color: (e.avgDelta ?? 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        {(e.avgDelta ?? 0) >= 0 ? '+' : ''}{((e.avgDelta ?? 0) * 100).toFixed(1)}%
-                      </td>
-                      <td>{e.dataPoints}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Consecutive Days */}
-          {tp.consecutiveDaysEffects.filter(e => e.dataPoints >= 3).length > 0 && (
-            <div className={s.card}>
-              <h3 className={s.sectionTitle}>Consecutive Day Effects</h3>
-              <table className={s.dataTable}>
-                <thead><tr><th>Days in a Row</th><th>Perf. Delta</th><th>Sessions</th></tr></thead>
-                <tbody>
-                  {tp.consecutiveDaysEffects.filter(e => e.dataPoints >= 3).map(e => (
-                    <tr key={e.dayIndex}>
-                      <td>Day {e.dayIndex}</td>
-                      <td style={{ color: (e.avgDelta ?? 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        {(e.avgDelta ?? 0) >= 0 ? '+' : ''}{((e.avgDelta ?? 0) * 100).toFixed(1)}%
-                      </td>
-                      <td>{e.dataPoints}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Imbalance Alerts */}
-          {tp.imbalanceAlerts.length > 0 && (
-            <div className={s.card}>
-              <h3 className={s.sectionTitle}>Imbalance Alerts</h3>
-              {tp.imbalanceAlerts.map((a, i) => (
-                <div key={i} className={s.profileItemWatch}>
-                  <div className={s.profileItemTitle}>{a.type.replace(/_/g, ' ')}</div>
-                  <div className={s.profileItemDetail}>{a.description}</div>
-                  <div className={s.profileItemData}>Ratio: {a.ratio}:1 (target: {a.targetRatio}:1)</div>
+          {gp.signals.length > 0 && (
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {gp.signals.slice(0, 4).map((sig, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    borderLeft: `3px solid ${sig.trend === 'positive' ? 'var(--success)' : sig.trend === 'negative' ? '#ef4444' : 'var(--text-muted)'}`,
+                    backgroundColor:
+                      sig.trend === 'positive'
+                        ? 'rgba(34,197,94,0.08)'
+                        : sig.trend === 'negative'
+                          ? 'rgba(239,68,68,0.08)'
+                          : 'rgba(255,255,255,0.04)',
+                  }}
+                >
+                  <strong>{sig.label}</strong> — {sig.value}
+                  <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>{sig.detail}</div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      )}
 
-          {/* Muscle Recovery Status */}
-          <div className={s.card}>
-            <h3 className={s.sectionTitle}>Muscle Recovery Status</h3>
+      <div className={s.card} style={{ marginTop: 12 }}>
+        <h3 className={s.sectionTitle}>Data & behavior</h3>
+        <p className={s.sectionSubtitle}>What the engine can learn from without forms</p>
+        <div className={s.statsGrid} style={{ marginTop: 10 }}>
+          <Stat label="Workouts" value={String(tp.totalWorkoutCount)} />
+          <Stat label="Fitbit" value={hasFitbit ? 'Connected' : '—'} ok={hasFitbit} />
+          <Stat
+            label="Rest compliance"
+            value={restPct != null ? `${restPct}%` : '—'}
+            ok={restPct != null && restPct >= 75}
+          />
+          <Stat
+            label="Engine patterns"
+            value={`${enginePatterns} active`}
+            hint={`${verified.length}/${patterns.length} verified`}
+          />
+        </div>
+      </div>
+
+      <div className={s.card} style={{ marginTop: 12 }}>
+        <h3 className={s.sectionTitle}>Learned patterns</h3>
+        <p className={s.sectionSubtitle}>
+          Deduped observations; only verified patterns change your workouts.
+        </p>
+        {patterns.length === 0 ? (
+          <p className={s.emptyText} style={{ marginTop: 8 }}>
+            No patterns yet — they appear after plan reviews when behavior supports them.
+          </p>
+        ) : (
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {patterns.map((p) => (
+              <PatternCard key={p.patternKey} pattern={p} affectsEngine={p.autoVerified} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className={s.card} style={{ marginTop: 12 }}>
+        <h3 className={s.sectionTitle}>Engine snapshot</h3>
+        <div className={s.statsGrid} style={{ marginTop: 8 }}>
+          <Stat label="Frequency" value={`${tp.trainingFrequency} d/wk`} />
+          <Stat label="Avg session" value={`${tp.avgSessionDuration} min`} />
+          <Stat label="Consistency" value={`${Math.round(tp.consistencyScore * 100)}%`} />
+          <Stat
+            label="Deload"
+            value={tp.deloadRecommendation.needed ? 'Suggested' : 'OK'}
+            ok={!tp.deloadRecommendation.needed}
+          />
+        </div>
+        {(tp.hrvIntensityModifier || tp.sleepVolumeModifier) && (
+          <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            {tp.hrvIntensityModifier?.recommendation}
+            {tp.hrvIntensityModifier && tp.sleepVolumeModifier ? ' · ' : ''}
+            {tp.sleepVolumeModifier?.reason}
+          </p>
+        )}
+        {volumeAlerts.length > 0 && (
+          <>
+            <div className={s.sectionLabel} style={{ marginTop: 12 }}>
+              Volume alerts
+            </div>
             <table className={s.dataTable}>
-              <thead><tr><th>Muscle</th><th>Recovery</th><th>Hours</th><th>Ready</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Muscle</th>
+                  <th>Sets/wk</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
               <tbody>
-                {tp.muscleRecovery.map(r => (
-                  <tr key={r.muscleGroup}>
-                    <td style={{ textTransform: 'capitalize' }}>{r.muscleGroup.replace(/_/g, ' ')}</td>
-                    <td>{r.recoveryPercent}%</td>
-                    <td>{r.hoursSinceLastTrained === Infinity || r.hoursSinceLastTrained == null ? '—' : r.hoursSinceLastTrained.toFixed(0)}h</td>
-                    <td style={{ color: r.readyToTrain ? 'var(--success)' : 'var(--danger)' }}>
-                      {r.readyToTrain ? 'Yes' : 'No'}
+                {volumeAlerts.slice(0, 8).map((v) => (
+                  <tr key={v.muscleGroup}>
+                    <td style={{ textTransform: 'capitalize' }}>{v.muscleGroup.replace(/_/g, ' ')}</td>
+                    <td>
+                      {v.weeklyDirectSets}/{v.mrv}
+                    </td>
+                    <td style={{ color: v.status === 'above_mrv' ? 'var(--danger)' : '#e6a800' }}>
+                      {v.status.replace(/_/g, ' ')}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          </>
+        )}
+      </div>
+
+      {topSwaps.length > 0 && (
+        <div className={s.card} style={{ marginTop: 12 }}>
+          <h3 className={s.sectionTitle}>Swap penalties</h3>
+          <p className={s.sectionSubtitle}>Highest-impact exercises the selector deprioritizes</p>
+          <table className={s.dataTable} style={{ marginTop: 8 }}>
+            <thead>
+              <tr>
+                <th>Exercise</th>
+                <th>Swaps</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topSwaps.map((sw) => {
+                const acc = (tp.exerciseAcceptances ?? []).find((a) => a.exerciseName === sw.exerciseName)
+                const st = swapStatus(sw.effectiveSwapWeight, sw.swapCount, acc?.effectiveWeight ?? 0)
+                return (
+                  <tr key={sw.exerciseName}>
+                    <td>{sw.exerciseName}</td>
+                    <td>{sw.swapCount}</td>
+                    <td>
+                      <span className={st.className}>{st.label}</span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* ── Flags & Alerts ─────────────────────────────────────── */}
-      <SectionHeader title="Flags & Alerts" id="flags" expanded={expanded} onToggle={toggle} />
-      {expanded.has('flags') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className={s.card}>
-            <table className={s.dataTable}>
-              <tbody>
-                <tr>
-                  <td>Deload Recommended</td>
-                  <td style={{ color: tp.deloadRecommendation.needed ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
-                    {tp.deloadRecommendation.needed ? 'YES' : 'No'}
+      {topForecasts.length > 0 && (
+        <div className={s.card} style={{ marginTop: 12 }}>
+          <h3 className={s.sectionTitle}>Top forecasts</h3>
+          <table className={s.dataTable} style={{ marginTop: 8 }}>
+            <thead>
+              <tr>
+                <th>Lift</th>
+                <th>e1RM</th>
+                <th>Next target</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topForecasts.map((f) => (
+                <tr key={f.exerciseName}>
+                  <td>{f.exerciseName}</td>
+                  <td>{f.currentE1RM} lbs</td>
+                  <td style={{ fontWeight: 600 }}>{f.predictedTargetWeight} lbs</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Fold title="Strength & health percentiles" id="percentiles" open={open} onToggle={toggle}>
+        {tp.strengthPercentiles.length > 0 && (
+          <table className={s.dataTable}>
+            <thead>
+              <tr>
+                <th>Lift</th>
+                <th>e1RM</th>
+                <th>%ile</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tp.strengthPercentiles.map((sp) => {
+                const pct = sp.ageAdjustedPercentile ?? sp.percentile
+                return (
+                  <tr key={sp.lift}>
+                    <td style={{ textTransform: 'capitalize' }}>{sp.lift}</td>
+                    <td>{sp.estimated1RM} lbs</td>
+                    <td>
+                      <PctBarCell pct={pct} /> {levelLabel(pct)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+        {tp.healthPercentiles.length > 0 && (
+          <table className={s.dataTable} style={{ marginTop: 12 }}>
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Avg</th>
+                <th>%ile</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tp.healthPercentiles.map((h) => (
+                <tr key={h.metric}>
+                  <td>{h.label}</td>
+                  <td>
+                    {h.value} {h.unit}
+                  </td>
+                  <td>
+                    <PctBarCell pct={h.percentile} />
                   </td>
                 </tr>
-                {tp.deloadRecommendation.signals.map((sig, i) => (
-                  <tr key={i}><td colSpan={2} style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sig}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Fold>
+
+      <Fold title="30-day trends" id="trends" open={open} onToggle={toggle}>
+        <table className={s.dataTable}>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Now</th>
+              <th>Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+            <TrendCompact label="Strength index" mt={t.totalStrengthIndex} goodDir="up" />
+            <TrendCompact label="Volume load" mt={t.totalVolumeLoad} unit="lbs" goodDir="up" />
+            <TrendCompact label="Sleep" mt={t.sleep} unit="hrs" goodDir="up" />
+            <TrendCompact label="HRV" mt={t.hrv} unit="ms" goodDir="up" />
+            <TrendCompact label="Frequency" mt={t.trainingFrequency} unit="d/wk" goodDir="up" />
+          </tbody>
+        </table>
+        {t.exerciseTrends.filter((e) => e.estimated1RM.dataPoints >= 2).length > 0 && (
+          <table className={s.dataTable} style={{ marginTop: 12 }}>
+            <thead>
+              <tr>
+                <th>Lift</th>
+                <th>e1RM</th>
+                <th>Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {t.exerciseTrends
+                .filter((e) => e.estimated1RM.dataPoints >= 2)
+                .slice(0, 8)
+                .map((et) => (
+                  <tr key={et.exerciseName}>
+                    <td>{et.exerciseName}</td>
+                    <td>{et.estimated1RM.current?.toFixed(0) ?? '—'} lbs</td>
+                    <td style={{ color: trendColor(et.estimated1RM.direction, 'up'), fontWeight: 600 }}>
+                      {arrow(et.estimated1RM.direction)} {Math.abs(et.estimated1RM.slopePct).toFixed(1)}%
+                    </td>
+                  </tr>
                 ))}
-              </tbody>
-            </table>
+            </tbody>
+          </table>
+        )}
+      </Fold>
 
-            {tp.plateauDetections.filter(p => p.isPlateaued).length > 0 && (
-              <>
-                <div className={s.divider} />
-                <div className={s.sectionLabel}>Plateaued Exercises</div>
-                <table className={s.dataTable}>
-                  <thead><tr><th>Exercise</th><th>Sessions</th><th>Strategy</th></tr></thead>
-                  <tbody>
-                    {tp.plateauDetections.filter(p => p.isPlateaued).map(p => (
-                      <tr key={p.exerciseName}>
-                        <td>{p.exerciseName}</td>
-                        <td>{p.sessionsSinceProgress}</td>
-                        <td style={{ fontSize: 12 }}>{p.suggestedStrategy}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            )}
+      {tp.athleteProfile && tp.athleteProfile.items.length > 0 && (
+        <Fold title="Athlete profile" id="profile" open={open} onToggle={toggle}>
+          <p className={s.sectionSubtitle}>{tp.athleteProfile.summary}</p>
+          {tp.athleteProfile.items.slice(0, 6).map((item, idx) => (
+            <div key={idx} className={s.profileItemStrength} style={{ marginTop: 8 }}>
+              <div className={s.profileItemTitle}>{item.area}</div>
+              <div className={s.profileItemDetail}>{item.detail}</div>
+            </div>
+          ))}
+        </Fold>
+      )}
+
+      <Fold title="Flags & plateaus" id="flags" open={open} onToggle={toggle}>
+        {tp.deloadRecommendation.signals.map((sig, i) => (
+          <p key={i} style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0' }}>
+            {sig}
+          </p>
+        ))}
+        {tp.plateauDetections.filter((p) => p.isPlateaued).length > 0 && (
+          <table className={s.dataTable} style={{ marginTop: 8 }}>
+            <thead>
+              <tr>
+                <th>Exercise</th>
+                <th>Sessions stuck</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tp.plateauDetections
+                .filter((p) => p.isPlateaued)
+                .slice(0, 6)
+                .map((p) => (
+                  <tr key={p.exerciseName}>
+                    <td>{p.exerciseName}</td>
+                    <td>{p.sessionsSinceProgress}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        )}
+        {tp.imbalanceAlerts.slice(0, 3).map((a, i) => (
+          <div key={i} className={s.profileItemWatch} style={{ marginTop: 8 }}>
+            <div className={s.profileItemTitle}>{a.type.replace(/_/g, ' ')}</div>
+            <div className={s.profileItemDetail}>{a.description}</div>
           </div>
-        </div>
+        ))}
+      </Fold>
+
+      <Fold title="Optional AI narrative" id="ai" open={open} onToggle={toggle}>
+        {!aiSummary && !aiLoading && !aiError && (
+          <div style={{ textAlign: 'center', padding: '8px 0' }}>
+            <Button onClick={runAiAnalysis}>Generate analysis</Button>
+          </div>
+        )}
+        {aiLoading && <p className={s.emptyText}>Analyzing...</p>}
+        {aiError && (
+          <>
+            <p style={{ color: '#ef4444', fontSize: 13 }}>{aiError}</p>
+            <Button variant="secondary" onClick={runAiAnalysis}>
+              Retry
+            </Button>
+          </>
+        )}
+        {aiSummary && (
+          <>
+            <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-primary)' }}>{aiSummary.overallAssessment}</p>
+            {aiSummary.keyFindings?.slice(0, 5).map((f, i) => (
+              <div key={i} style={{ marginTop: 8, fontSize: 12 }}>
+                <strong>{f.title}</strong> — {f.detail}
+              </div>
+            ))}
+            <div style={{ textAlign: 'right', marginTop: 8 }}>
+              <Button variant="secondary" onClick={runAiAnalysis} style={{ fontSize: 12, padding: '4px 12px' }}>
+                Refresh
+              </Button>
+            </div>
+          </>
+        )}
+      </Fold>
+    </div>
+  )
+}
+
+function Stat({ label, value, ok, hint }: { label: string; value: string; ok?: boolean; hint?: string }) {
+  return (
+    <div className={s.statCard}>
+      <span className={s.statLabel}>{label}</span>
+      <span className={s.statValue} style={ok === false ? { color: 'var(--text-muted)' } : ok ? { color: 'var(--success)' } : undefined}>
+        {value}
+      </span>
+      {hint && <span className={s.statUnit}>{hint}</span>}
+    </div>
+  )
+}
+
+function PatternCard({ pattern: p, affectsEngine }: { pattern: AggregatedPattern; affectsEngine: boolean }) {
+  return (
+    <div
+      style={{
+        padding: '10px 12px',
+        borderRadius: 8,
+        borderLeft: `3px solid ${affectsEngine ? 'var(--success)' : 'var(--text-muted)'}`,
+        backgroundColor: affectsEngine ? 'rgba(34,197,94,0.06)' : 'rgba(255,255,255,0.04)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+          {categoryLabel[p.category]} · {p.occurrenceCount}× · {p.confidence}
+        </span>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: affectsEngine ? 'var(--success)' : 'var(--text-muted)',
+          }}
+        >
+          {affectsEngine ? 'In engine' : p.autoVerified ? 'Verified' : 'Observed'}
+        </span>
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{p.pattern}</div>
+      {p.suggestion && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{p.suggestion}</div>
       )}
-
-      {/* ── ML Intelligence Dashboard ─────────────────────────── */}
-      <SectionHeader title="ML Intelligence" id="ml" expanded={expanded} onToggle={toggle} />
-      {expanded.has('ml') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* HRV Intensity Gate */}
-          {tp.hrvIntensityModifier && (
-            <div className={s.cardCompact}>
-              <div className={s.sectionLabel}>HRV Intensity Gate</div>
-              <div className={s.statsGrid}>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Today's HRV</span>
-                  <span className={s.statValue}>{tp.hrvIntensityModifier.todayHrv != null ? Math.round(tp.hrvIntensityModifier.todayHrv) : '—'}</span>
-                  <span className={s.statUnit}>ms</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>7d Average</span>
-                  <span className={s.statValue}>{tp.hrvIntensityModifier.rolling7dHrv != null ? Math.round(tp.hrvIntensityModifier.rolling7dHrv) : '—'}</span>
-                  <span className={s.statUnit}>ms</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Z-Score</span>
-                  <span className={s.statValue} style={{ color: (tp.hrvIntensityModifier.zScore ?? 0) < -1 ? 'var(--danger)' : (tp.hrvIntensityModifier.zScore ?? 0) > 0.5 ? 'var(--success)' : 'var(--text-primary)' }}>
-                    {(tp.hrvIntensityModifier.zScore ?? 0).toFixed(2)}
-                  </span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Intensity</span>
-                  <span className={s.statValue}>×{(tp.hrvIntensityModifier.intensityMultiplier ?? 1).toFixed(2)}</span>
-                </div>
-              </div>
-              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>{tp.hrvIntensityModifier.recommendation}</p>
-            </div>
-          )}
-
-          {/* Sleep Volume Modifier */}
-          {tp.sleepVolumeModifier && (
-            <div className={s.cardCompact}>
-              <div className={s.sectionLabel}>Sleep → Training Adjustment</div>
-              <div className={s.statsGrid}>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Last Night</span>
-                  <span className={s.statValue}>{tp.sleepVolumeModifier.lastNightSleepHours != null ? tp.sleepVolumeModifier.lastNightSleepHours.toFixed(1) : '—'}</span>
-                  <span className={s.statUnit}>hrs</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Quality</span>
-                  <span className={s.statValue} style={{ fontSize: 16, color: tp.sleepVolumeModifier.lastNightSleepQuality === 'poor' ? 'var(--danger)' : tp.sleepVolumeModifier.lastNightSleepQuality === 'excellent' ? 'var(--success)' : 'var(--text-primary)' }}>
-                    {tp.sleepVolumeModifier.lastNightSleepQuality ?? '—'}
-                  </span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Volume</span>
-                  <span className={s.statValue}>×{(tp.sleepVolumeModifier.volumeMultiplier ?? 1).toFixed(2)}</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Rest</span>
-                  <span className={s.statValue}>×{(tp.sleepVolumeModifier.restTimeMultiplier ?? 1).toFixed(2)}</span>
-                </div>
-              </div>
-              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>{tp.sleepVolumeModifier.reason}</p>
-            </div>
-          )}
-
-          {/* Compliance */}
-          {tp.prescribedVsActual && tp.prescribedVsActual.exercisesCompleted + tp.prescribedVsActual.exercisesSkipped > 0 && (
-            <div className={s.cardCompact}>
-              <div className={s.sectionLabel}>Workout Compliance</div>
-              <div className={s.statsGrid}>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Compliance</span>
-                  <span className={s.statValue} style={{ color: tp.prescribedVsActual.complianceRate >= 0.8 ? 'var(--success)' : tp.prescribedVsActual.complianceRate >= 0.6 ? '#e6a800' : 'var(--danger)' }}>
-                    {Math.round(tp.prescribedVsActual.complianceRate * 100)}%
-                  </span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Completed</span>
-                  <span className={s.statValue}>{tp.prescribedVsActual.exercisesCompleted}</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Skipped</span>
-                  <span className={s.statValue}>{tp.prescribedVsActual.exercisesSkipped}</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Weight Dev</span>
-                  <span className={s.statValue}>{(tp.prescribedVsActual.avgWeightDeviation ?? 0) > 0 ? '+' : ''}{(tp.prescribedVsActual.avgWeightDeviation ?? 0).toFixed(1)}%</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Set Accuracy</span>
-                  <span className={s.statValue} style={{ color: (tp.prescribedVsActual.avgSetExecutionAccuracy ?? 0) >= 0.8 ? 'var(--success)' : (tp.prescribedVsActual.avgSetExecutionAccuracy ?? 0) >= 0.6 ? '#e6a800' : 'var(--danger)' }}>
-                    {Math.round((tp.prescribedVsActual.avgSetExecutionAccuracy ?? 0) * 100)}%
-                  </span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Set Labels</span>
-                  <span className={s.statValue}>{tp.prescribedVsActual.executionSampleSize ?? 0}</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Outcome Score</span>
-                  <span className={s.statValue}>{Math.round((tp.prescribedVsActual.avgSessionOutcomeScore ?? 0) * 100)}%</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Outcome Labels</span>
-                  <span className={s.statValue}>{tp.prescribedVsActual.outcomeSampleSize ?? 0}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Utility Objective */}
-          {tp.canonicalModelContext && (
-            <div className={s.cardCompact}>
-              <div className={s.sectionLabel}>Objective Utility ({tp.canonicalModelContext.version})</div>
-              <div className={s.statsGrid}>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Utility</span>
-                  <span className={s.statValue} style={{ color: tp.canonicalModelContext.objectiveUtility >= 0.75 ? 'var(--success)' : tp.canonicalModelContext.objectiveUtility >= 0.55 ? '#e6a800' : 'var(--danger)' }}>
-                    {Math.round(tp.canonicalModelContext.objectiveUtility * 100)}%
-                  </span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Evidence</span>
-                  <span className={s.statValue} style={{ color: tp.canonicalModelContext.evidenceConfidence >= 0.65 ? 'var(--success)' : '#e6a800' }}>
-                    {Math.round(tp.canonicalModelContext.evidenceConfidence * 100)}%
-                  </span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Adherence</span>
-                  <span className={s.statValue}>{Math.round(tp.canonicalModelContext.adherenceScore * 100)}%</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Progression</span>
-                  <span className={s.statValue}>{Math.round(tp.canonicalModelContext.progressionScore * 100)}%</span>
-                </div>
-                <div className={s.statCard}>
-                  <span className={s.statLabel}>Session Fit</span>
-                  <span className={s.statValue}>{Math.round(tp.canonicalModelContext.sessionFitScore * 100)}%</span>
-                </div>
-              </div>
-              {tp.canonicalModelContext.evidenceConfidence < 0.65 && (
-                <p style={{ margin: '8px 0 0', fontSize: 12, color: '#e6a800' }}>
-                  Low evidence confidence: utility is intentionally regressed toward neutral until more validated sessions are logged.
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* RPE Calibration */}
-          {tp.rpeCalibrationFactor != null && tp.workoutIntensityScores && tp.workoutIntensityScores.length > 0 && (
-            <div className={s.cardCompact}>
-              <div className={s.sectionLabel}>RPE Calibration (HR vs Self-Report)</div>
-              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
-                {tp.rpeCalibrationFactor > 5 ? 'You tend to overestimate effort vs heart rate data' :
-                 tp.rpeCalibrationFactor < -5 ? 'You tend to underestimate effort vs heart rate data' :
-                 'Your RPE is well-calibrated with heart rate data'}
-                {' '}(avg offset: {tp.rpeCalibrationFactor > 0 ? '+' : ''}{Math.round(tp.rpeCalibrationFactor)} points)
-              </p>
-              <table className={s.dataTable}>
-                <thead><tr><th>Date</th><th>Avg HR</th><th>HR Intensity</th><th>RPE</th><th>Offset</th></tr></thead>
-                <tbody>
-                  {tp.workoutIntensityScores.slice(0, 8).map(w => (
-                    <tr key={w.workoutId}>
-                      <td>{w.date}</td>
-                      <td>{w.avgHr ?? '—'}</td>
-                      <td>{Math.round(w.hrBasedIntensity)}</td>
-                      <td>{w.subjectiveRpe != null ? Math.round(w.subjectiveRpe) : '—'}</td>
-                      <td style={{ color: Math.abs(w.rpeCalibration) > 10 ? 'var(--danger)' : 'var(--text-secondary)' }}>
-                        {w.rpeCalibration > 0 ? '+' : ''}{Math.round(w.rpeCalibration)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Steps-Performance Correlation */}
-          {tp.stepsPerformanceCorrelation != null && tp.stepsPerformanceCorrelation.dataPoints >= 3 && (
-            <div className={s.cardCompact}>
-              <div className={s.sectionLabel}>Steps-Performance Correlation</div>
-              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
-                Steps-performance: {(tp.stepsPerformanceCorrelation.coefficient ?? 0).toFixed(2)} —{' '}
-                {tp.stepsPerformanceCorrelation.coefficient < -0.15
-                  ? 'High step days may reduce strength'
-                  : tp.stepsPerformanceCorrelation.coefficient > 0.15
-                    ? 'Active days boost your performance'
-                    : 'No significant step-performance link detected'}
-              </p>
-            </div>
-          )}
-
-          {/* Exercise Ordering Interference */}
-          {tp.exerciseOrderingEffects && tp.exerciseOrderingEffects.filter(e => e.interference < -0.08 && e.dataPoints >= 5).length > 0 && (
-            <div className={s.cardCompact}>
-              <div className={s.sectionLabel}>Exercise Ordering Interference</div>
-              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
-                When Exercise A is done before Exercise B, B's performance is affected.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {tp.exerciseOrderingEffects
-                  .filter(e => e.interference < -0.08 && e.dataPoints >= 5)
-                  .map((e, i) => (
-                    <div key={i} className={s.profileItemWatch}>
-                      <div className={s.profileItemTitle}>
-                        {e.precedingExercise} → {e.affectedExercise}: {(e.interference * 100).toFixed(1)}% impact
-                      </div>
-                      <div className={s.profileItemData}>{e.dataPoints} data points</div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
-
-          {/* Session Fatigue Effects */}
-          {tp.sessionFatigueEffects && (() => {
-            const buckets = tp.sessionFatigueEffects.filter(e => e.dataPoints >= 5)
-            const show60 = buckets.find(b => b.positionBucket === '60-90min')
-            const show90 = buckets.find(b => b.positionBucket === '90+min')
-            if (!show60 && !show90) return null
-            return (
-              <div className={s.cardCompact}>
-                <div className={s.sectionLabel}>Session Fatigue Effects</div>
-                <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
-                  Performance delta vs baseline by elapsed session time.
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {show60 && (
-                    <div style={{ fontSize: 12 }}>
-                      Performance at 60–90min:{' '}
-                      <span style={{ color: show60.avgDelta >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
-                        {show60.avgDelta >= 0 ? '+' : ''}{(show60.avgDelta * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                  )}
-                  {show90 && (
-                    <div style={{ fontSize: 12 }}>
-                      Performance at 90+min:{' '}
-                      <span style={{ color: show90.avgDelta >= 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
-                        {show90.avgDelta >= 0 ? '+' : ''}{(show90.avgDelta * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Exercise Swap Learning */}
-          {tp.exerciseSwapHistory && tp.exerciseSwapHistory.length > 0 && (
-            <div className={s.cardCompact}>
-              <div className={s.sectionLabel}>Exercise Swap History</div>
-              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
-                Exercises you've swapped out. The model uses a tiered penalty
-                that grows with decay-weighted swap mass; an exercise is only
-                effectively banned at ~15+ swaps, and a steady stream of
-                "kept" sessions can rescue it.
-              </p>
-              <table className={s.dataTable}>
-                <thead><tr><th>Exercise</th><th>Swaps</th><th>Kept</th><th>Status</th></tr></thead>
-                <tbody>
-                  {tp.exerciseSwapHistory.map(sw => {
-                    const acceptance = (tp.exerciseAcceptances ?? []).find(a => a.exerciseName === sw.exerciseName);
-                    const acceptCount = acceptance?.count ?? 0;
-                    const acceptWeight = acceptance?.effectiveWeight ?? 0;
-                    const status = swapStatus(sw.effectiveSwapWeight, sw.swapCount, acceptWeight);
-                    return (
-                      <tr key={sw.exerciseName}>
-                        <td>{sw.exerciseName}</td>
-                        <td title={`Effective swap mass: ${sw.effectiveSwapWeight.toFixed(2)}`}>{sw.swapCount}</td>
-                        <td title={`Effective acceptance mass: ${acceptWeight.toFixed(2)}`}>{acceptCount}</td>
-                        <td>
-                          <span className={status.className} title={status.hint}>{status.label}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Progression Forecasts ─────────────────────────── */}
-      {tp.progressionForecasts && tp.progressionForecasts.length > 0 && (
-        <>
-          <SectionHeader title="Progression Forecasts" id="forecasts" expanded={expanded} onToggle={toggle} />
-          {expanded.has('forecasts') && (
-            <div className={s.cardCompact}>
-              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
-                Predicted next-session targets based on your progression trend (linear regression on e1RM history).
-              </p>
-              <table className={s.dataTable}>
-                <thead><tr><th>Exercise</th><th>Current e1RM</th><th>Predicted</th><th>Target Weight</th><th>Confidence</th><th>Next Milestone</th></tr></thead>
-                <tbody>
-                  {tp.progressionForecasts.map(f => (
-                    <tr key={f.exerciseName}>
-                      <td>{f.exerciseName}</td>
-                      <td>{f.currentE1RM} lbs</td>
-                      <td style={{ color: f.predictedNextE1RM > f.currentE1RM ? 'var(--success)' : 'var(--text-secondary)' }}>
-                        {f.predictedNextE1RM} lbs
-                      </td>
-                      <td style={{ fontWeight: 600 }}>{f.predictedTargetWeight} lbs</td>
-                      <td>
-                        <span className={s.pctBar} style={{ backgroundColor: f.confidence >= 0.7 ? 'rgba(34,197,94,0.15)' : f.confidence >= 0.5 ? 'rgba(230,168,0,0.15)' : 'rgba(255,255,255,0.06)' }}>
-                          <span className={s.pctBarFill} style={{ width: `${f.confidence * 100}%`, backgroundColor: f.confidence >= 0.7 ? 'rgba(34,197,94,0.3)' : 'rgba(230,168,0,0.3)' }} />
-                          R²={f.confidence.toFixed(2)}
-                        </span>
-                      </td>
-                      <td>{f.sessionsUntilMilestone != null ? `~${f.sessionsUntilMilestone} sessions` : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── Movement Pattern Fatigue ─────────────────────────── */}
-      {tp.movementPatternFatigue && tp.movementPatternFatigue.length > 0 && (
-        <>
-          <SectionHeader title="Movement Pattern Fatigue" id="fatigue" expanded={expanded} onToggle={toggle} />
-          {expanded.has('fatigue') && (
-            <div className={s.cardCompact}>
-              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
-                Systemic fatigue tracked by movement pattern, not just individual muscles.
-              </p>
-              <div className={s.statsGrid}>
-                {tp.movementPatternFatigue.map(mp => {
-                  const fColor = mp.fatigueLevel === 'high' ? 'var(--danger)' : mp.fatigueLevel === 'moderate' ? '#e6a800' : 'var(--success)'
-                  const fLabel = mp.fatigueLevel === 'high' ? 'HIGH' : mp.fatigueLevel === 'moderate' ? 'MOD' : 'FRESH'
-                  return (
-                    <div key={mp.pattern} className={s.statCard}>
-                      <span className={s.statLabel}>{mp.pattern.replace(/_/g, ' ')}</span>
-                      <span className={s.statValue} style={{ color: fColor, fontSize: 14 }}>{fLabel}</span>
-                      <span className={s.statUnit}>
-                        {mp.hoursSinceLastTrained != null ? `${Math.round(mp.hoursSinceLastTrained)}h ago` : 'No data'}
-                        {mp.weeklySessionCount > 0 ? ` · ${mp.weeklySessionCount}/wk` : ''}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </>
+      {p.evidence.length > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>{p.evidence.slice(0, 2).join(' · ')}</div>
       )}
     </div>
   )
 }
 
-function SectionHeader({ title, id, expanded, onToggle }: { title: string; id: SectionId; expanded: Set<SectionId>; onToggle: (id: SectionId) => void }) {
-  const isOpen = expanded.has(id)
+function TrendCompact({
+  label,
+  mt,
+  unit = '',
+  goodDir,
+}: {
+  label: string
+  mt: { current: number | null; direction: string; slopePct: number; dataPoints: number }
+  unit?: string
+  goodDir: 'up' | 'down'
+}) {
+  if (mt.dataPoints < 3) return null
   return (
-    <button
-      onClick={() => onToggle(id)}
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        width: '100%', padding: '10px 4px',
-        background: 'none', border: 'none', cursor: 'pointer',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-      }}
-    >
-      <span style={{ fontSize: 'var(--text-base)', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: 'var(--letter-tight)' }}>
-        {title}
-      </span>
-      <span style={{ fontSize: 12, color: 'var(--text-muted)', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
-        ▸
-      </span>
-    </button>
+    <tr>
+      <td>{label}</td>
+      <td>
+        {mt.current != null ? `${unit === 'min' ? Math.round(mt.current) : mt.current.toFixed(1)} ${unit}`.trim() : '—'}
+      </td>
+      <td style={{ color: trendColor(mt.direction, goodDir), fontWeight: 600 }}>
+        {arrow(mt.direction)} {Math.abs(mt.slopePct).toFixed(1)}%/wk
+      </td>
+    </tr>
+  )
+}
+
+function Fold({
+  title,
+  id,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string
+  id: FoldId
+  open: Set<FoldId>
+  onToggle: (id: FoldId) => void
+  children: React.ReactNode
+}) {
+  const isOpen = open.has(id)
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onToggle(id)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+          padding: '12px 4px',
+          marginTop: 8,
+          background: 'none',
+          border: 'none',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{title}</span>
+        <span style={{ color: 'var(--text-muted)', transform: isOpen ? 'rotate(90deg)' : 'none' }}>▸</span>
+      </button>
+      {isOpen && <div className={s.card} style={{ marginTop: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>{children}</div>}
+    </>
   )
 }

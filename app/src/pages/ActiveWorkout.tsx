@@ -18,7 +18,6 @@ import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Button from '../components/Button'
-import TextAreaField from '../components/TextAreaField'
 import SearchField from '../components/SearchField'
 import { enqueueOutboxItem, removeOutboxItem } from '../lib/syncOutbox'
 import ExerciseCard from '../components/ExerciseCard'
@@ -36,7 +35,7 @@ import {
   parseGeneratedWorkoutPayload,
   peekGeneratedWorkoutPayload,
 } from '../lib/generatedWorkoutHandoff'
-import { getExerciseRom, computeMechanicalWork, formatJoules } from '../lib/exerciseRom'
+import { getExerciseRom, computeMechanicalWork } from '../lib/exerciseRom'
 import styles from './ActiveWorkout.module.css'
 
 function normalizeActiveWorkoutEntry(location: any) {
@@ -147,9 +146,18 @@ function mapGeneratedWorkoutExercises(generatedExercises: any[]): any[] {
 
 type RestContractSnapshot = {
   exerciseId: string | null
+  targetSetIndex: number | null
+  fromSetIndex: number | null
   prescribedRestSeconds: number | null
   restDurationSeconds: number
   restStartTime: string | null
+}
+
+type PendingRestForSet = {
+  exerciseId: string | number
+  targetSetIndex: number
+  prescribedSeconds: number | null
+  actualSeconds: number
 }
 
 export default function ActiveWorkout() {
@@ -174,8 +182,6 @@ export default function ActiveWorkout() {
   const [restTime, setRestTime] = useState(0)
   const [isResting, setIsResting] = useState(false)
   const [draggedId, setDraggedId] = useState<string | null>(null)
-  const [showSummary, setShowSummary] = useState(false)
-  const [feedback, setFeedback] = useState({ rpe: 7, moodAfter: 3, notes: '' })
   const [showTimesUp, setShowTimesUp] = useState(false)
   const [lastByExerciseName, setLastByExerciseName] = useState<Record<string, any>>({})
   const [showControlsSheet, setShowControlsSheet] = useState(false)
@@ -219,8 +225,6 @@ export default function ActiveWorkout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key])
   const [isSaving, setIsSaving] = useState(false)
-  const [saveSuccess, setSaveSuccess] = useState(false)
-  const [calculatedWorkoutMetrics, setCalculatedWorkoutMetrics] = useState<{ calories: number | null; steps: number | null; mechanicalWork: number | null }>({ calories: null, steps: null, mechanicalWork: null })
   const pauseStartTime = useRef<number | null>(null)
   const pausedTimeRef = useRef(0) // Ref to track paused time for timer calculations
   const workoutTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -229,6 +233,9 @@ export default function ActiveWorkout() {
   const restStartTimeRef = useRef<number | null>(null)
   const restDurationRef = useRef(0)
   const restContractRef = useRef<RestContractSnapshot | null>(null)
+  /** Rest timer attribution applied to the next set logged on this exercise. */
+  const pendingRestForSetRef = useRef<PendingRestForSet | null>(null)
+  const lastGlobalSetLoggedAtRef = useRef<number | null>(null)
   const timeoutRefs = useRef<Array<ReturnType<typeof setTimeout>>>([]) // Track all timeouts for cleanup
   const autoSaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null) // Auto-save interval
   const lastSavedExercisesRef = useRef<string | null>(null) // Track last saved exercises to avoid unnecessary saves
@@ -334,9 +341,28 @@ export default function ActiveWorkout() {
     if (!c) return null
     return {
       exerciseId: c.exerciseId ?? null,
+      targetSetIndex: c.targetSetIndex ?? null,
+      fromSetIndex: c.fromSetIndex ?? null,
       prescribedRestSeconds: c.prescribedRestSeconds ?? null,
       restDurationSeconds: Math.max(1, Number(c.restDurationSeconds) || 0),
       restStartTime: c.restStartTime ?? null,
+    }
+  }
+
+  const finalizeRestAttribution = (reason: 'completed' | 'skipped') => {
+    const c = restContractRef.current
+    if (!c?.exerciseId || c.targetSetIndex == null || !restStartTimeRef.current) return
+    const elapsed = Math.max(0, Math.floor((Date.now() - restStartTimeRef.current) / 1000))
+    const prescribed = c.prescribedRestSeconds ?? c.restDurationSeconds ?? null
+    const actual =
+      reason === 'skipped'
+        ? Math.min(elapsed, prescribed ?? elapsed)
+        : elapsed
+    pendingRestForSetRef.current = {
+      exerciseId: c.exerciseId,
+      targetSetIndex: c.targetSetIndex,
+      prescribedSeconds: prescribed,
+      actualSeconds: actual,
     }
   }
 
@@ -382,12 +408,16 @@ export default function ActiveWorkout() {
     restContractRef.current = incomingContract
       ? {
           exerciseId: incomingContract.exerciseId ?? null,
+          targetSetIndex: incomingContract.targetSetIndex ?? null,
+          fromSetIndex: incomingContract.fromSetIndex ?? null,
           prescribedRestSeconds: incomingContract.prescribedRestSeconds ?? null,
           restDurationSeconds: restDurationRef.current,
           restStartTime: snapshot?.restStartTime ? String(snapshot.restStartTime) : null,
         }
       : {
           exerciseId: null,
+          targetSetIndex: null,
+          fromSetIndex: null,
           prescribedRestSeconds: null,
           restDurationSeconds: restDurationRef.current,
           restStartTime: snapshot?.restStartTime ? String(snapshot.restStartTime) : null,
@@ -1799,15 +1829,22 @@ export default function ActiveWorkout() {
     return { calories: null, steps: null }
   }
 
-  const startRest = async (duration?: number) => {
+  const startRest = async (
+    duration?: number,
+    ctx?: { targetSetIndex?: number; fromSetIndex?: number; exerciseId?: string | number },
+  ) => {
     if (!userId) return
 
-    const sourceExercise = resolveRestExercise()
+    const sourceExercise = ctx?.exerciseId != null
+      ? exercisesRef.current.find((ex: any) => String(ex.id) === String(ctx.exerciseId)) ?? resolveRestExercise()
+      : resolveRestExercise()
     const prescribed = getPrescribedRestForExercise(sourceExercise)
     const resolvedDuration = clampRestSeconds(duration) ?? prescribed ?? 90
     const nowIso = new Date().toISOString()
     restContractRef.current = {
       exerciseId: sourceExercise?.id != null ? String(sourceExercise.id) : null,
+      targetSetIndex: ctx?.targetSetIndex ?? null,
+      fromSetIndex: ctx?.fromSetIndex ?? null,
       prescribedRestSeconds: prescribed,
       restDurationSeconds: resolvedDuration,
       restStartTime: nowIso,
@@ -1845,7 +1882,8 @@ export default function ActiveWorkout() {
         if (remaining <= 0) {
           if (restTimerRef.current) clearInterval(restTimerRef.current)
           setIsResting(false)
-            restContractRef.current = null
+          finalizeRestAttribution('completed')
+          restContractRef.current = null
           setShowTimesUp(true)
           // Stronger “rest finished” cue.
           try { showToast('Rest finished', 'success', 1400) } catch (err) { logError('Failed to show rest finished toast', err) }
@@ -1872,6 +1910,7 @@ export default function ActiveWorkout() {
     if (!userId) return
     
     if (restTimerRef.current) clearInterval(restTimerRef.current)
+    finalizeRestAttribution('skipped')
     setIsResting(false)
     setRestTime(0)
     restContractRef.current = null
@@ -1935,9 +1974,34 @@ export default function ActiveWorkout() {
       if (ex.id !== exerciseId) return ex
       const newSets = [...ex.sets]
       const updated = { ...newSets[setIndex], [field]: value };
+      const isMeaningful =
+        (field === 'reps' || field === 'weight' || field === 'time_seconds') && value
       // Stamp logged_at the first time meaningful data enters a set
-      if (!updated.logged_at && (field === 'reps' || field === 'weight' || field === 'time_seconds') && value) {
-        updated.logged_at = new Date().toISOString();
+      if (!updated.logged_at && isMeaningful) {
+        const nowIso = new Date().toISOString()
+        updated.logged_at = nowIso
+        const nowMs = Date.now()
+        const pending = pendingRestForSetRef.current
+        if (
+          pending &&
+          String(pending.exerciseId) === String(exerciseId) &&
+          pending.targetSetIndex === setIndex
+        ) {
+          updated.rest_seconds_actual = pending.actualSeconds
+          updated.prescribed_rest_seconds = pending.prescribedSeconds
+          updated.rest_seconds_before = pending.actualSeconds
+          pendingRestForSetRef.current = null
+        } else if (lastGlobalSetLoggedAtRef.current) {
+          const gap = Math.round((nowMs - lastGlobalSetLoggedAtRef.current) / 1000)
+          if (gap > 10 && gap < 1200) {
+            updated.rest_seconds_before = gap
+            updated.rest_seconds_actual = gap
+          }
+        }
+        lastGlobalSetLoggedAtRef.current = nowMs
+      }
+      if (field === 'set_rpe' || field === 'actual_rir') {
+        // pass through for ML
       }
       newSets[setIndex] = updated;
       return { ...ex, sets: newSets }
@@ -2118,98 +2182,7 @@ export default function ActiveWorkout() {
   }
 
   const handleFinishClick = async () => {
-    // Don't clear timers here - let them continue until workout is actually saved
-    // This ensures accurate final time even if user takes time to fill out feedback
-    
-    // Calculate workout metrics when summary modal is shown
-    let workoutCaloriesBurned = null
-    let workoutSteps = null
-    if (user && workoutStartMetricsRef.current) {
-      try {
-        const endMetrics = await getCurrentWearableMetrics()
-        const startMetrics = workoutStartMetricsRef.current
-        
-        // If workout is currently paused, close out the last pause period
-        if (isPaused && pausedMetricsRef.current && pausedMetricsRef.current.length > 0) {
-          const lastPause = pausedMetricsRef.current[pausedMetricsRef.current.length - 1]
-          if (lastPause && !lastPause.resumeTime) {
-            // Workout finished while paused - use end metrics as resume metrics
-            lastPause.resumeTime = Date.now()
-            lastPause.metricsAtResume = endMetrics
-          }
-        }
-        
-        // Calculate total difference (end - start)
-        let totalCaloriesDiff = null
-        let totalStepsDiff = null
-        
-        if (endMetrics.calories != null && startMetrics.calories != null) {
-          totalCaloriesDiff = endMetrics.calories - startMetrics.calories
-        }
-        if (endMetrics.steps != null && startMetrics.steps != null) {
-          totalStepsDiff = endMetrics.steps - startMetrics.steps
-        }
-        
-        // Subtract metrics accumulated during paused periods
-        if (pausedMetricsRef.current && pausedMetricsRef.current.length > 0) {
-          let pausedCalories = 0
-          let pausedSteps = 0
-          
-          pausedMetricsRef.current.forEach(pause => {
-            if (pause.metricsAtPause && pause.metricsAtResume) {
-              // Calculate metrics accumulated during this pause period
-              const pauseCalories = pause.metricsAtResume.calories != null && pause.metricsAtPause.calories != null
-                ? pause.metricsAtResume.calories - pause.metricsAtPause.calories
-                : 0
-              const pauseSteps = pause.metricsAtResume.steps != null && pause.metricsAtPause.steps != null
-                ? pause.metricsAtResume.steps - pause.metricsAtPause.steps
-                : 0
-              
-              pausedCalories += Math.max(0, pauseCalories)
-              pausedSteps += Math.max(0, pauseSteps)
-            }
-          })
-          
-          // Subtract paused metrics from total
-          if (totalCaloriesDiff != null) {
-            workoutCaloriesBurned = Math.max(0, totalCaloriesDiff - pausedCalories)
-          }
-          if (totalStepsDiff != null) {
-            workoutSteps = Math.max(0, totalStepsDiff - pausedSteps)
-          }
-        } else {
-          // No pauses, use total difference
-          if (totalCaloriesDiff != null) {
-            workoutCaloriesBurned = Math.max(0, totalCaloriesDiff)
-          }
-          if (totalStepsDiff != null) {
-            workoutSteps = Math.max(0, totalStepsDiff)
-          }
-        }
-      } catch (error) {
-        logError('Error calculating workout wearable metrics for summary', error)
-      }
-    }
-    
-    // Compute mechanical work from current exercises
-    let mechWork = 0
-    for (const ex of exercises) {
-      if (ex.category === 'Cardio' || ex.category === 'Recovery') continue
-      const rom = getExerciseRom(ex.name || '', ex.movementPattern, ex.exerciseType)
-      for (const s of (ex.sets || [])) {
-        const w = Number(s.weight) || 0
-        const r = Number(s.reps) || 0
-        mechWork += computeMechanicalWork(w, r, rom)
-      }
-    }
-
-    setCalculatedWorkoutMetrics({
-      calories: workoutCaloriesBurned,
-      steps: workoutSteps,
-      mechanicalWork: mechWork > 0 ? mechWork : null,
-    })
-    
-    setShowSummary(true)
+    await finishWorkout()
   }
 
   // IMPORTANT: Workouts are ONLY created when the user explicitly finishes a workout.
@@ -2391,9 +2364,9 @@ export default function ActiveWorkout() {
         return 'Freestyle'
       })(),
       sessionType: sessionType,
-      perceivedEffort: feedback.rpe,
-      moodAfter: feedback.moodAfter,
-      notes: feedback.notes,
+      perceivedEffort: null,
+      moodAfter: null,
+      notes: null,
       dayOfWeek: new Date().getDay(),
       workoutCaloriesBurned: workoutCaloriesBurned,
       workoutSteps: workoutSteps,
@@ -2460,7 +2433,6 @@ export default function ActiveWorkout() {
               completionPct: prescribedCount > 0 ? Math.round((completedCount / prescribedCount) * 100) : 100,
               sessionType,
               durationMinutes: workout.duration,
-              rpe: feedback.rpe,
             })
           }
           showToast(sessionType === 'recovery' ? 'Recovery session saved successfully!' : 'Workout saved successfully!', 'success')
@@ -2479,24 +2451,14 @@ export default function ActiveWorkout() {
         if (workout.workoutStartTime && workout.workoutEndTime) {
           fetchAndSaveWorkoutFitbitMetrics(
             workout.id, userId, workout.workoutStartTime, workout.workoutEndTime
-          ).then(intradayMetrics => {
-            if (intradayMetrics?.totalCalories != null || intradayMetrics?.avgHr != null) {
-              setCalculatedWorkoutMetrics(prev => ({
-                ...prev,
-                calories: intradayMetrics.totalCalories ?? prev.calories,
-                steps: intradayMetrics.totalSteps ?? prev.steps,
-              }))
-            }
-          }).catch((err) =>
+          ).catch((err) =>
             logError('Failed to fetch/save workout Fitbit intraday metrics (non-fatal)', err)
           )
         }
       }
 
-      setSaveSuccess(true)
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      await new Promise(resolve => setTimeout(resolve, 400))
 
-      setShowSummary(false)
       setShowControlsSheet(false)
 
       setExercises([])
@@ -3118,7 +3080,7 @@ export default function ActiveWorkout() {
                         onRemoveSet={() => removeSet(exercise.id)}
                         onRemove={() => removeExercise(exercise.id)}
                         onMove={(dir: any) => moveExercise(exercise.id, dir)}
-                        onStartRest={startRest}
+                        onStartRest={(sec, ctx) => startRest(sec, { ...ctx, exerciseId: exercise.id })}
                         onComplete={() => completeExercise(exercise.id)}
                         onStackNext={handleStackNext}
                         onToggleStack={() => toggleExerciseStack(exercise.id)}
@@ -3175,7 +3137,7 @@ export default function ActiveWorkout() {
               onRemoveSet={() => removeSet(exercise.id)}
               onRemove={() => removeExercise(exercise.id)}
               onMove={(dir: any) => moveExercise(exercise.id, dir)}
-              onStartRest={startRest}
+              onStartRest={(sec, ctx) => startRest(sec, { ...ctx, exerciseId: exercise.id })}
               onComplete={() => completeExercise(exercise.id)}
               onStackNext={handleStackNext}
               onToggleStack={() => toggleExerciseStack(exercise.id)}
@@ -3265,123 +3227,6 @@ export default function ActiveWorkout() {
           onSelect={addExercise}
           onClose={() => setShowPicker(false)}
         />
-      )}
-
-      {showSummary && (
-        <div
-          className={styles.summaryOverlay}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Workout complete"
-          onMouseDown={() => setShowSummary(false)}
-        >
-          <div
-            className={styles.summaryModal}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className={styles.summaryHeader}>
-              <h2 className={styles.summaryTitle}>Workout complete</h2>
-              <button
-                type="button"
-                className={styles.summaryClose}
-                onClick={() => setShowSummary(false)}
-                aria-label="Close workout summary"
-              >
-                ×
-              </button>
-            </div>
-            <p className={styles.summaryDuration}>{formatTime(workoutTime)}</p>
-            
-            {(calculatedWorkoutMetrics.calories != null || calculatedWorkoutMetrics.steps != null || calculatedWorkoutMetrics.mechanicalWork != null) && (
-              <div className={styles.summaryMetrics}>
-                {calculatedWorkoutMetrics.calories != null && (
-                  <div className={styles.summaryMetric}>
-                    <span className={styles.summaryMetricLabel}>Calories Burned:</span>
-                    <span className={styles.summaryMetricValue}>{Math.round(calculatedWorkoutMetrics.calories)}</span>
-                  </div>
-                )}
-                {calculatedWorkoutMetrics.steps != null && (
-                  <div className={styles.summaryMetric}>
-                    <span className={styles.summaryMetricLabel}>Steps:</span>
-                    <span className={styles.summaryMetricValue}>{calculatedWorkoutMetrics.steps.toLocaleString()}</span>
-                  </div>
-                )}
-                {calculatedWorkoutMetrics.mechanicalWork != null && (
-                  <div className={styles.summaryMetric}>
-                    <span className={styles.summaryMetricLabel}>Mechanical Work:</span>
-                    <span className={styles.summaryMetricValue}>{formatJoules(calculatedWorkoutMetrics.mechanicalWork)}</span>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            <div className={styles.feedbackSection}>
-              <label>How hard was it? (RPE)</label>
-              <div className={styles.rpeSlider}>
-                {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                  <button
-                    key={n}
-                    className={`${styles.rpeBtn} ${feedback.rpe === n ? styles.rpeActive : ''}`}
-                    onClick={() => setFeedback(f => ({ ...f, rpe: n }))}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-              <div className={styles.rpeLabels}>
-                <span>Easy</span>
-                <span>Max Effort</span>
-              </div>
-            </div>
-
-            <div className={styles.feedbackSection}>
-              <label>How do you feel now?</label>
-              <div className={styles.moodButtons}>
-                {[1, 2, 3, 4, 5].map((num) => (
-                  <button
-                    key={num}
-                    className={`${styles.moodBtn} ${feedback.moodAfter === num ? styles.moodActive : ''}`}
-                    onClick={() => setFeedback(f => ({ ...f, moodAfter: num }))}
-                  >
-                    {num}
-                  </button>
-                ))}
-              </div>
-              <div className={styles.rpeLabels}>
-                <span>Exhausted</span>
-                <span>Energized</span>
-              </div>
-            </div>
-
-            <div className={styles.feedbackSection}>
-              <TextAreaField
-                label="Notes (optional)"
-                className={styles.notesInput}
-                placeholder="How did it go? Any PRs?"
-                value={feedback.notes}
-                onChange={(e) => setFeedback(f => ({ ...f, notes: e.target.value }))}
-                rows={3}
-              />
-            </div>
-
-            <div className={styles.finishActions}>
-              {saveSuccess ? (
-                <div style={{ textAlign: 'center', padding: '1rem', fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-success, #22c55e)' }}>
-                  ✓ Workout saved!
-                </div>
-              ) : (
-                <>
-                  <Button variant="primary" fullWidth onClick={() => finishWorkout()} disabled={isSaving}>
-                    {isSaving ? 'Saving...' : 'Save'}
-                  </Button>
-                  <Button variant="tertiary" fullWidth onClick={() => finishWorkout({ navigateTo: '/workout' })} disabled={isSaving}>
-                    Back to workouts
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
       )}
 
       {showControlsSheet && (

@@ -403,7 +403,7 @@ async function loadDataContext(userId, filters = {}) {
     const endDate = filters.endDate || new Date().toISOString().split('T')[0]
     const startDate = filters.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     
-    const [workouts, nutrition, health, user] = await Promise.all([
+    const [workouts, nutrition, health, user, executionEvents, swaps] = await Promise.all([
       getFromDatabase('workout', userId, { startDate, endDate }).catch(err => {
         logError('Error loading workouts', err)
         return []
@@ -419,7 +419,24 @@ async function loadDataContext(userId, filters = {}) {
       getFromDatabase('user', userId).catch(err => {
         logError('Error loading user data', err)
         return []
-      })
+      }),
+      query(
+        `SELECT exercise_name, set_number, target_weight, actual_weight, target_reps, actual_reps,
+                target_rir, actual_rir, execution_accuracy, workout_date
+         FROM prescription_execution_events WHERE user_id = $1 AND workout_date >= $2 AND workout_date <= $3`,
+        [userId, startDate, endDate],
+      ).then((r) => r.rows).catch((err) => {
+        logError('Error loading execution events', err)
+        return []
+      }),
+      query(
+        `SELECT exercise_name, replacement_exercise_name, swap_context, created_at
+         FROM exercise_swaps WHERE user_id = $1 AND created_at >= $2::date`,
+        [userId, startDate],
+      ).then((r) => r.rows).catch((err) => {
+        logError('Error loading swaps', err)
+        return []
+      }),
     ])
     
     const dataQuality = computeWearableDataQuality(health || [])
@@ -429,6 +446,8 @@ async function loadDataContext(userId, filters = {}) {
       nutrition: nutrition || [],
       health: health || [],
       user: user?.[0] || null,
+      executionEvents: executionEvents || [],
+      swaps: swaps || [],
       weekData: filters.week || null,
       dataQuality
     }

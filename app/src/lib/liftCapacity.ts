@@ -8,6 +8,7 @@
  */
 
 import type { TrainingProfile, ExerciseProgression, ExercisePreference } from './trainingAnalysis';
+import { learnedPreferenceToE1rm } from './e1rmEstimation';
 
 export interface ExerciseExecutionDeltaV1 {
   avgWeightDeviation: number;
@@ -85,11 +86,7 @@ export function aggregateExerciseExecutionDeltas(
 }
 
 function learnedToE1rm(pref: ExercisePreference): number | null {
-  if (pref.learnedWeight == null || pref.learnedWeight <= 0) return null;
-  if (pref.learnedReps == null || pref.learnedReps <= 0) return null;
-  const reps = Math.max(1, Math.round(pref.learnedReps));
-  const effectiveReps = reps + 1; // assume ~1 RIR on logged working sets
-  return pref.learnedWeight * (1 + effectiveReps / 30);
+  return learnedPreferenceToE1rm(pref.learnedWeight, pref.learnedReps);
 }
 
 /**
@@ -129,6 +126,16 @@ export function buildExerciseCapacity(
   }
 
   if (e1rm <= 0) return null;
+
+  // Sanity: unified e1RM should not exceed 115% of last working weight × rep-capacity
+  // (guards mis-logged sets and equipment confusion spikes).
+  if (lastWorkingWeight != null && lastWorkingWeight > 0) {
+    const repCeiling = lastWorkingWeight * (1 + 8 / 30);
+    if (e1rm > repCeiling * 1.15) {
+      e1rm = repCeiling * 1.15;
+      source = 'blended';
+    }
+  }
 
   // Close the weight loop: execution deltas adjust e1RM directly (not just reps).
   const exDev = executionDelta;

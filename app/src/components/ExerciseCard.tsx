@@ -16,7 +16,7 @@ type ExerciseCardProps = {
   onRemoveSet: () => void
   onRemove: () => void
   onMove: (dir: any) => void
-  onStartRest: (seconds?: number) => void
+  onStartRest: (seconds?: number, ctx?: { targetSetIndex: number; fromSetIndex: number }) => void
   onComplete: () => void
   onStackNext: (args: any) => void
   stacked: any
@@ -313,7 +313,7 @@ export default function ExerciseCard({
       if (!isLastSet) {
         setActiveSet(nextSetIndex)
       }
-      onStartRest?.(suggestedRestSeconds)
+      onStartRest?.(suggestedRestSeconds, { targetSetIndex: nextSetIndex, fromSetIndex: activeSet })
       onStackNext({
         exerciseId: exercise.id,
         stackGroup,
@@ -323,12 +323,13 @@ export default function ExerciseCard({
     }
 
     if (activeSet < exercise.sets.length - 1) {
-      setActiveSet(activeSet + 1)
-      onStartRest(suggestedRestSeconds)
+      const nextSetIndex = activeSet + 1
+      setActiveSet(nextSetIndex)
+      onStartRest(suggestedRestSeconds, { targetSetIndex: nextSetIndex, fromSetIndex: activeSet })
     } else {
       // Last set - complete exercise and move to next
       onComplete()
-      onStartRest(suggestedRestSeconds)
+      onStartRest(suggestedRestSeconds, { targetSetIndex: activeSet, fromSetIndex: activeSet })
     }
   }
 

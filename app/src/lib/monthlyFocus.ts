@@ -4,38 +4,16 @@ import { getLocalDate, parseLocalDate } from '../utils/dateUtils'
 /** Versioned monthly focuses persisted in `user_preferences.monthly_focus_state`. */
 export interface MonthlyFocusStateV1 {
   month: string
-  fitness_muscle: string | null
+  /** Canonical muscle group ids emphasized this month (multi-select). */
+  fitness_muscles: string[]
   life_label: string
   life_completions: Record<string, boolean>
 }
 
+export const MAX_MONTHLY_FITNESS_FOCUS_MUSCLES = 3
+
 export function currentMonthKey(d: Date = new Date()): string {
   return getLocalDate(d).slice(0, 7)
-}
-
-export function parseMonthlyFocusState(raw: unknown): MonthlyFocusStateV1 | null {
-  if (raw == null) return null
-  const obj = typeof raw === 'string' ? safeJson(raw) : raw
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null
-  const rec = obj as Record<string, unknown>
-  const month = typeof rec.month === 'string' && /^\d{4}-\d{2}$/.test(rec.month) ? rec.month : null
-  if (!month) return null
-  const fitness = rec.fitness_muscle
-  const fitness_muscle =
-    fitness === null || fitness === undefined || fitness === ''
-      ? null
-      : typeof fitness === 'string'
-        ? fitness
-        : null
-  const life_label = typeof rec.life_label === 'string' ? rec.life_label : ''
-  const lc = rec.life_completions
-  const life_completions: Record<string, boolean> = {}
-  if (lc && typeof lc === 'object' && !Array.isArray(lc)) {
-    for (const [k, v] of Object.entries(lc as Record<string, unknown>)) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v === true) life_completions[k] = true
-    }
-  }
-  return { month, fitness_muscle, life_label, life_completions }
 }
 
 function safeJson(s: string): unknown {
@@ -46,10 +24,50 @@ function safeJson(s: string): unknown {
   }
 }
 
+/** Parse legacy `fitness_muscle` (string) or `fitness_muscles` (array) into canonical ids. */
+export function parseFitnessMusclesFromRecord(rec: Record<string, unknown>): string[] {
+  const rawArr = rec.fitness_muscles
+  if (Array.isArray(rawArr)) {
+    const out: string[] = []
+    for (const item of rawArr) {
+      if (typeof item !== 'string' || !item.trim()) continue
+      const canon = normalizeMuscleGroupName(item) ?? item.trim().toLowerCase()
+      if (canon && !out.includes(canon)) out.push(canon)
+    }
+    return out.slice(0, MAX_MONTHLY_FITNESS_FOCUS_MUSCLES)
+  }
+  const legacy = rec.fitness_muscle
+  if (legacy === null || legacy === undefined || legacy === '') return []
+  if (typeof legacy === 'string') {
+    const canon = normalizeMuscleGroupName(legacy) ?? legacy.trim().toLowerCase()
+    return canon ? [canon] : []
+  }
+  return []
+}
+
+export function parseMonthlyFocusState(raw: unknown): MonthlyFocusStateV1 | null {
+  if (raw == null) return null
+  const obj = typeof raw === 'string' ? safeJson(raw) : raw
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null
+  const rec = obj as Record<string, unknown>
+  const month = typeof rec.month === 'string' && /^\d{4}-\d{2}$/.test(rec.month) ? rec.month : null
+  if (!month) return null
+  const fitness_muscles = parseFitnessMusclesFromRecord(rec)
+  const life_label = typeof rec.life_label === 'string' ? rec.life_label : ''
+  const lc = rec.life_completions
+  const life_completions: Record<string, boolean> = {}
+  if (lc && typeof lc === 'object' && !Array.isArray(lc)) {
+    for (const [k, v] of Object.entries(lc as Record<string, unknown>)) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v === true) life_completions[k] = true
+    }
+  }
+  return { month, fitness_muscles, life_label, life_completions }
+}
+
 export function defaultMonthlyFocusState(monthKey: string): MonthlyFocusStateV1 {
   return {
     month: monthKey,
-    fitness_muscle: null,
+    fitness_muscles: [],
     life_label: '',
     life_completions: {},
   }
@@ -64,30 +82,83 @@ export function displayMonthlyFocusState(
     return {
       ...defaultMonthlyFocusState(monthKey),
       ...parsed,
+      fitness_muscles: [...parsed.fitness_muscles],
       life_completions: { ...parsed.life_completions },
     }
   }
   return defaultMonthlyFocusState(monthKey)
 }
 
-/** Canonical muscle id for engine when `month` matches the plan date's YYYY-MM. */
+/** Active focus muscles for the plan date's calendar month (canonical ids). */
+export function activeMonthlyFitnessMusclesForDate(
+  state: MonthlyFocusStateV1 | null | undefined,
+  planDateStr: string,
+): string[] {
+  const ym = planDateStr.slice(0, 7)
+  if (!state || state.month !== ym || !state.fitness_muscles.length) return []
+  return state.fitness_muscles
+}
+
+/** First active focus muscle — legacy single-muscle call sites. */
 export function activeMonthlyFitnessMuscleForDate(
   state: MonthlyFocusStateV1 | null | undefined,
   planDateStr: string,
 ): string | null {
-  const ym = planDateStr.slice(0, 7)
-  if (!state || state.month !== ym || !state.fitness_muscle) return null
-  return normalizeMuscleGroupName(state.fitness_muscle) ?? String(state.fitness_muscle).toLowerCase()
+  const muscles = activeMonthlyFitnessMusclesForDate(state, planDateStr)
+  return muscles[0] ?? null
+}
+
+export interface MonthlyFocusDayContext {
+  muscles: string[]
+  splitGuardByMuscle: Record<string, boolean>
+  volumeBoostByMuscle: Record<string, number>
+  setBudgetByMuscle: Record<string, number>
+}
+
+/** Per-muscle split guard, volume boost, and optional set budgets for one plan date. */
+export function buildMonthlyFocusDayContext(
+  state: MonthlyFocusStateV1 | null | undefined,
+  planDateStr: string,
+  weeklySplitSchedule: Record<string, { groups?: string[] }> | null | undefined,
+  restDays: number[] | null | undefined,
+  options?: {
+    splitGuardByMuscle?: Record<string, boolean>
+    setBudgetByMuscle?: Record<string, number>
+    /** Legacy: single guard flag applied when only one focus muscle is active. */
+    monthlyFocusSplitGuard?: boolean
+    focusDaySetBudget?: number
+  },
+): MonthlyFocusDayContext {
+  const muscles = activeMonthlyFitnessMusclesForDate(state, planDateStr)
+  const splitGuardByMuscle: Record<string, boolean> = {}
+  const volumeBoostByMuscle: Record<string, number> = {}
+  const setBudgetByMuscle: Record<string, number> = {}
+
+  for (const muscle of muscles) {
+    const guard = options?.splitGuardByMuscle?.[muscle] !== undefined
+      ? Boolean(options.splitGuardByMuscle[muscle])
+      : options?.monthlyFocusSplitGuard !== undefined && muscles.length === 1
+        ? Boolean(options.monthlyFocusSplitGuard)
+        : computeMonthlyFocusSplitGuard(weeklySplitSchedule, restDays, planDateStr, muscle)
+    splitGuardByMuscle[muscle] = guard
+    volumeBoostByMuscle[muscle] = monthlyFocusVolumeBonusForMuscle(state, planDateStr, guard)
+    const budget = options?.setBudgetByMuscle?.[muscle]
+    if (budget !== undefined) {
+      setBudgetByMuscle[muscle] = budget
+    } else if (options?.focusDaySetBudget !== undefined && muscles.length === 1) {
+      setBudgetByMuscle[muscle] = options.focusDaySetBudget
+    } else {
+      setBudgetByMuscle[muscle] = 0
+    }
+  }
+
+  return { muscles, splitGuardByMuscle, volumeBoostByMuscle, setBudgetByMuscle }
 }
 
 /**
  * Pretty label for a canonical muscle group id (`mid_chest` → `Mid Chest`,
  * `back_lats` → `Lats`, etc.). Used by surfaces outside Profile (Home,
  * TodayWorkout) so we don't fork the label table.
- *
- * Unknown ids fall back to a snake_case → Title Case conversion so we never
- * render an empty string when the user picks something the table doesn't
- * cover yet.
  */
 const MUSCLE_DISPLAY_LABELS: Record<string, string> = {
   upper_chest: 'Upper Chest',
@@ -128,19 +199,10 @@ export function muscleGroupDisplayLabel(canonicalId: string | null | undefined):
     .join(' ')
 }
 
-/**
- * Week-of-month index for a calendar date (1-4 or 5).
- *
- * Used by the workout engine to ramp focus volume across the month:
- *   week 1 → +1 set (intro / ramp)
- *   week 2 → +2 sets (full focus dose)
- *   week 3 → +2 sets (full focus dose)
- *   week 4 → +1 set (consolidation / partial deload)
- *   week 5 → +1 set (rare; bleed-over week)
- *
- * Cheap rule: week = ceil(day-of-month / 7). The first 7 days are week 1,
- * the next 7 are week 2, etc. No business reason to align to ISO weeks.
- */
+export function muscleGroupsDisplayLabels(muscles: string[]): string {
+  return muscles.map((m) => muscleGroupDisplayLabel(m)).filter(Boolean).join(', ')
+}
+
 export function focusWeekOfMonth(planDateStr: string): number {
   const m = /^\d{4}-\d{2}-(\d{2})$/.exec(planDateStr)
   if (!m) return 1
@@ -149,46 +211,34 @@ export function focusWeekOfMonth(planDateStr: string): number {
   return Math.min(5, Math.ceil(day / 7))
 }
 
-/**
- * Extra-set volume bonus for the monthly fitness focus on a given plan date.
- *
- * Returns 0 when the focus is not active (state missing, wrong month, no
- * fitness muscle set). Otherwise returns the per-week ramp described in
- * `focusWeekOfMonth`. Engine reads this to size:
- *   - The layered slot's `targetSets` (when focus muscle is NOT in today's
- *     split).
- *   - The bonus sets added to the focus exercise(s) when the focus IS in
- *     today's split (so split day still gets the "more than reasonable"
- *     dose the user asked for).
- *   - The prescribe-step cap on the layered exercise.
- *
- * Split-guard days (focus muscle is in TOMORROW's split) deliberately
- * receive a smaller bonus — heavy work belongs on the dedicated day, not
- * the day before. Guard ratio is `floor(bonus / 2)`.
- */
+function baseVolumeBonusForWeek(week: number): number {
+  if (week === 1) return 1
+  if (week === 2 || week === 3) return 2
+  if (week === 4) return 1
+  return 1
+}
+
+export function monthlyFocusVolumeBonusForMuscle(
+  state: MonthlyFocusStateV1 | null | undefined,
+  planDateStr: string,
+  isSplitGuardDay: boolean = false,
+): number {
+  if (!activeMonthlyFitnessMusclesForDate(state, planDateStr).length) return 0
+  const week = focusWeekOfMonth(planDateStr)
+  const baseBonus = baseVolumeBonusForWeek(week)
+  if (isSplitGuardDay) return Math.floor(baseBonus / 2)
+  return baseBonus
+}
+
+/** Extra-set volume bonus when any monthly fitness focus is active. */
 export function monthlyFocusVolumeBonus(
   state: MonthlyFocusStateV1 | null | undefined,
   planDateStr: string,
   isSplitGuardDay: boolean = false,
 ): number {
-  const active = activeMonthlyFitnessMuscleForDate(state, planDateStr)
-  if (!active) return 0
-  const week = focusWeekOfMonth(planDateStr)
-  const baseBonus =
-    week === 1 ? 1 :
-    week === 2 ? 2 :
-    week === 3 ? 2 :
-    week === 4 ? 1 :
-    1
-  if (isSplitGuardDay) return Math.floor(baseBonus / 2)
-  return baseBonus
+  return monthlyFocusVolumeBonusForMuscle(state, planDateStr, isSplitGuardDay)
 }
 
-/**
- * When tomorrow's scheduled split already includes the monthly focus muscle,
- * treat today as a "split guard" day — still allow layering, but cap stimulus
- * (see workout engine prescribe step) so heavy work lands on the dedicated day.
- */
 export function computeMonthlyFocusSplitGuard(
   weeklySplitSchedule: Record<string, { groups?: string[] }> | null | undefined,
   restDays: number[] | null | undefined,
@@ -206,4 +256,16 @@ export function computeMonthlyFocusSplitGuard(
   const entry = weeklySplitSchedule[String(tomorrowDow)]
   const groups = Array.isArray(entry?.groups) ? normalizeMuscleGroupList(entry.groups) : []
   return groups.includes(norm)
+}
+
+/** True when tomorrow's split includes any of the focus muscles. */
+export function computeMonthlyFocusSplitGuardForAny(
+  weeklySplitSchedule: Record<string, { groups?: string[] }> | null | undefined,
+  restDays: number[] | null | undefined,
+  planDateStr: string,
+  muscles: string[],
+): boolean {
+  return muscles.some((m) =>
+    computeMonthlyFocusSplitGuard(weeklySplitSchedule, restDays, planDateStr, m),
+  )
 }

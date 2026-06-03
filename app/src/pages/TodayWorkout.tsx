@@ -28,6 +28,7 @@ import BackButton from '../components/BackButton'
 import Button from '../components/Button'
 import MonthlyFocusCard from '../components/MonthlyFocusCard'
 import { getLocalDate } from '../utils/dateUtils'
+import { shouldForceWeeklyPlanRegen } from '../lib/weekPlanLifecycle'
 import { logError } from '../utils/logger'
 // Schema probing removed — server-side schema is controlled by migrations
 import {
@@ -457,7 +458,8 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     const enginePrefetch = bodyAssessment ? { bodyAssessment } : undefined
     const weekStartDate = getWeekStartDate(new Date())
     const existing = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
-    if (existing?.days?.length && !isWeeklyPlanStale(existing as WeeklyPlan, tp)) {
+    const forceRegen = shouldForceWeeklyPlanRegen(existing as WeeklyPlan | null, getLocalDate(), null, userRestDays)
+    if (existing?.days?.length && !forceRegen && !isWeeklyPlanStale(existing as WeeklyPlan, tp)) {
       let mergedExisting = await attachActualWeekWorkouts(
         await annotateWeeklyPlanVerdicts(tp, existing as WeeklyPlan),
       )
@@ -643,17 +645,37 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     if (!llmValidation || !workout || !user) return
 
     if (llmValidation.pattern_observations?.length) {
-      const rows = llmValidation.pattern_observations.map(obs => ({
-        user_id: user.id,
-        feedback_type: 'pattern_observation' as const,
-        feedback_data: obs,
-        feedback_source: 'model_review' as const,
-        feedback_quality: 'unverified' as const,
-        verified_by_user: false,
-        workout_date: getLocalDate(),
-      }))
-      db.from('model_feedback').insert(rows)
-        .then(({ error }: { error: any }) => { if (error) logError('Failed to store pattern observations', error) })
+      void (async () => {
+        try {
+          const { patternKey, preparePatternRowsForInsert } = await import('../lib/patternLearning')
+          const since = new Date(Date.now() - 7 * 86400000).toISOString()
+          const { data: existing } = await db
+            .from('model_feedback')
+            .select('feedback_data')
+            .eq('user_id', user.id)
+            .eq('feedback_type', 'pattern_observation')
+            .gte('created_at', since)
+          const keys = new Set<string>()
+          for (const row of existing ?? []) {
+            const d = row.feedback_data as { pattern_key?: string; pattern?: string; suggestion?: string }
+            if (d?.pattern_key) keys.add(d.pattern_key)
+            else if (d?.pattern) keys.add(patternKey(d.pattern, d.suggestion ?? ''))
+          }
+          const rows = preparePatternRowsForInsert(
+            user.id,
+            getLocalDate(),
+            llmValidation.pattern_observations,
+            keys,
+            profile ?? cachedProfile,
+          )
+          if (rows.length) {
+            const { error } = await db.from('model_feedback').insert(rows)
+            if (error) logError('Failed to store pattern observations', error)
+          }
+        } catch (e) {
+          logError('Pattern observation dedupe insert failed', e)
+        }
+      })()
     }
 
     saveLlmValidationArtifact(user.id, workout.id || null, llmValidation, {
@@ -743,6 +765,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         generatedWorkouts: serverData.generatedWorkouts || [],
         workoutOutcomes: serverData.workoutOutcomes || [],
         executionEvents: serverData.executionEvents || [],
+        sessionFeatures: serverData.sessionFeatures || [],
       }
       const tp = computeTrainingProfileFromData(user.id, prefetchedTrainingData)
       console.log(`[PERF] computeTrainingProfileFromData: ${(performance.now()-t2).toFixed(0)}ms`)

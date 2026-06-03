@@ -4,7 +4,11 @@
   "type": "module",
   "scripts": {
     "check:env": "node scripts/check-env.mjs",
-    "check:rls": "node scripts/check-rls-sql.mjs"
+    "check:rls": "node scripts/check-rls-sql.mjs",
+    "analyze:user": "node scripts/deep-ml-user-analysis.mjs",
+    "analyze:patterns": "node scripts/analyze-llm-patterns.mjs",
+    "cleanup:patterns": "node scripts/cleanup-llm-patterns-rds.mjs",
+    "cleanup:patterns:dry": "node scripts/cleanup-llm-patterns-rds.mjs --dry-run"
   },
   "dependencies": {
     "cors": "^2.8.5",

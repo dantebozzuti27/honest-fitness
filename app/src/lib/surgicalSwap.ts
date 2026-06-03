@@ -56,6 +56,20 @@ function scoreCandidate(
   const swapPen = findByExerciseFamily(profile.exerciseSwapHistory, ex.name);
   if (swapPen && swapPen.swapCount >= 2) score -= Math.min(20, swapPen.swapCount * 3);
 
+  // Anti-oscillation: penalize swapping back to an exercise the user vacated recently.
+  const fromKey = preferenceAggregationKey(fromName);
+  const toKey = preferenceAggregationKey(ex.name);
+  for (const a of profile.substitutionAffinities ?? []) {
+    if (
+      preferenceAggregationKey(a.fromExercise) === toKey
+      && preferenceAggregationKey(a.toExercise) === fromKey
+      && (a.affinity ?? 0) > 0
+    ) {
+      score -= 35;
+      break;
+    }
+  }
+
   if (ex.ml_exercise_type === 'isolation') score += 2;
   return score;
 }

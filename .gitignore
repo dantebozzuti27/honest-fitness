@@ -45,6 +45,9 @@ app/.env
 app/.env.production
 app/dist/
 
+# Generated audit reports (scripts write per-user JSON)
+reports/
+
 # Logs
 logs/
 *.log

@@ -73,6 +73,7 @@ function normalizeActiveWorkoutEntry(location: any) {
 
   const openPickerOnLoad =
     state.openPicker === true ||
+    state.mode === 'picker' ||
     qs.get('quick') === '1' ||
     qs.get('picker') === '1'
 

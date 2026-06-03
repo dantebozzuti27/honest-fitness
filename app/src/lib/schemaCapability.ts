@@ -15,6 +15,7 @@ export type SchemaCapabilities = {
   exercisesHasEquipment: boolean
   userPreferencesHasSportFocus: boolean
   weeklyPlanDaysHasDayStatus: boolean
+  weeklyPlanVersionsHasEngineSnapshot: boolean
   probedAt: number
 }
 
@@ -78,8 +79,16 @@ export async function probeSchemaCapabilities(): Promise<SchemaCapabilities> {
     return cached
   }
 
-  const [workoutsSessionType, workoutsCategory, workoutsWarmup, workoutsGenId, exercisesEquip, prefsSport, planDayStatus] =
-    await Promise.all([
+  const [
+    workoutsSessionType,
+    workoutsCategory,
+    workoutsWarmup,
+    workoutsGenId,
+    exercisesEquip,
+    prefsSport,
+    planDayStatus,
+    planEngineSnapshot,
+  ] = await Promise.all([
       probeColumn('workouts', 'session_type'),
       probeColumn('workout_exercises', 'category'),
       probeColumn('workout_exercises', 'is_warmup'),
@@ -87,6 +96,7 @@ export async function probeSchemaCapabilities(): Promise<SchemaCapabilities> {
       probeColumn('exercises', 'equipment'),
       probeColumn('user_preferences', 'sport_focus'),
       probeColumn('weekly_plan_days', 'day_status'),
+      probeColumn('weekly_plan_versions', 'engine_input_snapshot'),
     ])
 
   capabilities = {
@@ -97,6 +107,7 @@ export async function probeSchemaCapabilities(): Promise<SchemaCapabilities> {
     exercisesHasEquipment: exercisesEquip,
     userPreferencesHasSportFocus: prefsSport,
     weeklyPlanDaysHasDayStatus: planDayStatus,
+    weeklyPlanVersionsHasEngineSnapshot: planEngineSnapshot,
     probedAt: Date.now(),
   }
 
@@ -148,12 +159,19 @@ export function evaluateSchemaGate(caps: SchemaCapabilities | null): SchemaGateR
   const missing: string[] = []
   if (!caps.workoutsHasSessionType) missing.push('workouts.session_type')
   if (!caps.weeklyPlanDaysHasDayStatus) missing.push('weekly_plan_days.day_status')
+  if (!caps.weeklyPlanVersionsHasEngineSnapshot) missing.push('weekly_plan_versions.engine_input_snapshot')
 
   if (missing.length === 0) return { ok: true, missing, message: null }
 
+  const critical = missing.filter((m) =>
+    m.startsWith('workouts.session_type') || m.startsWith('weekly_plan_days.day_status'),
+  )
+
   return {
-    ok: true,
+    ok: critical.length === 0,
     missing,
-    message: `Running in compatibility mode: missing ${missing.join(', ')}. Some advanced tracking fields will be reduced until migrations are applied.`,
+    message: critical.length
+      ? `Database schema is missing required columns (${critical.join(', ')}). Apply the latest SQL migrations, then reload.`
+      : `Running in compatibility mode: missing ${missing.join(', ')}. Some advanced tracking fields will be reduced until migrations are applied.`,
   }
 }

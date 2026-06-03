@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext'
 import { lazy, Suspense } from 'react'
 import BottomNav from './components/BottomNav'
 import ErrorBoundary from './components/ErrorBoundary'
+import SchemaGateBanner from './components/SchemaGateBanner'
 import { setTemplateSyncUserId } from './db/lazyDb'
 
 const Home = lazy(() => import('./pages/Home'))
@@ -127,6 +128,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      {user ? <SchemaGateBanner /> : null}
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/auth" element={<Auth />} />

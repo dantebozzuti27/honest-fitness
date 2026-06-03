@@ -9,7 +9,14 @@ rpcRouter.post('/weekly-plan', async (req, res) => {
     return res.status(401).json({ data: null, error: { message: 'Authentication required' } })
   }
 
-  const { p_week_start_date, p_feature_snapshot_id, p_days, p_diffs } = req.body
+  const {
+    p_week_start_date,
+    p_feature_snapshot_id,
+    p_days,
+    p_diffs,
+    p_engine_input_snapshot,
+    p_plan_constraints,
+  } = req.body
   if (!p_week_start_date) {
     return res.status(400).json({ data: null, error: { message: 'Missing p_week_start_date' } })
   }
@@ -26,10 +33,26 @@ rpcRouter.post('/weekly-plan', async (req, res) => {
     )
     const prevActiveId = prevActive.rows.length > 0 ? prevActive.rows[0].id : null
 
+    if (prevActiveId) {
+      await client.query(
+        `UPDATE weekly_plan_versions SET status = 'superseded'
+         WHERE id = $1 AND user_id = $2 AND status = 'active'`,
+        [prevActiveId, userId]
+      )
+    }
+
     const newPlan = await client.query(
-      `INSERT INTO weekly_plan_versions (user_id, week_start_date, status, feature_snapshot_id)
-       VALUES ($1, $2, 'active', $3) RETURNING id`,
-      [userId, p_week_start_date, p_feature_snapshot_id || null]
+      `INSERT INTO weekly_plan_versions (
+         user_id, week_start_date, status, feature_snapshot_id,
+         engine_input_snapshot, plan_constraints
+       ) VALUES ($1, $2, 'active', $3, $4, $5) RETURNING id`,
+      [
+        userId,
+        p_week_start_date,
+        p_feature_snapshot_id || null,
+        p_engine_input_snapshot ?? null,
+        p_plan_constraints ?? null,
+      ]
     )
     const newPlanId = newPlan.rows[0].id
 
@@ -79,14 +102,6 @@ rpcRouter.post('/weekly-plan', async (req, res) => {
           x.after_workout ? JSON.stringify(x.after_workout) : null,
           JSON.stringify(x.diff_summary ?? {}),
         ]
-      )
-    }
-
-    if (prevActiveId) {
-      await client.query(
-        `UPDATE weekly_plan_versions SET status = 'superseded'
-         WHERE id = $1 AND user_id = $2 AND status = 'active'`,
-        [prevActiveId, userId]
       )
     }
 

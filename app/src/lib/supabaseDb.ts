@@ -2071,6 +2071,17 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
     .eq('status', 'active')
     .maybeSingle()
 
+  // Supersede before inserting a new active row (unique partial index on active).
+  if (existingActive?.id) {
+    const { error: supersedeErr } = await supabase
+      .from('weekly_plan_versions')
+      .update({ status: 'superseded' })
+      .eq('id', existingActive.id)
+      .eq('user_id', userId)
+      .eq('status', 'active')
+    if (supersedeErr) throw supersedeErr
+  }
+
   // Insert the new active version. We optimistically include the
   // engine_input_snapshot column; if the migration hasn't run yet the
   // insert will fail with PG 42703 ("undefined column") and we retry
@@ -2148,14 +2159,6 @@ export async function saveWeeklyPlanToSupabase(userId: string, weeklyPlan: any, 
       await supabase.from('weekly_plan_versions').delete().eq('id', version.id).eq('user_id', userId)
       throw daysError
     }
-  }
-
-  if (existingActive?.id) {
-    await supabase
-      .from('weekly_plan_versions')
-      .update({ status: 'superseded' })
-      .eq('id', existingActive.id)
-      .eq('user_id', userId)
   }
 
   if (Array.isArray(diffs) && diffs.length > 0) {

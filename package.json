@@ -8,7 +8,9 @@
     "analyze:user": "node scripts/deep-ml-user-analysis.mjs",
     "analyze:patterns": "node scripts/analyze-llm-patterns.mjs",
     "cleanup:patterns": "node scripts/cleanup-llm-patterns-rds.mjs",
-    "cleanup:patterns:dry": "node scripts/cleanup-llm-patterns-rds.mjs --dry-run"
+    "cleanup:patterns:dry": "node scripts/cleanup-llm-patterns-rds.mjs --dry-run",
+    "reset:swap-penalties": "npx tsx scripts/reset-deprioritized-swaps-rds.mjs",
+    "reset:swap-penalties:dry": "npx tsx scripts/reset-deprioritized-swaps-rds.mjs --dry-run"
   },
   "dependencies": {
     "cors": "^2.8.5",

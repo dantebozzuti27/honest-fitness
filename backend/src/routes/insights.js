@@ -129,18 +129,20 @@ RULES:
 const WEEK_PLAN_REVIEW_PROMPT = `You are a strength coach reviewing a MACHINE-GENERATED weekly training plan (Week Ahead view).
 You receive a summarized athlete profile and each upcoming day (focus, muscle groups, top exercises, duration).
 
-Your job: ONE holistic review of the week — not a per-set audit.
+Your job: ONE holistic review of the week — not a per-set audit. The athlete already sees engine-generated workouts; your copy should feel supportive and specific, not alarmist.
 
 DO:
-- Comment on split balance, back-to-back muscle stress, session length vs budget, and obvious redundancy
-- Write a helpful 2–3 sentence weekSummary the athlete can read at a glance
-- Flag at most 3 days that deserve attention (status "watch" or "concern") with a single short note each
-- Mark other days "ok" with an empty note
+- Write a helpful 2–3 sentence weekSummary: what the week trains, how it fits their goal, one actionable theme
+- Comment on split balance, back-to-back muscle stress, or session length vs budget ONLY when clearly supported by the payload
+- Flag at most 2 days with status "watch" or "concern" and a single short note (max 120 chars)
+- Mark all other days "ok" with an empty note string
+- Prefer overallVerdict "solid" unless there is a clear structural problem (duplicate days, impossible schedule)
 
 DO NOT:
-- Prescribe specific set/rep/weight changes
-- Invent injuries or data not in the profile
-- Repeat generic motivation
+- Prescribe specific set/rep/weight changes or name alternative exercises
+- Invent injuries, missed sessions, or data not in the profile
+- Repeat volume/MRV warnings already listed in muscleVolumeAlerts unless they break the split
+- Use words like "major_issues", "problematic", "dangerous", or "wrong"
 - Flag every day — most plans should be mostly "ok"
 - Return immediate_corrections or pattern_observations (not supported here)
 
@@ -196,6 +198,17 @@ function classifyValidationRejections(parsed) {
 }
 
 /** Deterministic cache key for workout validation output. */
+function weekPlanReviewCacheKey(userId, weekData) {
+  try {
+    const modelVersion = process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    const payload = JSON.stringify({ weekData, mv: modelVersion, sv: VALIDATION_SCHEMA_VERSION })
+    const hash = crypto.createHash('sha256').update(payload).digest('hex').slice(0, 20)
+    return `${userId}:week-review:${hash}`
+  } catch {
+    return `${userId}:week-review:fallback`
+  }
+}
+
 function workoutValidationCacheKey(userId, workoutData, trainingProfile) {
   try {
     const modelVersion = process.env.OPENAI_MODEL || 'gpt-4o-mini'
@@ -239,6 +252,14 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
 
   if (type === 'validate-workout' && req.userId && workoutData) {
     const cacheKey = workoutValidationCacheKey(req.userId, workoutData, trainingProfile)
+    const cached = validateCache.get(cacheKey)
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return sendSuccess(res, { data: cached.data, type, cached: true })
+    }
+  }
+
+  if (type === 'validate-week-plan' && req.userId && weekData) {
+    const cacheKey = weekPlanReviewCacheKey(req.userId, weekData)
     const cached = validateCache.get(cacheKey)
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       return sendSuccess(res, { data: cached.data, type, cached: true })
@@ -353,6 +374,10 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
         overallVerdict: mapOverall(String(parsed.overallVerdict || 'solid')),
         days,
         schema_version: VALIDATION_SCHEMA_VERSION,
+      }
+      if (req.userId && weekData) {
+        const cacheKey = weekPlanReviewCacheKey(req.userId, weekData)
+        setValidateCacheEntry(cacheKey, { data: safe, ts: Date.now() })
       }
       return sendSuccess(res, { data: safe, type })
     }

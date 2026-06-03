@@ -140,6 +140,14 @@ export interface EngineInputSnapshotV1 {
      */
     deloadActive: boolean;
   };
+  /** Cached Week Ahead coach copy (optional). */
+  weekPlanReview?: {
+    summary: string;
+    overallVerdict: 'pass' | 'minor_issues' | 'major_issues';
+    reviewedAt: string;
+    contentFingerprint?: string;
+    source?: string;
+  };
 }
 
 export function buildEngineInputSnapshot(

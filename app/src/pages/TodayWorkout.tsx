@@ -20,13 +20,14 @@ import {
 import { db } from '../lib/dbClient'
 import { apiUrl } from '../lib/urlConfig'
 import { getIdToken } from '../lib/cognitoAuth'
-import { fetchWorkoutReview, fetchWorkoutValidation, fetchWeekPlanReview, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
+import { fetchWorkoutReview, fetchWorkoutValidation, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
 import {
-  applyWeekPlanReviewToPlan,
-  buildWeekPlanReviewPayload,
-  parseWeekPlanReviewResponse,
+  attachWeekReviewToEngineSnapshot,
+  dayReviewDotColor,
+  reviewWeeklyPlan,
   verdictColor,
   verdictLabel,
+  weekPlanReviewFromEngineSnapshot,
 } from '../lib/weekPlanReview'
 import { getActiveWeeklyPlanFromSupabase, saveLlmValidationArtifact, saveWeeklyPlanToSupabase } from '../lib/supabaseDb'
 import { useToast } from '../hooks/useToast'
@@ -118,6 +119,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   // for the rest of the session (keyed by missedDate|targetDate).
   const [dismissedRedistributionKeys, setDismissedRedistributionKeys] = useState<Set<string>>(new Set())
   const [redistributionApplying, setRedistributionApplying] = useState(false)
+  const [weekReviewLoading, setWeekReviewLoading] = useState(false)
   const [showExclusionPicker, setShowExclusionPicker] = useState(false)
   const [completedWorkout, setCompletedWorkout] = useState<any | null>(null)
   const [workoutReview, setWorkoutReview] = useState<WorkoutReview | null>(null)
@@ -464,7 +466,8 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     // to weight muscle-group selection by proportional deficits and visual scores.
     const enginePrefetch = bodyAssessment ? { bodyAssessment } : undefined
     const weekStartDate = getWeekStartDate(new Date())
-    const existing = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
+    const existingRaw = await getActiveWeeklyPlanFromSupabase(user.id, weekStartDate).catch(() => null)
+    const existing = existingRaw ? weekPlanReviewFromEngineSnapshot(existingRaw as WeeklyPlan) : null
     const forceRegen = shouldForceWeeklyPlanRegen(existing as WeeklyPlan | null, getLocalDate(), null, userRestDays)
     if (existing?.days?.length && !forceRegen && !isWeeklyPlanStale(existing as WeeklyPlan, tp)) {
       let mergedExisting = await attachActualWeekWorkouts(
@@ -479,7 +482,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         enginePrefetch,
       )
       if (mergedExisting !== existing) {
-        await saveWeeklyPlanToSupabase(user.id, mergedExisting).catch(() => null)
+        await saveWeeklyPlanToSupabase(user.id, attachWeekReviewToEngineSnapshot(mergedExisting)).catch(() => null)
       }
       if (hasConsecutiveDuplicateTrainingDays(mergedExisting)) {
         let repaired = mergedExisting
@@ -491,7 +494,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           if (!hasConsecutiveDuplicateTrainingDays(repaired)) break
         }
         setWeeklyPlan(repaired)
-        await saveWeeklyPlanToSupabase(user.id, repaired, repairedDiffs).catch(() => null)
+        await saveWeeklyPlanToSupabase(user.id, attachWeekReviewToEngineSnapshot(repaired), repairedDiffs).catch(() => null)
         return repaired
       } else {
         setWeeklyPlan(mergedExisting)
@@ -501,7 +504,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     const generatedPlan = await generateWeeklyPlan(tp, userRestDays, prefSplit ?? null, schedule ?? null, enginePrefetch)
     const validatedGenerated = await annotateWeeklyPlanVerdicts(tp, generatedPlan)
     const mergedGenerated = await attachActualWeekWorkouts(validatedGenerated)
-    const planId = await saveWeeklyPlanToSupabase(user.id, mergedGenerated).catch(() => null)
+    const planId = await saveWeeklyPlanToSupabase(user.id, attachWeekReviewToEngineSnapshot(mergedGenerated)).catch(() => null)
     setWeeklyPlan(mergedGenerated)
     if (planId) {
       setWeeklyDiffsByDate({})
@@ -509,33 +512,37 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     return mergedGenerated
   }
 
-  const annotateWeeklyPlanVerdicts = async (tp: TrainingProfile, plan: WeeklyPlan): Promise<WeeklyPlan> => {
+  const annotateWeeklyPlanVerdicts = async (
+    tp: TrainingProfile,
+    plan: WeeklyPlan,
+    opts?: { forceRefresh?: boolean },
+  ): Promise<WeeklyPlan> => {
     const today = getLocalDate()
-    const hasUpcomingTraining = plan.days.some(
-      (d) => d.planDate >= today && !d.isRestDay && d.plannedWorkout && d.dayStatus !== 'completed',
-    )
-    if (!hasUpcomingTraining) return plan
-
+    const budget = (() => {
+      const candidate = Number(durationOverride ?? defaultDuration ?? tp.avgSessionDuration)
+      return Number.isFinite(candidate) && candidate > 0 ? Math.round(candidate) : tp.avgSessionDuration
+    })()
+    setWeekReviewLoading(true)
     try {
-      const payload = buildWeekPlanReviewPayload(tp, plan, today)
-      const raw = await fetchWeekPlanReview(tp, payload)
-      const review = parseWeekPlanReviewResponse(raw)
-      return applyWeekPlanReviewToPlan(plan, review)
+      const reviewed = await reviewWeeklyPlan(tp, weekPlanReviewFromEngineSnapshot(plan), today, {
+        forceRefresh: opts?.forceRefresh,
+        sessionBudgetMinutes: budget,
+      })
+      return attachWeekReviewToEngineSnapshot(reviewed)
     } catch (e) {
       logError('Week plan review failed (non-blocking)', e)
-      return {
-        ...plan,
-        weekPlanReview: {
-          summary: 'Weekly plan is ready. Exercise details are engine-generated from your profile.',
-          overallVerdict: 'pass',
-          reviewedAt: new Date().toISOString(),
-        },
-        days: plan.days.map((d) =>
-          d.planDate >= today && !d.isRestDay && d.dayStatus !== 'completed'
-            ? { ...d, llmVerdict: 'pass' as const, llmCorrections: undefined, llmDayNote: undefined }
-            : d,
-        ),
-      }
+      return plan
+    } finally {
+      setWeekReviewLoading(false)
+    }
+  }
+
+  const refreshWeekCoachSummary = async () => {
+    if (!weeklyPlan || !cachedProfile) return
+    const reviewed = await annotateWeeklyPlanVerdicts(cachedProfile, weeklyPlan, { forceRefresh: true })
+    setWeeklyPlan(reviewed)
+    if (user) {
+      await saveWeeklyPlanToSupabase(user.id, reviewed).catch(() => null)
     }
   }
 
@@ -557,7 +564,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     setWeeklyPlan(withActuals)
     setWeeklyDiffsByDate(toDiffMap(recomputed.diffs))
     if (user) {
-      await saveWeeklyPlanToSupabase(user.id, withActuals, recomputed.diffs).catch(() => null)
+      await saveWeeklyPlanToSupabase(user.id, attachWeekReviewToEngineSnapshot(withActuals), recomputed.diffs).catch(() => null)
     }
     return withActuals
   }
@@ -1009,7 +1016,13 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         ...weeklyPlan,
         days: weeklyPlan.days.map(d => d.planDate === selected.planDate ? updatedDay : d),
       }
-      setWeeklyPlan(updatedPlan)
+      let planWithReview = updatedPlan
+      try {
+        planWithReview = await annotateWeeklyPlanVerdicts(activeProfile, updatedPlan, { forceRefresh: true })
+      } catch {
+        /* keep regen result */
+      }
+      setWeeklyPlan(planWithReview)
 
       const beforeNames = new Set((prevWorkout?.exercises ?? []).map((e: any) => String(e.exerciseName || '').toLowerCase()))
       const afterNames = new Set((nextWorkout?.exercises ?? []).map((e: any) => String(e.exerciseName || '').toLowerCase()))
@@ -1037,7 +1050,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         // not algorithmic shuffling. We no longer log here.
       }
 
-      await saveWeeklyPlanToSupabase(user.id, updatedPlan, [diff]).catch(() => null)
+      await saveWeeklyPlanToSupabase(user.id, attachWeekReviewToEngineSnapshot(planWithReview), [diff]).catch(() => null)
       showToast(`${selected.dayName} regenerated`, 'success')
     } catch (err) {
       logError('Selected day regeneration error', err)
@@ -1379,11 +1392,37 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           )}
           <span className={styles.weekHint}>Tap a day card</span>
         </div>
-        {weeklyPlan.weekPlanReview?.summary && (
-          <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-secondary)', margin: '0 0 10px' }}>
-            {weeklyPlan.weekPlanReview.summary}
+        <div
+          style={{
+            marginBottom: 10,
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <span
+              className={styles.statusPill}
+              style={{ color: verdictColor(weeklyPlan.weekPlanReview?.overallVerdict ?? 'pass'), flexShrink: 0 }}
+            >
+              {weekReviewLoading ? 'Reviewing…' : verdictLabel(weeklyPlan.weekPlanReview?.overallVerdict ?? 'pass')}
+            </span>
+            <Button
+              variant="secondary"
+              onClick={refreshWeekCoachSummary}
+              loading={weekReviewLoading}
+              style={{ fontSize: 11, padding: '4px 10px' }}
+            >
+              Refresh
+            </Button>
+          </div>
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-secondary)', margin: '8px 0 0' }}>
+            {weekReviewLoading && !weeklyPlan.weekPlanReview?.summary
+              ? 'Building your week summary…'
+              : weeklyPlan.weekPlanReview?.summary ?? 'Your week plan is ready. Tap a day for exercises.'}
           </p>
-        )}
+        </div>
         {weeklyPlan.planQuality && (
           <details className={styles.inlineDetails}>
             <summary>Planner telemetry</summary>
@@ -1476,6 +1515,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           <div className={styles.weekGlanceGrid}>
             {weekCards.map((card) => {
               const day = card.day
+              const dot = dayReviewDotColor(day)
               return (
                 <button
                   key={day.planDate}
@@ -1485,6 +1525,18 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
                   <div className={styles.glanceTopRow}>
                     <span className={styles.glanceDow}>{day.dayName.slice(0, 3)}</span>
                     <span className={styles.glanceDate}>{day.planDate.slice(5)}</span>
+                    {dot ? (
+                      <span
+                        title={day.llmDayNote || verdictLabel(day.llmVerdict)}
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          backgroundColor: dot,
+                          flexShrink: 0,
+                        }}
+                      />
+                    ) : null}
                   </div>
                   <div className={styles.glanceStatus}>
                     {card.status === 'completed' ? 'Completed' : card.status === 'rest' || card.isUserRestOverride ? 'Rest' : `${card.shownMinutes}m`}

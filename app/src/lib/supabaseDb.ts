@@ -2224,7 +2224,7 @@ export async function supersedeActiveWeeklyPlanForUser(userId: string): Promise<
 export async function getActiveWeeklyPlanFromSupabase(userId: string, weekStartDate: string) {
   const { data: version, error: versionError } = await supabase
     .from('weekly_plan_versions')
-    .select('id, week_start_date, feature_snapshot_id, plan_constraints, created_at')
+    .select('id, week_start_date, feature_snapshot_id, plan_constraints, engine_input_snapshot, created_at')
     .eq('user_id', userId)
     .eq('week_start_date', weekStartDate)
     .eq('status', 'active')
@@ -2242,11 +2242,16 @@ export async function getActiveWeeklyPlanFromSupabase(userId: string, weekStartD
     .order('plan_date', { ascending: true })
   if (daysError) throw daysError
 
+  const engineInputSnapshot = version.engine_input_snapshot ?? undefined
+  const weekPlanReview = (engineInputSnapshot as { weekPlanReview?: unknown } | undefined)?.weekPlanReview
+
   return {
     id: version.id,
     weekStartDate: version.week_start_date,
     featureSnapshotId: version.feature_snapshot_id,
     planConstraints: version.plan_constraints ?? undefined,
+    engineInputSnapshot,
+    weekPlanReview,
     days: (days || []).map((d: any) => ({
       planDate: d.plan_date,
       dayOfWeek: d.day_of_week,

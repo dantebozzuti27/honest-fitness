@@ -7386,6 +7386,8 @@ export interface WeeklyPlan {
     summary: string;
     overallVerdict: 'pass' | 'minor_issues' | 'major_issues';
     reviewedAt: string;
+    contentFingerprint?: string;
+    source?: 'deterministic' | 'llm' | 'merged';
   };
   planQuality?: {
     avgConsecutiveOverlap: number;

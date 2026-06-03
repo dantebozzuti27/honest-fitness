@@ -4,6 +4,7 @@ import { toInteger, toNumber } from '../utils/numberUtils'
 import { logError, logDebug, logWarn } from '../utils/logger'
 import { isUuidV4, uuidv4 } from '../utils/uuid'
 import { enqueueOutboxItem } from './syncOutbox'
+import { normalizeWeeklyPlanDayForPersist } from './weekPlanDayStatus'
 import { DEFAULT_MODEL_CONFIG } from './modelConfig'
 
 const supabase: any = db as any
@@ -170,7 +171,11 @@ function disablePausedWorkouts(reason: any) {
 // This function is ONLY called from ActiveWorkout.jsx when the user finishes a workout.
 // NEVER call this function automatically or with dummy/test data.
 
-export async function saveWorkoutToSupabase(workout: any, userId: string) {
+export async function saveWorkoutToSupabase(
+  workout: any,
+  userId: string,
+  options: { apiOnly?: boolean } = {},
+) {
   // Data pipeline: Validate -> Clean -> Build payload -> POST to dedicated endpoint
   const allowUnvalidatedSave = (import.meta as any)?.env?.VITE_ALLOW_UNVALIDATED_WORKOUT_SAVE === '1'
 
@@ -419,6 +424,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
     return result
   } catch (e1) {
     logWarn('Workout save attempt 1 failed:', e1 instanceof Error ? e1.message : String(e1))
+    if (options.apiOnly) throw e1
   }
 
   // Pre-warm and retry
@@ -1077,7 +1083,12 @@ export async function cleanupDuplicateWorkouts(userId: string) {
 // This function is ONLY called when the user manually logs health metrics or when Fitbit syncs real data.
 // NEVER call this function automatically or with dummy/test data.
 
-export async function saveMetricsToSupabase(userId: string, date: string, metrics: any, options: { allowOutbox?: boolean } = {}) {
+export async function saveMetricsToSupabase(
+  userId: string,
+  date: string,
+  metrics: any,
+  options: { allowOutbox?: boolean; apiOnly?: boolean } = {},
+) {
   const allowOutbox = options?.allowOutbox !== false
   safeLogDebug('saveMetricsToSupabase called with:', { userId, date, metrics })
   
@@ -1212,6 +1223,7 @@ export async function saveMetricsToSupabase(userId: string, date: string, metric
     return apiResult
   } catch (apiErr) {
     logWarn('metrics-save API failed, falling back to direct upsert', apiErr instanceof Error ? apiErr.message : apiErr)
+    if (options.apiOnly) throw apiErr
   }
   
   try {
@@ -1992,24 +2004,27 @@ async function persistWeeklyPlanProvenance(userId: string, weeklyPlanId: string 
 }
 
 function serializeWeeklyPlanDaysForRpc(userId: string, weeklyPlan: any): any[] {
-  return (weeklyPlan.days || []).map((d: any) => ({
-    weekly_plan_id: null,
-    user_id: userId,
-    plan_date: d.planDate,
-    day_of_week: d.dayOfWeek,
-    is_rest_day: !!d.isRestDay,
-    focus: d.focus || null,
-    muscle_groups: d.muscleGroups || [],
-    planned_workout: d.plannedWorkout || null,
-    estimated_minutes: d.estimatedMinutes || null,
-    confidence: d.plannedWorkout?.objectiveUtility?.utility ?? 0.5,
-    llm_verdict: d.llmVerdict && d.llmVerdict !== 'pending' ? d.llmVerdict : null,
-    llm_corrections: d.llmCorrections || null,
-    day_status: d.dayStatus || 'planned',
-    actual_workout_id: d.actualWorkoutId || null,
-    actual_workout: d.actualWorkout || null,
-    last_reconciled_at: d.dayStatus === 'completed' ? new Date().toISOString() : null,
-  }))
+  return (weeklyPlan.days || []).map((d: any) => {
+    const norm = normalizeWeeklyPlanDayForPersist(d)
+    return {
+      weekly_plan_id: null,
+      user_id: userId,
+      plan_date: d.planDate,
+      day_of_week: d.dayOfWeek,
+      is_rest_day: !!d.isRestDay,
+      focus: d.focus || null,
+      muscle_groups: d.muscleGroups || [],
+      planned_workout: d.plannedWorkout || null,
+      estimated_minutes: d.estimatedMinutes || null,
+      confidence: d.plannedWorkout?.objectiveUtility?.utility ?? 0.5,
+      llm_verdict: d.llmVerdict && d.llmVerdict !== 'pending' ? d.llmVerdict : null,
+      llm_corrections: d.llmCorrections || null,
+      day_status: norm.dayStatus,
+      actual_workout_id: norm.actualWorkoutId || null,
+      actual_workout: norm.actualWorkout || null,
+      last_reconciled_at: norm.dayStatus === 'completed' ? new Date().toISOString() : null,
+    }
+  })
 }
 
 function serializeWeeklyDiffsForRpc(userId: string, diffs: any[] | undefined): any[] {

@@ -30,3 +30,36 @@ export function assertDayStatusTransition(
   const t = isWeekPlanDayStatus(to) ? to : 'planned'
   throw new Error(`Invalid plan day status transition: ${f} → ${t}`)
 }
+
+/** Normalize day row before RDS persist so DB trigger invariants hold. */
+export function normalizeWeeklyPlanDayForPersist(day: {
+  dayStatus?: string | null
+  actualWorkoutId?: string | null
+  actualWorkout?: { id?: string } | null
+  isRestDay?: boolean
+}): {
+  dayStatus: WeekPlanDayStatus
+  actualWorkoutId?: string | null
+  actualWorkout?: { id?: string } | null
+} {
+  const status: WeekPlanDayStatus = isWeekPlanDayStatus(day.dayStatus)
+    ? day.dayStatus
+    : day.isRestDay
+      ? 'planned'
+      : 'planned'
+
+  if (status === 'completed') {
+    const workoutId = day.actualWorkoutId || day.actualWorkout?.id || null
+    return {
+      dayStatus: 'completed',
+      actualWorkoutId: workoutId,
+      actualWorkout: day.actualWorkout ?? null,
+    }
+  }
+
+  return {
+    dayStatus: status,
+    actualWorkoutId: null,
+    actualWorkout: null,
+  }
+}

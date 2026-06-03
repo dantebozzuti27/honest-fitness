@@ -15,6 +15,7 @@ import { dbRouter } from './db.js'
 import { rpcRouter } from './rpc.js'
 import { workoutSaveRouter } from './workoutSave.js'
 import { metricsSaveRouter } from './metricsSave.js'
+import { integrityRouter } from './integrity.js'
 import { workoutLoadRouter } from './workoutLoad.js'
 import { nutritionApiRouter } from './nutritionApi.js'
 import { physiqueApiRouter } from './physiqueApi.js'
@@ -95,6 +96,7 @@ apiRouter.post('/preferences', async (req, res) => {
 // Dedicated workout save — single request, transaction-safe, batch inserts
 apiRouter.use('/workout-save', workoutSaveRouter)
 apiRouter.use('/metrics-save', metricsSaveRouter)
+apiRouter.use('/integrity', integrityRouter)
 
 // Dedicated workout load — all TodayWorkout data in one response
 apiRouter.use('/workout-load', workoutLoadRouter)

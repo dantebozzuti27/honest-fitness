@@ -64,8 +64,8 @@ test('syncOutbox: enqueueOutboxItem normalizes meal payload with stable string i
 
 test('syncOutbox: duplicate workout id replaces pending item instead of stacking', () => {
   installBrowserStubs()
-  const gen = 'a1b2c3d4-e5f6-4789-a012-3456789abcde'
-  const wId = 'b2c3d4e5-f6a7-4890-b123-456789abcdef0'
+  const gen = 'a1b2c3d4-e5f6-4890-a012-3456789abcde'
+  const wId = 'b2c3d4e5-f6a7-4890-b123-456789abcdef'
   enqueueOutboxItem({
     userId: 'user_1',
     kind: 'workout',

@@ -126,10 +126,30 @@ export function enqueueOutboxItem({ userId, kind, payload }: { userId: string; k
       (i: any) => i?.userId === userId && i?.kind === 'workout' && i?.payload?.workout?.id === wId,
     )
     if (dupIdx >= 0) {
+      const prevWorkout = current[dupIdx]?.payload?.workout
+      let payloadForReplace = normalizedPayload
+      const w = normalizedPayload?.workout
+      if (w && prevWorkout) {
+        const prevGen =
+          isUuidV4(prevWorkout.generatedWorkoutId) ? prevWorkout.generatedWorkoutId
+          : isUuidV4(prevWorkout.generated_workout_id) ? prevWorkout.generated_workout_id
+          : undefined
+        const newGen =
+          isUuidV4(w.generatedWorkoutId) ? w.generatedWorkoutId
+          : isUuidV4(w.generated_workout_id) ? w.generated_workout_id
+          : undefined
+        const gen = newGen || prevGen
+        if (gen) {
+          payloadForReplace = {
+            ...normalizedPayload,
+            workout: { ...w, generatedWorkoutId: gen, generated_workout_id: gen },
+          }
+        }
+      }
       updated = [...current]
       updated[dupIdx] = {
         ...current[dupIdx],
-        payload: normalizedPayload,
+        payload: payloadForReplace,
         tries: 0,
         nextAttemptAt: now,
         lastError: undefined,
@@ -216,13 +236,13 @@ export async function flushOutbox(userId: string) {
         const workout = item.payload?.workout
         if (!workout) throw new Error('Missing workout payload')
         const { saveWorkoutToSupabase } = await import('./db/workoutsDb')
-        await saveWorkoutToSupabase(workout, userId)
+        await saveWorkoutToSupabase(workout, userId, { apiOnly: true })
       } else if (item.kind === 'metrics') {
         const date = item.payload?.date
         const metrics = item.payload?.metrics
         if (!date || !metrics) throw new Error('Missing metrics payload')
         const { saveMetricsToSupabase } = await import('./db/metricsDb')
-        await saveMetricsToSupabase(userId, date, metrics, { allowOutbox: false })
+        await saveMetricsToSupabase(userId, date, metrics, { allowOutbox: false, apiOnly: true })
       } else {
         // Unknown kinds are preserved; prevents data loss when upgrading formats.
         remaining.push(item)

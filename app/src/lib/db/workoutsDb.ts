@@ -1,8 +1,12 @@
 // Lazy DB wrappers (Phase 3 trim): keep initial bundle small by loading the heavy supabaseDb module only when needed.
 
-export async function saveWorkoutToSupabase(workout: any, userId: string) {
+export async function saveWorkoutToSupabase(
+  workout: any,
+  userId: string,
+  options: { apiOnly?: boolean } = {},
+) {
   const m = await import('../supabaseDb')
-  return m.saveWorkoutToSupabase(workout, userId)
+  return m.saveWorkoutToSupabase(workout, userId, options)
 }
 
 export async function getWorkoutsFromSupabase(userId: string) {

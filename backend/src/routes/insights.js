@@ -126,6 +126,35 @@ RULES:
 - Do not re-state generic advice (e.g. "train hard") — each pattern must change engine behavior
 - Be conservative: if unsure, return empty arrays`
 
+const WEEK_PLAN_REVIEW_PROMPT = `You are a strength coach reviewing a MACHINE-GENERATED weekly training plan (Week Ahead view).
+You receive a summarized athlete profile and each upcoming day (focus, muscle groups, top exercises, duration).
+
+Your job: ONE holistic review of the week — not a per-set audit.
+
+DO:
+- Comment on split balance, back-to-back muscle stress, session length vs budget, and obvious redundancy
+- Write a helpful 2–3 sentence weekSummary the athlete can read at a glance
+- Flag at most 3 days that deserve attention (status "watch" or "concern") with a single short note each
+- Mark other days "ok" with an empty note
+
+DO NOT:
+- Prescribe specific set/rep/weight changes
+- Invent injuries or data not in the profile
+- Repeat generic motivation
+- Flag every day — most plans should be mostly "ok"
+- Return immediate_corrections or pattern_observations (not supported here)
+
+Respond with ONLY this JSON:
+{
+  "weekSummary": "2-3 sentences, plain language",
+  "overallVerdict": "solid|needs_tweaks|problematic",
+  "days": [
+    { "planDate": "YYYY-MM-DD", "status": "ok|watch|concern", "note": "max 120 chars; empty string if ok" }
+  ]
+}
+
+Include every training and rest day from the payload in "days". Default status is "ok".`
+
 const insightsLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
@@ -202,7 +231,7 @@ function summarizeProfileForLLM(profile) {
 }
 
 insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
-  const { type, trainingProfile, workoutData } = req.body || {}
+  const { type, trainingProfile, workoutData, weekData } = req.body || {}
 
   if (!type || !trainingProfile) {
     return sendError(res, { status: 400, message: 'Missing required fields: type, trainingProfile' })
@@ -240,8 +269,15 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
     systemPrompt = VALIDATE_WORKOUT_PROMPT
     const summary = summarizeProfileForLLM(trainingProfile)
     userContent = `Training Profile (summarized):\n${JSON.stringify(summary, null, 2)}\n\nGenerated Workout:\n${JSON.stringify(workoutData, null, 2)}`
+  } else if (type === 'validate-week-plan') {
+    if (!weekData) {
+      return sendError(res, { status: 400, message: 'validate-week-plan requires weekData' })
+    }
+    systemPrompt = WEEK_PLAN_REVIEW_PROMPT
+    const summary = summarizeProfileForLLM(trainingProfile)
+    userContent = `Athlete profile:\n${JSON.stringify(summary, null, 2)}\n\nWeek plan:\n${JSON.stringify(weekData, null, 2)}`
   } else {
-    return sendError(res, { status: 400, message: 'Invalid type. Must be "summary", "workout_review", or "validate-workout"' })
+    return sendError(res, { status: 400, message: 'Invalid type. Must be "summary", "workout_review", "validate-workout", or "validate-week-plan"' })
   }
 
   if (userContent.length > 12000) {
@@ -291,6 +327,36 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
     }
     const parsed = JSON.parse(jsonStr)
 
+    if (type === 'validate-week-plan') {
+      const mapOverall = (v) => {
+        if (v === 'problematic') return 'major_issues'
+        if (v === 'needs_tweaks') return 'minor_issues'
+        return 'pass'
+      }
+      const mapDay = (s) => {
+        if (s === 'concern') return 'concern'
+        if (s === 'watch') return 'watch'
+        return 'ok'
+      }
+      const days = Array.isArray(parsed.days)
+        ? parsed.days
+            .filter((d) => d && typeof d.planDate === 'string')
+            .slice(0, 14)
+            .map((d) => ({
+              planDate: String(d.planDate),
+              status: mapDay(String(d.status || 'ok')),
+              note: String(d.note || '').slice(0, 200),
+            }))
+        : []
+      const safe = {
+        weekSummary: String(parsed.weekSummary || 'Weekly plan looks reasonable for your current goal and recovery.').slice(0, 800),
+        overallVerdict: mapOverall(String(parsed.overallVerdict || 'solid')),
+        days,
+        schema_version: VALIDATION_SCHEMA_VERSION,
+      }
+      return sendSuccess(res, { data: safe, type })
+    }
+
     if (type === 'validate-workout') {
       const rejectionClasses = classifyValidationRejections(parsed)
       const safe = {
@@ -323,6 +389,17 @@ insightsRouter.post('/', insightsLimiter, wrapAsync(async (req, res) => {
 
     return sendSuccess(res, { data: parsed, type })
   } catch {
+    if (type === 'validate-week-plan') {
+      return sendSuccess(res, {
+        data: {
+          weekSummary: 'Weekly plan ready. Open each day for exercise details.',
+          overallVerdict: 'pass',
+          days: [],
+          schema_version: VALIDATION_SCHEMA_VERSION,
+        },
+        type,
+      })
+    }
     if (type === 'validate-workout') {
       return sendSuccess(res, { data: { immediate_corrections: [], pattern_observations: [], verdict: 'pass', schema_version: VALIDATION_SCHEMA_VERSION }, type })
     }

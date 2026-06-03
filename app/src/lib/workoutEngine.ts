@@ -7348,6 +7348,8 @@ export interface WeeklyPlanDay {
   estimatedMinutes: number;
   llmVerdict?: 'pass' | 'minor_issues' | 'major_issues' | 'pending';
   llmCorrections?: Array<{ exerciseName: string; issue: string; fix: string; newValue: number | null; reason: string }>;
+  /** One-line coach note from week-level review (not an auto-correction). */
+  llmDayNote?: string;
   /** Phase 1: persisted theme for UI, invariants, and missed-day redistribution. */
   dayTheme?: DayTheme | null;
 }
@@ -7379,6 +7381,12 @@ export interface WeeklyPlan {
   engineInputSnapshot?: EngineInputSnapshotV1;
   /** Constraint snapshot — when stale vs current prefs/engine, days rematerialize. */
   planConstraints?: WeekPlanConstraintsV1;
+  /** Holistic LLM week review (single call), not per-day audit spam. */
+  weekPlanReview?: {
+    summary: string;
+    overallVerdict: 'pass' | 'minor_issues' | 'major_issues';
+    reviewedAt: string;
+  };
   planQuality?: {
     avgConsecutiveOverlap: number;
     avgAnchorCoverage: number;

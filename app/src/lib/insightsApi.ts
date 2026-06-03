@@ -119,6 +119,43 @@ export interface WorkoutValidation {
   verdict: 'pass' | 'minor_issues' | 'major_issues'
 }
 
+export interface WeekPlanReviewResponse {
+  weekSummary: string
+  overallVerdict: 'pass' | 'minor_issues' | 'major_issues'
+  days: Array<{ planDate: string; status: 'ok' | 'watch' | 'concern'; note: string }>
+  schema_version?: 'v1'
+}
+
+export async function fetchWeekPlanReview(
+  trainingProfile: any,
+  weekPayload: { profileSummary: Record<string, unknown>; week: Record<string, unknown> },
+): Promise<WeekPlanReviewResponse> {
+  const token = await getAuthToken()
+  const sanitized = sanitizeProfile(trainingProfile)
+
+  const res = await fetch(apiUrl('/api/insights'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      type: 'validate-week-plan',
+      trainingProfile: sanitized,
+      weekData: weekPayload,
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error?.message || `Request failed (${res.status})`)
+  }
+
+  const json = await res.json()
+  if (!json.success) throw new Error(json.error?.message || 'Unknown error')
+  return json.data as WeekPlanReviewResponse
+}
+
 export async function fetchWorkoutValidation(trainingProfile: any, workoutData: any): Promise<WorkoutValidation> {
   const token = await getAuthToken()
 

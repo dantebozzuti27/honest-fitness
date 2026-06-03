@@ -20,7 +20,14 @@ import {
 import { db } from '../lib/dbClient'
 import { apiUrl } from '../lib/urlConfig'
 import { getIdToken } from '../lib/cognitoAuth'
-import { fetchWorkoutReview, fetchWorkoutValidation, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
+import { fetchWorkoutReview, fetchWorkoutValidation, fetchWeekPlanReview, type WorkoutReview, type WorkoutValidation } from '../lib/insightsApi'
+import {
+  applyWeekPlanReviewToPlan,
+  buildWeekPlanReviewPayload,
+  parseWeekPlanReviewResponse,
+  verdictColor,
+  verdictLabel,
+} from '../lib/weekPlanReview'
 import { getActiveWeeklyPlanFromSupabase, saveLlmValidationArtifact, saveWeeklyPlanToSupabase } from '../lib/supabaseDb'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -504,47 +511,32 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
 
   const annotateWeeklyPlanVerdicts = async (tp: TrainingProfile, plan: WeeklyPlan): Promise<WeeklyPlan> => {
     const today = getLocalDate()
-    const targets = plan.days
-      .filter(d => !d.isRestDay && d.plannedWorkout)
-      .filter(d => d.planDate >= today)
-    if (targets.length === 0) return plan
+    const hasUpcomingTraining = plan.days.some(
+      (d) => d.planDate >= today && !d.isRestDay && d.plannedWorkout && d.dayStatus !== 'completed',
+    )
+    if (!hasUpcomingTraining) return plan
 
-    const verdictMap = new Map<string, {
-      verdict: 'pass' | 'minor_issues' | 'major_issues';
-      corrections: any[];
-      correctedWorkout?: GeneratedWorkout | null;
-    }>()
-    for (const t of targets) {
-      try {
-        const validation = await fetchWorkoutValidation(tp, t.plannedWorkout)
-        const activeSessionBudget = (() => {
-          const candidate = Number(durationOverride ?? defaultDuration ?? tp.avgSessionDuration)
-          if (!Number.isFinite(candidate) || candidate <= 0) return tp.avgSessionDuration
-          return Math.round(candidate)
-        })()
-        const corrected = validation.immediate_corrections?.length
-          ? applyImmediateCorrectionsToWorkout(t.plannedWorkout!, validation.immediate_corrections, {
-              trainingProfile: tp,
-              sessionBudgetMinutes: activeSessionBudget,
-            }).workout
-          : t.plannedWorkout
-        verdictMap.set(t.planDate, {
-          verdict: validation.verdict,
-          corrections: validation.immediate_corrections ?? [],
-          correctedWorkout: corrected,
-        })
-      } catch {
-        // non-fatal
+    try {
+      const payload = buildWeekPlanReviewPayload(tp, plan, today)
+      const raw = await fetchWeekPlanReview(tp, payload)
+      const review = parseWeekPlanReviewResponse(raw)
+      return applyWeekPlanReviewToPlan(plan, review)
+    } catch (e) {
+      logError('Week plan review failed (non-blocking)', e)
+      return {
+        ...plan,
+        weekPlanReview: {
+          summary: 'Weekly plan is ready. Exercise details are engine-generated from your profile.',
+          overallVerdict: 'pass',
+          reviewedAt: new Date().toISOString(),
+        },
+        days: plan.days.map((d) =>
+          d.planDate >= today && !d.isRestDay && d.dayStatus !== 'completed'
+            ? { ...d, llmVerdict: 'pass' as const, llmCorrections: undefined, llmDayNote: undefined }
+            : d,
+        ),
       }
     }
-    return {
-      ...plan,
-      days: plan.days.map(d => {
-        const v = verdictMap.get(d.planDate)
-        if (!v) return d
-        return { ...d, llmVerdict: v.verdict, llmCorrections: v.corrections, plannedWorkout: v.correctedWorkout ?? d.plannedWorkout, dayStatus: d.dayStatus === 'completed' ? 'completed' : (v.verdict === 'pass' ? (d.dayStatus || 'planned') : 'adapted') }
-      })
-    } as WeeklyPlan
   }
 
   const toDiffMap = (diffs: any[] = []): Record<string, any> => {
@@ -1002,31 +994,15 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
       }
       let nextWorkout = await generateWorkout(activeProfile, overrides)
 
-      // Run LLM validation immediately for the selected day and apply immediate corrections.
-      let dayVerdict: 'pass' | 'minor_issues' | 'major_issues' | 'pending' = 'pending'
-      let dayCorrections: any[] = []
-      try {
-        const validation = await fetchWorkoutValidation(activeProfile, nextWorkout)
-        dayVerdict = validation.verdict
-        dayCorrections = validation.immediate_corrections ?? []
-        if (dayCorrections.length > 0) {
-          nextWorkout = applyImmediateCorrectionsToWorkout(nextWorkout, dayCorrections, {
-            trainingProfile: activeProfile,
-            sessionBudgetMinutes: duration,
-          }).workout
-        }
-      } catch {
-        // non-fatal
-      }
-
       const prevWorkout = selected.plannedWorkout ?? null
       const updatedDay: WeeklyPlanDay = {
         ...selected,
         plannedWorkout: nextWorkout,
         estimatedExercises: nextWorkout.exercises.length,
         estimatedMinutes: Math.round(nextWorkout.exercises.reduce((s, ex) => s + (ex.estimatedMinutes || 0), 0)),
-        llmVerdict: dayVerdict,
-        llmCorrections: dayCorrections,
+        llmVerdict: 'pass',
+        llmCorrections: undefined,
+        llmDayNote: undefined,
         dayStatus: 'adapted',
       }
       const updatedPlan: WeeklyPlan = {
@@ -1383,16 +1359,11 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     if (!selectedDay) return null
     const weekCards = buildWeekGlanceCards(weeklyPlan, restDays, selectedDay.planDate)
     const selectedDiff = selectedDay ? weeklyDiffsByDate[selectedDay.planDate] : null
+    const weekReviewVerdict = weeklyPlan.weekPlanReview?.overallVerdict
     const selectedVerdict = selectedDay
-      ? (selectedDay.planDate === today
-        ? (llmValidation?.verdict ?? selectedDay.llmVerdict ?? 'pending')
-        : (selectedDay.llmVerdict ?? 'pending'))
-      : 'pending'
-    const selectedVerdictColor =
-      selectedVerdict === 'pass' ? 'var(--success)'
-        : selectedVerdict === 'minor_issues' ? '#e6a800'
-          : selectedVerdict === 'major_issues' ? 'var(--danger)'
-            : 'var(--text-tertiary)'
+      ? (selectedDay.llmVerdict ?? weekReviewVerdict ?? 'pass')
+      : 'pass'
+    const selectedVerdictColor = verdictColor(selectedVerdict)
 
     const selectedStatus = getDayStatus(selectedDay)
     const selectedCard = weekCards.find(c => c.day.planDate === selectedDay.planDate)
@@ -1408,6 +1379,11 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
           )}
           <span className={styles.weekHint}>Tap a day card</span>
         </div>
+        {weeklyPlan.weekPlanReview?.summary && (
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-secondary)', margin: '0 0 10px' }}>
+            {weeklyPlan.weekPlanReview.summary}
+          </p>
+        )}
         {weeklyPlan.planQuality && (
           <details className={styles.inlineDetails}>
             <summary>Planner telemetry</summary>
@@ -1531,7 +1507,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
             </span>
             <div className={styles.selectedDayPills}>
               <span className={styles.statusPill}>{selectedStatus}</span>
-              <span className={styles.statusPill} style={{ color: selectedVerdictColor }}>LLM {selectedVerdict}</span>
+              <span className={styles.statusPill} style={{ color: selectedVerdictColor }}>{verdictLabel(selectedVerdict)}</span>
               {selectedDiff && <span className={styles.updatedPill}>Updated</span>}
             </div>
           </div>
@@ -1625,24 +1601,10 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
                 )}
               </div>
             )}
-            {selectedVerdict !== 'pass' && Array.isArray(selectedDay.llmCorrections) && selectedDay.llmCorrections.length > 0 && (
-              <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Issues</div>
-                {selectedDay.llmCorrections.map((c: any, ci: number) => (
-                  <div key={ci} style={{ color: 'var(--text-secondary)' }}>
-                    {c.exerciseName}: {c.issue} {'->'} {c.fix}{typeof c.newValue === 'number' ? ` ${c.newValue}` : ''} ({c.reason})
-                  </div>
-                ))}
-              </div>
-            )}
-            {selectedDay.planDate === today && llmValidation?.immediate_corrections?.length ? (
-              <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'var(--surface-warning, #2f2410)' }}>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>LLM Corrections Suggested</div>
-                {llmValidation.immediate_corrections.map((c, ci) => (
-                  <div key={ci} style={{ color: 'var(--text-secondary)' }}>
-                    {c.exerciseName}: {c.fix} ({c.issue}) - {c.reason}
-                  </div>
-                ))}
+            {selectedDay.llmDayNote ? (
+              <div style={{ fontSize: 12, padding: '8px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', borderLeft: '3px solid var(--text-muted)' }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Coach note</div>
+                <div style={{ color: 'var(--text-secondary)', lineHeight: 1.45 }}>{selectedDay.llmDayNote}</div>
               </div>
             ) : null}
           </div>

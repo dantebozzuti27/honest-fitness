@@ -11,6 +11,8 @@
     "cleanup:patterns:dry": "node scripts/cleanup-llm-patterns-rds.mjs --dry-run",
     "rekey:patterns": "node scripts/rekey-semantic-patterns-rds.mjs",
     "rekey:patterns:dry": "node scripts/rekey-semantic-patterns-rds.mjs --dry-run",
+    "check:weekly-plans": "node scripts/check-weekly-plan-health.mjs",
+    "check:weekly-plans:repair": "node scripts/check-weekly-plan-health.mjs --repair",
     "reset:swap-penalties": "npx tsx scripts/reset-deprioritized-swaps-rds.mjs",
     "reset:swap-penalties:dry": "npx tsx scripts/reset-deprioritized-swaps-rds.mjs --dry-run"
   },

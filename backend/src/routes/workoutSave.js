@@ -1,11 +1,9 @@
 import express from 'express'
 import { randomUUID } from 'node:crypto'
 import { transaction, query } from '../database/pg.js'
+import { isUuidV4, resolveGeneratedWorkoutId } from '../lib/workoutLineage.js'
 
 export const workoutSaveRouter = express.Router()
-
-const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-function isUuidV4(s) { return typeof s === 'string' && UUID_V4_RE.test(s) }
 
 function getWeekStartMonday(dateStr) {
   const d = new Date(`${dateStr}T12:00:00`)
@@ -37,10 +35,14 @@ workoutSaveRouter.post('/', async (req, res) => {
 
     const workoutId = isUuidV4(workout.id) ? workout.id : randomUUID()
     const exercises = Array.isArray(rawEx) ? rawEx : []
-    const genId = isUuidV4(workout.generatedWorkoutId) ? workout.generatedWorkoutId : null
+    const genCandidate =
+      workout.generatedWorkoutId ||
+      workout.generated_workout_id ||
+      null
     const sessionType = String(workout.sessionType || workout.session_type || 'workout').toLowerCase() === 'recovery' ? 'recovery' : 'workout'
 
     const result = await transaction(async (client) => {
+      const genId = await resolveGeneratedWorkoutId(client, userId, genCandidate, workout.date)
       // 1. Batch library lookup
       const names = [...new Set(exercises.map(e => e.name).filter(Boolean))]
       const libMap = new Map()

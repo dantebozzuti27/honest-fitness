@@ -56,7 +56,18 @@ export function enqueueOutboxItem({ userId, kind, payload }: { userId: string; k
         const w = payload?.workout && typeof payload.workout === 'object' ? payload.workout : null
         if (!w) return payload
         const id = isUuidV4(w.id) ? w.id : uuidv4()
-        return { ...payload, workout: { ...w, id } }
+        const gen =
+          isUuidV4(w.generatedWorkoutId) ? w.generatedWorkoutId
+          : isUuidV4(w.generated_workout_id) ? w.generated_workout_id
+          : undefined
+        return {
+          ...payload,
+          workout: {
+            ...w,
+            id,
+            ...(gen ? { generatedWorkoutId: gen, generated_workout_id: gen } : {}),
+          },
+        }
       }
       if (kind === 'feed_item') {
         const f = payload?.feedItem && typeof payload.feedItem === 'object' ? payload.feedItem : null
@@ -88,7 +99,29 @@ export function enqueueOutboxItem({ userId, kind, payload }: { userId: string; k
   }
 
   const current = loadOutbox()
-  const updated = [...current, item].slice(-MAX_ITEMS)
+
+  let updated = current
+  if (kind === 'workout' && normalizedPayload?.workout?.id) {
+    const wId = normalizedPayload.workout.id
+    const dupIdx = current.findIndex(
+      (i: any) => i?.userId === userId && i?.kind === 'workout' && i?.payload?.workout?.id === wId,
+    )
+    if (dupIdx >= 0) {
+      updated = [...current]
+      updated[dupIdx] = {
+        ...current[dupIdx],
+        payload: normalizedPayload,
+        tries: 0,
+        nextAttemptAt: now,
+        lastError: undefined,
+      }
+      saveOutbox(updated.slice(-MAX_ITEMS))
+      logDebug('Outbox replaced pending workout flush', { userId, workoutId: wId })
+      return current[dupIdx].id || itemId
+    }
+  }
+
+  updated = [...current, item].slice(-MAX_ITEMS)
   saveOutbox(updated)
   logDebug('Outbox enqueued', { kind, userId, itemId })
   return itemId

@@ -62,4 +62,24 @@ test('syncOutbox: enqueueOutboxItem normalizes meal payload with stable string i
   assert.ok(id.length > 0)
 })
 
+test('syncOutbox: duplicate workout id replaces pending item instead of stacking', () => {
+  installBrowserStubs()
+  const gen = 'a1b2c3d4-e5f6-4789-a012-3456789abcde'
+  const wId = 'b2c3d4e5-f6a7-4890-b123-456789abcdef0'
+  enqueueOutboxItem({
+    userId: 'user_1',
+    kind: 'workout',
+    payload: { workout: { id: wId, date: '2025-01-01', exercises: [], generated_workout_id: gen } },
+  })
+  enqueueOutboxItem({
+    userId: 'user_1',
+    kind: 'workout',
+    payload: { workout: { id: wId, date: '2025-01-01', exercises: [{ name: 'Squat', sets: [{ weight: 135, reps: 5 }] }] } },
+  })
+  const arr = JSON.parse(global.localStorage.getItem('honest_outbox_v1'))
+  assert.equal(arr.length, 1)
+  assert.equal(arr[0].payload.workout.exercises.length, 1)
+  assert.equal(arr[0].payload.workout.generatedWorkoutId, gen)
+})
+
 

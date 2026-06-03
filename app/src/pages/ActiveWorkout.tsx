@@ -20,6 +20,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import Button from '../components/Button'
 import SearchField from '../components/SearchField'
 import { enqueueOutboxItem, removeOutboxItem } from '../lib/syncOutbox'
+import { attachGeneratedWorkoutId } from '../lib/workoutLineage'
 import ExerciseCard from '../components/ExerciseCard'
 import ExercisePicker from '../components/ExercisePicker'
 import { getFitbitDaily, getMostRecentFitbitData, fetchAndSaveWorkoutFitbitMetrics } from '../lib/wearables'
@@ -2337,7 +2338,7 @@ export default function ActiveWorkout() {
     const workoutEndMs = Date.now()
     const workoutStartMs = workoutStartTimeRef.current || (workoutEndMs - workoutTime * 1000)
 
-    const workout = {
+    const workout = attachGeneratedWorkoutId({
       id: uuidv4(),
       date: getTodayEST(),
       duration: durationMinutes,
@@ -2405,7 +2406,7 @@ export default function ActiveWorkout() {
         })
       }))
       // REMOVED: .filter(ex => ex.sets.length > 0) - this was removing exercises!
-    }
+    })
     
     // Allow workouts with 0 exercises (user may want to log a workout session without exercises)
     // Note: Exercises can have no sets, that's okay - we show all exercises

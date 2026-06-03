@@ -212,7 +212,10 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
   }
   const sessionType = String(workoutToSave.sessionType || workoutToSave.session_type || inferSessionType()).toLowerCase() === 'recovery' ? 'recovery' : 'workout'
 
+  const { attachGeneratedWorkoutId, extractGeneratedWorkoutId } = await import('./workoutLineage')
+  workoutToSave = attachGeneratedWorkoutId(workoutToSave)
   const workoutId = isUuidV4(workoutToSave?.id) ? workoutToSave.id : uuidv4()
+  const lineageGeneratedId = extractGeneratedWorkoutId(workoutToSave)
 
   // Step 4: Build exercises payload with normalized set data
   const rawExercises = Array.isArray(workoutToSave.exercises) ? workoutToSave.exercises : []
@@ -365,7 +368,7 @@ export async function saveWorkoutToSupabase(workout: any, userId: string) {
       dayOfWeek: workoutToSave.dayOfWeek ?? null,
       workoutCaloriesBurned: workoutToSave.workoutCaloriesBurned ?? null,
       workoutSteps: workoutToSave.workoutSteps ?? null,
-      generatedWorkoutId: workoutToSave.generatedWorkoutId || null,
+      generatedWorkoutId: lineageGeneratedId,
       workoutStartTime: workoutToSave.workoutStartTime || null,
       workoutEndTime: workoutToSave.workoutEndTime || null,
       sessionType,

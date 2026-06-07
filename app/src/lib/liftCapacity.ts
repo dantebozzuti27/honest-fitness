@@ -8,14 +8,41 @@
  */
 
 import type { TrainingProfile, ExerciseProgression, ExercisePreference } from './trainingAnalysis';
-import { learnedPreferenceToE1rm } from './e1rmEstimation';
+import { learnedPreferenceToE1rm, epley1RMWithRir } from './e1rmEstimation';
 
 export interface ExerciseExecutionDeltaV1 {
   avgWeightDeviation: number;
   avgRepsDeviation: number;
   sampleSize: number;
   completionRate: number;
+  /**
+   * 0–1 reliability of this delta as a signal. Grows with sample size and
+   * shrinks with dispersion. Optional for backward compatibility with
+   * hand-constructed deltas in tests.
+   */
+  confidence?: number;
 }
+
+/**
+ * Prior strength (in pseudo-observations) for shrinking an execution-delta
+ * mean toward zero (the "prescription was correct" null hypothesis).
+ *
+ * Empirical-Bayes / ridge intuition: the posterior mean under a Normal–Normal
+ * model with a zero-centered prior of strength `k` is
+ *   (k·0 + n·x̄) / (k + n) = x̄ · n/(n+k).
+ * A single heroic (or sandbagged) session no longer swings capacity; the
+ * estimate earns its magnitude as evidence accumulates. k=1 keeps this gentle
+ * so genuine 2–3 session signals still register.
+ */
+const DELTA_SHRINKAGE_PRIOR = 1;
+
+/**
+ * Capacity confidence at/above which the unified e1RM estimate is trusted
+ * exactly. Below it, the estimate is shrunk toward demonstrated capacity in
+ * proportion to the confidence deficit. ~0.8 corresponds to roughly 4+ tracked
+ * sessions of progression evidence.
+ */
+const CAPACITY_FULL_TRUST_CONFIDENCE = 0.8;
 
 export interface ExerciseCapacityV1 {
   exerciseName: string;
@@ -31,6 +58,53 @@ export interface ExerciseCapacityV1 {
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
+}
+
+/** Sample standard deviation (Bessel-corrected); 0 for fewer than 2 points. */
+function sampleStdDev(xs: number[]): number {
+  const n = xs.length;
+  if (n < 2) return 0;
+  const m = xs.reduce((a, b) => a + b, 0) / n;
+  const ss = xs.reduce((a, b) => a + (b - m) * (b - m), 0);
+  return Math.sqrt(ss / (n - 1));
+}
+
+/** Posterior mean shrunk toward zero by `k` pseudo-observations. */
+function shrunkMean(xs: number[], k = DELTA_SHRINKAGE_PRIOR): number {
+  const n = xs.length;
+  if (n === 0) return 0;
+  const raw = xs.reduce((a, b) => a + b, 0) / n;
+  return (n * raw) / (n + k);
+}
+
+/**
+ * Reliability of a deviation series in [0,1]. Two independent discounts:
+ *   - sample-size reliability  n/(n+k): more sessions → trust the mean more
+ *   - noise penalty 1/(1+SE/ref): a wide spread (large standard error) relative
+ *     to a 5% reference band erodes confidence even with many samples.
+ */
+function deltaConfidence(xs: number[], k = DELTA_SHRINKAGE_PRIOR): number {
+  const n = xs.length;
+  if (n === 0) return 0;
+  const reliability = n / (n + k);
+  const se = sampleStdDev(xs) / Math.sqrt(n);
+  const noisePenalty = 1 / (1 + se / 0.05);
+  return clamp(reliability * noisePenalty, 0, 1);
+}
+
+/** e1RM the user has actually demonstrated (peak logged set), used as a
+ *  conservative anchor when the unified estimate is uncertain. */
+function demonstratedE1rm(
+  prog: ExerciseProgression | null | undefined,
+  pref: ExercisePreference | null | undefined,
+): number | null {
+  if (prog?.bestSet && prog.bestSet.weight > 0 && prog.bestSet.reps > 0) {
+    return epley1RMWithRir(prog.bestSet.weight, prog.bestSet.reps, 1);
+  }
+  if (pref?.learnedWeight && pref?.learnedReps) {
+    return learnedPreferenceToE1rm(pref.learnedWeight, pref.learnedReps);
+  }
+  return null;
 }
 
 /**
@@ -74,12 +148,12 @@ export function aggregateExerciseExecutionDeltas(
   const out: Record<string, ExerciseExecutionDeltaV1> = {};
   for (const [key, agg] of byEx.entries()) {
     if (agg.prescribed < 1) continue;
-    const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
     out[key] = {
-      avgWeightDeviation: mean(agg.weightDev),
-      avgRepsDeviation: mean(agg.repsDev),
+      avgWeightDeviation: shrunkMean(agg.weightDev),
+      avgRepsDeviation: shrunkMean(agg.repsDev),
       sampleSize: Math.max(agg.weightDev.length, agg.repsDev.length, agg.prescribed),
       completionRate: agg.prescribed > 0 ? agg.completed / agg.prescribed : 0,
+      confidence: deltaConfidence(agg.weightDev),
     };
   }
   return out;
@@ -144,16 +218,33 @@ export function buildExerciseCapacity(
     : (globalCompliance >= 0.55 ? globalWeightDev : 0);
   const completion = exDev?.completionRate ?? globalCompliance;
 
+  // Evidence weight of the execution signal itself (0 when we fell back to the
+  // global deviation, which is a weak per-exercise prior).
+  const execEvidence = exDev && exDev.sampleSize >= 2 ? (exDev.confidence ?? 0.5) : 0;
+
   if (wDev > 0.04 && completion >= 0.6) {
     // User consistently lifts heavier than prescribed — raise capacity.
     // Cap boost at +12% per cycle to avoid one heroic session overshooting.
     const boost = clamp(wDev * 0.85, 0.04, 0.12);
     e1rm = e1rm * (1 + boost);
     source = 'execution_boost';
-    confidence = clamp(confidence + 0.05, 0, 0.95);
+    // Confidence gain scales with how much evidence backs the boost.
+    confidence = clamp(confidence + 0.05 * execEvidence, 0, 0.95);
   } else if (wDev < -0.08 && completion < 0.65) {
     const cut = clamp(Math.abs(wDev) * 0.5, 0.03, 0.08);
     e1rm = e1rm * (1 - cut);
+  }
+
+  // Confidence-weighted conservatism: when the unified estimate exceeds what
+  // the user has actually demonstrated, pull it back toward the demonstrated
+  // peak — but only while the estimate is under-evidenced. At/above the
+  // full-trust threshold the estimate is honored exactly; below it, the pull
+  // ramps linearly to a full retreat to the anchor at zero confidence. This
+  // only ever shrinks downward — it never inflates a weak estimate.
+  const anchor = demonstratedE1rm(prog, pref);
+  if (anchor != null && anchor > 0 && anchor < e1rm && confidence < CAPACITY_FULL_TRUST_CONFIDENCE) {
+    const shrink = (CAPACITY_FULL_TRUST_CONFIDENCE - clamp(confidence, 0, 1)) / CAPACITY_FULL_TRUST_CONFIDENCE;
+    e1rm = (1 - shrink) * e1rm + shrink * anchor;
   }
 
   return {

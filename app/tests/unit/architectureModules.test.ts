@@ -7,6 +7,7 @@ import {
   capacityToWorkingWeight,
 } from '../../src/lib/liftCapacity';
 import { computePrescriptionController } from '../../src/lib/prescriptionController';
+import { classifyProgressionStatus } from '../../src/lib/trainingAnalysis';
 import { buildFocusWeeklyBudget, focusSetBudgetForDate } from '../../src/lib/focusVolumeBudget';
 import {
   buildWeekPlanConstraints,
@@ -39,6 +40,61 @@ test('aggregateExerciseExecutionDeltas: positive weight deviation raises signal'
   ]);
   assert.ok(deltas['bench press'].avgWeightDeviation > 0.04);
   assert.equal(deltas['bench press'].sampleSize, 2);
+});
+
+test('aggregateExerciseExecutionDeltas: shrinks a lone outlier toward zero', () => {
+  const deltas = aggregateExerciseExecutionDeltas([
+    { exerciseName: 'Outlier Lift', prescribedWeight: 100, actualWeight: 130, prescribedReps: 5, actualReps: 5, completed: true },
+  ]);
+  const d = deltas['outlier lift'];
+  // Raw deviation is +0.30; with a k=1 zero-prior and n=1 it halves to +0.15,
+  // so a single heroic session cannot fully move capacity.
+  assert.ok(Math.abs(d.avgWeightDeviation - 0.15) < 1e-9, `got ${d.avgWeightDeviation}`);
+  // One observation is worth exactly the zero-prior: reliability n/(n+k)=0.5.
+  assert.ok((d.confidence ?? 1) <= 0.5, 'a single sample must not be high confidence');
+});
+
+test('aggregateExerciseExecutionDeltas: confidence rises with consistent evidence, falls with noise', () => {
+  const consistent = aggregateExerciseExecutionDeltas(
+    Array.from({ length: 6 }, () => ({
+      exerciseName: 'Steady', prescribedWeight: 100, actualWeight: 110,
+      prescribedReps: 5, actualReps: 5, completed: true,
+    })),
+  );
+  const noisy = aggregateExerciseExecutionDeltas([
+    { exerciseName: 'Jumpy', prescribedWeight: 100, actualWeight: 140, prescribedReps: 5, actualReps: 5, completed: true },
+    { exerciseName: 'Jumpy', prescribedWeight: 100, actualWeight: 80, prescribedReps: 5, actualReps: 5, completed: true },
+  ]);
+  assert.ok((consistent['steady'].confidence ?? 0) > 0.7);
+  assert.ok((consistent['steady'].confidence ?? 0) > (noisy['jumpy'].confidence ?? 1));
+});
+
+test('buildExerciseCapacity: low confidence pulls estimate toward demonstrated peak', () => {
+  const delta = { avgWeightDeviation: 0.1, avgRepsDeviation: 0, sampleSize: 4, completionRate: 0.9, confidence: 0.6 };
+  const progLow = {
+    exerciseName: 'a', estimated1RM: 300, lastWeight: 225, lastReps: 5,
+    bestSet: { weight: 225, reps: 5 }, status: 'progressing' as const,
+    progressionSlope: 0.02, sessionsTracked: 3,
+  };
+  const progHigh = { ...progLow, sessionsTracked: 12 };
+  const lowConf = buildExerciseCapacity('a', progLow, null, delta, 0, 0.8)!;
+  const highConf = buildExerciseCapacity('a', progHigh, null, delta, 0, 0.8)!;
+  // Demonstrated peak (Epley on 225×5 @ RIR1) ≈ 270 lb.
+  assert.ok(lowConf.estimated1RM < highConf.estimated1RM, 'fewer sessions → more conservative');
+  assert.ok(lowConf.estimated1RM >= 270, 'shrinkage never drops below demonstrated capacity');
+});
+
+test('classifyProgressionStatus: small noisy sample resists a regressing call', () => {
+  const { status } = classifyProgressionStatus(-0.02, 3, 0.2);
+  assert.notEqual(status, 'regressing');
+});
+
+test('classifyProgressionStatus: clean sustained decline is regressing', () => {
+  assert.equal(classifyProgressionStatus(-0.03, 12, 0.95).status, 'regressing');
+});
+
+test('classifyProgressionStatus: strong clean uptrend progresses', () => {
+  assert.equal(classifyProgressionStatus(0.03, 10, 0.9).status, 'progressing');
 });
 
 test('buildExerciseCapacity: execution boost raises e1RM when user lifts heavy', () => {

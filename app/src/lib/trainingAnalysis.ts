@@ -924,6 +924,65 @@ function linearRegressionSlope(values: number[]): number {
   return (n * sumXY - sumX * sumY) / denom;
 }
 
+/** OLS slope plus coefficient of determination (R²) — the fraction of
+ *  variance the linear trend explains. R² distinguishes a clean trend from
+ *  noise that happens to have a nonzero slope. */
+function linearRegressionFit(values: number[]): { slope: number; r2: number } {
+  const n = values.length;
+  if (n < 2) return { slope: 0, r2: 0 };
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += i;
+    sumY += values[i];
+    sumXY += i * values[i];
+    sumXX += i * i;
+  }
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return { slope: 0, r2: 0 };
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  const meanY = sumY / n;
+  let ssTot = 0, ssRes = 0;
+  for (let i = 0; i < n; i++) {
+    const pred = slope * i + intercept;
+    ssTot += (values[i] - meanY) ** 2;
+    ssRes += (values[i] - pred) ** 2;
+  }
+  const r2 = ssTot === 0 ? 1 : Math.max(0, 1 - ssRes / ssTot);
+  return { slope, r2 };
+}
+
+/**
+ * Classify a progression trend from its normalized (per-unit-strength) slope,
+ * regularized by evidence so small or noisy samples can't trigger aggressive
+ * weight changes.
+ *
+ * The raw slope is shrunk by two multiplicative factors before thresholding:
+ *   - sample reliability  n/(n+k):   ~0.43 at 3 sessions → ~0.71 at 10
+ *   - fit quality         0.5+0.5·R²: a noisy fit (low R²) is halved
+ *
+ * Net effect: declaring "regressing" (which can cut load 8–15%) demands either
+ * more sessions or a cleaner downward trend, eliminating the failure mode where
+ * a single off day on a 3-session history yanked the user's weight down.
+ */
+export function classifyProgressionStatus(
+  normalizedSlope: number,
+  sessions: number,
+  r2: number,
+): { status: 'progressing' | 'maintaining' | 'stalled' | 'regressing'; shrunkSlope: number } {
+  const reliability = sessions / (sessions + 4);
+  const fitQuality = 0.5 + 0.5 * Math.max(0, Math.min(1, r2));
+  const shrunkSlope = normalizedSlope * reliability * fitQuality;
+
+  let status: 'progressing' | 'maintaining' | 'stalled' | 'regressing';
+  if (shrunkSlope > 0.005) status = 'progressing';
+  else if (shrunkSlope < -0.01) status = 'regressing';
+  else if (shrunkSlope >= -0.005) status = 'maintaining';
+  else status = 'stalled';
+
+  return { status, shrunkSlope: Math.round(shrunkSlope * 10000) / 10000 };
+}
+
 /**
  * Date-aware linear regression: uses actual calendar days as X-axis instead of array indices.
  * Returns slope in units-per-day, which is correct regardless of data sparsity.
@@ -2042,15 +2101,17 @@ function computeExerciseProgressions(
       // > 60% from the running median (likely DB vs BB equipment confusion).
       const filtered = filterEquipmentMismatchOutliers(sessions);
       const values = filtered.map(s => s.best1RM);
-      const slope = linearRegressionSlope(values);
+      const fit = linearRegressionFit(values);
       const avg = mean(values);
-      const normalizedSlope = avg > 0 ? slope / avg : 0;
+      const normalizedSlope = avg > 0 ? fit.slope / avg : 0;
 
-      let status: 'progressing' | 'maintaining' | 'stalled' | 'regressing';
-      if (normalizedSlope > 0.005) status = 'progressing';
-      else if (normalizedSlope < -0.01) status = 'regressing';
-      else if (normalizedSlope >= -0.005) status = 'maintaining';
-      else status = 'stalled';
+      // Regularize the slope by sample size and fit quality so a short or
+      // noisy history can't trip an aggressive regression/progression call.
+      const { status, shrunkSlope } = classifyProgressionStatus(
+        normalizedSlope,
+        values.length,
+        fit.r2,
+      );
 
       const last = filtered[filtered.length - 1];
 
@@ -2078,7 +2139,9 @@ function computeExerciseProgressions(
       return {
         exerciseName: name,
         estimated1RM: Math.round(recentPeakE1rm * 10) / 10,
-        progressionSlope: Math.round(normalizedSlope * 10000) / 10000,
+        // Report the regularized slope so downstream severity logic (e.g.
+        // regression magnitude gates) inherits the same evidence discount.
+        progressionSlope: shrunkSlope,
         status,
         sessionsTracked: filtered.length,
         bestSet: { weight: peakSession.bestWeight, reps: peakSession.bestReps },

@@ -203,9 +203,15 @@ class QueryBuilder {
     return this
   }
 
-  or(_expression: string) {
-    console.warn('[dbClient] .or() is not supported by the CRUD proxy — this filter will be ignored. Restructure the query to use separate requests.')
-    return this
+  or(expression: string): never {
+    // Silently ignoring an OR filter previously returned UNFILTERED rows — a
+    // latent data-correctness/leakage bug. The CRUD proxy has no OR support,
+    // so fail loudly and force the caller to restructure into separate
+    // requests rather than shipping a query that quietly over-fetches.
+    throw new Error(
+      `[dbClient] .or(${JSON.stringify(expression)}) is not supported by the CRUD proxy. ` +
+        'Split into separate requests and merge client-side instead of relying on an OR filter.',
+    )
   }
 
   order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) {

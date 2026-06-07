@@ -1,5 +1,6 @@
 import type { TrainingProfile } from './trainingAnalysis'
 import type { ExerciseRole, GoalKind } from './volumeGuidelines'
+import { humanizeRepTarget } from './repRangePolicy'
 
 export type { GoalKind, ExerciseRole }
 
@@ -231,9 +232,15 @@ export function optimizePrescription(exercises: AdaptiveExercise[], ctx: Adaptiv
 
     const adaptiveRepCenter = out.targetReps + Math.round(progressionPressure * 2)
     const boundedReps = clamp(adaptiveRepCenter, priors.repRange[0], priors.repRange[1])
-    if (boundedReps !== out.targetReps) {
-      out.adjustments.push(`Adaptive rep target: ${out.targetReps} -> ${boundedReps}`)
-      out.targetReps = boundedReps
+    // Re-snap to the human rep grid. The prescriber emits clean targets
+    // (…,10,11,12,15,20…); a raw ±1 adaptive nudge would otherwise produce
+    // off-grid values (13,14,16,17…) and bias whole sessions toward awkward
+    // high-rep targets like 16. Humanizing keeps progression that crosses a
+    // real grid boundary while discarding cosmetic ±1 drift.
+    const humanizedReps = humanizeRepTarget(boundedReps, priors.repRange[0], priors.repRange[1])
+    if (humanizedReps !== out.targetReps) {
+      out.adjustments.push(`Adaptive rep target: ${out.targetReps} -> ${humanizedReps}`)
+      out.targetReps = humanizedReps
     }
 
     const adaptiveRest = Math.round(out.restSeconds * clamp(1 - (progressionPressure * 0.2), 0.85, 1.15))

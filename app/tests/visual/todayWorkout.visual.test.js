@@ -18,7 +18,7 @@ test('layout-contract: today page uses single shell state handling', () => {
   assert.ok(page.includes('const renderStatePanel = () => {'), 'single-shell state panel renderer should exist')
   const weeklyOnce =
     page.includes('const weeklyPlanInspector = renderWeeklyPlanCards()') ||
-    /const\s+weeklyPlanInspector\s*=\s*isWeekPage\s*\?\s*renderWeeklyPlanCards\(\)\s*:\s*null/.test(page)
+    /const\s+weeklyPlanInspector\s*=\s*isWeekPage\s*\?\s*render(WeeklyPlanCards|WeekTab)\(\)\s*:\s*null/.test(page)
   assert.ok(weeklyOnce, 'weekly inspector should be computed once per render (not inlined repeatedly in JSX)')
   assert.ok(!page.includes("if (viewState === 'loading') {\n    return ("), 'top-level loading return branch should not exist')
   assert.ok(!page.includes("if (viewState === 'error') {\n    return ("), 'top-level error return branch should not exist')

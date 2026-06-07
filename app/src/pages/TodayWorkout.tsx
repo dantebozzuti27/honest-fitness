@@ -17,8 +17,11 @@ import {
   recomputeWeeklyPlanWithDiff,
   rematerializeStaleWeeklyPlanDays,
   performSurgicalExerciseSwap,
+  addExerciseToWorkout,
   parseRawPreferences,
 } from '../lib/engineLazy'
+import type { EnrichedExercise } from '../lib/trainingAnalysis'
+import { CANONICAL_MUSCLE_GROUPS } from '../lib/volumeGuidelines'
 import { db } from '../lib/dbClient'
 import { apiUrl } from '../lib/urlConfig'
 import { getIdToken } from '../lib/cognitoAuth'
@@ -121,7 +124,16 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
   const [preferredSplit, setPreferredSplit] = useState<string | null>(null)
   const [splitSchedule, setSplitSchedule] = useState<Record<string, { focus: string; groups: string[] }> | null>(null)
   const [mesocycleWeek, setMesocycleWeek] = useState<number | null>(null)
+  const [viewedWeek, setViewedWeek] = useState<'current' | 'next'>('current')
+  const [nextWeekPlan, setNextWeekPlan] = useState<WeeklyPlan | null>(null)
+  const [nextWeekLoading, setNextWeekLoading] = useState(false)
+  const [nextWeekSelectedDate, setNextWeekSelectedDate] = useState<string>('')
   const [excludedExercises, setExcludedExercises] = useState<Set<string>>(new Set())
+  const [exerciseLibrary, setExerciseLibrary] = useState<EnrichedExercise[]>([])
+  const [showAddExercise, setShowAddExercise] = useState(false)
+  const [addMode, setAddMode] = useState<'group' | 'search'>('group')
+  const [addQuery, setAddQuery] = useState('')
+  const [addingExercise, setAddingExercise] = useState(false)
   // Phase 3b — missed-day redistribution proposals. Computed from `weeklyPlan`.
   // `dismissedRedistributionKeys` lets the user permanently hide a proposal
   // for the rest of the session (keyed by missedDate|targetDate).
@@ -589,6 +601,71 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     return out
   }
 
+  // Mesocycle waves cycle 1→2→3→4→1 (accumulation→loading→overreach→deload).
+  // The previewed next week advances one position so its prescription is a real
+  // progression (more volume / lower RIR), not a clone of this week.
+  const nextMesocycleWeek = ((mesocycleWeek ?? 1) % 4) + 1
+  const PHASE_LABELS = ['Accumulation', 'Loading', 'Overreach', 'Deload']
+  const phaseLabel = (week: number) => PHASE_LABELS[Math.max(0, Math.min(week - 1, 3))]
+
+  // Generate (in-memory only) the upcoming week so the user can preview it any
+  // day — critical on Sunday, when the active Mon–Sun plan has no "tomorrow".
+  // Not persisted: it's a forward look, not the active week, and saving it would
+  // collide with the current-week key in Supabase.
+  const loadNextWeek = async () => {
+    if (nextWeekLoading) return
+    setNextWeekLoading(true)
+    try {
+      const tp = (await refreshTrainingProfile().catch(() => null)) ?? cachedProfile
+      if (!tp) throw new Error('Training profile unavailable')
+      const anchor = new Date()
+      anchor.setDate(anchor.getDate() + 7)
+      const enginePrefetch = cachedBodyAssessment ? { bodyAssessment: cachedBodyAssessment } : undefined
+      const plan = await generateWeeklyPlan(
+        tp,
+        restDays,
+        preferredSplit ?? null,
+        splitSchedule ?? null,
+        enginePrefetch,
+        { anchorDate: anchor, mesocycleWeek: nextMesocycleWeek },
+      )
+      setNextWeekPlan(plan)
+      setNextWeekSelectedDate(plan.days.find(d => !d.isRestDay)?.planDate ?? plan.days[0]?.planDate ?? '')
+    } catch (e) {
+      logError('Next week preview generation failed', e)
+      showToast('Could not build next week preview.', 'error')
+      setViewedWeek('current')
+    } finally {
+      setNextWeekLoading(false)
+    }
+  }
+
+  const showNextWeek = () => {
+    setViewedWeek('next')
+    if (!nextWeekPlan && !nextWeekLoading) void loadNextWeek()
+  }
+
+  // Week-over-week deltas for a previewed day: match next-week exercises to the
+  // same weekday this week by name, exposing how load/reps/sets/RIR scale.
+  const computeWowDeltas = (nextDay: WeeklyPlanDay) => {
+    const curDay = weeklyPlan?.days.find(d => d.dayOfWeek === nextDay.dayOfWeek)
+    const curByName = new Map<string, any>()
+    for (const e of curDay?.plannedWorkout?.exercises ?? []) {
+      curByName.set(e.exerciseName.toLowerCase(), e)
+    }
+    return (nextDay.plannedWorkout?.exercises ?? []).map(ex => {
+      const prev = curByName.get(ex.exerciseName.toLowerCase())
+      return {
+        ex,
+        isNew: !prev,
+        dWeight: prev && ex.targetWeight != null && prev.targetWeight != null ? ex.targetWeight - prev.targetWeight : 0,
+        dReps: prev ? (ex.targetReps || 0) - (prev.targetReps || 0) : 0,
+        dSets: prev ? ex.sets - prev.sets : 0,
+        dRir: prev && ex.targetRir != null && prev.targetRir != null ? ex.targetRir - prev.targetRir : 0,
+      }
+    })
+  }
+
   const applyRecomputedPlan = async (
     basePlan: WeeklyPlan,
     tp: TrainingProfile,
@@ -819,6 +896,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
         executionEvents: serverData.executionEvents || [],
         sessionFeatures: serverData.sessionFeatures || [],
       }
+      setExerciseLibrary(serverData.exerciseLibrary || [])
       const tp = computeTrainingProfileFromData(user.id, prefetchedTrainingData)
       console.log(`[PERF] computeTrainingProfileFromData: ${(performance.now()-t2).toFixed(0)}ms`)
       setCachedProfile(tp)
@@ -1209,6 +1287,38 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     }
   }
 
+  // Add an exercise to the planned session — engine prescribes sets/reps/load.
+  const handleAddExercise = async (target: { exerciseId?: string; exerciseName?: string; muscleGroup?: string }) => {
+    if (!workout || addingExercise) return
+    setAddingExercise(true)
+    try {
+      const activeProfile = await refreshTrainingProfile()
+      if (!activeProfile) throw new Error('Training profile unavailable')
+      const result = await addExerciseToWorkout(workout, target, activeProfile)
+      if (result.reason === 'ok' && result.addedName) {
+        setWorkout(result.workout)
+        setOriginalWorkout(result.workout)
+        setAdjustedWorkoutCandidate(null)
+        setAdjustedValidation(null)
+        setSelectedWorkoutVersion('original')
+        showToast(`Added ${result.addedName}`, 'success')
+        setShowAddExercise(false)
+        setAddQuery('')
+      } else if (result.reason === 'already_present') {
+        showToast('That exercise is already in your session', 'info')
+      } else if (result.reason === 'no_candidate') {
+        showToast('No suitable exercise found for that muscle group', 'info')
+      } else {
+        showToast('Could not add that exercise', 'error')
+      }
+    } catch (err) {
+      logError('Add exercise error', err)
+      showToast('Add failed', 'error')
+    } finally {
+      setAddingExercise(false)
+    }
+  }
+
   // #29: Toggle exercise exclusion before generation
   const toggleExcludeExercise = (exerciseName: string) => {
     const next = new Set(excludedExercises)
@@ -1383,6 +1493,169 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     corrective: '#ef4444',
     cardio: '#22c55e',
   }
+
+  const renderWeekToggle = () => (
+    <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+      {([['current', 'This Week'], ['next', 'Next Week']] as const).map(([key, label]) => (
+        <button
+          key={key}
+          onClick={() => (key === 'next' ? showNextWeek() : setViewedWeek('current'))}
+          style={{
+            flex: 1, padding: '8px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            border: '1px solid var(--border-color, #d1d5db)',
+            background: viewedWeek === key ? 'var(--accent, #3b82f6)' : 'transparent',
+            color: viewedWeek === key ? '#fff' : 'var(--text-primary)',
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+
+  const renderNextWeekPreview = () => {
+    if (nextWeekLoading || !nextWeekPlan) {
+      return (
+        <div className={styles.weekPreview}>
+          <div className={styles.selectedDayCompact}>
+            <div className={styles.selectedDayMain}>
+              <strong>{nextWeekLoading ? 'Building next week…' : 'Next week preview'}</strong>
+              <span style={{ color: 'var(--text-tertiary)' }}>
+                {nextWeekLoading ? 'Progressing your plan one mesocycle step forward.' : 'Tap to generate.'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    const plan = nextWeekPlan
+    const selectedDay = getSelectedPlanDay(plan, nextWeekSelectedDate)
+    const cards = buildWeekGlanceCards(plan, restDays, selectedDay?.planDate ?? '')
+    const deltas = selectedDay ? computeWowDeltas(selectedDay) : []
+
+    return (
+      <div className={styles.weekPreview}>
+        <div className={styles.weekHeaderRow}>
+          <h3 className={styles.weekPreviewTitle}>Next Week</h3>
+          <span className={styles.mesocycleBadge}>
+            Week {nextMesocycleWeek} · {phaseLabel(nextMesocycleWeek)}
+          </span>
+          <span className={styles.weekHint}>Starts {plan.weekStartDate.slice(5)}</span>
+        </div>
+        <div
+          style={{
+            marginBottom: 10, padding: '10px 12px', borderRadius: 8,
+            background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
+            fontSize: 13, lineHeight: 1.5, color: 'var(--text-secondary)',
+          }}
+        >
+          {nextMesocycleWeek === 4
+            ? 'Deload week — reduced volume and higher RIR so you recover and supercompensate before the next wave.'
+            : `${phaseLabel(nextMesocycleWeek)} phase — loads hold or climb while RIR drops, so the same movements get progressively harder. Deltas below are vs this week.`}
+        </div>
+
+        <div className={styles.weekGlanceScroll}>
+          <div className={styles.weekGlanceGrid}>
+            {cards.map(card => (
+              <button
+                key={card.day.planDate}
+                onClick={() => setNextWeekSelectedDate(card.day.planDate)}
+                className={`${styles.glanceDayCard} ${card.selected ? styles.glanceDayCardSelected : ''}`}
+                style={{ cursor: 'pointer', textAlign: 'left' }}
+              >
+                <div className={styles.glanceTopRow}>
+                  <span className={styles.glanceDow}>{card.day.dayName.slice(0, 3)}</span>
+                  <span className={styles.glanceDate}>{card.day.planDate.slice(5)}</span>
+                </div>
+                <div className={styles.glanceStatus}>
+                  {card.status === 'rest' ? 'Rest' : `${card.shownMinutes} min`}
+                </div>
+                {card.focusTags.length > 0 && (
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'capitalize', marginTop: 2 }}>
+                    {card.focusTags.join(', ')}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {selectedDay && (
+          <div className={styles.selectedDayCompact} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+            <strong style={{ textTransform: 'capitalize' }}>
+              {selectedDay.dayName} · {selectedDay.isRestDay ? 'Rest day' : (selectedDay.focus || 'Training')}
+            </strong>
+            {selectedDay.isRestDay ? (
+              <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Recovery day — no session planned.</span>
+            ) : deltas.length === 0 ? (
+              <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>No exercises planned.</span>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {deltas.map(({ ex, isNew, dWeight, dReps, dSets, dRir }) => (
+                  <div
+                    key={ex.exerciseName}
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '6px 8px', borderRadius: 6, fontSize: 13,
+                      background: 'var(--surface-secondary, rgba(255,255,255,0.03))',
+                    }}
+                  >
+                    <span>{ex.exerciseName}</span>
+                    <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {ex.isCardio
+                          ? (ex.cardioDurationSeconds != null ? `${Math.round(ex.cardioDurationSeconds / 60)} min` : '—')
+                          : `${ex.sets}×${ex.targetReps}${ex.targetWeight != null ? ` @ ${ex.targetWeight}` : ''}`}
+                      </span>
+                      {isNew ? (
+                        <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 600 }}>NEW</span>
+                      ) : (
+                        <>
+                          {dWeight !== 0 && (
+                            <span style={{ fontSize: 11, color: dWeight > 0 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                              {dWeight > 0 ? '+' : ''}{dWeight} lb
+                            </span>
+                          )}
+                          {dReps !== 0 && (
+                            <span style={{ fontSize: 11, color: dReps > 0 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                              {dReps > 0 ? '+' : ''}{dReps} rep
+                            </span>
+                          )}
+                          {dSets !== 0 && (
+                            <span style={{ fontSize: 11, color: dSets > 0 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                              {dSets > 0 ? '+' : ''}{dSets} set
+                            </span>
+                          )}
+                          {dRir !== 0 && (
+                            <span
+                              style={{ fontSize: 11, color: dRir < 0 ? '#22c55e' : '#eab308', fontWeight: 600 }}
+                              title="Lower RIR = closer to failure = harder"
+                            >
+                              {dRir > 0 ? '+' : ''}{dRir} RIR
+                            </span>
+                          )}
+                          {dWeight === 0 && dReps === 0 && dSets === 0 && dRir === 0 && (
+                            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>—</span>
+                          )}
+                        </>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderWeekTab = () => (
+    <>
+      {renderWeekToggle()}
+      {viewedWeek === 'next' ? renderNextWeekPreview() : renderWeeklyPlanCards()}
+    </>
+  )
 
   const renderWeeklyPlanCards = () => {
     if (!weeklyPlan || weeklyPlan.days.length === 0) {
@@ -1789,7 +2062,7 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
     return null
   }
   const isWeekPage = mode === 'week'
-  const weeklyPlanInspector = isWeekPage ? renderWeeklyPlanCards() : null
+  const weeklyPlanInspector = isWeekPage ? renderWeekTab() : null
 
   return (
     <div className={styles.container}>
@@ -2360,6 +2633,118 @@ export default function TodayWorkout({ mode = 'today' }: { mode?: TodayWorkoutMo
               </div>
             )
           })}
+        </div>
+
+        {/* Add exercise — user-initiated, engine-prescribed slot */}
+        <div style={{ marginTop: 12 }}>
+          {!showAddExercise ? (
+            <button
+              className={styles.swapBtnInline}
+              style={{ width: '100%', padding: '10px' }}
+              onClick={() => setShowAddExercise(true)}
+              disabled={regenerating || addingExercise}
+            >
+              + Add Exercise
+            </button>
+          ) : (
+            <div className={styles.contextCard} style={{ padding: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <strong>Add an exercise</strong>
+                <button
+                  onClick={() => { setShowAddExercise(false); setAddQuery('') }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, lineHeight: 1, color: 'var(--text-secondary)' }}
+                  aria-label="Close add exercise"
+                >×</button>
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                {(['group', 'search'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setAddMode(m)}
+                    style={{
+                      flex: 1, padding: '7px', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+                      border: '1px solid var(--border-color, #d1d5db)',
+                      background: addMode === m ? 'var(--accent, #3b82f6)' : 'transparent',
+                      color: addMode === m ? '#fff' : 'var(--text-primary)',
+                    }}
+                  >
+                    {m === 'group' ? 'By muscle group' : 'Search exercise'}
+                  </button>
+                ))}
+              </div>
+              {addMode === 'group' ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {CANONICAL_MUSCLE_GROUPS.map(g => (
+                    <button
+                      key={g}
+                      disabled={addingExercise}
+                      onClick={() => handleAddExercise({ muscleGroup: g })}
+                      style={{
+                        padding: '6px 10px', borderRadius: 16, fontSize: 12, cursor: 'pointer',
+                        textTransform: 'capitalize', border: '1px solid var(--border-color, #d1d5db)',
+                        background: 'var(--surface-secondary, #f3f4f6)', color: 'var(--text-primary)',
+                        opacity: addingExercise ? 0.5 : 1,
+                      }}
+                    >
+                      {g.replace(/_/g, ' ')}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                (() => {
+                  const inWorkout = new Set(workout.exercises.map(e => e.exerciseName.toLowerCase()))
+                  const q = addQuery.trim().toLowerCase()
+                  const filtered = exerciseLibrary
+                    .filter(ex => !inWorkout.has(ex.name.toLowerCase()))
+                    .filter(ex => (q ? ex.name.toLowerCase().includes(q) : true))
+                    .slice(0, 30)
+                  return (
+                    <div>
+                      <input
+                        value={addQuery}
+                        onChange={e => setAddQuery(e.target.value)}
+                        placeholder="Search exercises…"
+                        autoFocus
+                        style={{
+                          width: '100%', padding: 8, borderRadius: 6, fontSize: 14,
+                          border: '1px solid var(--border-color, #d1d5db)',
+                          background: 'var(--surface-primary, #fff)', color: 'var(--text-primary)',
+                        }}
+                      />
+                      <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 8 }}>
+                        {filtered.map(ex => (
+                          <button
+                            key={ex.id}
+                            disabled={addingExercise}
+                            onClick={() => handleAddExercise({ exerciseId: ex.id, exerciseName: ex.name })}
+                            style={{
+                              width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              padding: '8px 10px', marginBottom: 4, borderRadius: 6, cursor: 'pointer', textAlign: 'left',
+                              border: '1px solid var(--border-color, #e5e7eb)', background: 'transparent', color: 'var(--text-primary)',
+                              opacity: addingExercise ? 0.5 : 1,
+                            }}
+                          >
+                            <span style={{ fontSize: 14 }}>{ex.name}</span>
+                            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'capitalize' }}>
+                              {(Array.isArray(ex.primary_muscles) && ex.primary_muscles[0] ? String(ex.primary_muscles[0]) : '').replace(/_/g, ' ')}
+                            </span>
+                          </button>
+                        ))}
+                        {filtered.length === 0 && (
+                          <div style={{ padding: 12, fontSize: 13, color: 'var(--text-tertiary)', textAlign: 'center' }}>
+                            {q ? 'No matching exercises' : 'Start typing to search'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()
+              )}
+              {addingExercise && (
+                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-secondary)' }}>Prescribing…</div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* #30: Per-muscle recovery status */}

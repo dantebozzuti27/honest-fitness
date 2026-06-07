@@ -75,6 +75,7 @@ import {
 import {
   applySurgicalSwap,
   pickSwapReplacement,
+  pickExerciseForGroup,
   type SurgicalSwapResult,
 } from './surgicalSwap';
 import { normalizeEquipment } from '../utils/formatUtils';
@@ -863,9 +864,26 @@ function getTempo(
   }
   if (isIsolation) return '2-1-2';
 
-  if (defaultTempo) return defaultTempo;
+  if (defaultTempo) return normalizeTempo(defaultTempo);
   if (goal === 'bulk') return '3-1-1';
   if (goal === 'cut') return '2-0-1';
+  return '2-1-1';
+}
+
+/**
+ * Coerce a stored tempo into the dashed `ecc-pause-con` form the rest of the
+ * engine assumes. DB rows store tempo digit-packed (`"2010"` = 2-0-1-0); fed
+ * raw into `estimateExerciseMinutes` (which splits on `-`) that parses as a
+ * single 2010-second-per-rep tempo and detonates the time estimate. Anything
+ * already dashed is returned untouched.
+ */
+function normalizeTempo(raw: string): string {
+  if (!raw) return '2-1-1';
+  if (raw.includes('-')) return raw;
+  const digits = raw.replace(/[^0-9xX]/g, '');
+  if (digits.length >= 3) {
+    return `${digits[0]}-${digits[1]}-${digits[2]}`;
+  }
   return '2-1-1';
 }
 
@@ -7407,16 +7425,37 @@ export async function generateWeeklyPlan(
   userRestDays: number[] = [],
   preferredSplit?: string | null,
   splitSchedule?: Record<string, { focus: string; groups: string[] }> | null,
-  prefetched?: PreFetchedEngineData
+  prefetched?: PreFetchedEngineData,
+  options?: { anchorDate?: Date; mesocycleWeek?: number }
 ): Promise<WeeklyPlan> {
   const weeklyPlanStartMs = nowMs();
-  const weekDates = getWeekDatesMondaySunday(new Date());
+  // anchorDate lets callers materialize a non-current week (e.g. next week, so a
+  // user on Sunday can preview Monday). Defaults to today's Mon–Sun window.
+  const weekDates = getWeekDatesMondaySunday(options?.anchorDate ?? new Date());
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   // Phase 2: prefetch user prefs so weekly-level checks (cardio frequency
   // policy, future invariants) can read fields like `cardio_frequency_per_week`
   // without hitting the DB inside the per-day loop.
   const planPrefs: UserPreferences | null = prefetched?.preferences
     ?? await fetchUserPreferences(profile.userId).catch(() => null as UserPreferences | null);
+
+  // mesocycleWeek override drives week-over-week progression in previews: bumping
+  // the wave position (accumulation→loading→overreach) raises volume / lowers RIR
+  // so a previewed next week is legitimately harder, not a copy. We build a
+  // COMPLETE prefetch (prefs + library) so the per-day fast path actually honors
+  // the override; the prefs object is cloned, never mutated. Library is fetched
+  // only when the caller didn't already supply one.
+  let dayPrefetched: PreFetchedEngineData | undefined = prefetched;
+  if (options?.mesocycleWeek != null && planPrefs) {
+    const library = prefetched?.exerciseLibrary ?? await fetchAllExercises().catch(() => undefined);
+    if (library) {
+      dayPrefetched = {
+        ...prefetched,
+        preferences: { ...planPrefs, mesocycle_week: options.mesocycleWeek },
+        exerciseLibrary: library,
+      };
+    }
+  }
   const preview = generateWeekPreview(profile, userRestDays, false, undefined, preferredSplit, splitSchedule);
   const previewByDow = new Map<number, DayPreview>(preview.map(p => [p.dayOfWeek, p]));
   const restSet = new Set(userRestDays);
@@ -7733,7 +7772,7 @@ export async function generateWeeklyPlan(
             dayTheme: dayThemeForDay,
             ...monthlyPlannerOverrides,
           },
-      prefetched
+      dayPrefetched
     );
     let signature = workoutSignature(plannedWorkout);
 
@@ -7855,7 +7894,7 @@ export async function generateWeeklyPlan(
           dayTheme: dayThemeForDay,
           ...monthlyPlannerOverrides,
         },
-        prefetched
+        dayPrefetched
       );
       const regeneratedSignature = workoutSignature(regenerated);
       const regeneratedNames = exerciseNameSet(regenerated);
@@ -8642,4 +8681,159 @@ export async function performSurgicalExerciseSwap(
   }
 
   return { workout: swapped, replacementName: replacement.name, method };
+}
+
+export interface AddExerciseResult {
+  workout: GeneratedWorkout;
+  addedName: string | null;
+  reason: 'ok' | 'not_found' | 'already_present' | 'no_candidate';
+}
+
+/**
+ * Add a single exercise to an already-generated workout and prescribe it with
+ * the same machinery the engine uses for fill-path additions (capacity-model
+ * weight, table rep range humanized onto the rep grid, role-aware sets / rest /
+ * RIR / tempo). Used by the pre-workout editor so a user-initiated addition is
+ * coached exactly like an engine-generated slot rather than dropped in raw.
+ *
+ * Resolution order:
+ *   1. `exerciseId` — exact library row.
+ *   2. `exerciseName` — case-insensitive library match.
+ *   3. `muscleGroup` — engine picks the best-fitting library exercise.
+ */
+export async function addExerciseToWorkout(
+  workout: GeneratedWorkout,
+  target: { exerciseId?: string; exerciseName?: string; muscleGroup?: string },
+  profile: TrainingProfile,
+  prefetched?: PreFetchedEngineData,
+): Promise<AddExerciseResult> {
+  const [prefs, library] = prefetched?.preferences && prefetched?.exerciseLibrary
+    ? [prefetched.preferences, prefetched.exerciseLibrary] as const
+    : await Promise.all([
+        fetchUserPreferences(profile.userId),
+        fetchAllExercises(),
+      ]);
+
+  const present = new Set(workout.exercises.map(e => e.exerciseName.toLowerCase()));
+
+  let chosen: EnrichedExercise | null = null;
+  if (target.exerciseId) {
+    chosen = library.find(e => e.id === target.exerciseId) ?? null;
+  } else if (target.exerciseName) {
+    const want = target.exerciseName.toLowerCase();
+    chosen = library.find(e => e.name.toLowerCase() === want) ?? null;
+  } else if (target.muscleGroup) {
+    chosen = pickExerciseForGroup(target.muscleGroup, profile, library, workout);
+    if (!chosen) return { workout, addedName: null, reason: 'no_candidate' };
+  }
+
+  if (!chosen) return { workout, addedName: null, reason: 'not_found' };
+  if (present.has(chosen.name.toLowerCase())) {
+    return { workout, addedName: null, reason: 'already_present' };
+  }
+
+  const goal = workout.trainingGoal;
+  const secondaryGoal = (prefs.secondary_goal as string | null) ?? null;
+  const targetGroup = target.muscleGroup
+    ?? (Array.isArray(chosen.primary_muscles) && chosen.primary_muscles.length > 0
+      ? (resolveToCanonicalGroup(String(chosen.primary_muscles[0])) ?? String(chosen.primary_muscles[0]))
+      : (chosen.body_part ?? 'full_body'));
+
+  // Role is position-aware: a same-group exercise added behind compounds is an
+  // accessory. classifyExerciseRole takes the slot index within its group.
+  const sameGroupCount = workout.exercises
+    .filter(e => e.targetMuscleGroup === targetGroup).length;
+  const role = classifyExerciseRole(chosen, sameGroupCount);
+
+  const exType = chosen.ml_exercise_type ?? inferExerciseType(chosen);
+  const equipment = (Array.isArray(chosen.equipment) ? chosen.equipment : []).map(normalizeEquipment);
+  const isBodyweight = equipment.length === 1 && equipment[0] === 'bodyweight';
+  const isTimedHold = isTimedHoldExercise(chosen.name);
+
+  const pref = findByExerciseFamily(profile.exercisePreferences, chosen.name);
+  const hasLearnedData = !!pref && pref.recentSessions >= 4;
+  const { learnedReps } = learnedRepContext(profile, chosen.name);
+  const reps = isTimedHold
+    ? 0
+    : resolveTargetRepsForRole(role, goal as ApolloPhase, secondaryGoal, undefined, DEFAULT_MODEL_CONFIG, exType, learnedReps, hasLearnedData);
+  const tableRange = getRepRangeByRole(role, goal as ApolloPhase, secondaryGoal, undefined, DEFAULT_MODEL_CONFIG, exType);
+
+  const sets = (pref?.learnedSets && pref.recentSessions >= 4)
+    ? Math.min(Math.round(pref.learnedSets), 4)
+    : (role === 'primary' ? 4 : role === 'secondary' ? 3 : 2);
+  const rir = getRirTarget(role, goal, false, prefs.experience_level);
+  const rest = pref?.learnedRestSeconds ?? getRestByExercise(chosen, role, goal, undefined, DEFAULT_MODEL_CONFIG);
+  const tempo = getTempo(chosen.default_tempo, goal, exType);
+
+  const controller = computePrescriptionController(profile, prefs);
+  const capacityIndex = buildExerciseCapacityIndex(profile);
+  const cap = capacityIndex.get(chosen.name.toLowerCase());
+  const prog = findByExerciseFamily(profile.exerciseProgressions, chosen.name);
+
+  let targetWeight: number | null = null;
+  if (!isBodyweight && !isTimedHold && reps > 0) {
+    if (cap) {
+      targetWeight = capacityToWorkingWeight(cap.estimated1RM, reps, rir);
+      if (controller.weightBias !== 1) targetWeight *= controller.weightBias;
+    } else if (prog) {
+      targetWeight = weightForReps(prog.estimated1RM, reps, rir, equipment, exType);
+    } else if (pref?.learnedWeight != null) {
+      targetWeight = pref.learnedWeight;
+    }
+    if (targetWeight != null) {
+      const e1rmRef = deriveE1rmReference(prog ?? null, pref ?? null);
+      const safe = clampToRepLoadCeiling(targetWeight, reps, rir, e1rmRef, equipment, exType, DEFAULT_MODEL_CONFIG);
+      targetWeight = snapToPlate(safe.weight, equipment, exType);
+    }
+  }
+
+  const estMin = estimateExerciseMinutes(sets, rest, role, 0, reps, tempo);
+
+  const added: GeneratedExercise = {
+    exerciseName: chosen.name,
+    exerciseLibraryId: chosen.id,
+    bodyPart: chosen.body_part,
+    primaryMuscles: Array.isArray(chosen.primary_muscles) ? chosen.primary_muscles : [],
+    secondaryMuscles: Array.isArray(chosen.secondary_muscles) ? chosen.secondary_muscles : [],
+    movementPattern: chosen.movement_pattern ?? 'unknown',
+    targetMuscleGroup: targetGroup as GeneratedExercise['targetMuscleGroup'],
+    exerciseRole: role,
+    sets,
+    targetReps: reps,
+    targetRepRange: isTimedHold ? null : { min: tableRange.min, max: tableRange.max },
+    targetWeight: isBodyweight ? null : (targetWeight && targetWeight > 0 ? targetWeight : null),
+    targetRir: isTimedHold ? null : rir,
+    rirLabel: isTimedHold ? null : getRirLabel(rir),
+    rirRange: null,
+    isBodyweight,
+    tempo,
+    restSeconds: rest,
+    rationale: 'Added by you before the session',
+    adjustments: [
+      cap
+        ? `Prescribed from unified capacity model (e1RM ${Math.round(cap.estimated1RM)} lbs)`
+        : 'Prescribed from goal-aware rep/load tables',
+    ],
+    isDeload: false,
+    isCardio: false,
+    cardioDurationSeconds: null,
+    cardioSpeed: null,
+    cardioIncline: null,
+    cardioSpeedLabel: null,
+    targetHrZone: null,
+    targetHrBpmRange: null,
+    warmupSets: null,
+    supersetGroupId: null,
+    supersetType: null,
+    impactScore: computeImpactScore(chosen, role, goal, secondaryGoal),
+    estimatedMinutes: estMin,
+  };
+
+  const exercises = [...workout.exercises, added];
+  const estimatedDurationMinutes = exercises.reduce((s, e) => s + (e.estimatedMinutes || 0), 0);
+  return {
+    workout: { ...workout, exercises, estimatedDurationMinutes },
+    addedName: chosen.name,
+    reason: 'ok',
+  };
 }

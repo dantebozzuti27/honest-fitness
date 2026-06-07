@@ -106,6 +106,52 @@ export function pickSwapReplacement(
 }
 
 /**
+ * Pick the best library exercise to ADD for a target muscle group.
+ *
+ * Mirrors the swap scorer's signals (acceptance, family diversity, swap
+ * penalty) minus the from-exercise substitution term — there is no outgoing
+ * slot when adding. Deterministic: ties break on name to keep generation
+ * reproducible for a fixed profile/library.
+ */
+export function pickExerciseForGroup(
+  targetGroup: string,
+  profile: TrainingProfile,
+  library: EnrichedExercise[],
+  workout: GeneratedWorkout,
+): EnrichedExercise | null {
+  const inWorkout = new Set(workout.exercises.map(e => e.exerciseName.toLowerCase()));
+  const sameGroupInWorkout = workout.exercises
+    .filter(e => e.targetMuscleGroup === targetGroup)
+    .map(e => e.exerciseName);
+
+  const scoreAddCandidate = (ex: EnrichedExercise): number => {
+    const key = ex.name.toLowerCase();
+    if (inWorkout.has(key)) return -999;
+    const groups = (Array.isArray(ex.primary_muscles) ? ex.primary_muscles : [])
+      .map(m => resolveMuscleToken(m))
+      .filter(Boolean);
+    if (!groups.includes(targetGroup as typeof groups[number])) return -999;
+
+    let score = 10;
+    score += familyDiversityBonus(ex.name, sameGroupInWorkout, targetGroup);
+    const acceptance = findByExerciseFamily(profile.exerciseAcceptances, ex.name);
+    if (acceptance) score += Math.min(15, acceptance.effectiveWeight * 15);
+    const swapPen = findByExerciseFamily(profile.exerciseSwapHistory, ex.name);
+    if (swapPen && swapPen.swapCount >= 2) score -= Math.min(20, swapPen.swapCount * 3);
+    // Bias toward isolation for accessory variety when compounds already cover the group.
+    if (ex.ml_exercise_type === 'isolation' && sameGroupInWorkout.length > 0) score += 3;
+    return score;
+  };
+
+  const ranked = library
+    .map(ex => ({ ex, score: scoreAddCandidate(ex) }))
+    .filter(r => r.score > 0)
+    .sort((a, b) => (b.score - a.score) || a.ex.name.localeCompare(b.ex.name));
+
+  return ranked.length > 0 ? ranked[0].ex : null;
+}
+
+/**
  * Replace one exercise slot in-place. Prescription fields copy from the
  * outgoing exercise; caller may re-prescribe via engine if needed.
  */

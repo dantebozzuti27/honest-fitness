@@ -62,6 +62,27 @@ test('prescription: every loaded set is internally coherent (reps/RIR in band, s
   }
 });
 
+test('prescription: every rep target lands on the human rep grid (no off-grid 13/14/16/17…)', async () => {
+  // Regression: the adaptive-learning layer used to add a raw ±1 rep nudge
+  // AFTER the prescriber humanized reps, then clamp to a wide role band —
+  // never re-snapping. That turned a clean 15 into 16 (and 12 into 13) and
+  // biased whole sessions toward awkward off-grid high-rep targets. Reps must
+  // always be a value a human would actually program.
+  const HUMAN_REP_GRID = new Set([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 20, 25]);
+  for (const goal of ['bulk', 'cut', 'maintain'] as const) {
+    for (const dur of [30, 60, 90] as const) {
+      const w = await session({ session_duration_minutes: dur }, { goalOverride: goal });
+      for (const ex of w.exercises) {
+        if (ex.isCardio || ex.targetReps === 0) continue;
+        assert.ok(
+          HUMAN_REP_GRID.has(ex.targetReps),
+          `${goal}/${dur}min ${ex.exerciseName}: targetReps ${ex.targetReps} is off the human rep grid`,
+        );
+      }
+    }
+  }
+});
+
 test('prescription: deterministic for a fixed seed within a goal phase', async () => {
   const a = await session({}, { goalOverride: 'bulk' });
   const b = await session({}, { goalOverride: 'bulk' });

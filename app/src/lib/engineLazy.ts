@@ -48,6 +48,11 @@ export const performSurgicalExerciseSwap = (
 ): ReturnType<Engine['performSurgicalExerciseSwap']> =>
   loadEngine().then((m) => m.performSurgicalExerciseSwap(...args)) as ReturnType<Engine['performSurgicalExerciseSwap']>
 
+export const addExerciseToWorkout = (
+  ...args: Parameters<Engine['addExerciseToWorkout']>
+): ReturnType<Engine['addExerciseToWorkout']> =>
+  loadEngine().then((m) => m.addExerciseToWorkout(...args)) as ReturnType<Engine['addExerciseToWorkout']>
+
 export const saveGeneratedWorkout = (
   ...args: Parameters<Engine['saveGeneratedWorkout']>
 ): Promise<Awaited<ReturnType<Engine['saveGeneratedWorkout']>>> =>

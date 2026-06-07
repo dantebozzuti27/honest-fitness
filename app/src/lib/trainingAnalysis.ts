@@ -549,6 +549,15 @@ export interface TrainingProfile {
     lastDate: string;
     effectiveWeight: number;
   }>;
+  /**
+   * Exposure-normalized preference signal per exercise family. Combines the
+   * accept (kept) and reject (swapped) decay-weighted channels into a single
+   * Beta–Binomial-shrunk acceptance rate. Unlike the raw swap/acceptance
+   * counts, this is a RATE (rejections relative to exposure) shrunk toward a
+   * neutral prior, so a small number of swaps on an otherwise well-kept
+   * exercise no longer reads as strong rejection.
+   */
+  exercisePreferenceSignals: ExercisePreferenceSignal[];
   /** Fraction of last-14 days with non-null calories_consumed in health_metrics (0–1). */
   nutritionLoggingCoverage14d: number | null;
 
@@ -5107,6 +5116,8 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
       })
     : [];
 
+  const acceptancesComputed = computeExerciseAcceptancesFromData(workouts, swapLearning.exerciseSwapHistory);
+
   return {
     userId,
     computedAt: new Date().toISOString(),
@@ -5162,7 +5173,8 @@ export function computeTrainingProfileFromData(userId: string, data: PreFetchedT
     // ML v2 features
     exerciseSwapHistory: swapLearning.exerciseSwapHistory,
     substitutionAffinities: swapLearning.substitutionAffinities,
-    exerciseAcceptances: computeExerciseAcceptancesFromData(workouts, swapLearning.exerciseSwapHistory),
+    exerciseAcceptances: acceptancesComputed,
+    exercisePreferenceSignals: computeExercisePreferenceSignals(swapLearning.exerciseSwapHistory, acceptancesComputed),
     nutritionLoggingCoverage14d,
     hrvIntensityModifier: computeHrvIntensityModifier(health),
     progressionForecasts: computeProgressionForecasts(exerciseProgressions, workouts),
@@ -5954,6 +5966,86 @@ export function computeExerciseAcceptancesFromData(
     }))
     .sort((a, b) => b.effectiveWeight - a.effectiveWeight)
     .slice(0, 80);
+}
+
+export interface ExercisePreferenceSignal {
+  /** preferenceAggregationKey-normalized exercise family. */
+  exerciseName: string;
+  /** Decay-weighted "kept" (accept) mass. */
+  acceptWeight: number;
+  /** Decay-weighted "swapped" (reject) mass. */
+  rejectWeight: number;
+  /** acceptWeight + rejectWeight — total observed evidence. */
+  evidence: number;
+  /** Beta–Binomial posterior mean P(keep | evidence), in (0, 1). */
+  shrunkAcceptRate: number;
+  /** 2·shrunkAcceptRate − 1, in (−1, 1). >0 ⇒ kept more than swapped. */
+  netAffinity: number;
+  /** evidence / (evidence + saturation), in [0, 1) — how much to trust the rate. */
+  confidence: number;
+}
+
+/**
+ * Fuse the swap (negative) and acceptance (positive) channels into a single
+ * exposure-normalized preference rate per exercise family.
+ *
+ * The raw channels are *absolute* decay-weighted counts, which conflate
+ * exposure with preference: an exercise swapped 3× but kept 30× carries the
+ * same nominal "3 swaps" as one swapped 3× and never kept, even though the
+ * first is clearly preferred. Modeling acceptance as a Beta–Binomial process —
+ * keeps as successes, swaps as failures, with a symmetric Beta(prior, prior)
+ * pseudo-count — yields a posterior-mean acceptance RATE that:
+ *
+ *   • shrinks toward 0.5 (neutral) when evidence is thin, so a single swap is
+ *     not over-interpreted (the classic small-sample failure mode), and
+ *   • converges to the empirical rate as evidence accumulates.
+ *
+ * `confidence` is reported separately (saturating in total evidence mass) so
+ * callers can scale how aggressively they act on the rate. The function is
+ * pure and side-effect free.
+ */
+export function computeExercisePreferenceSignals(
+  swapHistory: TrainingProfile['exerciseSwapHistory'],
+  acceptances: TrainingProfile['exerciseAcceptances'],
+  opts: { priorStrength?: number; confidenceSaturation?: number } = {},
+): ExercisePreferenceSignal[] {
+  // priorStrength = pseudo-counts on each side of a symmetric Beta prior.
+  // 1.5 keeps the rate within ~±0.15 of neutral until a few net events accrue.
+  const prior = opts.priorStrength ?? 1.5;
+  // confidenceSaturation = evidence mass at which confidence reaches 0.5.
+  const sat = opts.confidenceSaturation ?? 4;
+
+  const accept = new Map<string, number>();
+  const reject = new Map<string, number>();
+  for (const a of acceptances ?? []) {
+    const k = preferenceAggregationKey(String(a.exerciseName || ''));
+    if (!k) continue;
+    accept.set(k, (accept.get(k) ?? 0) + Math.max(0, Number(a.effectiveWeight ?? a.count ?? 0)));
+  }
+  for (const s of swapHistory ?? []) {
+    const k = preferenceAggregationKey(String(s.exerciseName || ''));
+    if (!k) continue;
+    reject.set(k, (reject.get(k) ?? 0) + Math.max(0, Number(s.effectiveSwapWeight ?? s.swapCount ?? 0)));
+  }
+
+  const out: ExercisePreferenceSignal[] = [];
+  for (const k of new Set([...accept.keys(), ...reject.keys()])) {
+    const A = accept.get(k) ?? 0;
+    const R = reject.get(k) ?? 0;
+    const evidence = A + R;
+    const shrunkAcceptRate = (A + prior) / (A + R + 2 * prior);
+    out.push({
+      exerciseName: k,
+      acceptWeight: Math.round(A * 100) / 100,
+      rejectWeight: Math.round(R * 100) / 100,
+      evidence: Math.round(evidence * 100) / 100,
+      shrunkAcceptRate: Math.round(shrunkAcceptRate * 1000) / 1000,
+      netAffinity: Math.round((2 * shrunkAcceptRate - 1) * 1000) / 1000,
+      confidence: Math.round((evidence / (evidence + sat)) * 1000) / 1000,
+    });
+  }
+  // Most-rejected first — useful for inspection/debug surfaces.
+  return out.sort((a, b) => a.netAffinity - b.netAffinity);
 }
 
 function computePrescribedVsActualFromData(

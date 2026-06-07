@@ -10,6 +10,15 @@ import type {
   SessionOverrides,
   BodyAssessment,
 } from '../lib/workoutEngine'
+import {
+  generateWorkout,
+  saveGeneratedWorkout,
+  generateWeeklyPlan,
+  recomputeWeeklyPlanWithDiff,
+  rematerializeStaleWeeklyPlanDays,
+  performSurgicalExerciseSwap,
+  parseRawPreferences,
+} from '../lib/engineLazy'
 import { db } from '../lib/dbClient'
 import { apiUrl } from '../lib/urlConfig'
 import { getIdToken } from '../lib/cognitoAuth'
@@ -62,33 +71,6 @@ import { getActiveWorkoutSession, deleteActiveWorkoutSession } from '../lib/db/w
 import { stageGeneratedWorkoutPayload } from '../lib/generatedWorkoutHandoff'
 import styles from './TodayWorkout.module.css'
 import s from '../styles/shared.module.css'
-
-// ── Lazy engine loader ──────────────────────────────────────────────────────
-// The workout-generation engine (`workoutEngine.ts`) is the single largest
-// runtime dependency on this route, but it is only needed when the user
-// actively generates/regenerates a workout or materializes a weekly plan — not
-// for the common case of viewing an already-saved plan. Loading it on demand
-// keeps it out of the initial TodayWorkout chunk, cutting time-to-interactive.
-// Wrappers are typed via `Parameters<>`/`ReturnType<>` against the real module,
-// so they stay in lockstep with the engine's signatures with zero duplication.
-type Engine = typeof import('../lib/workoutEngine')
-let _enginePromise: Promise<Engine> | null = null
-const loadEngine = (): Promise<Engine> => (_enginePromise ??= import('../lib/workoutEngine'))
-
-const generateWorkout = (...a: Parameters<Engine['generateWorkout']>): ReturnType<Engine['generateWorkout']> =>
-  loadEngine().then((m) => m.generateWorkout(...a)) as ReturnType<Engine['generateWorkout']>
-const generateWeeklyPlan = (...a: Parameters<Engine['generateWeeklyPlan']>): ReturnType<Engine['generateWeeklyPlan']> =>
-  loadEngine().then((m) => m.generateWeeklyPlan(...a)) as ReturnType<Engine['generateWeeklyPlan']>
-const recomputeWeeklyPlanWithDiff = (...a: Parameters<Engine['recomputeWeeklyPlanWithDiff']>): ReturnType<Engine['recomputeWeeklyPlanWithDiff']> =>
-  loadEngine().then((m) => m.recomputeWeeklyPlanWithDiff(...a)) as ReturnType<Engine['recomputeWeeklyPlanWithDiff']>
-const rematerializeStaleWeeklyPlanDays = (...a: Parameters<Engine['rematerializeStaleWeeklyPlanDays']>): ReturnType<Engine['rematerializeStaleWeeklyPlanDays']> =>
-  loadEngine().then((m) => m.rematerializeStaleWeeklyPlanDays(...a)) as ReturnType<Engine['rematerializeStaleWeeklyPlanDays']>
-const performSurgicalExerciseSwap = (...a: Parameters<Engine['performSurgicalExerciseSwap']>): ReturnType<Engine['performSurgicalExerciseSwap']> =>
-  loadEngine().then((m) => m.performSurgicalExerciseSwap(...a)) as ReturnType<Engine['performSurgicalExerciseSwap']>
-const saveGeneratedWorkout = (...a: Parameters<Engine['saveGeneratedWorkout']>): Promise<Awaited<ReturnType<Engine['saveGeneratedWorkout']>>> =>
-  loadEngine().then((m) => m.saveGeneratedWorkout(...a))
-const parseRawPreferences = (...a: Parameters<Engine['parseRawPreferences']>): Promise<ReturnType<Engine['parseRawPreferences']>> =>
-  loadEngine().then((m) => m.parseRawPreferences(...a))
 
 type ViewState = 'loading' | 'ready' | 'error' | 'empty' | 'completed'
 

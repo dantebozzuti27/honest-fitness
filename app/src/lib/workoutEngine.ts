@@ -3108,11 +3108,24 @@ function stepSelectExercises(
         const swapEntry = findByExerciseFamily(profile.exerciseSwapHistory, ex.name);
         if (swapEntry) {
           const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
+          // Exposure-normalized dampening. The raw swap weight ignores base rate:
+          // an exercise swapped a few times but KEPT far more often is not truly
+          // rejected. The preference signal is a Beta–Binomial-shrunk accept rate;
+          // when it shows net acceptance (netAffinity > 0) we scale the penalty
+          // down by netAffinity × confidence. With no acceptance evidence
+          // netAffinity ≤ 0 ⇒ penaltyScale = 1, i.e. behavior is unchanged.
+          const prefSig = profile.exercisePreferenceSignals
+            ? findByExerciseFamily(profile.exercisePreferenceSignals, ex.name)
+            : null;
+          const penaltyScale = prefSig
+            ? 1 - Math.max(0, prefSig.netAffinity) * prefSig.confidence
+            : 1;
           let swapApplied = false;
           for (const tier of cfg.selectionSwapPenaltyTiers) {
             if (eff >= tier.minWeight || swapEntry.swapCount >= tier.minCount) {
-              score += tier.penalty;
-              factors.push(`Swap penalty (weight ${eff.toFixed(1)}, ${tier.penalty})`);
+              const pen = Math.round(tier.penalty * penaltyScale * 10) / 10;
+              score += pen;
+              factors.push(`Swap penalty (weight ${eff.toFixed(1)}, ${pen}${penaltyScale < 0.995 ? ` ×${penaltyScale.toFixed(2)} kept-rate` : ''})`);
               swapApplied = true;
               break;
             }
@@ -3120,7 +3133,7 @@ function stepSelectExercises(
           // Gentler fallback: a single swap is a noisy signal (mood, equipment
           // availability, time pressure). Cap at -3 instead of -5 per swap.
           if (!swapApplied && swapEntry.swapCount >= 1) {
-            const pen = -Math.min(3, 1.5 * swapEntry.swapCount);
+            const pen = Math.round(-Math.min(3, 1.5 * swapEntry.swapCount) * penaltyScale * 10) / 10;
             score += pen;
             factors.push(`Swap history (${swapEntry.swapCount}x, ${pen.toFixed(1)})`);
           }
@@ -3236,13 +3249,23 @@ function stepSelectExercises(
         if (!swapEntry) continue;
         const eff = Number(swapEntry.effectiveSwapWeight ?? swapEntry.swapCount);
         if (eff >= 11 || swapEntry.swapCount >= 15) {
-          // Acceptance reward escape hatch: if user kept this exercise
-          // recently, do NOT hard-cap. Negative-only learning was the bug.
+          // Escape hatch: do NOT hard-cap an exercise the user actually keeps.
+          // Negative-only learning was the bug (permanent rotation collapse).
+          // Two independent positive signals can veto the near-ban:
+          //   (a) raw acceptance mass ≥ 3 (legacy, absolute), or
+          //   (b) the exposure-normalized signal shows net acceptance with
+          //       enough evidence — i.e. swaps are a minority of exposures.
           const accEntry = findByExerciseFamily(profile.exerciseAcceptances, item.exercise.name);
           const acceptanceWeight = Number(accEntry?.effectiveWeight ?? 0);
-          if (acceptanceWeight < 3) {
+          const prefSig = profile.exercisePreferenceSignals
+            ? findByExerciseFamily(profile.exercisePreferenceSignals, item.exercise.name)
+            : null;
+          const keptMoreThanSwapped = prefSig != null && prefSig.netAffinity > 0.1 && prefSig.confidence >= 0.3;
+          if (acceptanceWeight < 3 && !keptMoreThanSwapped) {
             item.score = Math.min(item.score, cfg.selectionSwapNearBanCeiling);
             item.factors.push(`Swap override: heavily rejected (${swapEntry.swapCount}× swapped, weight ${eff.toFixed(1)})`);
+          } else if (keptMoreThanSwapped) {
+            item.factors.push(`Override skipped: kept-rate ${prefSig!.shrunkAcceptRate.toFixed(2)} (conf ${prefSig!.confidence.toFixed(2)}) beats ${swapEntry.swapCount} swaps`);
           } else {
             item.factors.push(`Override skipped: acceptance signal ${acceptanceWeight.toFixed(1)} offsets ${swapEntry.swapCount} swaps`);
           }

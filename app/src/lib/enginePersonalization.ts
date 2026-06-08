@@ -2,21 +2,40 @@ import type { TrainingProfile } from './trainingAnalysis';
 import type { UserPreferences } from './workoutEngine';
 
 /**
- * Blend prefs session budget with observed median duration (elite users often finish under budget).
+ * Resolve the session-time budget to plan against.
+ *
+ * The stated `session_duration_minutes` is an EXPLICIT user instruction — the
+ * time they have allocated — and is the primary signal. Observed median
+ * duration is behavioral evidence used only to trim mild, consistent
+ * over-budgeting (users who reliably finish early), never to silently gut the
+ * plan: a 120-minute budget must not collapse to ~80.
+ *
+ * Two guarantees:
+ *   1. The stated budget dominates the blend (65% stated / 35% observed) and
+ *      the result is floored at 88% of stated, so behavior can shave a few
+ *      minutes but cannot halve an explicitly requested long session.
+ *   2. `honorStatedBudget` (future/preview planning) bypasses the blend
+ *      entirely — a week you haven't trained yet has no "observed" duration,
+ *      so planning intent is the only honest signal.
  */
 export function effectiveSessionDurationMinutes(
   prefs: UserPreferences,
   profile: TrainingProfile,
+  opts?: { honorStatedBudget?: boolean },
 ): number {
   const pref = Number(prefs.session_duration_minutes ?? 0);
   const observed = Number(profile.avgSessionDuration ?? 0);
   if (!Number.isFinite(pref) || pref <= 0) {
     return Number.isFinite(observed) && observed > 0 ? Math.round(observed) : 60;
   }
+  // Future/preview planning: the stated budget IS the plan.
+  if (opts?.honorStatedBudget) return Math.round(pref);
   if (!Number.isFinite(observed) || observed <= 0) return Math.round(pref);
-  // Trust recent behavior at 70% + stated budget at 30%, capped to pref so UI contract holds.
-  const blended = Math.round(observed * 0.7 + pref * 0.3);
-  return Math.min(pref, Math.max(35, blended));
+  // Stated budget dominates; observed only trims mild, consistent early
+  // finishes. Floor at 88% of stated so a long session is never gutted.
+  const blended = Math.round(pref * 0.65 + observed * 0.35);
+  const floor = Math.round(pref * 0.88);
+  return Math.min(pref, Math.max(floor, blended));
 }
 
 /** Days since last logged workout from preference recency (global). */

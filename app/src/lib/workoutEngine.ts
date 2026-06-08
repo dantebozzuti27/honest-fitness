@@ -4931,8 +4931,17 @@ function stepApplyConstraints(
   const maxCardioPct = goal === 'cut' ? cfg.maxCardioPctFatLoss
     : goal === 'bulk' ? cfg.maxCardioPctDefault * 0.65
     : cfg.maxCardioPctDefault;
-  const profileCardioTargetMin = Number.isFinite(Number(prefs.cardio_duration_minutes))
-    ? Math.max(8, Math.round(Number(prefs.cardio_duration_minutes)))
+  // An UNSET cardio preference must mean "no explicit target → use the
+  // goal-based cap", NOT "cap cardio at 8 minutes". The old guard used
+  // `Number.isFinite(Number(prefs.cardio_duration_minutes))`, but
+  // `Number(null)` is 0 and 0 is finite — so every user who never set a
+  // cardio duration had ALL cardio silently clamped to max(8, 0) = 8 min,
+  // even on a cut with a 120-min budget. Require a positive, explicit value.
+  const rawCardioPrefMin = Number(prefs.cardio_duration_minutes);
+  const profileCardioTargetMin = prefs.cardio_duration_minutes != null
+    && Number.isFinite(rawCardioPrefMin)
+    && rawCardioPrefMin > 0
+    ? Math.max(8, Math.round(rawCardioPrefMin))
     : null;
   // Profile cardio target is a ceiling unless the user is explicitly in endurance focus.
   const maxTotalCardioMin = (() => {
@@ -6266,6 +6275,9 @@ function validateAndCorrect(
   // parameter is unused inside the function and slated for removal once
   // the call sites are migrated.
   _monthlyFocusMuscle: string | null = null,
+  // The user's EXPLICIT training goal. Used so cut-phase cardio protection
+  // engages on a stated cut even before bodyweight-trend data exists.
+  effectiveGoal: string | null = null,
 ): ValidateAndCorrectResult {
   void _monthlyFocusMuscle;
   const corrections: string[] = [];
@@ -6433,7 +6445,10 @@ function validateAndCorrect(
     //     trims alone cannot make budget.
     //   - bulking / maintaining → keep prior behaviour: cardio is conditioning
     //     overhead and may be trimmed first to preserve strength quality.
-    const isCut = profile.bodyWeightTrend.phase === 'cutting';
+    // Honor BOTH the inferred bodyweight phase and the user's explicit goal:
+    // a stated cut must protect cardio even before enough weigh-ins exist to
+    // infer a 'cutting' trend.
+    const isCut = profile.bodyWeightTrend.phase === 'cutting' || effectiveGoal === 'cut';
 
     const trimCardio = () => {
       const cardioEx = exercises.filter(e => e.isCardio).sort((a, b) => (b.estimatedMinutes - a.estimatedMinutes));
@@ -6602,7 +6617,16 @@ export async function generateWorkout(
   // Return-from-break detection: auto-deload after extended time off.
   // Guard: new users with no preference history should not be penalized.
   const breakRampMultiplier = computeBreakRampMultiplier(profile);
-  const effectiveSessionMin = effectiveSessionDurationMinutes(prefs, profile);
+  // Future/preview days (week-ahead, next-week) have no observed duration to
+  // blend against — honor the user's stated budget so a planned 120-min week
+  // isn't silently shown as an ~80-min historical average.
+  const nowForBudget = new Date();
+  const isFuturePlanForBudget =
+    planningDate.toDateString() !== nowForBudget.toDateString()
+    && planningDate.getTime() > nowForBudget.getTime();
+  const effectiveSessionMin = effectiveSessionDurationMinutes(prefs, profile, {
+    honorStatedBudget: isFuturePlanForBudget,
+  });
   if (effectiveSessionMin > 0 && effectiveSessionMin !== prefs.session_duration_minutes) {
     prefs.session_duration_minutes = effectiveSessionMin;
   }
@@ -6946,7 +6970,7 @@ export async function generateWorkout(
   // and then discarded, leaving the user — and us during incident
   // response — with no audit trail when an exercise vanished.
   const tValidate = stageStart('validate_adapt');
-  const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes, null);
+  const validated = validateAndCorrect(constrained, profile, prefs.session_duration_minutes, null, getEffectiveGoal(prefs));
   const adaptiveContext = buildAdaptivePolicyContext(profile, {
     training_goal: (prefs.training_goal as GoalKind) ?? 'maintain',
     experience_level: prefs.experience_level ?? null,
@@ -6975,7 +6999,7 @@ export async function generateWorkout(
     };
   });
   const adaptedRecomputed = recalcEstimatedMinutes(adaptedRaw);
-  const adaptedValidated = validateAndCorrect(adaptedRecomputed, profile, prefs.session_duration_minutes, null);
+  const adaptedValidated = validateAndCorrect(adaptedRecomputed, profile, prefs.session_duration_minutes, null, getEffectiveGoal(prefs));
   const adapted = recalcEstimatedMinutes(adaptedValidated.exercises);
   // De-dupe corrections — both passes can fire the same cap and we don't
   // want noisy duplicates in the surface log. Insertion order preserved.
@@ -8145,9 +8169,12 @@ export async function generateWeeklyPlan(
     !d.isRestDay && d.plannedWorkout?.exercises?.some(e => e.isCardio)
   ).length;
   const phase = profile.bodyWeightTrend?.phase;
+  // A stated cut goal triggers daily-cardio coverage even before a 'cutting'
+  // bodyweight trend can be inferred (new users / sparse weigh-ins).
+  const isCutPlan = phase === 'cutting' || planPrefs?.training_goal === 'cut';
   let cardioPolicy: 'cut_every_day' | 'frequency_target' | 'unconfigured' = 'unconfigured';
   let targetDays = 0;
-  if (phase === 'cutting') {
+  if (isCutPlan) {
     cardioPolicy = 'cut_every_day';
     targetDays = trainingDays;
   } else if (planPrefs?.cardio_frequency_per_week != null && planPrefs.cardio_frequency_per_week > 0) {

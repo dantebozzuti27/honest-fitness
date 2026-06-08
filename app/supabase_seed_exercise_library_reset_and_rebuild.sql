@@ -47,6 +47,7 @@ values
 ('Barbell Zercher Squat', 'strength', 'legs', array['quads','glutes','core'], array['barbell','rack'], false, 'Barbell held in elbows; strong trunk demand.'),
 ('Smith Machine Squat', 'strength', 'legs', array['quads','glutes'], array['smith_machine'], false, 'Squat using a fixed-path bar.'),
 ('Hack Squat Machine', 'strength', 'legs', array['quads','glutes'], array['machine'], false, 'Machine hack squat emphasizing quads.'),
+('Pendulum Squat', 'strength', 'legs', array['quads','glutes'], array['machine'], false, 'Back-supported arcing machine squat; constant tension and deep loaded stretch for high quad stimulus with minimal spinal load.'),
 ('Leg Press', 'strength', 'legs', array['quads','glutes','hamstrings'], array['machine'], false, 'Press sled with feet; heavy lower-body compound.'),
 ('Goblet Squat', 'strength', 'legs', array['quads','glutes','core'], array['dumbbell','kettlebell'], false, 'Squat holding weight at chest.'),
 ('Dumbbell Front Squat', 'strength', 'legs', array['quads','glutes','core'], array['dumbbell'], false, 'Front-loaded squat with dumbbells.'),

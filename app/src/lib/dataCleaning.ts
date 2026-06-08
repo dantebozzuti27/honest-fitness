@@ -271,6 +271,7 @@ function normalizeExerciseName(name: string) {
     'side raises': 'Dumbbell Lateral Raise', 'lateral raises': 'Dumbbell Lateral Raise',
     'dumbbell lateral raises': 'Dumbbell Lateral Raise',
     'hack squat': 'Hack Squat Machine', 'hack squats': 'Hack Squat Machine',
+    'pendulum squat': 'Pendulum Squat', 'pendulum squats': 'Pendulum Squat',
     'dumbell rdl': 'Dumbbell Romanian Deadlift', 'dumbbell rdl': 'Dumbbell Romanian Deadlift',
     'db rdl': 'Dumbbell Romanian Deadlift',
     'rdl': 'Romanian Deadlift', 'romanian deadlift': 'Romanian Deadlift',

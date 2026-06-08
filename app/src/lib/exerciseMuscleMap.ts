@@ -105,6 +105,14 @@ export const EXERCISE_MUSCLE_MAP: Record<string, ExerciseMapping> = {
     default_tempo: '2-1-1',
     functional_description: 'Back-supported quad-dominant squat. Narrow stance emphasizes vastus medialis; wide stance shifts to adductors.',
   },
+  'Pendulum Squat': {
+    primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'vastus_intermedius'],
+    secondary_muscles: ['gluteus_maximus', 'adductors'],
+    stabilizer_muscles: [],
+    movement_pattern: 'squat', exercise_type: 'compound', force_type: 'push', difficulty: 'beginner',
+    default_tempo: '3-1-1',
+    functional_description: 'Back-supported arcing squat that keeps near-constant tension and loads deep knee flexion under stretch — high quad stimulus with minimal spinal load. Controlled eccentric emphasizes the lengthened position; deep range recruits adductors and glutes.',
+  },
   'Leg Press': {
     primary_muscles: ['rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'vastus_intermedius', 'gluteus_maximus'],
     secondary_muscles: ['biceps_femoris', 'adductors'],

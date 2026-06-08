@@ -95,6 +95,77 @@ export function computeRecoveryModifier(ctx: RecoveryContext): number {
 }
 
 /**
+ * De-correlated combination of readiness/recovery volume penalties.
+ *
+ * WHY THIS EXISTS
+ *   Sleep duration, cumulative sleep debt, HRV, RHR, and their 30-day trends
+ *   are NOT independent variables — they are noisy measurements of one latent
+ *   state (autonomic recovery / systemic fatigue). A poor night simultaneously
+ *   shortens sleep, depresses HRV, and elevates RHR. The ML sleep/HRV modifiers
+ *   are re-derived from the same signals again.
+ *
+ *   Multiplying them as if independent (∏ mᵢ) therefore double- and triple-
+ *   counts a single physiological event. Five mild −10%…−15% signals collapse
+ *   to a ~50–65% volume cut, which is both unjustified by the evidence and
+ *   demotivating. Conversely, a single severe signal should still cut hard.
+ *
+ * MODEL
+ *   Convert each multiplier m (<1) to a penalty p = 1 − m. Rank penalties
+ *   descending and sum them with a geometric decay on the *correlated*
+ *   information each successive signal adds:
+ *
+ *       penalty = p₁ + d·p₂ + d²·p₃ + …            (0 ≤ d ≤ 1)
+ *
+ *   - d = 0  → only the dominant signal counts (signals perfectly correlated).
+ *   - d = 1  → additive, treats signals as fully independent.
+ *   - d ≈ 0.5 (default) → the worst signal counts fully; each additional
+ *     correlated signal contributes with diminishing weight.
+ *
+ *   The total is capped at `maxPenalty` so readiness alone can never floor
+ *   volume, and the result is clamped to [0, 1].
+ *
+ * KEY PROPERTY
+ *   With a single active signal the output is identical to the old behaviour
+ *   (1 − p₁ = m₁). The change is surgical: it only attenuates the compounding
+ *   of multiple correlated signals, never the single-signal case.
+ *
+ * Multipliers ≥ 1 (boosts) are ignored here — readiness penalties and
+ * performance boosts are combined separately by the caller.
+ */
+export function combineCorrelatedPenalties(
+  multipliers: number[],
+  opts: { correlationDecay?: number; maxPenalty?: number } = {},
+): number {
+  const decay = clampUnit(opts.correlationDecay ?? 0.5);
+  const maxPenalty = clampUnit(opts.maxPenalty ?? 0.45);
+
+  const penalties = multipliers
+    .map(m => 1 - m)
+    .filter(p => p > 1e-9) // reductions only
+    .sort((a, b) => b - a); // dominant signal first
+
+  if (penalties.length === 0) return 1;
+
+  let total = 0;
+  let weight = 1;
+  for (const p of penalties) {
+    total += weight * p;
+    weight *= decay;
+  }
+
+  // The cap bounds penalty added by *correlation stacking*, so it can never
+  // clip the dominant signal below itself: a single legitimately severe signal
+  // must pass through unchanged (the absolute volume floor bounds it later).
+  const cap = Math.max(penalties[0], maxPenalty);
+  return 1 - Math.min(total, cap);
+}
+
+function clampUnit(x: number): number {
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(1, x));
+}
+
+/**
  * Computes synergist fatigue penalty for a given muscle group based on
  * what other muscle groups were recently trained.
  *

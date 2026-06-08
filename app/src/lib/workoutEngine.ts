@@ -82,7 +82,7 @@ import {
 import { normalizeEquipment } from '../utils/formatUtils';
 import { logWarn } from '../utils/logger';
 import { getRepRangeByRole, humanizeRepTarget, resolveDayOccurrenceIndex, resolveTargetRepsForRole } from './repRangePolicy';
-import { projectMuscleRecoveryForward } from './recoveryModel';
+import { combineCorrelatedPenalties, projectMuscleRecoveryForward } from './recoveryModel';
 import {
   exerciseFamilyKey,
   familyDiversityBonus,
@@ -1620,7 +1620,12 @@ function computeFatLossController(profile: TrainingProfile, prefs: UserPreferenc
 
 function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): RecoveryAdjustment {
   const reasons: string[] = [];
-  let volumeMultiplier = 1.0;
+  // Correlated readiness/recovery penalties (sleep, sleep-debt, HRV, RHR,
+  // NEAT, their 30d trends, frequency spike, ML sleep/HRV modifiers) are
+  // collected here and combined once via combineCorrelatedPenalties() rather
+  // than multiplied as independent factors. They are noisy proxies of one
+  // latent recovery state, so naive ∏ mᵢ double-counts a single bad day.
+  const readinessMultipliers: number[] = [];
 
   if (profile.deloadRecommendation.needed) {
     return {
@@ -1637,7 +1642,7 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
     const sleepRatio = recoveryContext.sleepDurationLastNight / recoveryContext.sleepBaseline30d;
     if (sleepRatio < cfg.sleepReductionThreshold) {
       const reduction = Math.min(Math.round((1 - sleepRatio) * 100 * (cfg.sleepMaxReduction / 0.30)), Math.round(cfg.sleepMaxReduction * 100));
-      volumeMultiplier *= 1 - reduction / 100;
+      readinessMultipliers.push(1 - reduction / 100);
       reasons.push(`Sleep ${Math.round((1 - sleepRatio) * 100)}% below baseline → volume −${reduction}%`);
     }
   }
@@ -1645,7 +1650,7 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
   // Cumulative sleep debt: amplifies the single-night signal
   if (profile.cumulativeSleepDebt.recoveryModifier < 1.0) {
     const debtPct = Math.round((1 - profile.cumulativeSleepDebt.recoveryModifier) * 100);
-    volumeMultiplier *= profile.cumulativeSleepDebt.recoveryModifier;
+    readinessMultipliers.push(profile.cumulativeSleepDebt.recoveryModifier);
     reasons.push(`Cumulative sleep debt (7d): recovery capacity −${debtPct}%`);
   }
 
@@ -1653,7 +1658,7 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
   if (recoveryContext.hrvLastNight != null && recoveryContext.hrvBaseline30d != null) {
     const hrvRatio = recoveryContext.hrvLastNight / recoveryContext.hrvBaseline30d;
     if (hrvRatio < cfg.hrvReductionThreshold) {
-      volumeMultiplier *= cfg.hrvVolumeMultiplier;
+      readinessMultipliers.push(cfg.hrvVolumeMultiplier);
       const cut = Math.round((1 - cfg.hrvVolumeMultiplier) * 100);
       reasons.push(`HRV ${Math.round((1 - hrvRatio) * 100)}% below baseline → volume −${cut}%`);
     }
@@ -1663,7 +1668,7 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
   if (recoveryContext.rhrLastNight != null && recoveryContext.rhrBaseline30d != null) {
     const rhrRatio = recoveryContext.rhrLastNight / recoveryContext.rhrBaseline30d;
     if (rhrRatio > cfg.rhrElevationThreshold) {
-      volumeMultiplier *= cfg.rhrVolumeMultiplier;
+      readinessMultipliers.push(cfg.rhrVolumeMultiplier);
       const cut = Math.round((1 - cfg.rhrVolumeMultiplier) * 100);
       reasons.push(`RHR ${Math.round((rhrRatio - 1) * 100)}% above baseline → volume −${cut}%`);
     }
@@ -1672,7 +1677,7 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
   // Steps/NEAT: if strong negative correlation exists and yesterday was high-step, reduce
   const stepsCorr = profile.stepsPerformanceCorrelation;
   if (stepsCorr && stepsCorr.dataPoints >= cfg.stepsMinDataPoints && stepsCorr.coefficient < cfg.stepsCorrelationThreshold) {
-    volumeMultiplier *= (1 - cfg.stepsVolumeReduction);
+    readinessMultipliers.push(1 - cfg.stepsVolumeReduction);
     reasons.push(`High NEAT load (steps correlation: ${stepsCorr.coefficient.toFixed(2)}) → volume −${Math.round(cfg.stepsVolumeReduction * 100)}%`);
   }
 
@@ -1700,22 +1705,22 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
   const trends = profile.rolling30DayTrends;
 
   if (trends.sleep.dataPoints >= cfg.trendMinDataPoints && trends.sleep.slopePct < cfg.sleepTrendDownThreshold) {
-    volumeMultiplier *= (1 - cfg.sleepTrendVolumeReduction);
+    readinessMultipliers.push(1 - cfg.sleepTrendVolumeReduction);
     reasons.push(`Sleep trending down ${Math.abs(trends.sleep.slopePct).toFixed(1)}%/wk over 30d → proactive volume −${Math.round(cfg.sleepTrendVolumeReduction * 100)}%`);
   }
 
   if (trends.hrv.dataPoints >= cfg.trendMinDataPoints && trends.hrv.slopePct < cfg.hrvTrendDownThreshold) {
-    volumeMultiplier *= (1 - cfg.hrvTrendVolumeReduction);
+    readinessMultipliers.push(1 - cfg.hrvTrendVolumeReduction);
     reasons.push(`HRV trending down ${Math.abs(trends.hrv.slopePct).toFixed(1)}%/wk over 30d → proactive volume −${Math.round(cfg.hrvTrendVolumeReduction * 100)}%`);
   }
 
   if (trends.rhr.dataPoints >= cfg.trendMinDataPoints && trends.rhr.slopePct > cfg.rhrTrendUpThreshold) {
-    volumeMultiplier *= (1 - cfg.rhrTrendVolumeReduction);
+    readinessMultipliers.push(1 - cfg.rhrTrendVolumeReduction);
     reasons.push(`RHR trending up ${trends.rhr.slopePct.toFixed(1)}%/wk over 30d → proactive volume −${Math.round(cfg.rhrTrendVolumeReduction * 100)}%`);
   }
 
   if (trends.trainingFrequency.dataPoints >= 4 && trends.trainingFrequency.slopePct > cfg.frequencyTrendUpThreshold) {
-    volumeMultiplier *= (1 - cfg.frequencyTrendVolumeReduction);
+    readinessMultipliers.push(1 - cfg.frequencyTrendVolumeReduction);
     reasons.push(`Training frequency spiking ${trends.trainingFrequency.slopePct.toFixed(1)}%/wk → reducing per-session volume −${Math.round(cfg.frequencyTrendVolumeReduction * 100)}%`);
   }
 
@@ -1730,22 +1735,51 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
     reasons.push(`Relative strength improving ${trends.relativeStrength.slopePct.toFixed(1)}%/wk — effective progression`);
   }
 
-  // #8: Sleep → Volume Adjustment (ML-computed modifier)
+  // Readiness boosts (great sleep / high HRV) are genuine positive signals and
+  // are applied multiplicatively; only the *penalties* are de-correlated.
+  let readinessBoost = 1.0;
+
+  // #8: Sleep → Volume Adjustment (ML-computed modifier).
+  // Re-derived from the same sleep signal as the rule-based penalty above, so
+  // a reduction joins the correlated cluster rather than multiplying independently.
   if (profile.sleepVolumeModifier) {
     const svm = profile.sleepVolumeModifier;
-    if (svm.volumeMultiplier !== 1.0) {
-      volumeMultiplier *= svm.volumeMultiplier;
+    if (svm.volumeMultiplier < 1.0) {
+      readinessMultipliers.push(svm.volumeMultiplier);
+      reasons.push(`Sleep quality (${svm.lastNightSleepQuality}): volume ×${svm.volumeMultiplier.toFixed(2)}, rest ×${svm.restTimeMultiplier.toFixed(2)}`);
+    } else if (svm.volumeMultiplier > 1.0) {
+      readinessBoost *= svm.volumeMultiplier;
       reasons.push(`Sleep quality (${svm.lastNightSleepQuality}): volume ×${svm.volumeMultiplier.toFixed(2)}, rest ×${svm.restTimeMultiplier.toFixed(2)}`);
     }
   }
 
-  // #3: HRV-Gated Intensity (ML-computed modifier)
+  // #3: HRV-Gated Intensity (ML-computed modifier). Same latent signal as the
+  // rule-based HRV penalty; combine penalties, don't compound.
   if (profile.hrvIntensityModifier) {
     const hrvm = profile.hrvIntensityModifier;
-    if (hrvm.intensityMultiplier !== 1.0) {
-      volumeMultiplier *= hrvm.intensityMultiplier;
+    if (hrvm.intensityMultiplier < 1.0) {
+      readinessMultipliers.push(hrvm.intensityMultiplier);
+      reasons.push(`HRV intensity gate: ${hrvm.recommendation} (×${hrvm.intensityMultiplier})`);
+    } else if (hrvm.intensityMultiplier > 1.0) {
+      readinessBoost *= hrvm.intensityMultiplier;
       reasons.push(`HRV intensity gate: ${hrvm.recommendation} (×${hrvm.intensityMultiplier})`);
     }
+  }
+
+  // Combine all correlated readiness penalties into one bounded multiplier,
+  // then apply any genuine boost. Single-signal days reproduce the old
+  // behaviour exactly; only the double-counting of multiple correlated
+  // penalties is attenuated.
+  const combinedPenaltyMultiplier = combineCorrelatedPenalties(readinessMultipliers, {
+    correlationDecay: cfg.readinessCorrelationDecay,
+    maxPenalty: cfg.readinessMaxCombinedPenalty,
+  });
+  const volumeMultiplier = combinedPenaltyMultiplier * readinessBoost;
+  if (readinessMultipliers.length >= 2) {
+    const naive = readinessMultipliers.reduce((a, b) => a * b, 1);
+    reasons.push(
+      `Readiness signals de-correlated (${readinessMultipliers.length} proxies of one recovery state) → net volume ×${combinedPenaltyMultiplier.toFixed(2)} (vs ×${naive.toFixed(2)} if compounded)`,
+    );
   }
 
   return { volumeMultiplier: Math.max(cfg.volumeMultiplierFloor, volumeMultiplier), adjustmentReasons: reasons, isDeload: false };

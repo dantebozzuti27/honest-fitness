@@ -23,6 +23,7 @@ import {
   type ExerciseRole,
   type GoalKind,
   getGuidelineForGroup,
+  mesocycleVolumeTarget,
   normalizeMuscleGroupList,
   normalizeMuscleGroupName,
   PRIMARY_MUSCLE_GROUPS,
@@ -553,7 +554,7 @@ function getTieredSets(
   goal: string,
   isPriorityMuscle: boolean,
   isDeload: boolean,
-  mesocycleVolumeMult?: number,
+  mesocycle?: { week: number; accumulationWeeks?: number },
   cfg: ModelConfig = DEFAULT_MODEL_CONFIG,
 ): number {
   let sets = cfg.roleBaseSets[role] ?? 3;
@@ -563,18 +564,30 @@ function getTieredSets(
 
   if (isPriorityMuscle && role !== 'corrective') sets += 1;
 
-  if (mesocycleVolumeMult && !isDeload) {
-    // Use `ceil` for overreach (>1.0) and `floor` for accumulation (<1.0)
-    // so the multiplier ACTUALLY moves the prescribed sets. `Math.round`
-    // on base 3 sets with ×1.1 = 3.3 → 3 (no change), and ×0.9 = 2.7 →
-    // 3 (no change). Periodization that doesn't periodize was the main
-    // reason users reported "the Apollo phases don't change anything."
-    if (mesocycleVolumeMult > 1.0) {
-      sets = Math.ceil(sets * mesocycleVolumeMult);
-    } else if (mesocycleVolumeMult < 1.0) {
-      sets = Math.floor(sets * mesocycleVolumeMult);
+  // Mesocycle volume periodization — ADDITIVE, not multiplicative.
+  //
+  // Integer per-exercise set counts (a 2–8 range) cannot resolve sub-set
+  // multipliers: ×1.1 on 4 sets = 4.4 → rounds back to 4, so the old phase
+  // multipliers literally did nothing on most exercises. The evidence-based
+  // way to progress volume is to ADD whole sets across the accumulation block
+  // ("+1 set per week", Israetel/RP) and then take a genuine deload trough.
+  if (mesocycle && !isDeload) {
+    const accum = Math.max(1, Math.floor(mesocycle.accumulationWeeks ?? 3));
+    const week = Math.round(mesocycle.week);
+    if (week > accum) {
+      // Planned deload week: a real volume trough (~40% cut), regardless of
+      // the autoregulated readiness signal. The 4th week of the wave is a
+      // deload BY DESIGN — fatigue must be dissipated before the next block.
+      sets = Math.max(cfg.setsAbsoluteMin, Math.round(sets * 0.6));
+    } else if (role === 'primary' || role === 'secondary') {
+      // +0 at the opener, +1 per subsequent accumulation week, capped at +2
+      // so a 3-week block ramps e.g. 6 → 7 → 8 sets on a priority compound.
+      sets += Math.min(2, Math.max(0, week - 1));
+    } else if (role === 'isolation') {
+      // Isolations carry less systemic fatigue but also less SFR headroom;
+      // progress them conservatively — one extra set only at the peak week.
+      sets += week >= accum ? 1 : 0;
     }
-    // mult === 1.0 → no-op (loading week)
   }
 
   if (isDeload) sets = Math.max(cfg.setsAbsoluteMin, Math.round(sets * cfg.deloadSetMultiplier));
@@ -2187,7 +2200,12 @@ function stepSelectMuscleGroups(
     const freshnessDays = vol.daysSinceLastTrained === Infinity ? 7 : vol.daysSinceLastTrained;
     const freshnessScore = Math.min(freshnessDays / (guideline.recoveryHours / 24), 2);
 
-    let weeklyTarget = (guideline.mavLow + guideline.mavHigh) / 2;
+    // Mesocycle volume periodization: the weekly set target ramps from
+    // MAV-low (week 1) toward MAV-high (peak accumulation) and drops to MEV on
+    // the deload week. This makes week-over-week progression a deterministic,
+    // landmark-anchored volume wave (Israetel/RP; Schoenfeld 2017) rather than
+    // a static midpoint. Autoregulation is layered on downstream.
+    let weeklyTarget = mesocycleVolumeTarget(guideline, prefs.mesocycle_week ?? 1);
 
     // Proportional deficit priority: when a body assessment exists, scale volume
     // targets based on how far the muscle group is from its ideal proportions.
@@ -3655,7 +3673,7 @@ function stepPrescribe(
   fatLossController?: FatLossControllerAdjustment,
   highCapacityPush?: HighCapacityPushAdjustment,
   dayOccurrenceIndex?: number,
-  mesocycleVolumeMult?: number,
+  mesocycle?: { week: number; accumulationWeeks?: number },
   mesocycleRirOffset?: number,
   monthlyFocusCtx: MonthlyFocusDayContext | null = null,
   capacityIndex?: Map<string, ExerciseCapacityV1>,
@@ -3965,7 +3983,7 @@ function stepPrescribe(
 
     // Sets: same fix. Use learned as a floor (don't drop sets below user's
     // demonstrated tolerance), but never below the table's role-based base.
-    const tableSets = getTieredSets(role, goal, isPriority, recoveryAdj.isDeload, mesocycleVolumeMult);
+    const tableSets = getTieredSets(role, goal, isPriority, recoveryAdj.isDeload, mesocycle);
     const learnedSetsRounded = hasLearnedData && pref.learnedSets != null
       ? Math.round(pref.learnedSets)
       : null;
@@ -4090,10 +4108,6 @@ function stepPrescribe(
     // last-set RIR. The earlier sets will naturally have more reps in reserve
     // because you aren't fatigued yet — that's the point of the taper.
     let rir = lastSetRir;
-    let rirRangeStart = Math.min(4, displayRir + 2);
-    let rirRangeEnd = lastSetRir;
-    if (rirRangeStart < rirRangeEnd) rirRangeStart = rirRangeEnd;
-    const rirRange: [number, number] = [rirRangeStart, rirRangeEnd];
     const tempo = getTempo(sel.exercise.default_tempo, goal, sel.exercise.ml_exercise_type, dayOccurrenceIndex);
 
     // Weight determination: progression data > learned weight > lift ratios > null
@@ -4547,7 +4561,14 @@ function stepPrescribe(
         : (targetWeight ? clampHotelModeWeight(snapToPlate(targetWeight, equipment, exType), equipment) : null),
       targetRir: rir,
       rirLabel: getRirLabel(rir),
-      rirRange: sets >= 2 ? rirRange : null,
+      // Per-set RIR taper for display, derived from the FINAL last-set RIR so
+      // the band always brackets targetRir even after plateau-driven RIR
+      // adjustments. Convention: [startRir, endRir] descending (set 1 has the
+      // most reps-in-reserve, the last set is hardest). end === targetRir, and
+      // start >= end is guaranteed.
+      rirRange: sets >= 2
+        ? ([Math.max(rir, Math.min(4, displayRir + 2)), rir] as [number, number])
+        : null,
       isBodyweight,
       tempo,
       restSeconds,
@@ -6889,7 +6910,7 @@ export async function generateWorkout(
     effectiveFatLossController,
     highCapacityPush,
     dayOccurrenceIndex,
-    mesocycleConfig.volumeMult,
+    { week: mesocycleWeek, accumulationWeeks: 3 },
     (mesocycleConfig.rirOffset ?? 0) + goalTimelineRirShift,
     monthlyFocusCtx.muscles.length ? monthlyFocusCtx : null,
     capacityIndex,

@@ -45,7 +45,11 @@ function assertPrescriptionValid(w: GeneratedWorkout) {
     }
 
     if (ex.rirRange && ex.targetRir != null) {
-      const [lo, hi] = ex.rirRange;
+      // rirRange is a DESCENDING per-set taper [startRir, endRir] (set 1 has the
+      // most reps-in-reserve, the last set is hardest), so sort before bounds-
+      // checking. targetRir must fall within the bracket on every date.
+      const lo = Math.min(ex.rirRange[0], ex.rirRange[1]);
+      const hi = Math.max(ex.rirRange[0], ex.rirRange[1]);
       assert.ok(
         ex.targetRir >= lo && ex.targetRir <= hi,
         `${ex.exerciseName}: targetRir ${ex.targetRir} inside band [${lo}, ${hi}]`,

@@ -207,9 +207,15 @@ export function buildProfile(prefs: UserPreferences): ReturnType<typeof computeT
   return computeTrainingProfileFromData('user_test', data);
 }
 
-/** A deterministic future Monday for planning. */
-export const PLANNING_DATE = (() => {
-  const d = new Date();
-  d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7));
-  return d.toISOString().slice(0, 10);
-})();
+/**
+ * A FIXED Monday anchor for planning.
+ *
+ * Previously this was computed relative to `new Date()` ("next Monday"). That
+ * kept the weekday stable (always Monday) but let the day-of-MONTH drift every
+ * day the suite ran — and the engine keys its monthly-focus periodization off
+ * the day-of-month (`focusWeekIndexForLog` = ceil(date/7)). The result was a
+ * non-hermetic suite whose selection/prescription invariants flaked by the
+ * real calendar date. Pinning to an absolute Monday makes the engine's date
+ * inputs fully deterministic. 2026-06-08 is a Monday (focus week 2).
+ */
+export const PLANNING_DATE = '2026-06-08';

@@ -490,6 +490,76 @@ export function getGuidelineForGroup(muscleGroup: CanonicalMuscleGroup): VolumeG
   return VOLUME_GUIDELINES.find(g => g.muscleGroup === muscleGroup);
 }
 
+/**
+ * Mesocycle volume periodization — the per-muscle weekly set target as a
+ * function of position within an accumulation→deload wave.
+ *
+ * RATIONALE (why this is not "random"):
+ *   Hypertrophy is volume-driven, but recoverable volume is bounded (MRV).
+ *   The evidence-based pattern is to OPEN a block at a low, sustainable dose
+ *   and ADD sets each week, progressing toward — but staying below — MRV so
+ *   fatigue accrues productively, then DELOAD to dissipate it before the next
+ *   block. This is the defining feature of progressive overload by *volume*,
+ *   which Schoenfeld (2017) shows is the strongest single hypertrophy lever.
+ *
+ *   Sources:
+ *     Israetel, Hoffmann & Smith — "Scientific Principles of Hypertrophy
+ *       Training" (Renaissance Periodization, 2021): MEV→MRV weekly set
+ *       progression and the mandatory deload.
+ *     Helms, Morgan & Valdez — The Muscle & Strength Pyramids (2nd ed.):
+ *       block periodization and fatigue management.
+ *     Schoenfeld et al. (2017) — dose-response of weekly set volume.
+ *
+ * MODEL:
+ *   - Accumulation weeks 1..A ramp LINEARLY from MAV-low to MAV-high. We open
+ *     at MAV-low (not MEV) because this app serves continuing trainees, not
+ *     detrained beginners; MAV-low is the lowest dose still in the productive
+ *     band, leaving headroom to add ~30–60% volume by the peak week.
+ *   - The deload week (the week after the last accumulation week) drops to
+ *     MEV — the minimum that still defends accumulated muscle while letting
+ *     recovery catch up.
+ *   - Hard-bounded by [0, MRV]. Autoregulation (readiness/fatigue) is applied
+ *     downstream; this function is the deterministic *plan*.
+ *
+ * @param guideline        per-muscle volume landmarks
+ * @param mesocycleWeek    1-based position in the wave (1..A = accumulation,
+ *                         A+1 = deload). Values are clamped into range.
+ * @param accumulationWeeks number of accumulation weeks before the deload
+ *                          (default 3 → a 4-week wave, matching the engine's
+ *                          accumulation/loading/overreach/deload phases).
+ * @returns weekly direct-set target for this muscle (rounded, bounded).
+ */
+export function mesocycleVolumeTarget(
+  guideline: VolumeGuideline,
+  mesocycleWeek: number,
+  accumulationWeeks: number = 3,
+): number {
+  const { mev, mavLow, mavHigh, mrv } = guideline;
+  // Muscles that need no direct work at any point (e.g. anterior deltoid,
+  // which is saturated by compound pressing) keep a zero floor.
+  if (mavHigh <= 0) return 0;
+
+  const lastAccum = Math.max(1, Math.floor(accumulationWeeks));
+  const week = Number.isFinite(mesocycleWeek) ? Math.round(mesocycleWeek) : 1;
+
+  // Deload: the week after the final accumulation week (and any overflow).
+  if (week > lastAccum) {
+    return Math.round(Math.min(mev, mrv));
+  }
+
+  // Single-week block degenerates to the productive ceiling.
+  if (lastAccum === 1) {
+    return Math.round(Math.min(mavHigh, mrv));
+  }
+
+  const clampedWeek = week < 1 ? 1 : week;
+  const t = (clampedWeek - 1) / (lastAccum - 1); // 0 at week 1 → 1 at peak
+  const raw = mavLow + (mavHigh - mavLow) * t;
+  const floor = Math.min(mavLow, mavHigh);
+  const ceil = Math.min(mavHigh, mrv);
+  return Math.round(Math.max(floor, Math.min(raw, ceil)));
+}
+
 export const PRIMARY_MUSCLE_GROUPS: CanonicalMuscleGroup[] = VOLUME_GUIDELINES
   .filter(g => g.tier === 'primary')
   .map(g => g.muscleGroup);

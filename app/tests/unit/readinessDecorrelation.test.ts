@@ -77,6 +77,16 @@ test('combineCorrelatedPenalties: a severe single signal is never clipped by the
   assert.ok(approx(combineCorrelatedPenalties([0.5]), 0.5))
 })
 
+test('psych readiness folds in without double-taxing a low-mood day', () => {
+  // A stressful day depresses HRV (×0.85) AND psych readiness (×0.85). These
+  // co-move, so they must not compound to 0.7225 — the de-correlated cut keeps
+  // the dominant signal and decays the correlated one: 1-(0.15+0.5*0.15)=0.775.
+  const naive = 0.85 * 0.85
+  const folded = combineCorrelatedPenalties([0.85, 0.85])
+  assert.ok(approx(folded, 0.775), `expected 0.775, got ${folded}`)
+  assert.ok(folded > naive, `folded ${folded} should be gentler than compounded ${naive}`)
+})
+
 test('combineCorrelatedPenalties: realistic mild-signal day is not punitive', () => {
   // The original bug: a single poor night that also dipped HRV, bumped RHR,
   // and tripped the ML sleep + HRV modifiers compounded to a >50% cut.

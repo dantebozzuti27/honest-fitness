@@ -37,6 +37,14 @@ export interface ModelConfig {
   readinessCorrelationDecay: number;
   /** Cap on total volume penalty attributable to readiness signals (0.45 = at most −45%). */
   readinessMaxCombinedPenalty: number;
+  /** Psych readiness score (0-100) below which volume is reduced. */
+  psychReadinessLowThreshold: number;
+  /** Volume multiplier applied when psych readiness is below the low threshold. */
+  psychReadinessLowVolumeMultiplier: number;
+  /** Psych readiness score (0-100) at/above which a volume boost is applied. */
+  psychReadinessHighThreshold: number;
+  /** Volume multiplier applied when psych readiness is at/above the high threshold. */
+  psychReadinessHighVolumeMultiplier: number;
 
   // ── Deload ───────────────────────────────────────────────────────────
   /** Deload volume multiplier (fraction of normal) */
@@ -570,10 +578,10 @@ export interface ModelConfig {
 // When in doubt: bump. The downside of a spurious bump is zero; the
 // downside of a missed bump is "we shipped a behaviour change but every
 // saved plan still claims to be the old version."
-export const MODEL_CONFIG_VERSION = '2026-06-08.1';
+export const MODEL_CONFIG_VERSION = '2026-06-08.2';
 /** Bump when rep-range / prescription policy logic changes (invalidates cached week plans). */
 export const PRESCRIPTION_POLICY_VERSION = '2026-05-28.5';
-export const WORKOUT_ENGINE_VERSION = '2026-06-08.1';
+export const WORKOUT_ENGINE_VERSION = '2026-06-08.2';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery
@@ -588,6 +596,10 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   sleepDebtWeight: 0.05,
   readinessCorrelationDecay: 0.5,
   readinessMaxCombinedPenalty: 0.45,
+  psychReadinessLowThreshold: 35,
+  psychReadinessLowVolumeMultiplier: 0.85,
+  psychReadinessHighThreshold: 80,
+  psychReadinessHighVolumeMultiplier: 1.05,
 
   // Deload
   deloadVolumeMultiplier: 0.65,

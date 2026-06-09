@@ -1766,6 +1766,21 @@ function stepRecoveryCheck(profile: TrainingProfile, cfg: ModelConfig): Recovery
     }
   }
 
+  // Psychological readiness is part of the same readiness construct as the
+  // biometric signals (stress, mood, and motivation co-move with autonomic
+  // recovery). Folding it into the de-correlated cluster — rather than
+  // compounding it on top downstream — stops a low-mood day from being taxed
+  // twice once via HRV/sleep and again via the psych score. A genuine high
+  // score remains a real, independent boost.
+  const psychScore = profile.psychReadiness?.score ?? 50;
+  if (psychScore < cfg.psychReadinessLowThreshold) {
+    readinessMultipliers.push(cfg.psychReadinessLowVolumeMultiplier);
+    reasons.push(`Psych readiness low (${psychScore}%): volume ×${cfg.psychReadinessLowVolumeMultiplier} — consistency > intensity today`);
+  } else if (psychScore >= cfg.psychReadinessHighThreshold) {
+    readinessBoost *= cfg.psychReadinessHighVolumeMultiplier;
+    reasons.push(`Psych readiness high (${psychScore}%): volume ×${cfg.psychReadinessHighVolumeMultiplier} — push harder today`);
+  }
+
   // Combine all correlated readiness penalties into one bounded multiplier,
   // then apply any genuine boost. Single-signal days reproduce the old
   // behaviour exactly; only the double-counting of multiple correlated
@@ -6689,17 +6704,9 @@ export async function generateWorkout(
     recoveryAdj.adjustmentReasons.push(`Return from break: volume ×${breakRampMultiplier.toFixed(2)} (ramp-back protocol)`);
   }
 
-  // Psychological readiness volume modulation
-  const psychScore = profile.psychReadiness?.score ?? 50;
-  if (psychScore < 35) {
-    const psychMult = 0.85;
-    recoveryAdj.volumeMultiplier *= psychMult;
-    recoveryAdj.adjustmentReasons.push(`Psych readiness low (${psychScore}%): volume ×${psychMult} — consistency > intensity today`);
-  } else if (psychScore >= 80) {
-    const psychMult = 1.05;
-    recoveryAdj.volumeMultiplier *= psychMult;
-    recoveryAdj.adjustmentReasons.push(`Psych readiness high (${psychScore}%): volume ×${psychMult} — push harder today`);
-  }
+  // Psychological readiness volume modulation is now folded into the
+  // de-correlated readiness cluster inside stepRecoveryCheck (it is a recovery
+  // proxy, not an independent multiplier), so it is no longer applied here.
 
   // #15: Caloric-phase MRV scaling — cut reduces tolerance, bulk increases
   const weightPhase = profile.bodyWeightTrend.phase;

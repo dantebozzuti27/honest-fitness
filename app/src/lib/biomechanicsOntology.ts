@@ -168,10 +168,13 @@ function clamp(n: number, lo: number, hi: number): number {
 type CardioModality = 'walk' | 'run' | 'stair' | 'bike' | 'row' | 'elliptical' | 'other';
 
 function classifyCardioModality(nameLC: string): CardioModality {
-  if (/stairmaster|stair master|stepmill/.test(nameLC)) return 'stair';
-  if (/bike|cycle/.test(nameLC)) return 'bike';
+  // `stair` covers stairmaster / stair master / stair climber / stairclimber / stairs;
+  // `step ?mill` + `stepper` catch the remaining vertical-stepping machines. Checked
+  // first because these dominate frontal-plane + plantarflexion hip/calf load.
+  if (/stair|stepmill|step ?mill|stepper/.test(nameLC)) return 'stair';
+  if (/bike|cycle|spin/.test(nameLC)) return 'bike';
   if (/row/.test(nameLC)) return 'row';
-  if (/elliptical/.test(nameLC)) return 'elliptical';
+  if (/elliptical|cross ?trainer/.test(nameLC)) return 'elliptical';
   if (/run|jog|sprint/.test(nameLC)) return 'run';
   if (/walk|treadmill|incline|hike|ruck/.test(nameLC)) return 'walk';
   return 'other';

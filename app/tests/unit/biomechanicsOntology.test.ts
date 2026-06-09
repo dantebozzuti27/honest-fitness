@@ -180,6 +180,24 @@ test('computeCouplingSignalsFromOntology: movement_pattern_overlap on shared pat
   assert.ok(Math.abs((signals.triceps?.priorityDelta ?? 0) - expectedDelta) < 0.001)
 })
 
+test('buildCardioMechanicalLoadSignal: stair-machine variants accrue stair load (regression)', () => {
+  // Previously only "stairmaster"/"stepmill" matched; "Stair Climber" and "Step Mill"
+  // silently fell through to 'other' and contributed zero frontal/plantarflexion load.
+  for (const name of ['Stair Climber', 'Stairclimber', 'Step Mill', 'Stepper Machine']) {
+    const signal = buildCardioMechanicalLoadSignal({
+      cardioHistory: [{ exerciseName: name, avgDurationSeconds: 1800, recentSessions: 4 }],
+    } as any)
+    assert.ok(
+      signal.frontal_plane_stability_load > 0,
+      `${name} should produce frontal-plane load > 0`,
+    )
+    assert.ok(
+      (signal.plantarflexion_load ?? 0) > 0,
+      `${name} should produce plantarflexion load > 0`,
+    )
+  }
+})
+
 test('cardioMechanicalLoadByGroup: run maps calves load', () => {
   const signal = buildCardioMechanicalLoadSignal({
     cardioHistory: [{

@@ -581,7 +581,7 @@ export interface ModelConfig {
 export const MODEL_CONFIG_VERSION = '2026-06-08.2';
 /** Bump when rep-range / prescription policy logic changes (invalidates cached week plans). */
 export const PRESCRIPTION_POLICY_VERSION = '2026-05-28.5';
-export const WORKOUT_ENGINE_VERSION = '2026-06-08.2';
+export const WORKOUT_ENGINE_VERSION = '2026-06-08.3';
 
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   // Recovery

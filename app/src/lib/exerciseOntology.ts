@@ -103,7 +103,7 @@ const FAMILY_RULES: FamilyRule[] = [
   { id: 'machine_chest_press', test: /\b(machine chest press|cable chest press|smith bench|smith press)\b/i, spec: { label: 'Machine/cable chest press', targetGroups: ['mid_chest', 'triceps', 'anterior_deltoid'], movementPatterns: ['horizontal_push'], variationAxis: 'machine' } },
   { id: 'horizontal_press', test: /\b(bench press|bench\b|floor press|push up|pushup|dip machine chest|dumbbell press)\b/i, spec: { label: 'Horizontal press', targetGroups: ['mid_chest', 'triceps', 'anterior_deltoid'], movementPatterns: ['horizontal_push'], variationAxis: 'implement' } },
   { id: 'chest_fly', test: /\b(fly|flies|pec deck|crossover)\b/i, spec: { label: 'Chest fly', targetGroups: ['mid_chest', 'upper_chest'], movementPatterns: ['horizontal_push'], variationAxis: 'implement' } },
-  { id: 'overhead_press', test: /\b(overhead|ohp|military|shoulder press|arnold|push press|landmine press|landmine)\b/i, spec: { label: 'Overhead press', targetGroups: ['anterior_deltoid', 'lateral_deltoid', 'triceps'], movementPatterns: ['vertical_push'], variationAxis: 'implement' } },
+  { id: 'overhead_press', test: /\b(overhead|ohp|military|shoulder press|arnold|push press|landmine press)\b/i, spec: { label: 'Overhead press', targetGroups: ['anterior_deltoid', 'lateral_deltoid', 'triceps'], movementPatterns: ['vertical_push'], variationAxis: 'implement' } },
 
   // ── Legs ──
   { id: 'squat_pattern', test: /\b(squats?|leg press|hack squat|goblet squat|zercher|front squat|thruster)\b/i, spec: { label: 'Squat pattern', targetGroups: ['quadriceps', 'glutes'], movementPatterns: ['squat'], variationAxis: 'implement' } },

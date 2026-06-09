@@ -19,7 +19,7 @@ import {
   type MovementPattern,
 } from './volumeGuidelines';
 
-export const ONTOLOGY_VERSION = '2026-05-28.4';
+export const ONTOLOGY_VERSION = '2026-06-08.1';
 
 export type BicepsHeadEmphasis = 'long_head' | 'short_head' | 'brachialis' | 'balanced';
 export type TricepsHeadEmphasis = 'long_head' | 'lateral_head' | 'overhead' | 'balanced';
@@ -54,16 +54,28 @@ type FamilyRule = {
   id: string;
   test: RegExp;
   spec: Omit<ExerciseFamilySpec, 'id'>;
+  /**
+   * Specificity rank. When several rules match a name, the highest priority
+   * wins (ties broken by authoring order via a stable sort). Defaults to 0.
+   * Use a positive value to promote a specific rule above a generic one whose
+   * pattern would otherwise shadow it regardless of position — e.g. `leg_curl`
+   * must beat the generic `biceps_curl` ("\bcurl\b") for "Lying Leg Curl".
+   */
+  priority?: number;
 };
 
-/** Ordered most-specific-first. First match wins. */
+/**
+ * Authored most-specific-first within each region. Final match priority is
+ * resolved by FAMILY_RULES_RANKED (priority desc, stable), not array order, so
+ * adding/reordering rules cannot silently shadow a more specific family.
+ */
 const FAMILY_RULES: FamilyRule[] = [
   // ── Biceps (head-specific before generic curl) ──
   { id: 'biceps_long_head', test: /\b(incline|bayesian|drag|overhead)\b.*\bcurl|\bcurl\b.*\b(incline|bayesian|drag)\b/i, spec: { label: 'Long-head curl', targetGroups: ['biceps'], movementPatterns: ['flexion'], headEmphasis: 'long_head', variationAxis: 'angle' } },
   { id: 'biceps_short_head', test: /\b(preacher|spider|concentration|machine preacher)\b.*\bcurl|\bcurl\b.*\b(preacher|spider)\b/i, spec: { label: 'Short-head curl', targetGroups: ['biceps'], movementPatterns: ['flexion'], headEmphasis: 'short_head', variationAxis: 'angle' } },
   { id: 'biceps_hammer', test: /\b(hammer|cross body|cross-body|rope hammer|neutral grip curl)\b/i, spec: { label: 'Hammer / brachialis curl', targetGroups: ['biceps', 'forearms'], movementPatterns: ['flexion'], headEmphasis: 'brachialis', variationAxis: 'grip' } },
   { id: 'biceps_reverse', test: /\breverse\b.*\bcurl|\bcurl\b.*\breverse\b/i, spec: { label: 'Reverse curl', targetGroups: ['biceps', 'forearms'], movementPatterns: ['flexion'], headEmphasis: 'brachialis', variationAxis: 'grip' } },
-  { id: 'forearm_wrist', test: /\bwrist curl\b/i, spec: { label: 'Wrist curl', targetGroups: ['forearms'], movementPatterns: ['flexion'], variationAxis: 'implement' } },
+  { id: 'forearm_wrist', test: /\bwrist curl\b/i, priority: 1, spec: { label: 'Wrist curl', targetGroups: ['forearms'], movementPatterns: ['flexion'], variationAxis: 'implement' } },
   { id: 'biceps_curl', test: /\b(curl|bicep|biceps)\b/i, spec: { label: 'Biceps curl', targetGroups: ['biceps'], movementPatterns: ['flexion'], headEmphasis: 'balanced', variationAxis: 'implement' } },
 
   // ── Triceps (head / angle specific before generic) ──
@@ -96,7 +108,7 @@ const FAMILY_RULES: FamilyRule[] = [
   // ── Legs ──
   { id: 'squat_pattern', test: /\b(squats?|leg press|hack squat|goblet squat|zercher|front squat|thruster)\b/i, spec: { label: 'Squat pattern', targetGroups: ['quadriceps', 'glutes'], movementPatterns: ['squat'], variationAxis: 'implement' } },
   { id: 'lunge_pattern', test: /\b(lunges?|split squat|bulgarian|step up|step-up)\b/i, spec: { label: 'Lunge pattern', targetGroups: ['quadriceps', 'glutes'], movementPatterns: ['lunge'], variationAxis: 'unilateral' } },
-  { id: 'leg_curl', test: /\b(leg curls?|hamstring curls?|nordic|glute.?ham|lying leg curl|seated leg curl)\b/i, spec: { label: 'Knee flexion', targetGroups: ['hamstrings'], movementPatterns: ['flexion'], headEmphasis: 'knee_dominant', variationAxis: 'machine' } },
+  { id: 'leg_curl', test: /\b(leg curls?|hamstring curls?|nordic|glute.?ham|lying leg curl|seated leg curl)\b/i, priority: 1, spec: { label: 'Knee flexion', targetGroups: ['hamstrings'], movementPatterns: ['flexion'], headEmphasis: 'knee_dominant', variationAxis: 'machine' } },
   { id: 'leg_extension', test: /\b(leg extensions?|quad extensions?)\b/i, spec: { label: 'Knee extension', targetGroups: ['quadriceps'], movementPatterns: ['extension'], variationAxis: 'machine' } },
   { id: 'hip_abduction', test: /\b(abduction|abductor)\b/i, spec: { label: 'Hip abduction', targetGroups: ['abductors', 'glutes'], movementPatterns: ['abduction'], variationAxis: 'machine' } },
   { id: 'hip_adduction', test: /\b(adduction|adductor)\b/i, spec: { label: 'Hip adduction', targetGroups: ['adductors'], movementPatterns: ['adduction'], variationAxis: 'machine' } },
@@ -126,6 +138,16 @@ const FAMILY_RULES: FamilyRule[] = [
 const FAMILY_BY_ID = new Map<string, ExerciseFamilySpec>(
   FAMILY_RULES.map(r => [r.id, { id: r.id, ...r.spec }]),
 );
+
+// Resolution order = priority desc, ties broken by authoring order. Array.sort
+// is stable (Node ≥11), so equal-priority rules keep their relative order and
+// behaviour is identical to the old first-match scan everywhere except the
+// explicitly-promoted rules. Iterating this ranked list with early-exit keeps
+// matching as fast as before while making correctness order-independent.
+const FAMILY_RULES_RANKED: FamilyRule[] = FAMILY_RULES
+  .map((rule, idx) => ({ rule, idx }))
+  .sort((a, b) => (b.rule.priority ?? 0) - (a.rule.priority ?? 0) || a.idx - b.idx)
+  .map(({ rule }) => rule);
 
 // ── Memoization caches ───────────────────────────────────────────────────
 // matchFamily/exerciseFamilyKey scan ~50 regexes per call and are invoked
@@ -240,7 +262,7 @@ function matchFamily(exerciseName: string): ExerciseFamilySpec | null {
   const cached = _familyMatchCache.get(n);
   if (cached !== undefined) return cached;
   let result: ExerciseFamilySpec | null = null;
-  for (const rule of FAMILY_RULES) {
+  for (const rule of FAMILY_RULES_RANKED) {
     if (rule.test.test(n)) {
       result = FAMILY_BY_ID.get(rule.id) ?? null;
       break;
@@ -256,7 +278,7 @@ export function exerciseFamilyKey(exerciseName: string): string {
   const cached = _familyKeyCache.get(n);
   if (cached !== undefined) return cached;
   let key = '';
-  for (const rule of FAMILY_RULES) {
+  for (const rule of FAMILY_RULES_RANKED) {
     if (rule.test.test(n)) {
       key = rule.id;
       break;

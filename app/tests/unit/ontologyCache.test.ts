@@ -22,6 +22,16 @@ test('memoized family keys are stable and correct across repeated calls', () => 
     ['Barbell Back Squat', 'squat_pattern'],
     ['Incline Dumbbell Bench Press', 'incline_press'],
     ['Leg Extension', 'leg_extension'],
+    // Priority-promoted: these singular "curl" names were shadowed by the
+    // generic biceps_curl rule before the priority matcher.
+    ['Lying Leg Curl', 'leg_curl'],
+    ['Seated Leg Curl', 'leg_curl'],
+    ['Nordic Hamstring Curl', 'leg_curl'],
+    ['Reverse Wrist Curl', 'forearm_wrist'],
+    // Unchanged biceps curls must still resolve to biceps families.
+    ['Barbell Biceps Curl', 'biceps_curl'],
+    ['Hammer Curl', 'biceps_hammer'],
+    ['Preacher Curl', 'biceps_short_head'],
   ]
   for (const [name, expected] of cases) {
     const a = exerciseFamilyKey(name)

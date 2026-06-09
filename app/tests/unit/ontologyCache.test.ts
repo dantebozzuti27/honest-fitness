@@ -32,6 +32,14 @@ test('memoized family keys are stable and correct across repeated calls', () => 
     ['Barbell Biceps Curl', 'biceps_curl'],
     ['Hammer Curl', 'biceps_hammer'],
     ['Preacher Curl', 'biceps_short_head'],
+    // Priority-promoted: split/Bulgarian squats are a unilateral lunge pattern,
+    // not the bilateral squat the generic "squats?" rule was assigning.
+    ['Bulgarian Split Squat', 'lunge_pattern'],
+    ['Split Squat', 'lunge_pattern'],
+    // ...but a real bilateral squat stays squat_pattern.
+    ['Barbell Back Squat', 'squat_pattern'],
+    // Priority-promoted: rear delt flies are posterior delt, not chest.
+    ['Dumbbell Rear Delt Fly', 'rear_delt_fly'],
   ]
   for (const [name, expected] of cases) {
     const a = exerciseFamilyKey(name)

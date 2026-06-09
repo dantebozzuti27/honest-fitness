@@ -19,7 +19,7 @@ import {
   type MovementPattern,
 } from './volumeGuidelines';
 
-export const ONTOLOGY_VERSION = '2026-06-08.1';
+export const ONTOLOGY_VERSION = '2026-06-08.2';
 
 export type BicepsHeadEmphasis = 'long_head' | 'short_head' | 'brachialis' | 'balanced';
 export type TricepsHeadEmphasis = 'long_head' | 'lateral_head' | 'overhead' | 'balanced';
@@ -107,7 +107,7 @@ const FAMILY_RULES: FamilyRule[] = [
 
   // ── Legs ──
   { id: 'squat_pattern', test: /\b(squats?|leg press|hack squat|goblet squat|zercher|front squat|thruster)\b/i, spec: { label: 'Squat pattern', targetGroups: ['quadriceps', 'glutes'], movementPatterns: ['squat'], variationAxis: 'implement' } },
-  { id: 'lunge_pattern', test: /\b(lunges?|split squat|bulgarian|step up|step-up)\b/i, spec: { label: 'Lunge pattern', targetGroups: ['quadriceps', 'glutes'], movementPatterns: ['lunge'], variationAxis: 'unilateral' } },
+  { id: 'lunge_pattern', test: /\b(lunges?|split squat|bulgarian|step up|step-up)\b/i, priority: 1, spec: { label: 'Lunge pattern', targetGroups: ['quadriceps', 'glutes'], movementPatterns: ['lunge'], variationAxis: 'unilateral' } },
   { id: 'leg_curl', test: /\b(leg curls?|hamstring curls?|nordic|glute.?ham|lying leg curl|seated leg curl)\b/i, priority: 1, spec: { label: 'Knee flexion', targetGroups: ['hamstrings'], movementPatterns: ['flexion'], headEmphasis: 'knee_dominant', variationAxis: 'machine' } },
   { id: 'leg_extension', test: /\b(leg extensions?|quad extensions?)\b/i, spec: { label: 'Knee extension', targetGroups: ['quadriceps'], movementPatterns: ['extension'], variationAxis: 'machine' } },
   { id: 'hip_abduction', test: /\b(abduction|abductor)\b/i, spec: { label: 'Hip abduction', targetGroups: ['abductors', 'glutes'], movementPatterns: ['abduction'], variationAxis: 'machine' } },
@@ -118,7 +118,7 @@ const FAMILY_RULES: FamilyRule[] = [
 
   // ── Delts / isolation ──
   { id: 'rear_delt_face_pull', test: /\b(face pull|band pull apart|pull apart)\b/i, spec: { label: 'Face pull / ER', targetGroups: ['posterior_deltoid', 'rotator_cuff'], movementPatterns: ['horizontal_pull'], headEmphasis: 'external_rotation', variationAxis: 'cable' } },
-  { id: 'rear_delt_fly', test: /\b(rear delt|reverse fly|reverse pec deck|bent over fly)\b/i, spec: { label: 'Rear delt fly', targetGroups: ['posterior_deltoid'], movementPatterns: ['horizontal_pull'], headEmphasis: 'horizontal_abduction', variationAxis: 'implement' } },
+  { id: 'rear_delt_fly', test: /\b(rear delt|reverse fly|reverse pec deck|bent over fly)\b/i, priority: 1, spec: { label: 'Rear delt fly', targetGroups: ['posterior_deltoid'], movementPatterns: ['horizontal_pull'], headEmphasis: 'horizontal_abduction', variationAxis: 'implement' } },
   { id: 'lateral_raise', test: /\b(lateral raises?|side raises?|y raise|leaning lateral)\b/i, spec: { label: 'Lateral raise', targetGroups: ['lateral_deltoid'], movementPatterns: ['abduction'], variationAxis: 'implement' } },
   { id: 'front_raise', test: /\b(front raise)\b/i, spec: { label: 'Front raise', targetGroups: ['anterior_deltoid'], movementPatterns: ['flexion'], variationAxis: 'implement' } },
 
@@ -291,6 +291,16 @@ export function exerciseFamilyKey(exerciseName: string): string {
 
 export function getExerciseFamily(exerciseName: string): ExerciseFamilySpec | null {
   return matchFamily(exerciseName) ?? null;
+}
+
+/** Diagnostic only: all family rules matching a name, in resolution order. */
+export function __debugMatchingFamilyRules(
+  exerciseName: string,
+): { id: string; priority: number }[] {
+  const n = String(exerciseName || '').toLowerCase();
+  return FAMILY_RULES_RANKED
+    .filter(rule => rule.test.test(n))
+    .map(rule => ({ id: rule.id, priority: rule.priority ?? 0 }));
 }
 
 export function resolveExerciseIdentity(

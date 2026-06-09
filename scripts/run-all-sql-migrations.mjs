@@ -50,6 +50,9 @@ const MIGRATIONS = [
   'sql/migration_weekly_plan_active_invariant_v1.sql',
   'sql/migration_weekly_plan_day_status_fix_v1.sql',
   'sql/migration_weekly_plan_day_status_fix_v2.sql',
+  'sql/migration_set_rest_telemetry_v1.sql',
+  'sql/migration_swap_family_keys_v1.sql',
+  'sql/migration_pendulum_squat_v1.sql',
 ]
 
 function runFile(relPath) {

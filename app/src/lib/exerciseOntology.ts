@@ -6,6 +6,7 @@
  */
 
 import {
+  EXERCISE_MUSCLE_MAP,
   canonicalizeExerciseName,
   getExerciseMapping,
   type ExerciseMapping,
@@ -126,13 +127,33 @@ const FAMILY_BY_ID = new Map<string, ExerciseFamilySpec>(
   FAMILY_RULES.map(r => [r.id, { id: r.id, ...r.spec }]),
 );
 
+// ── Memoization caches ───────────────────────────────────────────────────
+// matchFamily/exerciseFamilyKey scan ~50 regexes per call and are invoked
+// many times per candidate during generation. These functions are pure and
+// deterministic over a bounded input domain (the ~255-entry library plus a
+// handful of user-typed names), so name-keyed memoization is exact and turns
+// the linear regex scan into an amortized O(1) lookup. `null` is a real cached
+// value ("no family matched"); `undefined` from Map.get means "not yet cached".
+const _familyMatchCache = new Map<string, ExerciseFamilySpec | null>();
+const _familyKeyCache = new Map<string, string>();
+const _muscleTokenCache = new Map<string, CanonicalMuscleGroup | null>();
+const _identityCache = new Map<string, ExerciseIdentityV2>();
+
 /** Resolve any muscle token (anatomical head, alias, or canonical group) → canonical group. */
 export function resolveMuscleToken(raw: string): CanonicalMuscleGroup | null {
   if (!raw) return null;
+  const cached = _muscleTokenCache.get(raw);
+  if (cached !== undefined) return cached;
   const fromCanonical = normalizeMuscleGroupName(raw);
-  if (fromCanonical) return fromCanonical;
-  const normalized = String(raw).trim().toLowerCase().replace(/\s+/g, '_').replace(/-+/g, '_');
-  return MUSCLE_HEAD_TO_GROUP[normalized] ?? MUSCLE_HEAD_TO_GROUP[raw] ?? null;
+  let result: CanonicalMuscleGroup | null;
+  if (fromCanonical) {
+    result = fromCanonical;
+  } else {
+    const normalized = String(raw).trim().toLowerCase().replace(/\s+/g, '_').replace(/-+/g, '_');
+    result = MUSCLE_HEAD_TO_GROUP[normalized] ?? MUSCLE_HEAD_TO_GROUP[raw] ?? null;
+  }
+  _muscleTokenCache.set(raw, result);
+  return result;
 }
 
 /** All canonical groups an exercise targets from library tags or map fallback. */
@@ -216,19 +237,34 @@ export function inferBicepsHeadEmphasis(
 
 function matchFamily(exerciseName: string): ExerciseFamilySpec | null {
   const n = String(exerciseName || '').toLowerCase();
+  const cached = _familyMatchCache.get(n);
+  if (cached !== undefined) return cached;
+  let result: ExerciseFamilySpec | null = null;
   for (const rule of FAMILY_RULES) {
-    if (rule.test.test(n)) return FAMILY_BY_ID.get(rule.id) ?? null;
+    if (rule.test.test(n)) {
+      result = FAMILY_BY_ID.get(rule.id) ?? null;
+      break;
+    }
   }
-  return null;
+  _familyMatchCache.set(n, result);
+  return result;
 }
 
 /** Stable family key for staples, rotation, novelty — replaces raw lowercase names. */
 export function exerciseFamilyKey(exerciseName: string): string {
   const n = String(exerciseName || '').trim().toLowerCase();
+  const cached = _familyKeyCache.get(n);
+  if (cached !== undefined) return cached;
+  let key = '';
   for (const rule of FAMILY_RULES) {
-    if (rule.test.test(n)) return rule.id;
+    if (rule.test.test(n)) {
+      key = rule.id;
+      break;
+    }
   }
-  return canonicalizeExerciseName(exerciseName) || n;
+  if (!key) key = canonicalizeExerciseName(exerciseName) || n;
+  _familyKeyCache.set(n, key);
+  return key;
 }
 
 export function getExerciseFamily(exerciseName: string): ExerciseFamilySpec | null {
@@ -240,6 +276,14 @@ export function resolveExerciseIdentity(
   primaryMuscles?: string[] | null,
   secondaryMuscles?: string[] | null,
 ): ExerciseIdentityV2 {
+  // Cache only the name-only resolution. When the caller supplies explicit
+  // muscle overrides the result depends on those arrays, so it bypasses the
+  // cache (correctness over speed). The hot generation path is name-only.
+  const cacheable = primaryMuscles == null && secondaryMuscles == null;
+  if (cacheable) {
+    const hit = _identityCache.get(exerciseName);
+    if (hit) return hit;
+  }
   const mapping = getExerciseMapping(exerciseName);
   const { primary, secondary } = resolveExerciseCanonicalGroups(
     exerciseName,
@@ -247,7 +291,7 @@ export function resolveExerciseIdentity(
     secondaryMuscles,
   );
   const family = matchFamily(exerciseName);
-  return {
+  const identity: ExerciseIdentityV2 = {
     originalName: exerciseName,
     familyKey: family?.id ?? exerciseFamilyKey(exerciseName),
     canonicalNameKey: canonicalizeExerciseName(exerciseName),
@@ -264,6 +308,23 @@ export function resolveExerciseIdentity(
     ),
     mapping: mapping ?? null,
   };
+  if (cacheable) _identityCache.set(exerciseName, identity);
+  return identity;
+}
+
+/**
+ * Eagerly resolve and cache identities for every library exercise so the first
+ * generation pays no cold-cache penalty. Idempotent and safe to call repeatedly;
+ * runs once per process in practice. Returns the number of entries warmed.
+ */
+let _ontologyWarmed = false;
+export function prewarmOntologyCaches(): number {
+  if (_ontologyWarmed) return _identityCache.size;
+  for (const name of Object.keys(EXERCISE_MUSCLE_MAP)) {
+    resolveExerciseIdentity(name);
+  }
+  _ontologyWarmed = true;
+  return _identityCache.size;
 }
 
 /** Preference / history aggregation key — merges alias variants under one family. */

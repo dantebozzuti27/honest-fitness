@@ -2468,7 +2468,16 @@ const NAME_ALIASES: Record<string, string> = {
  * Examples (all canonicalise to "pull up"):
  *   "Pull-Up", "pull-ups", "Pull Ups", "pullup", "PULLUPS"
  */
+const _canonicalNameCache = new Map<string, string>();
 export function canonicalizeExerciseName(name: string): string {
+  const cached = _canonicalNameCache.get(name);
+  if (cached !== undefined) return cached;
+  const result = _canonicalizeExerciseNameUncached(name);
+  _canonicalNameCache.set(name, result);
+  return result;
+}
+
+function _canonicalizeExerciseNameUncached(name: string): string {
   if (!name) return '';
   let n = String(name).trim().toLowerCase();
   // Hyphen ↔ space; collapse internal whitespace.
@@ -2548,11 +2557,20 @@ function getCanonicalIndex(): Map<string, ExerciseMapping> {
  * return the same ExerciseMapping rather than fragmenting into duplicates
  * (or, in the worst case, hitting a near-duplicate entry with a divergent SFR).
  */
+const _mappingCache = new Map<string, ExerciseMapping | undefined>();
 export function getExerciseMapping(name: string): ExerciseMapping | undefined {
-  if (EXERCISE_MUSCLE_MAP[name]) return EXERCISE_MUSCLE_MAP[name];
+  // Exact key is already O(1) and the common case — keep it ahead of the cache
+  // so the fast path pays no Map overhead. Only the expensive alias/canonical
+  // fallback (string normalization + regex) is memoized.
+  const direct = EXERCISE_MUSCLE_MAP[name];
+  if (direct) return direct;
+  if (_mappingCache.has(name)) return _mappingCache.get(name);
   const aliased = NAME_ALIASES[name];
-  if (aliased && EXERCISE_MUSCLE_MAP[aliased]) return EXERCISE_MUSCLE_MAP[aliased];
-  return getCanonicalIndex().get(canonicalizeExerciseName(name));
+  const result = aliased && EXERCISE_MUSCLE_MAP[aliased]
+    ? EXERCISE_MUSCLE_MAP[aliased]
+    : getCanonicalIndex().get(canonicalizeExerciseName(name));
+  _mappingCache.set(name, result);
+  return result;
 }
 
 /**

@@ -88,6 +88,7 @@ import {
   familyDiversityBonus,
   findByExerciseFamily,
   preferenceAggregationKey,
+  prewarmOntologyCaches,
 } from './exerciseOntology';
 import {
   COMPOUND_MOVEMENT_PATTERNS,
@@ -6683,6 +6684,10 @@ export async function generateWorkout(
   if (priorityMusclesNorm.length) {
     prefs.priority_muscles = priorityMusclesNorm as CanonicalMuscleGroup[];
   }
+
+  // Warm the ontology identity/family caches once per process so the first
+  // generation resolves the library at amortized O(1) like every subsequent one.
+  prewarmOntologyCaches();
 
   // Step 1: Recovery check
   const tRecovery = stageStart('recovery_check');
